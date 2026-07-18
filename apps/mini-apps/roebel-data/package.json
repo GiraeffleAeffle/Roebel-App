@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@aboutcircles/sdk-invitations": "^0.1.25",
-    "@netizen-labs/miniapp-sdk": "^0.1.0",
+    "@netizen-labs/miniapp-sdk": "workspace:*",
+    "@roebel/stadtstack-federation-client": "workspace:*",
     "@visx/curve": "^4.0.0",
     "@visx/event": "^4.0.0",
     "@visx/gradient": "^4.0.0",

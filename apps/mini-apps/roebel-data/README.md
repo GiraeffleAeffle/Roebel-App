@@ -49,6 +49,28 @@ Outside a host, the SDK calls resolve to safe no-ops (no wallet connects, balanc
 `grantReward` degrades to "no reward") — the dashboards still render their live on-chain data.
 Inside the Röbel host the wallet, balance, rewards, and transaction signing all light up.
 
+## Stadtstack decision cases (read-only)
+
+The Governance tab has a visually separate **Kommunale Entscheidungsfälle**
+section. Configure its public provider origin with:
+
+```bash
+NEXT_PUBLIC_STADTSTACK_PUBLIC_BASE_URL=https://your-stadtstack.example
+```
+
+Leaving the value empty produces an explicit "not configured" state. The
+section uses `@roebel/stadtstack-federation-client` to accept only reviewed v1
+case-index, manifest and seven-stage snapshots, confine linked resources to the
+configured provider, verify the stable stage-map SHA-256 with Web Crypto, and
+fail closed on invalid, missing, withdrawn, oversized or timed-out reads. It
+never authenticates, writes, rewards, opens a wallet or calls Supabase.
+
+Only the confined `publicCaseUrl` can be opened through
+`sdk.actions.openUrl()`. Proof references and provider-supplied action URLs are
+not rendered. In this first slice a `410` hides the old content entirely; a
+checksummed public retraction-notice view is a named follow-up rather than an
+unverified fallback.
+
 ## Deploy (Vercel)
 
 Deployed as a standalone Next.js app; the host loads it by its `homeUrl`. The included
