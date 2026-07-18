@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { sdk } from "@netizen-labs/miniapp-sdk";
 import type { MiniAppContext, MuenzenBalance } from "@netizen-labs/miniapp-sdk";
 import { getAddress, isAddress, type Address } from "viem";
@@ -127,6 +127,11 @@ export default function App() {
     track("tab_view", { tab: p });
   };
   const closeSub = () => setSubPage(null);
+  const openReviewedMunicipalCase = useCallback((url: string) => {
+    // The federation client already confined this URL to the configured
+    // Stadtstack origin and exact public-case path. The shell owns navigation.
+    void sdk.actions.openUrl(url).catch(() => {});
+  }, []);
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-xl flex-col">
@@ -189,7 +194,12 @@ export default function App() {
               />
             ))}
           {tab === "economy" && <PulseView connected={connected} />}
-          {tab === "governance" && <GovernanceView initialProposalId={urlProposal} />}
+          {tab === "governance" && (
+            <GovernanceView
+              initialProposalId={urlProposal}
+              onOpenMunicipalCase={openReviewedMunicipalCase}
+            />
+          )}
         </div>
 
         <footer className="mt-8 flex items-center justify-between border-t border-border/70 pt-4 text-[11px] text-muted-foreground">

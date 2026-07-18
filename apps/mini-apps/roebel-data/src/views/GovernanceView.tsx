@@ -12,10 +12,17 @@ import { BallotBox, Vault, Users, Lock, ChevronRight } from "../components/icons
 import { fmt } from "../lib/format";
 import { track } from "../lib/analytics";
 import ProposalDetailView from "./ProposalDetailView";
+import MunicipalDecisionCasesSection from "./MunicipalDecisionCasesSection";
 
 const VOTE_COLORS = { for: "#00498B", against: "#94a3b8", abstain: "#cbd5e1" } as const;
 
-export default function GovernanceView({ initialProposalId = null }: { initialProposalId?: string | null }) {
+export default function GovernanceView({
+  initialProposalId = null,
+  onOpenMunicipalCase,
+}: {
+  initialProposalId?: string | null;
+  onOpenMunicipalCase: (url: string) => void;
+}) {
   const [treasury, setTreasury] = useState<Treasury | null>(null);
   const [proposals, setProposals] = useState<Proposal[] | null>(null);
   const [signups, setSignups] = useState<number | null>(null);
@@ -114,6 +121,10 @@ export default function GovernanceView({ initialProposalId = null }: { initialPr
           icon={<Users className="h-5 w-5" />}
         />
       </div>
+
+      {/* Reviewed municipal cases are a separate information rail. They do not
+          become on-chain proposals and this mini app never writes back. */}
+      <MunicipalDecisionCasesSection onOpenCase={onOpenMunicipalCase} />
 
       {/* Proposals */}
       {!proposals ? (
