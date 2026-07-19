@@ -1,16 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   loadReviewedCivicCases,
-  StadtstackFederationError,
   type ReviewedCivicCase,
 } from "@roebel/stadtstack-federation-client";
 import { Card, Pill, Skeleton } from "../components/ui";
 import { ExternalLink, Refresh, ShieldCheck } from "../components/icons";
+import {
+  classifyMunicipalDecisionCaseFailure,
+  type MunicipalDecisionCaseFailureStatus,
+} from "./municipalDecisionCasesState";
 
 type ViewState =
-  | { status: "not_configured" | "loading" | "empty" | "unavailable" | "invalid" | "withdrawn" }
+  | {
+      status:
+        | "not_configured"
+        | "loading"
+        | "empty"
+        | MunicipalDecisionCaseFailureStatus;
+    }
   | { status: "ready"; cases: ReviewedCivicCase[] };
-type FailureStatus = "empty" | "unavailable" | "invalid" | "withdrawn";
 
 const truthLabel: Record<ReviewedCivicCase["stageMap"]["truthState"], string> = {
   reviewed: "lokal geprüft",
@@ -46,14 +54,6 @@ const lifecycleLabel: Record<
   cancelled: "beendet",
 };
 
-function stateForError(error: unknown): FailureStatus {
-  if (!(error instanceof StadtstackFederationError)) return "invalid";
-  if (error.code === "not_found") return "empty";
-  if (error.code === "withdrawn") return "withdrawn";
-  if (["network", "timeout", "http"].includes(error.code)) return "unavailable";
-  return "invalid";
-}
-
 export default function MunicipalDecisionCasesSection({
   onOpenCase,
 }: {
@@ -87,7 +87,7 @@ export default function MunicipalDecisionCasesSection({
       })
       .catch((error: unknown) => {
         if (!active) return;
-        setState({ status: stateForError(error) });
+        setState({ status: classifyMunicipalDecisionCaseFailure(error) });
       });
 
     return () => {
@@ -159,6 +159,10 @@ function FederationStateNotice({
     empty: {
       title: "Noch kein geprüfter Entscheidungsfall veröffentlicht",
       body: "Nur Fälle, die die lokale Prüfung bestanden haben, erscheinen hier. Entwürfe und Fälle in Prüfung bleiben verborgen.",
+    },
+    not_found: {
+      title: "Öffentliche Leseschnittstelle nicht gefunden",
+      body: "Die konfigurierte Stadtstack-Schnittstelle liefert derzeit keinen Fallindex. Das ist nicht dasselbe wie ein geprüfter leerer Stand; deshalb zeigen wir keine Fälle an.",
     },
     unavailable: {
       title: "Entscheidungsstand vorübergehend nicht erreichbar",
