@@ -89,6 +89,7 @@ import {
   hasMiniAppApi,
   miniAppApiBase,
 } from '@/lib/miniapp-api';
+import { routeExpoMiniAppMessage } from '@/lib/miniapp-host-transport';
 
 const HEARTBEAT_MS = 25_000;
 /** Failsafe: reveal the WebView if the app never calls actions.ready(). */
@@ -566,11 +567,21 @@ export default function MiniAppHost({ app, visible, onClose }: Props) {
     }
   }, [account?.address, visible]);
 
-  const onMessage = useCallback((e: WebViewMessageEvent) => {
-    const bridge = bridgeRef.current;
-    if (bridge) bridge.handleMessage(e.nativeEvent.data);
-    else earlyMessagesRef.current.push(e.nativeEvent.data);
-  }, []);
+  const onMessage = useCallback(
+    (e: WebViewMessageEvent) => {
+      routeExpoMiniAppMessage({
+        activeSourceUrl: sourceUrl,
+        messageUrl: e.nativeEvent.url,
+        data: e.nativeEvent.data,
+        deliver: (raw) => {
+          const bridge = bridgeRef.current;
+          if (bridge) bridge.handleMessage(raw);
+          else earlyMessagesRef.current.push(raw);
+        },
+      });
+    },
+    [sourceUrl],
+  );
 
   const handleClose = useCallback(() => {
     onClose();
