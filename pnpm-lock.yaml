@@ -423,11 +423,8 @@ importers:
   apps/mini-apps/_template:
     dependencies:
       '@netizen-labs/miniapp-sdk':
-        specifier: workspace:*
-        version: link:../../../packages/miniapp-sdk
-      '@roebel/stadtstack-federation-client':
-        specifier: workspace:*
-        version: link:../../../packages/stadtstack-federation-client
+        specifier: ^0.1.0
+        version: 0.1.0
       next:
         specifier: ^15.1.0
         version: 15.5.14(@opentelemetry/api@1.9.1)(@playwright/test@1.58.2)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -469,8 +466,11 @@ importers:
         specifier: ^0.1.25
         version: 0.1.51(typescript@5.8.3)(zod@4.3.6)
       '@netizen-labs/miniapp-sdk':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: workspace:*
+        version: link:../../../packages/miniapp-sdk
+      '@roebel/stadtstack-federation-client':
+        specifier: workspace:*
+        version: link:../../../packages/stadtstack-federation-client
       '@visx/curve':
         specifier: ^4.0.0
         version: 4.0.0

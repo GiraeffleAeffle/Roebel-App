@@ -22,6 +22,7 @@
     "build": "tsup",
     "prepack": "tsup",
     "sync-web": "tsup && node scripts/sync-web.mjs",
+    "test": "tsx --test src/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "publishConfig": {
