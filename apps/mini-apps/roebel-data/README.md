@@ -65,6 +65,19 @@ configured provider, verify the stable stage-map SHA-256 with Web Crypto, and
 fail closed on invalid, missing, withdrawn, oversized or timed-out reads. It
 never authenticates, writes, rewards, opens a wallet or calls Supabase.
 
+For a stakeholder build that must demonstrate the administration feedback loop
+before a real Röbel case has completed local review, opt in explicitly:
+
+```bash
+NEXT_PUBLIC_STADTSTACK_DEMO_SCENARIO=walkthrough
+```
+
+This adds a separate amber **Demo · keine amtlichen Antworten** card with the
+department-by-department states. The client accepts it only from the confined
+Stadtstack origin and only when the JSON contract plus truth, authority and
+scenario response headers all identify the synthetic walkthrough. It never
+mixes the walkthrough into the reviewed case feed.
+
 Only the confined `publicCaseUrl` can be opened through
 `sdk.actions.openUrl()`. Proof references and provider-supplied action URLs are
 not rendered. In this first slice a `410` hides the old content entirely; a
