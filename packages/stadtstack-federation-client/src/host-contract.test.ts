@@ -26,6 +26,7 @@ test("the Röbel Data deployment remains frameable and provider-configurable", (
     envExample,
     /^NEXT_PUBLIC_STADTSTACK_PUBLIC_BASE_URL=$/m,
   );
+  assert.match(envExample, /^NEXT_PUBLIC_STADTSTACK_DEMO_SCENARIO=$/m);
   assert.doesNotMatch(envExample, /(TOKEN|SECRET|PASSWORD|PRIVATE_KEY)\s*=/i);
 
   const headers = vercel.headers?.flatMap((entry) => entry.headers ?? []) ?? [];
@@ -69,11 +70,12 @@ test("the Expo WebView host preserves bridge delivery and external case navigati
   assert.match(host, /Linking\.openURL\(url\)/);
 });
 
-test("the municipal-case edge stays reviewed-only and credentialless", () => {
+test("the municipal-case edge keeps reviewed truth separate from an explicit credentialless demo", () => {
   const clientPackage = JSON.parse(repoFile("packages/stadtstack-federation-client/package.json")) as {
     dependencies?: Record<string, string>;
   };
   const client = repoFile("packages/stadtstack-federation-client/src/client.ts");
+  const demoClient = repoFile("packages/stadtstack-federation-client/src/demo.ts");
   const section = repoFile(
     "apps/mini-apps/roebel-data/src/views/MunicipalDecisionCasesSection.tsx",
   );
@@ -96,6 +98,13 @@ test("the municipal-case edge stays reviewed-only and credentialless", () => {
   assert.match(section, /loadReviewedCivicCases\(\{/);
   assert.match(section, /municipalityId: "roebel-mueritz"/);
   assert.match(section, /NEXT_PUBLIC_STADTSTACK_PUBLIC_BASE_URL/);
+  assert.match(section, /NEXT_PUBLIC_STADTSTACK_DEMO_SCENARIO/);
+  assert.match(section, /Demo · keine amtlichen Antworten/);
+  assert.match(demoClient, /x-stadtstack-truth-state/);
+  assert.match(demoClient, /x-stadtstack-authority/);
+  assert.match(demoClient, /x-stadtstack-demo-scenario/);
+  assert.match(demoClient, /credentials: "omit"/);
+  assert.doesNotMatch(demoClient, /method:\s*"(?:POST|PUT|PATCH|DELETE)"/);
   assert.doesNotMatch(section, /\b(?:fetch|supabase|wallet|grantReward|track)\s*\(/i);
   assert.match(app, /sdk\.actions\.openUrl\(url\)/);
 });

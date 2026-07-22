@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  loadRoebelDepartmentDemo,
   loadReviewedCivicCases,
   type ReviewedCivicCase,
+  type RoebelDepartmentConnectionDemoV1,
 } from "@roebel/stadtstack-federation-client";
 import { Card, Pill, Skeleton } from "../components/ui";
 import { ExternalLink, Refresh, ShieldCheck } from "../components/icons";
@@ -62,6 +64,8 @@ export default function MunicipalDecisionCasesSection({
   const [state, setState] = useState<ViewState>({ status: "loading" });
   const [reload, setReload] = useState(0);
   const baseUrl = process.env.NEXT_PUBLIC_STADTSTACK_PUBLIC_BASE_URL?.trim() ?? "";
+  const demoEnabled =
+    process.env.NEXT_PUBLIC_STADTSTACK_DEMO_SCENARIO?.trim() === "walkthrough";
 
   useEffect(() => {
     let active = true;
@@ -142,6 +146,8 @@ export default function MunicipalDecisionCasesSection({
       ) : (
         <FederationStateNotice status={state.status} />
       )}
+
+      {demoEnabled && baseUrl && <DepartmentWalkthrough baseUrl={baseUrl} />}
     </section>
   );
 }
@@ -243,6 +249,18 @@ function MunicipalCaseCard({
           </dl>
         </div>
 
+        <div className="rounded-[10px] border border-border bg-card p-3.5">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Datengrundlage
+          </p>
+          <p className="mt-1 text-[12.5px] font-semibold text-foreground">
+            {entry.manifest.artifacts.length} menschlich geprüfte{entry.manifest.artifacts.length === 1 ? "r Baustein" : " Bausteine"}
+          </p>
+          <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">
+            Nur checksum-gebundene, veröffentlichte Nachweise. Rohdaten und ungeprüfte Verwaltungsunterlagen bleiben verborgen.
+          </p>
+        </div>
+
         {/* Deliberately open only the URL confined and resolved from the case
             index. proofRefs and availablePublicAction are never rendered. */}
         <button
@@ -253,6 +271,96 @@ function MunicipalCaseCard({
           Geprüften Fall öffnen
           <ExternalLink className="h-4 w-4" />
         </button>
+      </div>
+    </Card>
+  );
+}
+
+type DepartmentDemoState =
+  | { status: "loading" }
+  | { status: "ready"; projection: RoebelDepartmentConnectionDemoV1 }
+  | { status: "unavailable" };
+
+function DepartmentWalkthrough({ baseUrl }: { baseUrl: string }) {
+  const [state, setState] = useState<DepartmentDemoState>({ status: "loading" });
+
+  useEffect(() => {
+    let active = true;
+    void loadRoebelDepartmentDemo({ baseUrl })
+      .then((projection) => {
+        if (active) setState({ status: "ready", projection });
+      })
+      .catch(() => {
+        if (active) setState({ status: "unavailable" });
+      });
+    return () => {
+      active = false;
+    };
+  }, [baseUrl]);
+
+  if (state.status === "loading") {
+    return <Skeleton className="h-[132px]" />;
+  }
+  if (state.status === "unavailable") {
+    return (
+      <Card className="border-dashed bg-muted/25 p-4 shadow-none">
+        <p className="text-[13px] font-semibold text-foreground">Verwaltungsdemo nicht erreichbar</p>
+        <p className="mt-1 text-[12px] text-muted-foreground">
+          Es wird kein Ersatzstand angezeigt.
+        </p>
+      </Card>
+    );
+  }
+
+  const { projection } = state;
+  return (
+    <Card className="overflow-hidden border-amber-300/70 bg-amber-50/45 shadow-sm">
+      <div className="border-b border-amber-200/80 p-4">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Pill>Demo · keine amtlichen Antworten</Pill>
+          <Pill>{projection.answeredCount} von {projection.totalCount} veröffentlicht</Pill>
+        </div>
+        <h4 className="mt-2 text-[15px] font-semibold text-foreground">
+          So fließen Fachbereichsantworten zurück
+        </h4>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+          Synthetischer Ablauf: Arbeitspaket → Verwaltungsaufgabe → Fachantwort → menschliche Prüfung → Röbel-App.
+        </p>
+      </div>
+
+      <div className="divide-y divide-border/80 px-4">
+        {projection.departments.map((department) => (
+          <details key={department.family} className="group py-3">
+            <summary className="flex cursor-pointer list-none items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[12.5px] font-semibold text-foreground">{department.label}</p>
+                <p className="mt-0.5 text-[11.5px] text-muted-foreground">{department.summaryLabel}</p>
+              </div>
+              <span
+                className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${
+                  department.axes.public === "published"
+                    ? "bg-emerald-500"
+                    : department.axes.work === "blocked"
+                      ? "bg-red-500"
+                      : department.axes.transfer === "not_sent"
+                        ? "bg-slate-300"
+                        : "bg-amber-400"
+                }`}
+                aria-label={department.summaryLabel}
+              />
+            </summary>
+            <dl className="mt-3 space-y-2 rounded-[8px] bg-white/70 p-3 text-[11.5px]">
+              <CaseFact label="Übergabe" value={department.transferLabel} />
+              <CaseFact label="Bearbeitung" value={department.workLabel} />
+              <CaseFact label="Prüfung" value={department.reviewLabel} />
+              <CaseFact label="Öffentlich" value={department.publicLabel} />
+              {department.publicAnswer && (
+                <CaseFact label="Antwort" value={department.publicAnswer} />
+              )}
+              <CaseFact label="Nächster Schritt" value={department.nextAction} />
+            </dl>
+          </details>
+        ))}
       </div>
     </Card>
   );

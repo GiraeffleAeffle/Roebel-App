@@ -7,6 +7,8 @@ export const CIVIC_FEDERATION_MANIFEST_SCHEMA_VERSION =
 export const CIVIC_CASE_STAGE_SNAPSHOT_SCHEMA_VERSION =
   "civic_case_stage_snapshot_v1" as const;
 export const CIVIC_CASE_STAGE_ALGORITHM_VERSION = "1.0.0" as const;
+export const ROEBEL_DEPARTMENT_CONNECTION_SCHEMA_VERSION =
+  "roebel_department_connection_projection_v1" as const;
 
 export const CIVIC_CASE_MACRO_STAGE_IDS = [
   "facts",
@@ -619,6 +621,85 @@ export const civicFederationCaseManifestSchema = z
     });
   });
 
+const noAutomaticCivicEffectsSchema = z
+  .object({
+    stageTransition: z.literal(false),
+    authorityConfirmation: z.literal(false),
+    publication: z.literal(false),
+    workspaceWrite: z.literal(false),
+    councilSubmission: z.literal(false),
+    citizenNotification: z.literal(false),
+  })
+  .strict();
+
+const roebelDepartmentConnectionItemSchema = z
+  .object({
+    family: z.enum([
+      "planning_engineering",
+      "mobility_accessibility_safety",
+      "environment_geodata_climate",
+      "finance_procurement",
+      "legal_privacy",
+      "social_demographic_equity",
+      "delivery_operations",
+      "evaluation_outcomes",
+    ]),
+    label: LABEL,
+    primaryQuestion: TEXT,
+    axes: z
+      .object({
+        transfer: z.enum(["not_sent", "sent", "acknowledged"]),
+        work: z.enum(["not_started", "in_progress", "blocked", "submitted"]),
+        review: z.enum(["not_reviewed", "pending_review", "reviewed", "rejected"]),
+        public: z.enum(["not_public", "published", "withdrawn"]),
+      })
+      .strict(),
+    summaryLabel: LABEL,
+    transferLabel: LABEL,
+    workLabel: LABEL,
+    reviewLabel: LABEL,
+    publicLabel: LABEL,
+    publicAnswer: OPTIONAL_TEXT,
+    nextAction: TEXT,
+  })
+  .strict();
+
+export const roebelDepartmentConnectionDemoSchema = z
+  .object({
+    schemaVersion: z.literal(ROEBEL_DEPARTMENT_CONNECTION_SCHEMA_VERSION),
+    caseKey: z
+      .object({
+        municipalityId: z.literal("roebel-mueritz"),
+        decisionCaseSlug: z.literal("marienfelder-strasse"),
+      })
+      .strict(),
+    truthState: z.literal("demo"),
+    answeredCount: z.number().int().min(0).max(8),
+    totalCount: z.number().int().min(1).max(8),
+    departments: z.array(roebelDepartmentConnectionItemSchema).min(1).max(8),
+    boundary: noAutomaticCivicEffectsSchema,
+  })
+  .strict()
+  .superRefine((projection, context) => {
+    if (projection.totalCount !== projection.departments.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["totalCount"],
+        message: "Department total must match the exact department array.",
+      });
+    }
+    const publishedCount = projection.departments.filter(
+      (department) => department.axes.public === "published",
+    ).length;
+    if (projection.answeredCount !== publishedCount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["answeredCount"],
+        message: "Answered count must match published department answers.",
+      });
+    }
+  });
+
 export type CivicCaseStageSnapshotV1 = z.infer<
   typeof civicCaseStageSnapshotSchema
 >;
@@ -633,4 +714,7 @@ export type CivicFederationCaseSummaryV1 = z.infer<
 >;
 export type CivicFederationCaseManifestV1 = z.infer<
   typeof civicFederationCaseManifestSchema
+>;
+export type RoebelDepartmentConnectionDemoV1 = z.infer<
+  typeof roebelDepartmentConnectionDemoSchema
 >;
