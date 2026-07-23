@@ -3,3 +3,5 @@ export * from "./activityJournalContracts";
 export * from "./client";
 export * from "./contracts";
 export * from "./demo";
+export * from "./topicContext";
+export * from "./topicContextContracts";

@@ -28,6 +28,15 @@ headers and bodies, and cryptographically binds the complete eight-event
 walkthrough to an independently pinned segment seal. There is no mutation,
 wallet, authentication or protected-workspace access.
 
+Before the Mini App loads either the department walkthrough or Activity
+Journal, it reads the exact GET-only topic boundary at
+`/api/demo/roebel-marienfelder/topic-context`. The strict
+`civic_topic_context_v1` schema identifies the Marienfelder Straße content as a
+synthetic, authority-free standalone topic and requires `not_linked` / `null`
+for the Röbel proposal, vote and treasury bindings. All mutation-effect fields
+are pinned to `false`; unknown fields, changed proof headers or any attempted
+real proposal binding fail closed.
+
 ```ts
 import { loadReviewedCivicCases } from "@roebel/stadtstack-federation-client";
 

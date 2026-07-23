@@ -13,6 +13,7 @@ import GovernanceView from "./views/GovernanceView";
 import EventInviteView from "./views/EventInviteView";
 import DocumentaryView from "./views/DocumentaryView";
 import PulseView from "./views/PulseView";
+import { resolveGovernanceDeepLink } from "./lib/municipalTopicBinding";
 
 // Brand mark ships in /public — Next serves it at an absolute URL path.
 const logoData = "/assets/Logo-data.png";
@@ -27,55 +28,93 @@ const TABS: { id: Tab; label: string; icon: typeof Coins }[] = [
   { id: "governance", label: "Mitbestimmung", icon: BallotBox },
 ];
 
-const urlParam = (k: string) => {
-  try {
-    if (typeof window === "undefined") return null;
-    return new URLSearchParams(window.location.search).get(k);
-  } catch {
-    return null;
-  }
+type UrlDeepLinks = {
+  inviter: Address | null;
+  ref: Address | null;
+  governanceTarget: ReturnType<typeof resolveGovernanceDeepLink>;
 };
-// The Röbel host links here as `?inviter=<citizen address>` — use it as the initial
-// inviter (and open the Event page inside the Town tab) even before the host injects
-// the wallet.
-const urlInviter = (() => {
-  const p = urlParam("inviter");
-  return p && isAddress(p) ? getAddress(p) : null;
-})();
-// `?ref=<wallet>` — a referral link shared from inside the app.
-const urlRef = (() => {
-  const p = urlParam("ref");
-  return p && isAddress(p) ? getAddress(p) : null;
-})();
-// `?proposal=<proposal_id|tx hash>` — deep-link straight into a proposal's detail.
-const urlProposal = urlParam("proposal");
+
+const EMPTY_GOVERNANCE_TARGET = resolveGovernanceDeepLink({
+  proposalId: null,
+  stadtstackTopic: null,
+});
+
+function readUrlDeepLinks(): UrlDeepLinks {
+  try {
+    const search = new URLSearchParams(window.location.search);
+    const inviter = search.get("inviter");
+    const ref = search.get("ref");
+    return {
+      inviter: inviter && isAddress(inviter) ? getAddress(inviter) : null,
+      ref: ref && isAddress(ref) ? getAddress(ref) : null,
+      governanceTarget: resolveGovernanceDeepLink({
+        proposalId: search.get("proposal"),
+        stadtstackTopic: search.get("stadtstackTopic"),
+      }),
+    };
+  } catch {
+    return {
+      inviter: null,
+      ref: null,
+      governanceTarget: EMPTY_GOVERNANCE_TARGET,
+    };
+  }
+}
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>(urlProposal ? "governance" : "town");
-  // A deep-link with ?inviter opens straight onto the Event page within the Town tab.
-  const [subPage, setSubPage] = useState<SubPage | null>(urlInviter ? "event" : null);
-  const [inviter, setInviter] = useState<Address | null>(urlInviter);
+  // Keep the server render and first browser render identical. Deep links are
+  // applied after hydration; reading window at module/render time causes the
+  // server to render "Gemeinde" while the browser renders "Mitbestimmung".
+  const [governanceTarget, setGovernanceTarget] = useState(
+    EMPTY_GOVERNANCE_TARGET,
+  );
+  const [tab, setTab] = useState<Tab>("town");
+  const [subPage, setSubPage] = useState<SubPage | null>(null);
+  const [inviter, setInviter] = useState<Address | null>(null);
   const [connected, setConnected] = useState<Address | null>(null);
   const [muenzen, setMuenzen] = useState<MuenzenBalance | null>(null);
   const [ctx, setCtx] = useState<MiniAppContext | null>(null);
   const connectedOnce = useRef(false);
   const refLanded = useRef(false);
+  const deepLinks = useRef<UrlDeepLinks>({
+    inviter: null,
+    ref: null,
+    governanceTarget: EMPTY_GOVERNANCE_TARGET,
+  });
 
   // ── Mount: dismiss host splash (MANDATORY) + context + analytics ────────────
   useEffect(() => {
+    const links = readUrlDeepLinks();
+    deepLinks.current = links;
+    setGovernanceTarget(links.governanceTarget);
+    if (
+      links.governanceTarget.proposalId ||
+      links.governanceTarget.civicTopicBinding
+    ) {
+      setTab("governance");
+    } else if (links.inviter) {
+      setSubPage("event");
+    }
+    setInviter(links.inviter);
+
     // #1 rule: without ready() the host shows an infinite splash.
     void sdk.actions.ready();
 
     // Untrusted context — display only (greet by name, read safe-area insets).
     void sdk.getContext().then(setCtx).catch(() => {});
 
-    initAnalytics({ ref: urlRef });
+    initAnalytics({ ref: links.ref });
     track("app_open", {
-      tab: urlProposal ? "governance" : "town",
-      subPage: urlInviter ? "event" : null,
-      hasInviter: !!urlInviter,
-      hasRef: !!urlRef,
-      hasProposal: !!urlProposal,
+      tab:
+        links.governanceTarget.proposalId ||
+        links.governanceTarget.civicTopicBinding
+          ? "governance"
+          : "town",
+      subPage: links.inviter ? "event" : null,
+      hasInviter: !!links.inviter,
+      hasRef: !!links.ref,
+      hasProposal: !!links.governanceTarget.proposalId,
+      hasStadtstackTopic: !!links.governanceTarget.civicTopicBinding,
     });
     return startHeartbeat(25);
   }, []);
@@ -85,7 +124,7 @@ export default function App() {
     const onAddress = (addr: string | null) => {
       const a = addr && isAddress(addr) ? getAddress(addr) : null;
       setConnected(a);
-      setInviter(a ?? urlInviter);
+      setInviter(a ?? deepLinks.current.inviter);
       setAnalyticsWallet(a);
       if (a) {
         // Refresh the Röbel-Münzen balance for the newly connected user.
@@ -97,9 +136,14 @@ export default function App() {
         connectedOnce.current = true;
         track("wallet_connect", {});
         // Referral attribution: a new wallet connected inside the app via someone's link.
-        if (urlRef && !refLanded.current && urlRef.toLowerCase() !== a.toLowerCase()) {
+        const referral = deepLinks.current.ref;
+        if (
+          referral &&
+          !refLanded.current &&
+          referral.toLowerCase() !== a.toLowerCase()
+        ) {
           refLanded.current = true;
-          track("referral_landed", { ref: urlRef.toLowerCase() });
+          track("referral_landed", { ref: referral.toLowerCase() });
         }
       }
     };
@@ -196,7 +240,10 @@ export default function App() {
           {tab === "economy" && <PulseView connected={connected} />}
           {tab === "governance" && (
             <GovernanceView
-              initialProposalId={urlProposal}
+              initialProposalId={governanceTarget.proposalId}
+              initialCivicTopicBinding={
+                governanceTarget.civicTopicBinding
+              }
               onOpenMunicipalCase={openReviewedMunicipalCase}
             />
           )}
