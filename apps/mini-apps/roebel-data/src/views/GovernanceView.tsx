@@ -12,21 +12,28 @@ import { BallotBox, Vault, Users, Lock, ChevronRight } from "../components/icons
 import { fmt } from "../lib/format";
 import { track } from "../lib/analytics";
 import ProposalDetailView from "./ProposalDetailView";
-import MunicipalDecisionCasesSection from "./MunicipalDecisionCasesSection";
+import MunicipalDecisionCasesSection, {
+  MunicipalDemoTopicView,
+} from "./MunicipalDecisionCasesSection";
+import type { CivicTopicBindingV1 } from "../lib/municipalTopicBinding";
 
 const VOTE_COLORS = { for: "#00498B", against: "#94a3b8", abstain: "#cbd5e1" } as const;
 
 export default function GovernanceView({
   initialProposalId = null,
+  initialCivicTopicBinding = null,
   onOpenMunicipalCase,
 }: {
   initialProposalId?: string | null;
+  initialCivicTopicBinding?: CivicTopicBindingV1 | null;
   onOpenMunicipalCase: (url: string) => void;
 }) {
   const [treasury, setTreasury] = useState<Treasury | null>(null);
   const [proposals, setProposals] = useState<Proposal[] | null>(null);
   const [signups, setSignups] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(initialProposalId);
+  const [selectedTopic, setSelectedTopic] =
+    useState<CivicTopicBindingV1 | null>(initialCivicTopicBinding);
   const [loading, setLoading] = useState(true);
   const deepLinked = useRef(false);
 
@@ -60,12 +67,21 @@ export default function GovernanceView({
   );
 
   const open = (p: Proposal) => {
+    setSelectedTopic(null);
     setSelectedId(p.proposal_id);
     track("proposal_open", { id: p.proposal_id, state: p.state });
   };
 
   if (selected) {
     return <ProposalDetailView proposal={selected} onBack={() => setSelectedId(null)} />;
+  }
+  if (selectedTopic) {
+    return (
+      <MunicipalDemoTopicView
+        binding={selectedTopic}
+        onBack={() => setSelectedTopic(null)}
+      />
+    );
   }
 
   const active = (proposals ?? []).filter((p) => isActiveState(p.state));
@@ -124,7 +140,13 @@ export default function GovernanceView({
 
       {/* Reviewed municipal cases are a separate information rail. They do not
           become on-chain proposals and this mini app never writes back. */}
-      <MunicipalDecisionCasesSection onOpenCase={onOpenMunicipalCase} />
+      <MunicipalDecisionCasesSection
+        onOpenCase={onOpenMunicipalCase}
+        onOpenDemoTopic={(binding) => {
+          setSelectedId(null);
+          setSelectedTopic(binding);
+        }}
+      />
 
       {/* Proposals */}
       {!proposals ? (

@@ -72,20 +72,34 @@ before a real Röbel case has completed local review, opt in explicitly:
 NEXT_PUBLIC_STADTSTACK_DEMO_SCENARIO=walkthrough
 ```
 
-This adds a separate amber **Demo · keine amtlichen Antworten** card with the
-department-by-department states. The client accepts it only from the confined
-Stadtstack origin and only when the JSON contract plus truth, authority and
-scenario response headers all identify the synthetic walkthrough. It never
-mixes the walkthrough into the reviewed case feed.
+This adds one separate amber **Demo · kein amtlicher Stand** topic entry. Open
+it directly with:
 
-The same explicit walkthrough flag also adds a read-only Activity Journal
-timeline. This is an eight-event, metadata-only synthetic fixture reconstructed
-for the demo—not live municipal state. The Mini App requires the complete
-ordered segment, recomputes every event SHA-256 and the independently pinned
-segment-seal SHA-256, and fails closed on missing, additional, partial or
+```text
+?stadtstackTopic=roebel-marienfelder-strasse-demo
+```
+
+The selector resolves to the local `civic_topic_binding_v1` identity
+`topic:roebel-mueritz:marienfelder-strasse`. Only inside that selected topic
+does the Mini App request the exact `civic_topic_context_v1`, department
+walkthrough and Activity Journal. Every response must retain the same
+municipality and case scope, and the topic context must state that no Röbel
+proposal, citizen vote or treasury snapshot is linked.
+
+The Activity Journal is an eight-event, metadata-only synthetic fixture
+reconstructed for the demo—not live municipal state. The Mini App requires the
+complete ordered segment, recomputes every event SHA-256 and the independently
+pinned segment-seal SHA-256, and fails closed on missing, additional, partial or
 tampered data. It renders only static allowlisted labels; conversation content,
 tool inputs, internal documents, credentials and raw artifact identifiers stay
 out of the citizen view.
+
+`?proposal=<id-or-transaction-hash>` remains a distinct route. If a URL contains
+both selectors, the real proposal route wins and the synthetic topic is
+suppressed. Proposal title, category and tags are never used to infer a
+Stadtstack link. A proposal detail can show linked Stadtstack status only after
+an explicit, human-reviewed binding artifact exists; this proof of concept
+fabricates none.
 
 Only the confined `publicCaseUrl` can be opened through
 `sdk.actions.openUrl()`. Proof references and provider-supplied action URLs are
