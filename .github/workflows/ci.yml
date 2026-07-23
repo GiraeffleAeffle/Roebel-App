@@ -35,4 +35,11 @@ jobs:
         run: pnpm typecheck
 
       - name: Build
+        env:
+          # Next imports external-service route modules while collecting page
+          # data. These non-secret placeholders only validate that the build
+          # can be produced; CI does not publish or deploy its output.
+          NEXT_PUBLIC_SUPABASE_URL: https://ci.invalid
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-build-placeholder
+          STRIPE_SECRET_KEY: sk_test_ci-build-placeholder
         run: pnpm build
