@@ -109,6 +109,20 @@ export default function ProposalDetailView({ proposal, onBack }: { proposal: Pro
         )}
       </ChartCard>
 
+      <Card className="border-dashed bg-muted/25 p-4 shadow-none">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[12px] font-semibold uppercase tracking-wide text-foreground">
+            Stadtstack-Fallstatus
+          </p>
+          <Pill tone="muted">Nicht verknüpft</Pill>
+        </div>
+        <p className="mt-2 text-[12.5px] leading-relaxed text-muted-foreground">
+          Ein kommunaler Fallstatus erscheint hier erst, wenn eine explizite,
+          menschlich geprüfte Zuordnung genau zu diesem Vorschlag veröffentlicht
+          wurde. Titel, Kategorie und Tags werden nicht automatisch abgeglichen.
+        </p>
+      </Card>
+
       {/* Treasury snapshot at proposal time */}
       {snapshot && (
         <Banner kind="info">

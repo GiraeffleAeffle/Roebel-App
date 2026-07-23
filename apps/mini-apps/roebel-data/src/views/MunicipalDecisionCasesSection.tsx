@@ -2,14 +2,29 @@ import { useCallback, useEffect, useState } from "react";
 import {
   loadRoebelActivityJournalDemo,
   loadRoebelDepartmentDemo,
+  loadRoebelMarienfelderTopicContext,
   loadReviewedCivicCases,
   type CivicActivityJournalCapabilitiesV1,
   type CivicActivityJournalEventListV1,
+  type CivicTopicContextV1,
   type ReviewedCivicCase,
   type RoebelDepartmentConnectionDemoV1,
 } from "@roebel/stadtstack-federation-client";
 import { Card, Pill, Skeleton } from "../components/ui";
-import { ExternalLink, Refresh, ShieldCheck } from "../components/icons";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Refresh,
+  ShieldCheck,
+} from "../components/icons";
+import {
+  mayLoadSyntheticTopic,
+  ROEBEL_MARIENFELDER_DEMO_TOPIC_BINDING,
+  topicBindingMatchesCase,
+  topicContextMatchesBinding,
+  type CivicTopicBindingV1,
+} from "../lib/municipalTopicBinding";
 import {
   classifyMunicipalDecisionCaseFailure,
   presentActivityJournalEvent,
@@ -62,8 +77,10 @@ const lifecycleLabel: Record<
 
 export default function MunicipalDecisionCasesSection({
   onOpenCase,
+  onOpenDemoTopic,
 }: {
   onOpenCase: (url: string) => void;
+  onOpenDemoTopic: (binding: CivicTopicBindingV1) => void;
 }) {
   const [state, setState] = useState<ViewState>({ status: "loading" });
   const [reload, setReload] = useState(0);
@@ -152,12 +169,183 @@ export default function MunicipalDecisionCasesSection({
       )}
 
       {demoEnabled && baseUrl && (
-        <>
-          <DepartmentWalkthrough baseUrl={baseUrl} />
-          <ActivityJournalWalkthrough baseUrl={baseUrl} />
-        </>
+        <MunicipalDemoTopicCard
+          onOpen={() =>
+            onOpenDemoTopic(ROEBEL_MARIENFELDER_DEMO_TOPIC_BINDING)
+          }
+        />
       )}
     </section>
+  );
+}
+
+function MunicipalDemoTopicCard({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="block w-full rounded-[10px] border border-amber-300/70 bg-amber-50/45 p-4 text-left shadow-sm transition hover:bg-amber-50 active:scale-[0.99]"
+    >
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            <Pill>Demo · kein amtlicher Stand</Pill>
+            <Pill>eigenes Stadtstack-Thema</Pill>
+          </div>
+          <h4 className="text-[15px] font-semibold leading-snug text-foreground">
+            Marienfelder Straße
+          </h4>
+          <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground">
+            Zeigt den synthetischen Weg durch Fachbereiche und Aktivitätsjournal.
+            Nicht mit einem Röbel-Vorschlag, einer Abstimmung oder der
+            Gemeinschaftskasse verknüpft.
+          </p>
+        </div>
+        <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+      </div>
+    </button>
+  );
+}
+
+type TopicContextState =
+  | { status: "loading" }
+  | { status: "ready"; context: CivicTopicContextV1 }
+  | { status: "not_configured" | "unavailable" };
+
+export function MunicipalDemoTopicView({
+  binding,
+  onBack,
+}: {
+  binding: CivicTopicBindingV1;
+  onBack: () => void;
+}) {
+  const baseUrl =
+    process.env.NEXT_PUBLIC_STADTSTACK_PUBLIC_BASE_URL?.trim() ?? "";
+  const demoScenario =
+    process.env.NEXT_PUBLIC_STADTSTACK_DEMO_SCENARIO?.trim() ?? "";
+  const allowed = mayLoadSyntheticTopic({
+    binding,
+    demoScenario,
+    providerBaseUrl: baseUrl,
+  });
+  const [state, setState] = useState<TopicContextState>(
+    allowed ? { status: "loading" } : { status: "not_configured" },
+  );
+
+  useEffect(() => {
+    let active = true;
+    if (!allowed) {
+      setState({ status: "not_configured" });
+      return () => {
+        active = false;
+      };
+    }
+    setState({ status: "loading" });
+    void loadRoebelMarienfelderTopicContext({ baseUrl })
+      .then((context) => {
+        if (!active) return;
+        setState(
+          topicContextMatchesBinding(binding, context)
+            ? { status: "ready", context }
+            : { status: "unavailable" },
+        );
+      })
+      .catch(() => {
+        if (active) setState({ status: "unavailable" });
+      });
+    return () => {
+      active = false;
+    };
+  }, [allowed, baseUrl, binding]);
+
+  return (
+    <div className="space-y-4">
+      <button
+        type="button"
+        onClick={onBack}
+        className="-ml-1.5 inline-flex items-center gap-1 rounded-[10px] px-1.5 py-1 text-[13px] font-medium text-muted-foreground transition hover:text-foreground active:scale-[0.98]"
+      >
+        <ChevronLeft className="h-4 w-4" />
+        Mitbestimmung
+      </button>
+
+      <Card className="overflow-hidden border-amber-300/70 bg-amber-50/45 shadow-sm">
+        <div className="p-4">
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            <Pill>Demo · kein amtlicher Stand</Pill>
+            <Pill>keinem Vorschlag zugeordnet</Pill>
+          </div>
+          <h1 className="font-display text-lg font-bold leading-snug tracking-tight text-foreground">
+            Marienfelder Straße
+          </h1>
+          <p className="mt-2 text-[12.5px] leading-relaxed text-muted-foreground">
+            Ein eigenständiges synthetisches Stadtstack-Thema. Die Ansicht
+            demonstriert den Informationsfluss, erzeugt aber keine Abstimmung,
+            Kassenbewegung, Verwaltungsentscheidung oder Veröffentlichung.
+          </p>
+        </div>
+      </Card>
+
+      {state.status === "loading" ? (
+        <>
+          <Skeleton className="h-[150px]" />
+          <Skeleton className="h-[180px]" />
+        </>
+      ) : state.status === "ready" ? (
+        <>
+          <TopicBoundarySummary context={state.context} />
+          <DepartmentWalkthrough baseUrl={baseUrl} binding={binding} />
+          <ActivityJournalWalkthrough baseUrl={baseUrl} binding={binding} />
+        </>
+      ) : (
+        <Card className="border-dashed bg-muted/25 p-4 shadow-none">
+          <p className="text-[13px] font-semibold text-foreground">
+            Demo-Thema nicht sicher verfügbar
+          </p>
+          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+            Die explizite Demo-Freigabe, Provider-Verbindung oder ungebundene
+            Themenidentität konnte nicht geprüft werden. Es wird kein
+            Ersatzstand angezeigt.
+          </p>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function TopicBoundarySummary({
+  context,
+}: {
+  context: CivicTopicContextV1;
+}) {
+  return (
+    <Card className="p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        Was ist bereits verbunden?
+      </p>
+      <dl className="mt-3 space-y-2 text-[12px]">
+        <CaseFact label="Bürgerstimme" value="noch nicht eröffnet" />
+        <CaseFact label="Gemeinschaftskasse" value="nicht verknüpft" />
+        <CaseFact label="Ratsunterlagen" value="Quellen noch ungeprüft" />
+        <CaseFact
+          label="Verwaltung"
+          value={
+            context.modules.administration.currentStateVerified
+              ? "aktueller Stand geprüft"
+              : "nur synthetischer Ablauf"
+          }
+        />
+        <CaseFact
+          label="Aktivitäten"
+          value={`${context.modules.activityJournal.eventCount} rekonstruierte Demo-Ereignisse`}
+        />
+      </dl>
+      <p className="mt-3 border-t border-border pt-3 text-[11px] leading-relaxed text-muted-foreground">
+        Keine Zuordnung zu Vorschlag #1, #2 oder einem anderen
+        Governance-Eintrag. Eine solche Verbindung braucht später ein explizit
+        geprüftes Zuordnungsartefakt.
+      </p>
+    </Card>
   );
 }
 
@@ -290,14 +478,25 @@ type DepartmentDemoState =
   | { status: "ready"; projection: RoebelDepartmentConnectionDemoV1 }
   | { status: "unavailable" };
 
-function DepartmentWalkthrough({ baseUrl }: { baseUrl: string }) {
+function DepartmentWalkthrough({
+  baseUrl,
+  binding,
+}: {
+  baseUrl: string;
+  binding: CivicTopicBindingV1;
+}) {
   const [state, setState] = useState<DepartmentDemoState>({ status: "loading" });
 
   useEffect(() => {
     let active = true;
     void loadRoebelDepartmentDemo({ baseUrl })
       .then((projection) => {
-        if (active) setState({ status: "ready", projection });
+        if (!active) return;
+        setState(
+          topicBindingMatchesCase(binding, projection.caseKey)
+            ? { status: "ready", projection }
+            : { status: "unavailable" },
+        );
       })
       .catch(() => {
         if (active) setState({ status: "unavailable" });
@@ -305,7 +504,7 @@ function DepartmentWalkthrough({ baseUrl }: { baseUrl: string }) {
     return () => {
       active = false;
     };
-  }, [baseUrl]);
+  }, [baseUrl, binding]);
 
   if (state.status === "loading") {
     return <Skeleton className="h-[132px]" />;
@@ -384,7 +583,13 @@ type ActivityJournalDemoState =
     }
   | { status: "unavailable" };
 
-function ActivityJournalWalkthrough({ baseUrl }: { baseUrl: string }) {
+function ActivityJournalWalkthrough({
+  baseUrl,
+  binding,
+}: {
+  baseUrl: string;
+  binding: CivicTopicBindingV1;
+}) {
   const [state, setState] = useState<ActivityJournalDemoState>({
     status: "loading",
   });
@@ -393,7 +598,13 @@ function ActivityJournalWalkthrough({ baseUrl }: { baseUrl: string }) {
     let active = true;
     void loadRoebelActivityJournalDemo({ baseUrl })
       .then((result) => {
-        if (active) setState({ status: "ready", ...result });
+        if (!active) return;
+        setState(
+          topicBindingMatchesCase(binding, result.capabilities.scope) &&
+            topicBindingMatchesCase(binding, result.eventList.scope)
+            ? { status: "ready", ...result }
+            : { status: "unavailable" },
+        );
       })
       .catch(() => {
         if (active) setState({ status: "unavailable" });
@@ -401,7 +612,7 @@ function ActivityJournalWalkthrough({ baseUrl }: { baseUrl: string }) {
     return () => {
       active = false;
     };
-  }, [baseUrl]);
+  }, [baseUrl, binding]);
 
   if (state.status === "loading") {
     return <Skeleton className="h-[188px]" />;
