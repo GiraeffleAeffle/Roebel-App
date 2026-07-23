@@ -19,6 +19,15 @@ contract also parses optional public-action and proof references, but the first
 Röbel UI slice must not render or open those fields; a dedicated reviewed
 external-link policy is required before they become interactive.
 
+The optional Röbel walkthrough additionally exposes four GET-only Activity
+Journal reads (`capabilities`, bounded event list, action timeline and one
+event). The client accepts only the exact public synthetic identity namespace
+and metadata vocabulary, requires explicit `demo` / `authority=none` /
+`historicalEvidence=true` / `currentStateVerified=false` / `backfilled=true`
+headers and bodies, and cryptographically binds the complete eight-event
+walkthrough to an independently pinned segment seal. There is no mutation,
+wallet, authentication or protected-workspace access.
+
 ```ts
 import { loadReviewedCivicCases } from "@roebel/stadtstack-federation-client";
 
