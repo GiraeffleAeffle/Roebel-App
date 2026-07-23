@@ -78,6 +78,15 @@ Stadtstack origin and only when the JSON contract plus truth, authority and
 scenario response headers all identify the synthetic walkthrough. It never
 mixes the walkthrough into the reviewed case feed.
 
+The same explicit walkthrough flag also adds a read-only Activity Journal
+timeline. This is an eight-event, metadata-only synthetic fixture reconstructed
+for the demo—not live municipal state. The Mini App requires the complete
+ordered segment, recomputes every event SHA-256 and the independently pinned
+segment-seal SHA-256, and fails closed on missing, additional, partial or
+tampered data. It renders only static allowlisted labels; conversation content,
+tool inputs, internal documents, credentials and raw artifact identifiers stay
+out of the citizen view.
+
 Only the confined `publicCaseUrl` can be opened through
 `sdk.actions.openUrl()`. Proof references and provider-supplied action URLs are
 not rendered. In this first slice a `410` hides the old content entirely; a

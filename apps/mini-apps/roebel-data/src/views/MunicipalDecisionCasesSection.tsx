@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  loadRoebelActivityJournalDemo,
   loadRoebelDepartmentDemo,
   loadReviewedCivicCases,
+  type CivicActivityJournalCapabilitiesV1,
+  type CivicActivityJournalEventListV1,
   type ReviewedCivicCase,
   type RoebelDepartmentConnectionDemoV1,
 } from "@roebel/stadtstack-federation-client";
@@ -9,6 +12,7 @@ import { Card, Pill, Skeleton } from "../components/ui";
 import { ExternalLink, Refresh, ShieldCheck } from "../components/icons";
 import {
   classifyMunicipalDecisionCaseFailure,
+  presentActivityJournalEvent,
   type MunicipalDecisionCaseFailureStatus,
 } from "./municipalDecisionCasesState";
 
@@ -147,7 +151,12 @@ export default function MunicipalDecisionCasesSection({
         <FederationStateNotice status={state.status} />
       )}
 
-      {demoEnabled && baseUrl && <DepartmentWalkthrough baseUrl={baseUrl} />}
+      {demoEnabled && baseUrl && (
+        <>
+          <DepartmentWalkthrough baseUrl={baseUrl} />
+          <ActivityJournalWalkthrough baseUrl={baseUrl} />
+        </>
+      )}
     </section>
   );
 }
@@ -366,6 +375,133 @@ function DepartmentWalkthrough({ baseUrl }: { baseUrl: string }) {
   );
 }
 
+type ActivityJournalDemoState =
+  | { status: "loading" }
+  | {
+      status: "ready";
+      capabilities: CivicActivityJournalCapabilitiesV1;
+      eventList: CivicActivityJournalEventListV1;
+    }
+  | { status: "unavailable" };
+
+function ActivityJournalWalkthrough({ baseUrl }: { baseUrl: string }) {
+  const [state, setState] = useState<ActivityJournalDemoState>({
+    status: "loading",
+  });
+
+  useEffect(() => {
+    let active = true;
+    void loadRoebelActivityJournalDemo({ baseUrl })
+      .then((result) => {
+        if (active) setState({ status: "ready", ...result });
+      })
+      .catch(() => {
+        if (active) setState({ status: "unavailable" });
+      });
+    return () => {
+      active = false;
+    };
+  }, [baseUrl]);
+
+  if (state.status === "loading") {
+    return <Skeleton className="h-[188px]" />;
+  }
+  if (state.status === "unavailable") {
+    return (
+      <Card className="border-dashed bg-muted/25 p-4 shadow-none">
+        <p className="text-[13px] font-semibold text-foreground">
+          Aktivitätsdemo konnte nicht sicher geprüft werden
+        </p>
+        <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+          Verlauf, Herkunft oder Prüfsumme passen nicht. Es wird kein
+          rekonstruierter Ersatzstand angezeigt.
+        </p>
+      </Card>
+    );
+  }
+
+  const { capabilities, eventList } = state;
+  return (
+    <Card className="overflow-hidden border-[#00498B]/25 bg-[#00498B]/[0.025] shadow-sm">
+      <div className="border-b border-[#00498B]/15 p-4">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Pill tone="primary">Demo · rekonstruierter Verlauf</Pill>
+          <Pill>kein Live-Status</Pill>
+          <Pill>{capabilities.segmentSeal.eventCount} geprüfte Ereignisse</Pill>
+        </div>
+        <h4 className="mt-2 text-[15px] font-semibold text-foreground">
+          Was im Demo-Fall protokolliert wurde
+        </h4>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+          Dieser synthetische Verlauf wurde für die Demo rückwirkend
+          rekonstruiert. Er zeigt nur, dass ein Schritt im Demo-Ablauf
+          dokumentiert wurde — nicht, was heute in der Verwaltung gilt.
+        </p>
+        <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+          Keine Gesprächsinhalte, Tool-Eingaben, internen Dokumente oder
+          Abstimmungsdaten.
+        </p>
+      </div>
+
+      <ol
+        aria-label="Rekonstruierter Aktivitätsverlauf des Demo-Falls"
+        className="px-4 py-3"
+      >
+        {eventList.events.map((event, index) => {
+          const copy = presentActivityJournalEvent(event);
+          return (
+            <li
+              key={event.eventId}
+              className="relative grid grid-cols-[24px_minmax(0,1fr)] gap-2.5 pb-3 last:pb-0"
+            >
+              {index < eventList.events.length - 1 && (
+                <span
+                  aria-hidden="true"
+                  className="absolute bottom-0 left-[11px] top-6 w-px bg-border"
+                />
+              )}
+              <span
+                aria-hidden="true"
+                className="relative z-[1] mt-0.5 flex h-6 w-6 items-center justify-center rounded-full border border-[#00498B]/30 bg-card text-[9px] font-semibold text-[#00498B] tnum"
+              >
+                {event.scopeSequence}
+              </span>
+              <article className="min-w-0 rounded-[8px] bg-muted/55 px-3 py-2.5">
+                <div className="flex flex-wrap items-start justify-between gap-1.5">
+                  <p className="min-w-0 text-[11.5px] font-semibold text-foreground">
+                    {copy.description}
+                  </p>
+                  <span className="shrink-0 text-[9.5px] font-medium text-[#00498B]">
+                    {copy.status}
+                  </span>
+                </div>
+                <p className="mt-1 text-[9.5px] text-muted-foreground">
+                  <time dateTime={event.occurredAt}>
+                    {formatJournalTime(event.occurredAt)}
+                  </time>
+                  {" · "}
+                  {copy.actor}
+                </p>
+              </article>
+            </li>
+          );
+        })}
+      </ol>
+
+      <div className="border-t border-[#00498B]/15 px-4 py-3">
+        <p className="text-[9.5px] leading-relaxed text-muted-foreground">
+          Rekonstruierter Demo-Zeitraum ab{" "}
+          <time dateTime={capabilities.scope.coverageStartAt}>
+            {formatJournalTime(capabilities.scope.coverageStartAt)}
+          </time>
+          {" · "}für die Demo rückwirkend rekonstruiert · nur öffentlich
+          geprüfte synthetische Metadaten
+        </p>
+      </div>
+    </Card>
+  );
+}
+
 function SevenStageRail({ entry }: { entry: ReviewedCivicCase }) {
   const currentId = entry.stageMap.primaryCurrentMacroStageId;
   return (
@@ -419,5 +555,16 @@ function formatDate(value: string) {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
+  }).format(new Date(value));
+}
+
+function formatJournalTime(value: string) {
+  return new Intl.DateTimeFormat("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Berlin",
   }).format(new Date(value));
 }
