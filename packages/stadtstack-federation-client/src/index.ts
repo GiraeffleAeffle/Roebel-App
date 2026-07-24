@@ -1,5 +1,7 @@
 export * from "./activityJournal";
 export * from "./activityJournalContracts";
+export * from "./activityJournalRuntimeProjection";
+export * from "./activityJournalRuntimeProjectionContracts";
 export * from "./client";
 export * from "./contracts";
 export * from "./demo";

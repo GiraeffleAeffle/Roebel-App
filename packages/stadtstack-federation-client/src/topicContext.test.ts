@@ -53,6 +53,13 @@ function context() {
         currentStateVerified: false,
         backfilled: true,
         eventCount: 8,
+        runtimeReceipt: {
+          status: "historical_verified_private_runtime",
+          checkpointObservedAt: "2026-07-24T08:27:35.000Z",
+          eventCount: 2,
+          backfilled: false,
+          publicProjectionState: "candidate_not_publicly_routed",
+        },
       },
     },
     effects: {
@@ -69,10 +76,7 @@ function context() {
   };
 }
 
-function response(
-  value: unknown,
-  headers: Record<string, string> = {},
-) {
+function response(value: unknown, headers: Record<string, string> = {}) {
   return new Response(JSON.stringify(value), {
     headers: {
       "content-type": "application/json",
@@ -102,7 +106,7 @@ test("loads only the exact unbound Marienfelder Straße topic context", async ()
 
   assert.equal(
     requestedUrl,
-    `${BASE_URL}/api/demo/roebel-marienfelder/topic-context`,
+    `${BASE_URL}/api/demo/roebel-marienfelder/topic-context`
   );
   assert.equal(init?.method, "GET");
   assert.equal(init?.credentials, "omit");
@@ -132,7 +136,7 @@ test("rejects any attempted real proposal binding or effect", async () => {
       }),
       (error: unknown) =>
         error instanceof StadtstackFederationError &&
-        error.code === "invalid_schema",
+        error.code === "invalid_schema"
     );
   }
 });
@@ -146,7 +150,7 @@ test("rejects widened bodies and incomplete demo proof headers", async () => {
     }),
     (error: unknown) =>
       error instanceof StadtstackFederationError &&
-      error.code === "invalid_schema",
+      error.code === "invalid_schema"
   );
 
   await assert.rejects(
@@ -159,7 +163,7 @@ test("rejects widened bodies and incomplete demo proof headers", async () => {
     }),
     (error: unknown) =>
       error instanceof StadtstackFederationError &&
-      error.code === "contract_mismatch",
+      error.code === "contract_mismatch"
   );
 });
 
@@ -173,7 +177,7 @@ test("confines the provider to a safe origin", async () => {
       loadRoebelMarienfelderTopicContext({ baseUrl: unsafe }),
       (error: unknown) =>
         error instanceof StadtstackFederationError &&
-        error.code === "configuration",
+        error.code === "configuration"
     );
   }
 });

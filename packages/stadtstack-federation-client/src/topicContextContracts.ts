@@ -8,9 +8,7 @@ export const civicTopicContextSchema = z
     schemaVersion: z.literal(CIVIC_TOPIC_CONTEXT_SCHEMA_VERSION),
     topic: z
       .object({
-        topicId: z.literal(
-          "topic:roebel-mueritz:marienfelder-strasse",
-        ),
+        topicId: z.literal("topic:roebel-mueritz:marienfelder-strasse"),
         municipalityId: z.literal("roebel-mueritz"),
         decisionCaseSlug: z.literal("marienfelder-strasse"),
         title: z.literal("Marienfelder Straße"),
@@ -64,6 +62,17 @@ export const civicTopicContextSchema = z
             currentStateVerified: z.literal(false),
             backfilled: z.literal(true),
             eventCount: z.literal(8),
+            runtimeReceipt: z
+              .object({
+                status: z.literal("historical_verified_private_runtime"),
+                checkpointObservedAt: z.literal("2026-07-24T08:27:35.000Z"),
+                eventCount: z.literal(2),
+                backfilled: z.literal(false),
+                publicProjectionState: z.literal(
+                  "candidate_not_publicly_routed"
+                ),
+              })
+              .strict(),
           })
           .strict(),
       })
