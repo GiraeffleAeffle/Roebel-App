@@ -136,19 +136,22 @@ Straße topic and does not read wallets, request Mini App permissions, fetch a
 treasury/proposal list, or expose any write action.
 
 ```bash
+NEXT_PUBLIC_STADTSTACK_PUBLIC_BASE_URL=https://roebel-stadtstack.agentcart.eu \
+NEXT_PUBLIC_STADTSTACK_DEMO_SCENARIO=walkthrough \
+NEXT_PUBLIC_STADTSTACK_PUBLIC_DEMO_MODE=marienfelder \
+pnpm --filter @netizen/miniapp-roebel-data build
+
+# Build the runtime from a staged context that contains only
+# apps/mini-apps/roebel-data/{Dockerfile,nginx.preview.conf,out}.
 docker build --platform linux/amd64 \
   -f apps/mini-apps/roebel-data/Dockerfile \
-  --build-arg NEXT_PUBLIC_STADTSTACK_PUBLIC_BASE_URL=https://roebel-stadtstack.agentcart.eu \
-  --build-arg NEXT_PUBLIC_STADTSTACK_DEMO_SCENARIO=walkthrough \
-  --build-arg NEXT_PUBLIC_STADTSTACK_PUBLIC_DEMO_MODE=marienfelder \
-  --build-arg NEXT_PUBLIC_MINIAPP_BASE_PATH=/roebel-data-demo \
   -t roebel-data-stadtstack-demo .
 ```
 
-The image listens on port `3000`. The base path is optional; omit its build arg
+The image listens on port `8080`. The base path is optional; omit its build arg
 for a dedicated hostname. These are public configuration values, not secrets.
-The public demo is non-indexed and must remain separate from the normal Mini
-App/host deployment until its maintainer has reviewed it.
+The public demo is statically exported, non-indexed, and must remain separate
+from the normal Mini App/host deployment until its maintainer has reviewed it.
 
 ## Notes
 
