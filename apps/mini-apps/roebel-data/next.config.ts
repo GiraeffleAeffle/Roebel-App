@@ -1,4 +1,6 @@
 import type { NextConfig } from "next";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   isMarienfelderPublicDemo,
   normalizeMiniAppBasePath,
@@ -9,6 +11,23 @@ const publicDemoOnly = isMarienfelderPublicDemo(
 );
 const basePath = normalizeMiniAppBasePath(
   process.env.NEXT_PUBLIC_MINIAPP_BASE_PATH,
+);
+const configDirectory = path.dirname(fileURLToPath(import.meta.url));
+
+// Both aliases are deliberately selected while the bundle is assembled, not
+// from a runtime condition. That makes the public build's import graph a real
+// boundary: webpack never sees the normal application shell or full manifest.
+const appEntrypoint = path.resolve(
+  configDirectory,
+  publicDemoOnly
+    ? "src/entrypoints/public-demo.tsx"
+    : "src/entrypoints/normal-miniapp.tsx",
+);
+const manifestEntrypoint = path.resolve(
+  configDirectory,
+  publicDemoOnly
+    ? "src/entrypoints/public-demo-manifest.ts"
+    : "src/entrypoints/normal-manifest.ts",
 );
 
 const nextConfig: NextConfig = {
@@ -24,11 +43,26 @@ const nextConfig: NextConfig = {
   // which the Talos preview serves from an unprivileged static web server.
   output: publicDemoOnly ? "export" : "standalone",
 
+  // Keep the sealed graph in its own Next cache. Without this, a developer
+  // switching from a normal standalone build to the public build can reuse a
+  // cached full-App module graph even though the environment changed.
+  distDir: publicDemoOnly ? ".next-public-demo" : ".next",
+
   // A Talos-hosted preview can live below a shared staging host without
   // changing its public URLs or the normal Röbel host behaviour.
   ...(basePath ? { basePath } : {}),
 
   reactStrictMode: true,
+
+  webpack(config) {
+    config.resolve ??= {};
+    config.resolve.alias = {
+      ...(config.resolve.alias ?? {}),
+      "@roebel-data/entrypoint$": appEntrypoint,
+      "@roebel-data/manifest$": manifestEntrypoint,
+    };
+    return config;
+  },
 };
 
 export default nextConfig;

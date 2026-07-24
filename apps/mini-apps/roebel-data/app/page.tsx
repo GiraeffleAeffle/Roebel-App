@@ -1,12 +1,10 @@
-"use client";
+// `@roebel-data/entrypoint` is resolved by next.config.ts at build time.
+//
+// Normal Röbel builds resolve it to the existing client App shell. The sealed
+// public Marienfelder build resolves it to a server-rendered, static-only
+// entrypoint instead. Keeping the import behind that build-time alias is
+// intentional: a conditional inside the normal App would still put its wallet,
+// Circles, proposal and analytics modules into the public artifact.
+import Entrypoint from "@roebel-data/entrypoint";
 
-// The whole mini app is a single client-rendered page: the App shell owns the
-// tab state (Town / Economy / Governance) and all the Netizen SDK wiring
-// (ready(), wallet, analytics). No server components — every view reads live
-// on-chain data client-side. Kept in src/App.tsx so the port stayed a move,
-// not a rewrite.
-import App from "../src/App";
-
-export default function Page() {
-  return <App />;
-}
+export default Entrypoint;
