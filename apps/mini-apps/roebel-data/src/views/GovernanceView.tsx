@@ -15,7 +15,10 @@ import ProposalDetailView from "./ProposalDetailView";
 import MunicipalDecisionCasesSection, {
   MunicipalDemoTopicView,
 } from "./MunicipalDecisionCasesSection";
-import type { CivicTopicBindingV1 } from "../lib/municipalTopicBinding";
+import {
+  ROEBEL_MARIENFELDER_DEMO_TOPIC_BINDING,
+  type CivicTopicBindingV1,
+} from "../lib/municipalTopicBinding";
 
 const VOTE_COLORS = { for: "#00498B", against: "#94a3b8", abstain: "#cbd5e1" } as const;
 
@@ -23,10 +26,13 @@ export default function GovernanceView({
   initialProposalId = null,
   initialCivicTopicBinding = null,
   onOpenMunicipalCase,
+  publicDemoOnly = false,
 }: {
   initialProposalId?: string | null;
   initialCivicTopicBinding?: CivicTopicBindingV1 | null;
   onOpenMunicipalCase: (url: string) => void;
+  /** A standalone read-only staging build: no treasury, proposals or wallet paths. */
+  publicDemoOnly?: boolean;
 }) {
   const [treasury, setTreasury] = useState<Treasury | null>(null);
   const [proposals, setProposals] = useState<Proposal[] | null>(null);
@@ -48,18 +54,20 @@ export default function GovernanceView({
     getMaciSignups().then(setSignups).catch(() => {});
   }, []);
   useEffect(() => {
+    if (publicDemoOnly) return;
     void load();
-  }, [load]);
+  }, [load, publicDemoOnly]);
 
   // A ?proposal=<id> deep-link opens straight onto the matching detail once loaded.
   useEffect(() => {
+    if (publicDemoOnly) return;
     if (deepLinked.current || !initialProposalId || !proposals) return;
     deepLinked.current = true;
     const hit = proposals.find(
       (p) => p.proposal_id === initialProposalId || p.transaction_hash === initialProposalId,
     );
     if (hit) setSelectedId(hit.proposal_id);
-  }, [initialProposalId, proposals]);
+  }, [initialProposalId, proposals, publicDemoOnly]);
 
   const selected = useMemo(
     () => proposals?.find((p) => p.proposal_id === selectedId) ?? null,
@@ -67,10 +75,25 @@ export default function GovernanceView({
   );
 
   const open = (p: Proposal) => {
+    if (publicDemoOnly) return;
     setSelectedTopic(null);
     setSelectedId(p.proposal_id);
     track("proposal_open", { id: p.proposal_id, state: p.state });
   };
+
+  // This shortcut is intentionally before every treasury/proposal render. It
+  // is the whole public staging surface: one fixed, unbound, synthetic topic.
+  // The normal Mini App keeps its existing Governance behaviour whenever the
+  // explicit public-demo build switch is absent.
+  if (publicDemoOnly) {
+    return (
+      <MunicipalDemoTopicView
+        binding={ROEBEL_MARIENFELDER_DEMO_TOPIC_BINDING}
+        onBack={() => {}}
+        showBack={false}
+      />
+    );
+  }
 
   if (selected) {
     return <ProposalDetailView proposal={selected} onBack={() => setSelectedId(null)} />;
