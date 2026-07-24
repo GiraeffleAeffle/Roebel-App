@@ -7,6 +7,10 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:public-demo": "NEXT_PUBLIC_STADTSTACK_PUBLIC_DEMO_MODE=marienfelder NEXT_PUBLIC_STADTSTACK_PUBLIC_BASE_URL= NEXT_PUBLIC_STADTSTACK_DEMO_SCENARIO= next build",
+    "verify:public-demo-build-graph": "node ./scripts/verify-public-demo-build-graph.mjs",
+    "verify:public-demo-output": "node ./scripts/verify-public-demo-output.mjs ./.next-public-demo ./nginx.preview.conf",
+    "test:public-demo-output": "node --test ./scripts/verify-public-demo-output.test.mjs",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "lint": "next lint"
