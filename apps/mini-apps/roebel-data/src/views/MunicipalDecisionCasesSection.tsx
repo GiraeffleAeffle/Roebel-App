@@ -218,9 +218,12 @@ type TopicContextState =
 export function MunicipalDemoTopicView({
   binding,
   onBack,
+  showBack = true,
 }: {
   binding: CivicTopicBindingV1;
   onBack: () => void;
+  /** The standalone public demo has no surrounding proposal/governance list. */
+  showBack?: boolean;
 }) {
   const baseUrl =
     process.env.NEXT_PUBLIC_STADTSTACK_PUBLIC_BASE_URL?.trim() ?? "";
@@ -263,14 +266,16 @@ export function MunicipalDemoTopicView({
 
   return (
     <div className="space-y-4">
-      <button
-        type="button"
-        onClick={onBack}
-        className="-ml-1.5 inline-flex items-center gap-1 rounded-[10px] px-1.5 py-1 text-[13px] font-medium text-muted-foreground transition hover:text-foreground active:scale-[0.98]"
-      >
-        <ChevronLeft className="h-4 w-4" />
-        Mitbestimmung
-      </button>
+      {showBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="-ml-1.5 inline-flex items-center gap-1 rounded-[10px] px-1.5 py-1 text-[13px] font-medium text-muted-foreground transition hover:text-foreground active:scale-[0.98]"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          Mitbestimmung
+        </button>
+      )}
 
       <Card className="overflow-hidden border-amber-300/70 bg-amber-50/45 shadow-sm">
         <div className="p-4">

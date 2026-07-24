@@ -126,6 +126,30 @@ embed it in a WebView / iframe.
 - Point the manifest's `homeUrl` / `iconUrl` at the deployed origin, then register the app in the
   `mini_apps` table (see the integration note below) so it appears **live** in the Expo store.
 
+## Isolated public Stadtstack preview (Talos)
+
+The normal Mini App keeps its Town, economy, wallet, reward and proposal
+surfaces. For a shareable stakeholder preview, make a separate build with all
+four public values below. The explicit `PUBLIC_DEMO_MODE` is required in
+addition to `walkthrough`; it renders only the synthetic, unbound Marienfelder
+Straße topic and does not read wallets, request Mini App permissions, fetch a
+treasury/proposal list, or expose any write action.
+
+```bash
+docker build --platform linux/amd64 \
+  -f apps/mini-apps/roebel-data/Dockerfile \
+  --build-arg NEXT_PUBLIC_STADTSTACK_PUBLIC_BASE_URL=https://roebel-stadtstack.agentcart.eu \
+  --build-arg NEXT_PUBLIC_STADTSTACK_DEMO_SCENARIO=walkthrough \
+  --build-arg NEXT_PUBLIC_STADTSTACK_PUBLIC_DEMO_MODE=marienfelder \
+  --build-arg NEXT_PUBLIC_MINIAPP_BASE_PATH=/roebel-data-demo \
+  -t roebel-data-stadtstack-demo .
+```
+
+The image listens on port `3000`. The base path is optional; omit its build arg
+for a dedicated hostname. These are public configuration values, not secrets.
+The public demo is non-indexed and must remain separate from the normal Mini
+App/host deployment until its maintainer has reviewed it.
+
 ## Notes
 
 - `generateInvites` targets **deployed** addresses; a thirdweb smart account deploys on its first
