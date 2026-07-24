@@ -11,7 +11,13 @@
 FROM nginxinc/nginx-unprivileged:1.27-alpine
 
 ARG SOURCE_REVISION
-ARG STADTSTACK_PREVIEW_CONTRACT_SHA256
+ARG STADTSTACK_PREVIEW_CONTRACT_SHA256=sha256:9ae879bb6deaba4022ced91a0a63e972a5383ee5f334c9b73af5506762aeb957
+
+# A sealed preview must carry the exact reviewed contract. Do not silently
+# produce an archive with an empty or substituted label: the Talos installer
+# verifies this binding before it will accept a candidate image.
+RUN test -n "$SOURCE_REVISION" && \
+    test "$STADTSTACK_PREVIEW_CONTRACT_SHA256" = "sha256:9ae879bb6deaba4022ced91a0a63e972a5383ee5f334c9b73af5506762aeb957"
 
 LABEL org.opencontainers.image.source="https://github.com/GiraeffleAeffle/Roebel-App" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
@@ -22,6 +28,6 @@ LABEL org.opencontainers.image.source="https://github.com/GiraeffleAeffle/Roebel
       stadtstack.io/runtime="static-export"
 
 COPY apps/mini-apps/roebel-data/nginx.preview.conf /etc/nginx/conf.d/default.conf
-COPY apps/mini-apps/roebel-data/out /usr/share/nginx/html
+COPY apps/mini-apps/roebel-data/.next-public-demo /usr/share/nginx/html
 
 EXPOSE 8080

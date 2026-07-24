@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { monaSans, monaSansMono } from "./fonts";
-import { manifest } from "../netizen.manifest";
+import { manifest } from "@roebel-data/manifest";
 import { isMarienfelderPublicDemo } from "../src/lib/publicDemoMode";
 import "./globals.css";
 
