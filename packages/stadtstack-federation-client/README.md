@@ -41,7 +41,7 @@ real proposal binding fail closed.
 import { loadReviewedCivicCases } from "@roebel/stadtstack-federation-client";
 
 const result = await loadReviewedCivicCases({
-  baseUrl: "https://zk-residency.vercel.app",
+  baseUrl: "https://roebel-stadtstack.agentcart.eu",
   municipalityId: "roebel-mueritz",
 });
 ```
