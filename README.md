@@ -77,7 +77,7 @@ pnpm install --filter @roebel/expo...
 ### Testing against staging
 
 You don't need to provision anything to contribute — there's a **shared staging
-environment**. Open **[staging.roebel.app](https://staging.roebel.app)** to click
+environment**. Open **[stage.roebel.app](https://stage.roebel.app)** to click
 through the app with zero setup, or run the app locally against the staging backend
 with just the staging Supabase URL + anon key (both safe to share). Full instructions:
 **[docs/FORKING_GUIDE.md](docs/FORKING_GUIDE.md)**. Maintainers provisioning staging:

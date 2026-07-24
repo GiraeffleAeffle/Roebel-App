@@ -27,7 +27,7 @@ One long-lived staging backend that web, mobile, and local dev all point at:
                     LIVE Gnosis mainnet contracts (chain 100)  ← read-only, shared
                                    ▲
                 ┌──────────────────┼──────────────────┐
-  staging.roebel.app         EAS "staging" build         local dev
+  stage.roebel.app         EAS "staging" build         local dev
   (Vercel staging project,   (internal distribution,     (contributor machine,
    full secrets)              staging channel)             minimal public env)
                 └──────────────────┼──────────────────┘
@@ -62,7 +62,7 @@ Rejected alternatives:
 
 - A **separate Vercel project** (or a dedicated `staging` environment) building the same repo, pointed at the staging Supabase project.
 - Full server secrets set **by the maintainer** on that staging project so the hosted URL exercises server routes.
-- **Open question O2:** dedicated `staging.roebel.app` subdomain vs. Vercel's default deployment URL. Either works; subdomain is nicer for contributors. Decide at provisioning.
+- **Open question O2:** dedicated `stage.roebel.app` subdomain vs. Vercel's default deployment URL. Either works; subdomain is nicer for contributors. Decide at provisioning.
 
 ### 4. Mobile — EAS `staging` profile + channel
 
@@ -125,4 +125,4 @@ Cloud provisioning (maintainer executes from the runbook; cannot be automated fr
 ## Open questions (to resolve during provisioning, not blockers)
 
 - **O1:** Which migration directory is canonical for provisioning staging.
-- **O2:** Dedicated `staging.roebel.app` subdomain vs. default Vercel URL.
+- **O2:** Dedicated `stage.roebel.app` subdomain vs. default Vercel URL.

@@ -30,7 +30,7 @@ We use **trunk-based development**: `main` is always deployable.
 ## Testing against staging
 
 You don't need your own backend to test. There's a **shared staging environment** —
-open **[staging.roebel.app](https://staging.roebel.app)** for zero-setup clickthrough,
+open **[stage.roebel.app](https://stage.roebel.app)** for zero-setup clickthrough,
 or run the app locally against the staging backend with just the staging Supabase URL +
 anon key. See **[docs/FORKING_GUIDE.md](docs/FORKING_GUIDE.md)**. Staging shares the live
 Gnosis contracts read-only, so everything except live on-chain governance writes is fully

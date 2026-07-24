@@ -18,7 +18,7 @@ Design spec: [docs/superpowers/specs/2026-07-24-shared-staging-environment-desig
                     LIVE Gnosis mainnet contracts (chain 100)  ← read-only, shared
                                    ▲
                 ┌──────────────────┼──────────────────┐
-  staging.roebel.app         EAS "staging" build         local dev
+  stage.roebel.app         EAS "staging" build         local dev
   (Vercel staging project,   (internal distribution,     (contributors,
    FULL secrets)              staging channel)             minimal public env)
                 └──────────────────┼──────────────────┘
@@ -97,7 +97,7 @@ psql "$STAGING_DB_URL" -f supabase/seed-staging.sql
      `SUPABASE_SERVICE_ROLE_KEY` (staging), `NEXT_PUBLIC_TEMPLATE_CLIENT_ID`, and any
      AI/maps keys you want working on the hosted staging site.
    - **Withhold:** everything in [§6](#6-withhold-list--staging-safety).
-3. Add the domain **`staging.roebel.app`** (Vercel → Domains) and the CNAME on your
+3. Add the domain **`stage.roebel.app`** (Vercel → Domains) and the CNAME on your
    `roebel.app` DNS. This is the stable URL contributors bookmark.
 4. Keep [apps/web/vercel.json](../apps/web/vercel.json) as-is — the crons are defined
    there but stay inert on staging because their secrets are withheld (see §6).
@@ -123,7 +123,7 @@ that service (test Stripe keys, a staging Resend audience, etc.) — never the p
 ## 7. Thirdweb staging client
 
 Reuse the existing public client id, or create a dedicated staging client at
-https://thirdweb.com/dashboard (add `staging.roebel.app` and `localhost:3000` to its
+https://thirdweb.com/dashboard (add `stage.roebel.app` and `localhost:3000` to its
 allowed domains). It's a public value; hand it to contributors.
 
 ## 8. Mobile — EAS `staging` build
@@ -134,7 +134,7 @@ The `staging` profile already exists in [apps/expo/eas.json](../apps/expo/eas.js
 ```bash
 cd apps/expo
 cp .env.staging.example .env          # fill staging Supabase + client id +
-                                      # EXPO_PUBLIC_MINIAPP_API_BASE=https://staging.roebel.app
+                                      # EXPO_PUBLIC_MINIAPP_API_BASE=https://stage.roebel.app
 eas build --profile staging --platform ios      # (and/or android)
 # Share the resulting internal-distribution QR/link with contributors.
 # Later JS-only changes: eas update --channel staging
@@ -145,7 +145,7 @@ staging `.env`. OTA (`eas update`) only ships JS on top of an existing build.
 ## 9. Hand-off to contributors
 
 Give contributors:
-- **https://staging.roebel.app** (zero-setup testing)
+- **https://stage.roebel.app** (zero-setup testing)
 - Staging **Supabase URL + anon key** and a **thirdweb client id** (for local dev)
 - A link to [docs/FORKING_GUIDE.md](FORKING_GUIDE.md)
 - (Optional) the EAS `staging` internal-distribution link for a real device build
@@ -162,6 +162,6 @@ Give contributors:
 
 ## Decisions recorded
 
-- **O2 → `staging.roebel.app`** (stable branded subdomain; chosen 2026-07-24).
+- **O2 → `stage.roebel.app`** (stable branded subdomain; chosen 2026-07-24).
 - **O1 → TODO** — confirm canonical migration dir during first provisioning and
   record it in §2.

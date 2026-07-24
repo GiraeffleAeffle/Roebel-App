@@ -15,7 +15,7 @@ a staging environment / how do I test this easily?"* — start with
 
 | Goal | What to do | Setup effort |
 |---|---|---|
-| Just look at / click through the app | Open **https://staging.roebel.app** | none |
+| Just look at / click through the app | Open **https://stage.roebel.app** | none |
 | Develop the **web** app | Run `apps/web` locally, point at staging Supabase | ~2 min |
 | Develop the **mobile** app | Run `apps/expo` in Expo Go, point at staging Supabase | ~5 min |
 
@@ -70,7 +70,7 @@ contributors — the affected server routes just no-op or degrade gracefully.
 cp apps/expo/.env.staging.example apps/expo/.env
 # edit apps/expo/.env — fill in the same staging Supabase URL + anon key,
 # EXPO_PUBLIC_THIRDWEB_CLIENT_ID, and keep
-# EXPO_PUBLIC_MINIAPP_API_BASE=https://staging.roebel.app
+# EXPO_PUBLIC_MINIAPP_API_BASE=https://stage.roebel.app
 
 pnpm dev:expo       # scan the QR with Expo Go
 ```
