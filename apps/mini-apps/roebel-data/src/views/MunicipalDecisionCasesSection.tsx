@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   loadRoebelActivityJournalDemo,
+  loadRoebelActivityJournalRuntimeProjection,
   loadRoebelDepartmentDemo,
   loadRoebelMarienfelderTopicContext,
   loadReviewedCivicCases,
   type CivicActivityJournalCapabilitiesV1,
   type CivicActivityJournalEventListV1,
   type CivicTopicContextV1,
+  type RoebelActivityJournalRuntimeProjectionV1,
   type ReviewedCivicCase,
   type RoebelDepartmentConnectionDemoV1,
 } from "@roebel/stadtstack-federation-client";
@@ -19,6 +21,7 @@ import {
   ShieldCheck,
 } from "../components/icons";
 import {
+  activityJournalRuntimeReceiptMatchesTopic,
   mayLoadSyntheticTopic,
   ROEBEL_MARIENFELDER_DEMO_TOPIC_BINDING,
   topicBindingMatchesCase,
@@ -296,6 +299,11 @@ export function MunicipalDemoTopicView({
           <TopicBoundarySummary context={state.context} />
           <DepartmentWalkthrough baseUrl={baseUrl} binding={binding} />
           <ActivityJournalWalkthrough baseUrl={baseUrl} binding={binding} />
+          <ActivityJournalRuntimeReceipt
+            baseUrl={baseUrl}
+            binding={binding}
+            context={state.context}
+          />
         </>
       ) : (
         <Card className="border-dashed bg-muted/25 p-4 shadow-none">
@@ -707,6 +715,121 @@ function ActivityJournalWalkthrough({
           </time>
           {" · "}für die Demo rückwirkend rekonstruiert · nur öffentlich
           geprüfte synthetische Metadaten
+        </p>
+      </div>
+    </Card>
+  );
+}
+
+type ActivityJournalRuntimeReceiptState =
+  | { status: "loading" }
+  | {
+      status: "ready";
+      receipt: RoebelActivityJournalRuntimeProjectionV1;
+    }
+  | { status: "unavailable" };
+
+/**
+ * This card is intentionally independent from the eight reconstructed public
+ * events above. It describes only a historical technical receipt that a
+ * private, metadata-only Journal checkpoint passed; it cannot render private
+ * Journal data or claim an administrative live state.
+ */
+function ActivityJournalRuntimeReceipt({
+  baseUrl,
+  binding,
+  context,
+}: {
+  baseUrl: string;
+  binding: CivicTopicBindingV1;
+  context: CivicTopicContextV1;
+}) {
+  const [state, setState] = useState<ActivityJournalRuntimeReceiptState>({
+    status: "loading",
+  });
+
+  useEffect(() => {
+    let active = true;
+    void loadRoebelActivityJournalRuntimeProjection({ baseUrl })
+      .then((receipt) => {
+        if (!active) return;
+        setState(
+          activityJournalRuntimeReceiptMatchesTopic(binding, context, receipt)
+            ? { status: "ready", receipt }
+            : { status: "unavailable" }
+        );
+      })
+      .catch(() => {
+        if (active) setState({ status: "unavailable" });
+      });
+    return () => {
+      active = false;
+    };
+  }, [baseUrl, binding, context]);
+
+  if (state.status === "loading") {
+    return <Skeleton className="h-[148px]" />;
+  }
+  if (state.status === "unavailable") {
+    return (
+      <Card className="border-dashed border-amber-300/70 bg-amber-50/35 p-4 shadow-none">
+        <p className="text-[13px] font-semibold text-foreground">
+          Technischer Journal-Nachweis nicht sicher verfügbar
+        </p>
+        <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+          Die getrennte historische Quittung passt nicht eindeutig zum
+          Demo-Thema. Es wird kein Ersatzstand angezeigt.
+        </p>
+      </Card>
+    );
+  }
+
+  const { receipt } = state;
+  return (
+    <Card className="overflow-hidden border-amber-300/70 bg-amber-50/45 shadow-sm">
+      <div className="border-b border-amber-200/80 p-4">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Pill>Demo · technischer Nachweis</Pill>
+          <Pill>historische Quittung</Pill>
+          <Pill>kein Live-Status</Pill>
+        </div>
+        <h4 className="mt-2 text-[15px] font-semibold text-foreground">
+          Privates Aktivitätsjournal technisch nachgewiesen
+        </h4>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+          {receipt.notice}
+        </p>
+      </div>
+
+      <dl className="space-y-2 p-4 text-[12px]">
+        <CaseFact
+          label="Checkpoint"
+          value={formatJournalTime(receipt.checkpointObservedAt)}
+        />
+        <CaseFact
+          label="Journal"
+          value={`${receipt.runtime.eventCount} metadata-only Ereignisse · vorwärtsgerichtet`}
+        />
+        <CaseFact
+          label="Abfrage"
+          value={`${receipt.runtime.mcpReadOnlyToolCount} schreibgeschützte Werkzeuge`}
+        />
+        <CaseFact
+          label="Sicherung"
+          value={
+            receipt.durability.backupCompleted
+              ? "Backup geprüft"
+              : "nicht nachgewiesen"
+          }
+        />
+      </dl>
+
+      <div className="border-t border-amber-200/80 px-4 py-3">
+        <p className="text-[10px] leading-relaxed text-muted-foreground">
+          Keine Journal-Ereignisinhalte, Matrix-Nachrichten, OpenProject-Daten
+          oder Tool-Eingaben sind öffentlich. Eine separate menschliche Prüfung
+          und ein neuer öffentlicher Vertrag wären erforderlich, bevor daraus
+          ein öffentlicher Verlauf entstehen könnte.
         </p>
       </div>
     </Card>

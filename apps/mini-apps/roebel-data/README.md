@@ -94,6 +94,14 @@ tampered data. It renders only static allowlisted labels; conversation content,
 tool inputs, internal documents, credentials and raw artifact identifiers stay
 out of the citizen view.
 
+The selected walkthrough can also display a separate **Privater technischer
+Nachweis** card. It reads one public-safe historical receipt only after the
+topic context and receipt repeat the same unbound synthetic topic identity. The
+card is explicitly not a live administrative status or public Journal: it
+contains no events, Matrix/OpenProject content, MCP access, documents, voting
+data, treasury data, or civic effect. If either strict contract differs, the
+card and synthetic topic fail closed.
+
 `?proposal=<id-or-transaction-hash>` remains a distinct route. If a URL contains
 both selectors, the real proposal route wins and the synthetic topic is
 suppressed. Proposal title, category and tags are never used to infer a
