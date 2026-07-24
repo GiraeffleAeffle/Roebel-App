@@ -1,0 +1,47 @@
+name: EAS Update (staging, auto)
+
+# Auto-publishes a JS/asset OTA update to the `staging` EAS channel whenever code
+# lands on the `staging` branch. The shared staging dev build (eas build
+# --profile staging) listens on this channel and picks the update up on next
+# launch — so a contributor's merged changes go live WITHOUT anyone sharing EAS
+# credentials. Uses the maintainer's EXPO_TOKEN secret already configured in the
+# repo. NOTE: OTA ships JS + assets only; NATIVE changes (new native module, SDK
+# bump, app.config plugin/permission change, runtimeVersion bump) still require a
+# fresh `eas build`.
+
+on:
+  push:
+    branches: [staging]
+    paths:
+      - "apps/expo/**"
+      - "packages/**"
+      - ".github/workflows/eas-update-staging.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: eas-update-staging
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Publish OTA update to the staging channel
+        working-directory: apps/expo
+        run: eas update --channel staging --auto --non-interactive
