@@ -44,11 +44,21 @@ RUN test -n "$NEXT_PUBLIC_STADTSTACK_PUBLIC_BASE_URL" && \
 
 FROM node:22-bookworm-slim AS runner
 
+ARG SOURCE_REVISION
+ARG STADTSTACK_PREVIEW_CONTRACT_SHA256
+
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     HOSTNAME=0.0.0.0 \
     PORT=3000
 WORKDIR /app
+
+LABEL org.opencontainers.image.source="https://github.com/GiraeffleAeffle/Roebel-App" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      stadtstack.io/preview-contract-sha256="${STADTSTACK_PREVIEW_CONTRACT_SHA256}" \
+      stadtstack.io/authority="none" \
+      stadtstack.io/classification="synthetic-demo-only" \
+      stadtstack.io/write-posture="read-only-public-preview"
 
 RUN groupadd --system --gid 1001 nextjs && \
     useradd --system --uid 1001 --gid nextjs nextjs
