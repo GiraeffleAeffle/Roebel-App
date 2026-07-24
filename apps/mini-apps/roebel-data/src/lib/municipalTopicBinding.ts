@@ -1,3 +1,5 @@
+import type { RoebelActivityJournalRuntimeProjectionV1 } from "@roebel/stadtstack-federation-client";
+
 export const ROEBEL_MARIENFELDER_DEMO_TOPIC_SELECTOR =
   "roebel-marienfelder-strasse-demo" as const;
 
@@ -38,7 +40,7 @@ export const ROEBEL_MARIENFELDER_DEMO_TOPIC_BINDING = {
 } as const satisfies CivicTopicBindingV1;
 
 export function civicTopicBindingForSelector(
-  selector: string | null | undefined,
+  selector: string | null | undefined
 ): CivicTopicBindingV1 | null {
   return selector === ROEBEL_MARIENFELDER_DEMO_TOPIC_SELECTOR
     ? ROEBEL_MARIENFELDER_DEMO_TOPIC_BINDING
@@ -67,7 +69,7 @@ export function topicBindingMatchesCase(
   caseKey: {
     municipalityId: string;
     decisionCaseSlug: string;
-  },
+  }
 ): boolean {
   return (
     binding.municipalityId === caseKey.municipalityId &&
@@ -93,7 +95,7 @@ export function topicContextMatchesBinding(
       proposalNumber: number | null;
       reviewedBindingArtifactRef: string | null;
     };
-  },
+  }
 ): boolean {
   return (
     binding.topicId === context.topic.topicId &&
@@ -109,6 +111,59 @@ export function topicContextMatchesBinding(
     context.externalProposalBinding.proposalId === null &&
     context.externalProposalBinding.proposalNumber === null &&
     context.externalProposalBinding.reviewedBindingArtifactRef === null
+  );
+}
+
+/**
+ * The historical runtime receipt is deliberately a separate read from the
+ * reconstructed eight-event timeline. It can be displayed only when both
+ * public endpoints repeat the exact, unbound synthetic topic identity.
+ */
+export function activityJournalRuntimeReceiptMatchesTopic(
+  binding: CivicTopicBindingV1,
+  context: {
+    topic: {
+      topicId: string;
+      municipalityId: string;
+      decisionCaseSlug: string;
+      classification: string;
+      truthState: string;
+      authority: string;
+    };
+    externalProposalBinding: {
+      system: string;
+      status: string;
+      proposalId: string | null;
+      proposalNumber: number | null;
+      reviewedBindingArtifactRef: string | null;
+    };
+    modules: {
+      activityJournal: {
+        runtimeReceipt: {
+          status: string;
+          checkpointObservedAt: string;
+          eventCount: number;
+          backfilled: boolean;
+          publicProjectionState: string;
+        };
+      };
+    };
+  },
+  receipt: RoebelActivityJournalRuntimeProjectionV1
+): boolean {
+  const expected = context.modules.activityJournal.runtimeReceipt;
+  return (
+    topicContextMatchesBinding(binding, context) &&
+    receipt.caseKey.municipalityId === binding.municipalityId &&
+    receipt.caseKey.decisionCaseSlug === binding.decisionCaseSlug &&
+    receipt.caseKey.topicRef === binding.topicId &&
+    receipt.truthState === binding.truthState &&
+    receipt.authority === binding.authorityBinding &&
+    expected.status === "historical_verified_private_runtime" &&
+    receipt.checkpointObservedAt === expected.checkpointObservedAt &&
+    receipt.runtime.eventCount === expected.eventCount &&
+    receipt.runtime.backfilled === expected.backfilled &&
+    receipt.runtime.publicProjectionState === expected.publicProjectionState
   );
 }
 

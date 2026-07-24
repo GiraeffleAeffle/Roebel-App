@@ -37,6 +37,13 @@ for the Röbel proposal, vote and treasury bindings. All mutation-effect fields
 are pinned to `false`; unknown fields, changed proof headers or any attempted
 real proposal binding fail closed.
 
+The walkthrough can additionally show one separate public-safe runtime receipt
+at `/api/demo/roebel-marienfelder/activity-journal/runtime-projection`. It is
+not a public Journal feed: it proves only a historical, metadata-only private
+technical checkpoint for the same unbound synthetic topic. The client requires
+the topic-context `runtimeReceipt` summary, exact privacy headers, zero public
+events, and no access to Matrix, OpenProject, MCP, or internal Journal content.
+
 ```ts
 import { loadReviewedCivicCases } from "@roebel/stadtstack-federation-client";
 
