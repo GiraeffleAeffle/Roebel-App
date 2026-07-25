@@ -13,6 +13,11 @@ describe('deriveTitle', () => {
   it('falls back to "Neuer Chat" on empty input', () => {
     expect(deriveTitle('   ')).toBe('Neuer Chat');
   });
+  it('hard-cuts at MAX_TITLE when there is no space within the first ~20 chars of the slice', () => {
+    const t = deriveTitle('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
+    expect(t.length).toBeLessThanOrEqual(49);
+    expect(t.endsWith('…')).toBe(true);
+  });
 });
 
 describe('rowToMeckyMessage', () => {
@@ -38,6 +43,14 @@ describe('rowToMeckyMessage', () => {
     };
     const m = rowToMeckyMessage(row);
     expect(m.richCards).toBeUndefined();
+    expect(m.navigationLinks).toBeUndefined();
+  });
+  it('omits navigationLinks when nav_links is a non-null empty array', () => {
+    const row: MeckyMessageRow = {
+      id: 'm3', conversation_id: 'c1', role: 'assistant', content: 'Kein Link',
+      rich_cards: null, nav_links: [], created_at: '2026-07-25T10:02:00.000Z',
+    };
+    const m = rowToMeckyMessage(row);
     expect(m.navigationLinks).toBeUndefined();
   });
 });
