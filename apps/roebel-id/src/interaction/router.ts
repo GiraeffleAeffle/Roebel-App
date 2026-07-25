@@ -4,10 +4,10 @@ import type { AuthBridge } from '../auth-bridge/types.js'
 import { renderLoginPage } from './login-page.js'
 
 export function createInteractionRouter(deps: {
-  provider: Provider; bridge: AuthBridge; thirdwebClientId: string; chainId: number
+  provider: Provider; bridge: AuthBridge; thirdwebClientId: string; chainId: number; nextcloudClientId: string
 }): express.Router {
   const router = express.Router()
-  const { provider, bridge } = deps
+  const { provider, bridge, nextcloudClientId } = deps
 
   router.get('/interaction/:uid', async (req, res, next) => {
     try {
@@ -27,6 +27,14 @@ export function createInteractionRouter(deps: {
       const details = await provider.interactionDetails(req, res)
       const { params } = details
 
+      // Pre-granting consent (below) is only safe for the one first-party client Röbel ID is
+      // configured to trust. A future second, less-trusted client must NOT silently receive an
+      // auto-grant — fail closed rather than skip a consent screen that doesn't exist yet.
+      if (params.client_id !== nextcloudClientId) {
+        res.status(400).json({ error: 'unsupported_client' })
+        return
+      }
+
       // Röbel ID is a first-party IdP for Nextcloud (and future Röbel-run services) — there is
       // no third-party consent screen to show. Pre-grant the requested scope in the same
       // request that finishes login so oidc-provider's default `consent` prompt (which would
@@ -43,8 +51,11 @@ export function createInteractionRouter(deps: {
         { mergeWithLastSubmission: false },
       )
       res.json({ redirectTo })
-    } catch (e: any) {
-      res.status(401).json({ error: e.message })
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      // eslint-disable-next-line no-console
+      console.error('interaction login failed:', message)
+      res.status(401).json({ error: 'authentication_failed' })
     }
   })
 
