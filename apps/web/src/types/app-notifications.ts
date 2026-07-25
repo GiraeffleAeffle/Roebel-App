@@ -7,6 +7,7 @@ export type AppNotificationType =
   | "proposal_new"
   | "deal_new"
   | "alert_new"
+  | "story_new"
 
 export interface AppNotification {
   id: string
