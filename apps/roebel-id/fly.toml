@@ -1,0 +1,16 @@
+app = "roebel-id"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 3010
+  force_https = true
+  auto_stop_machines = false
+  min_machines_running = 1
+
+[[http_service.checks]]
+  path = "/healthz"
+  interval = "15s"
+  timeout = "2s"
