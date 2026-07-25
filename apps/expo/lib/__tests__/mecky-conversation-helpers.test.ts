@@ -66,4 +66,17 @@ describe('rowsToHistory', () => {
       { role: 'assistant', content: 'Moin!' },
     ]);
   });
+
+  it('omits rows with empty or whitespace-only content (rich-cards-only assistant turns) while keeping non-empty rows in order', () => {
+    const rows: MeckyMessageRow[] = [
+      { id: 'm1', conversation_id: 'c1', role: 'user', content: 'Zeig mir Events', rich_cards: null, nav_links: null, created_at: '2026-07-25T10:00:00Z' },
+      { id: 'm2', conversation_id: 'c1', role: 'assistant', content: '', rich_cards: { type: 'events', items: [{ id: 'e1' }] }, nav_links: null, created_at: '2026-07-25T10:01:00Z' },
+      { id: 'm3', conversation_id: 'c1', role: 'assistant', content: '   ', rich_cards: null, nav_links: [{ route: '/events', label: 'Alle Events' }], created_at: '2026-07-25T10:01:30Z' },
+      { id: 'm4', conversation_id: 'c1', role: 'user', content: 'Danke!', rich_cards: null, nav_links: null, created_at: '2026-07-25T10:02:00Z' },
+    ];
+    expect(rowsToHistory(rows)).toEqual([
+      { role: 'user', content: 'Zeig mir Events' },
+      { role: 'user', content: 'Danke!' },
+    ]);
+  });
 });

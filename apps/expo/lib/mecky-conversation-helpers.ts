@@ -26,5 +26,7 @@ export function rowToMeckyMessage(row: MeckyMessageRow): MeckyMessage {
 }
 
 export function rowsToHistory(rows: MeckyMessageRow[]): AnthropicMessage[] {
-  return rows.map((r) => ({ role: r.role, content: r.content }));
+  return rows
+    .filter((r) => r.content.trim().length > 0)
+    .map((r) => ({ role: r.role, content: r.content }));
 }
