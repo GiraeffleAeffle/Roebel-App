@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Modal,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,17 +18,74 @@ import { useMecky } from '@/context/MeckyContext';
 import { useConsent } from '@/context/ConsentContext';
 import MeckyChatBubble from '@/components/mecky/MeckyChatBubble';
 import ChatInput from '@/components/messages/ChatInput';
-import type { MeckyMessage } from '@/lib/types/mecky';
+import { formatRelativeTimestamp } from '@/lib/utils';
+import type { MeckyMessage, MeckyConversation } from '@/lib/types/mecky';
 
 import ChevronLeftIcon from '@/assets/icons/chevron-left.svg';
+import ChevronRightIcon from '@/assets/icons/chevron-right.svg';
 
 export default function MeckyScreen() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { messages, isStreaming, streamingText, isEnabled, sendMessage, clearConversation } =
-    useMecky();
+  const {
+    messages,
+    isStreaming,
+    streamingText,
+    isEnabled,
+    sendMessage,
+    conversations,
+    currentConversationId,
+    selectConversation,
+    newConversation,
+  } = useMecky();
   const { setPreference } = useConsent();
   const listRef = useRef<FlatList>(null);
+  const [showConversations, setShowConversations] = useState(false);
+
+  const currentTitle =
+    conversations.find((c) => c.id === currentConversationId)?.title ?? 'Mecky';
+
+  // In-flight guard: switching threads mid-stream would let the current
+  // turn's onComplete append onto the wrong conversation, so both the
+  // "Neuer Chat" action and thread selection are disabled while streaming.
+  const handleNewChat = () => {
+    if (isStreaming) return;
+    newConversation();
+  };
+
+  const handleOpenConversations = () => {
+    if (isStreaming) return;
+    setShowConversations(true);
+  };
+
+  const handleSelectConversation = async (id: string) => {
+    if (isStreaming) return;
+    setShowConversations(false);
+    await selectConversation(id);
+  };
+
+  const renderConversationRow = ({ item }: { item: MeckyConversation }) => (
+    <Pressable
+      onPress={() => handleSelectConversation(item.id)}
+      disabled={isStreaming}
+      style={[
+        styles.conversationRow,
+        { borderBottomColor: colors.borderSecondary },
+        item.id === currentConversationId && { backgroundColor: colors.primaryLight },
+        isStreaming && styles.controlDisabled,
+      ]}
+    >
+      <Text
+        style={[styles.conversationTitle, { color: colors.textPrimary }]}
+        numberOfLines={1}
+      >
+        {item.title}
+      </Text>
+      <Text style={[styles.conversationTime, { color: colors.textTertiary }]}>
+        {formatRelativeTimestamp(item.last_message_at)}
+      </Text>
+    </Pressable>
+  );
 
   // Build display list: messages + streaming indicator
   const displayData: (MeckyMessage | { id: string; type: 'streaming' })[] = [
@@ -79,18 +137,35 @@ export default function MeckyScreen() {
         <Pressable onPress={() => router.back()} style={styles.backButton}>
           <ChevronLeftIcon width={24} height={24} color={colors.textPrimary} />
         </Pressable>
-        <View style={styles.headerCenter}>
+        <Pressable
+          onPress={handleOpenConversations}
+          disabled={isStreaming}
+          style={[styles.headerCenter, isStreaming && styles.controlDisabled]}
+        >
           <Image
             source={require('@/assets/illustration/mecky/welcome.png')}
             style={styles.headerAvatar}
             contentFit="cover"
           />
-          <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>
-            Mecky
+          <Text
+            style={[styles.headerTitle, { color: colors.textPrimary }]}
+            numberOfLines={1}
+          >
+            {currentTitle}
           </Text>
-        </View>
-        <Pressable onPress={clearConversation} style={styles.clearButton}>
-          <Text style={[styles.clearText, { color: colors.textTertiary }]}>Neu</Text>
+          <ChevronRightIcon
+            width={14}
+            height={14}
+            color={colors.textTertiary}
+            style={styles.headerChevron}
+          />
+        </Pressable>
+        <Pressable
+          onPress={handleNewChat}
+          disabled={isStreaming}
+          style={[styles.clearButton, isStreaming && styles.controlDisabled]}
+        >
+          <Text style={[styles.clearText, { color: colors.primary }]}>Neuer Chat</Text>
         </Pressable>
       </View>
 
@@ -168,6 +243,34 @@ export default function MeckyScreen() {
           </SafeAreaView>
         </KeyboardAvoidingView>
       )}
+
+      {/* Conversations list */}
+      <Modal
+        visible={showConversations}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowConversations(false)}
+      >
+        <Pressable style={styles.menuBackdrop} onPress={() => setShowConversations(false)}>
+          <View
+            style={[styles.menuCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          >
+            <Text style={[styles.menuHeading, { color: colors.textPrimary }]}>Chats</Text>
+            {conversations.length === 0 ? (
+              <Text style={[styles.menuEmptyText, { color: colors.textSecondary }]}>
+                Noch keine Chats
+              </Text>
+            ) : (
+              <FlatList
+                data={conversations}
+                keyExtractor={(item) => item.id}
+                renderItem={renderConversationRow}
+                style={styles.menuList}
+              />
+            )}
+          </View>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -194,7 +297,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 6,
+    paddingHorizontal: 4,
   },
   headerAvatar: {
     width: 32,
@@ -202,14 +306,21 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   headerTitle: {
+    flexShrink: 1,
     fontSize: 18,
     fontFamily: 'MonaSansSemiCondensed-SemiBold',
   },
+  headerChevron: {
+    transform: [{ rotate: '90deg' }],
+  },
+  controlDisabled: {
+    opacity: 0.4,
+  },
   clearButton: {
-    width: 40,
-    height: 40,
+    minHeight: 40,
     justifyContent: 'center',
     alignItems: 'flex-end',
+    paddingLeft: 8,
   },
   clearText: {
     fontSize: 14,
@@ -307,5 +418,48 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: 'Inter-Medium',
     textDecorationLine: 'underline',
+  },
+  menuBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'flex-end',
+  },
+  menuCard: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingTop: 16,
+    paddingBottom: 24,
+    maxHeight: '70%',
+  },
+  menuHeading: {
+    fontSize: 16,
+    fontFamily: 'Inter-SemiBold',
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+  },
+  menuList: {
+    flexShrink: 1,
+  },
+  menuEmptyText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    textAlign: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+  },
+  conversationRow: {
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  conversationTitle: {
+    fontSize: 15,
+    fontFamily: 'Inter-Medium',
+    marginBottom: 2,
+  },
+  conversationTime: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
   },
 });

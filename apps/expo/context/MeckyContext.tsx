@@ -19,15 +19,27 @@ import { getMeckySystemPrompt } from '@/lib/prompts/mecky-system-prompt';
 import { useConsent } from '@/context/ConsentContext';
 import { Events, track } from '@/lib/analytics';
 import type { AnthropicMessage } from '@/lib/types/anthropic';
-import type { MeckyMessage, RichCardData, NavigationLink } from '@/lib/types/mecky';
+import type { MeckyMessage, MeckyConversation, RichCardData, NavigationLink } from '@/lib/types/mecky';
+import {
+  listConversations,
+  createConversation,
+  getConversationMessages,
+  appendMessage,
+} from '@/lib/supabase-mecky-conversations';
+import { deriveTitle, rowToMeckyMessage, rowsToHistory } from '@/lib/mecky-conversation-helpers';
 
 interface MeckyContextValue {
   messages: MeckyMessage[];
   isStreaming: boolean;
   streamingText: string;
   isEnabled: boolean;
+  currentConversationId: string | null;
+  conversations: MeckyConversation[];
   sendMessage: (text: string) => Promise<void>;
   clearConversation: () => void;
+  selectConversation: (id: string) => Promise<void>;
+  newConversation: () => void;
+  refreshConversations: () => Promise<void>;
 }
 
 const MeckyContext = createContext<MeckyContextValue | undefined>(undefined);
@@ -43,11 +55,28 @@ export function MeckyProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<MeckyMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState('');
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<MeckyConversation[]>([]);
+
+  const walletLower = account?.address?.toLowerCase();
 
   // Drop the cached client when consent is withdrawn so no stale config sticks.
   useEffect(() => {
     if (!isEnabled) disposeAnthropicChatService();
   }, [isEnabled]);
+
+  const refreshConversations = useCallback(async () => {
+    if (!walletLower) return;
+    setConversations(await listConversations(walletLower));
+  }, [walletLower]);
+
+  // Load the conversation list once a wallet becomes available.
+  useEffect(() => {
+    if (walletLower) {
+      refreshConversations();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account?.address]);
 
   // Anthropic conversation history (includes tool calls/results)
   const historyRef = useRef<AnthropicMessage[]>([]);
@@ -102,10 +131,41 @@ export function MeckyProvider({ children }: { children: React.ReactNode }) {
         historyRef.current = historyRef.current.slice(-40);
       }
 
-      // Reset streaming state
+      // Reset streaming state — do this BEFORE any persistence I/O so the
+      // send button disables immediately and a second tap can't re-enter
+      // this function while `currentConversationId` is still null (which
+      // would otherwise race two conversation creations / two concurrent
+      // streams sharing historyRef/toolResultsRef).
       setIsStreaming(true);
       setStreamingText('');
       toolResultsRef.current = { richCards: [], navLinks: [] };
+
+      // Persistence: lazily create a conversation thread on the first message
+      // of a turn, then persist the user message. Use a local convId through
+      // the rest of this turn — currentConversationId state won't have
+      // updated yet within this closure. Persistence is best-effort and must
+      // never gate the chat turn: any failure here is logged and swallowed,
+      // and we fall through to streaming regardless.
+      let convId = currentConversationId;
+      try {
+        if (walletLower && convId === null) {
+          const res = await createConversation(walletLower, { title: deriveTitle(text.trim()) });
+          if (res.success) {
+            convId = res.data.id;
+            setCurrentConversationId(convId);
+          } else {
+            console.error('Mecky createConversation failed:', res.error);
+          }
+        }
+        if (walletLower && convId) {
+          const res = await appendMessage(convId, { role: 'user', content: text.trim() });
+          if (!res.success) {
+            console.error('Mecky appendMessage (user) failed:', res.error);
+          }
+        }
+      } catch (error) {
+        console.error('Mecky pre-stream persistence error:', error);
+      }
 
       try {
         const service = getAnthropicChatService(true);
@@ -139,7 +199,7 @@ export function MeckyProvider({ children }: { children: React.ReactNode }) {
                 });
               }
             },
-            onComplete: (history: AnthropicMessage[]) => {
+            onComplete: async (history: AnthropicMessage[]) => {
               // Update full history with tool calls included
               historyRef.current = history;
 
@@ -163,6 +223,27 @@ export function MeckyProvider({ children }: { children: React.ReactNode }) {
               setMessages((prev) => [...prev, assistantMsg]);
               setStreamingText('');
               setIsStreaming(false);
+
+              // Persistence is best-effort and must never crash the stream
+              // completion path — anthropic-chat.ts calls onComplete without
+              // awaiting it, so an uncaught throw here becomes an unhandled
+              // rejection.
+              if (walletLower && convId) {
+                try {
+                  const res = await appendMessage(convId, {
+                    role: 'assistant',
+                    content: assistantMsg.content,
+                    richCards: assistantMsg.richCards ?? null,
+                    navLinks: assistantMsg.navigationLinks ?? null,
+                  });
+                  if (!res.success) {
+                    console.error('Mecky appendMessage (assistant) failed:', res.error);
+                  }
+                  await refreshConversations();
+                } catch (error) {
+                  console.error('Mecky onComplete persistence error:', error);
+                }
+              }
             },
             onError: (error: Error) => {
               console.error('Mecky stream error:', error);
@@ -185,12 +266,28 @@ export function MeckyProvider({ children }: { children: React.ReactNode }) {
         setIsStreaming(false);
       }
     },
-    [isStreaming, isEnabled, account?.address]
+    [isStreaming, isEnabled, account?.address, walletLower, currentConversationId, refreshConversations]
   );
 
-  const clearConversation = useCallback(() => {
+  // Clears in-memory state and detaches from the current thread; a fresh
+  // thread is created lazily on the next sent message.
+  const newConversation = useCallback(() => {
     setMessages([]);
     historyRef.current = [];
+    setStreamingText('');
+    setCurrentConversationId(null);
+  }, []);
+
+  // Kept for backwards compatibility with existing call sites.
+  const clearConversation = useCallback(() => {
+    newConversation();
+  }, [newConversation]);
+
+  const selectConversation = useCallback(async (id: string) => {
+    const rows = await getConversationMessages(id);
+    setMessages(rows.map(rowToMeckyMessage));
+    historyRef.current = rowsToHistory(rows).slice(-40);
+    setCurrentConversationId(id);
     setStreamingText('');
   }, []);
 
@@ -200,10 +297,27 @@ export function MeckyProvider({ children }: { children: React.ReactNode }) {
       isStreaming,
       streamingText,
       isEnabled,
+      currentConversationId,
+      conversations,
       sendMessage,
       clearConversation,
+      selectConversation,
+      newConversation,
+      refreshConversations,
     }),
-    [messages, isStreaming, streamingText, isEnabled, sendMessage, clearConversation]
+    [
+      messages,
+      isStreaming,
+      streamingText,
+      isEnabled,
+      currentConversationId,
+      conversations,
+      sendMessage,
+      clearConversation,
+      selectConversation,
+      newConversation,
+      refreshConversations,
+    ]
   );
 
   return (
