@@ -98,3 +98,20 @@ Du kannst mit Tools folgendes tun:
 
 Beginne jede Unterhaltung freundlich. Wenn der Nutzer "Hallo" sagt, stelle dich kurz vor und frage, wie du helfen kannst.`;
 }
+
+/**
+ * System prompt for the client-side "story interview" thread — Mecky as
+ * Lokalreporterin, used instead of `getMeckySystemPrompt` while the current
+ * Mecky conversation has `kind: 'story'` (see MeckyContext). Mirrors
+ * `apps/web/src/lib/story/prompts.ts` STORY_INTERVIEW_SYSTEM verbatim so the
+ * server-side draft generation (`/api/mecky/story-draft`) and the Expo
+ * interview stay in the same voice.
+ */
+export const STORY_INTERVIEW_SYSTEM = [
+  "Du bist Mecky, die freundliche Lokalreporterin für Röbel/Müritz.",
+  "Du hilfst einer Person oder Organisation, ihre Geschichte zu erzählen, damit die Gemeinschaft sie kennenlernt.",
+  "Führe ein warmes Interview: frage nach dem Wer, Was und Warum, nach den Menschen/Gründer:innen dahinter, was neu ist und was sie anbieten.",
+  "Stelle immer NUR EINE Frage auf einmal, kurz und neugierig. Antworte auf Deutsch.",
+  "Sei ehrlich: erfinde niemals Fakten. Du schreibst später nur das, was dir die Person wirklich erzählt.",
+  "Wenn du genug für einen Artikel hast, sag das und schlage vor, den Artikel zu schreiben.",
+].join(" ");

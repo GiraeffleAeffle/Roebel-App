@@ -16,13 +16,29 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '@/context/ThemeContext';
 import { useMecky } from '@/context/MeckyContext';
 import { useConsent } from '@/context/ConsentContext';
+import { useAccount } from '@/context/AccountContext';
+import { useUser } from '@/context/UserContext';
 import MeckyChatBubble from '@/components/mecky/MeckyChatBubble';
 import ChatInput from '@/components/messages/ChatInput';
 import { formatRelativeTimestamp } from '@/lib/utils';
+import { requestStoryDraft, publishStoryRemote } from '@/lib/story-api';
+import { getBlogArticleById } from '@/lib/supabase-blog-articles';
 import type { MeckyMessage, MeckyConversation } from '@/lib/types/mecky';
 
 import ChevronLeftIcon from '@/assets/icons/chevron-left.svg';
 import ChevronRightIcon from '@/assets/icons/chevron-right.svg';
+
+// Minimum user turns in a story thread before Mecky has "enough" for an
+// article — mirrors the STORY_INTERVIEW_SYSTEM guidance ("wenn du genug für
+// einen Artikel hast, sag das").
+const MIN_STORY_USER_TURNS = 2;
+
+type StoryDraftPreview = {
+  articleId: string;
+  slug?: string;
+  title: string;
+  excerpt: string | null;
+};
 
 export default function MeckyScreen() {
   const router = useRouter();
@@ -37,10 +53,82 @@ export default function MeckyScreen() {
     currentConversationId,
     selectConversation,
     newConversation,
+    startStoryThread,
+    isStoryThread,
   } = useMecky();
   const { setPreference } = useConsent();
+  const { activeAccount } = useAccount();
+  const { user } = useUser();
+  const wallet = user?.wallet_address;
   const listRef = useRef<FlatList>(null);
   const [showConversations, setShowConversations] = useState(false);
+
+  // Story action-bar state (draft → preview → publish). Reset whenever the
+  // thread changes so switching away from a story and back doesn't carry a
+  // stale draft/publish result along.
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [draftArticle, setDraftArticle] = useState<StoryDraftPreview | null>(null);
+  const [publishLoading, setPublishLoading] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraftLoading(false);
+    setDraftError(null);
+    setDraftArticle(null);
+    setPublishLoading(false);
+    setPublishError(null);
+  }, [currentConversationId]);
+
+  const userStoryTurns = messages.filter((m) => m.role === 'user').length;
+
+  const handleStartStory = () => {
+    if (isStreaming) return;
+    startStoryThread();
+  };
+
+  const handleWriteArticle = async () => {
+    if (!currentConversationId || !activeAccount?.id || !wallet || draftLoading) return;
+    setDraftLoading(true);
+    setDraftError(null);
+    const res = await requestStoryDraft({
+      conversationId: currentConversationId,
+      subject: { kind: 'other', name: activeAccount.name || 'Röbel Bürger:in' },
+      accountId: activeAccount.id,
+      authorAccountId: activeAccount.id,
+      walletAddress: wallet,
+    });
+    if (!res.success || !res.articleId) {
+      setDraftLoading(false);
+      setDraftError(res.error || 'Artikel konnte nicht erstellt werden.');
+      return;
+    }
+    const article = await getBlogArticleById(res.articleId);
+    setDraftLoading(false);
+    setDraftArticle({
+      articleId: res.articleId,
+      slug: res.slug,
+      title: article?.title ?? 'Deine Geschichte',
+      excerpt: article?.excerpt ?? null,
+    });
+  };
+
+  const handlePublish = async () => {
+    if (!draftArticle || !activeAccount?.id || !wallet || publishLoading) return;
+    setPublishLoading(true);
+    setPublishError(null);
+    const res = await publishStoryRemote({
+      articleId: draftArticle.articleId,
+      accountId: activeAccount.id,
+      walletAddress: wallet,
+    });
+    setPublishLoading(false);
+    if (!res.success) {
+      setPublishError(res.error || 'Veröffentlichen ist fehlgeschlagen.');
+      return;
+    }
+    router.push(`/blog/${draftArticle.articleId}` as any);
+  };
 
   const currentTitle =
     conversations.find((c) => c.id === currentConversationId)?.title ?? 'Mecky';
@@ -230,9 +318,103 @@ export default function MeckyScreen() {
                 <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
                   Frag mich nach Events, Restaurants, Nachrichten oder was auch immer du über Röbel wissen willst!
                 </Text>
+                {!isStoryThread && (
+                  <Pressable
+                    onPress={handleStartStory}
+                    disabled={isStreaming}
+                    style={[
+                      styles.storyStartButton,
+                      { borderColor: colors.primary },
+                      isStreaming && styles.controlDisabled,
+                    ]}
+                    accessibilityRole="button"
+                  >
+                    <Text style={[styles.storyStartLabel, { color: colors.primary }]}>
+                      📝 Erzähl deine Geschichte
+                    </Text>
+                  </Pressable>
+                )}
               </View>
             }
           />
+
+          {/* Story action bar: interview → Artikel schreiben → Veröffentlichen */}
+          {isStoryThread && (
+            <View
+              style={[
+                styles.storyBar,
+                { backgroundColor: colors.surface, borderTopColor: colors.border },
+              ]}
+            >
+              {!draftArticle ? (
+                userStoryTurns >= MIN_STORY_USER_TURNS ? (
+                  <Pressable
+                    onPress={handleWriteArticle}
+                    disabled={draftLoading || isStreaming}
+                    style={[
+                      styles.storyPrimaryButton,
+                      { backgroundColor: colors.primary },
+                      (draftLoading || isStreaming) && styles.controlDisabled,
+                    ]}
+                    accessibilityRole="button"
+                  >
+                    {draftLoading ? (
+                      <ActivityIndicator size="small" color={colors.onPrimary} />
+                    ) : (
+                      <Text style={[styles.storyPrimaryLabel, { color: colors.onPrimary }]}>
+                        Artikel schreiben
+                      </Text>
+                    )}
+                  </Pressable>
+                ) : (
+                  <Text style={[styles.storyHint, { color: colors.textTertiary }]}>
+                    Erzähl Mecky noch etwas mehr — dann kann sie deinen Artikel schreiben.
+                  </Text>
+                )
+              ) : (
+                <View style={styles.storyPreview}>
+                  <Text
+                    style={[styles.storyPreviewTitle, { color: colors.textPrimary }]}
+                    numberOfLines={2}
+                  >
+                    {draftArticle.title}
+                  </Text>
+                  {!!draftArticle.excerpt && (
+                    <Text
+                      style={[styles.storyPreviewExcerpt, { color: colors.textSecondary }]}
+                      numberOfLines={3}
+                    >
+                      {draftArticle.excerpt}
+                    </Text>
+                  )}
+                  <Pressable
+                    onPress={handlePublish}
+                    disabled={publishLoading}
+                    style={[
+                      styles.storyPrimaryButton,
+                      { backgroundColor: colors.primary },
+                      publishLoading && styles.controlDisabled,
+                    ]}
+                    accessibilityRole="button"
+                  >
+                    {publishLoading ? (
+                      <ActivityIndicator size="small" color={colors.onPrimary} />
+                    ) : (
+                      <Text style={[styles.storyPrimaryLabel, { color: colors.onPrimary }]}>
+                        Veröffentlichen
+                      </Text>
+                    )}
+                  </Pressable>
+                </View>
+              )}
+              {!!draftError && (
+                <Text style={[styles.storyErrorText, { color: colors.error }]}>{draftError}</Text>
+              )}
+              {!!publishError && (
+                <Text style={[styles.storyErrorText, { color: colors.error }]}>{publishError}</Text>
+              )}
+            </View>
+          )}
 
           {/* Input */}
           <SafeAreaView
@@ -278,6 +460,56 @@ export default function MeckyScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  storyStartButton: {
+    marginTop: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 14,
+    borderWidth: 1.5,
+  },
+  storyStartLabel: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+  },
+  storyBar: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 8,
+  },
+  storyHint: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    textAlign: 'center',
+    paddingVertical: 4,
+  },
+  storyPrimaryButton: {
+    paddingVertical: 12,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  storyPrimaryLabel: {
+    fontSize: 15,
+    fontFamily: 'Inter-SemiBold',
+  },
+  storyPreview: {
+    gap: 8,
+  },
+  storyPreviewTitle: {
+    fontSize: 15,
+    fontFamily: 'Inter-SemiBold',
+  },
+  storyPreviewExcerpt: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    lineHeight: 18,
+  },
+  storyErrorText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    textAlign: 'center',
   },
   header: {
     flexDirection: 'row',

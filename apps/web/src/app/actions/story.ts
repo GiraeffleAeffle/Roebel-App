@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createAppNotification } from "@/app/actions/app-notifications";
 import { buildStoryTeaserPost } from "@/lib/story/feed-post";
 import { createConversation } from "@/lib/mecky/conversation-store";
 
@@ -147,12 +146,27 @@ export async function publishStory(
         console.error("[publishStory] teaser post pipeline failed", teaserError);
       }
 
-      createAppNotification({
-        type: "story_new",
-        title: "Neue Geschichte aus Röbel",
-        link: `/app/blog/${articleId}`,
-        image_url: article.cover_image_url ?? undefined,
-      }).catch(console.error);
+      // `createAppNotification` reads a cookie/request-scoped Supabase client
+      // (`@/lib/supabase/server`). Called server-to-server from Expo (no
+      // Next.js session/cookies), that client silently drops the insert — no
+      // error surfaces, the notification just never lands. Use the admin
+      // client already in scope here instead, writing the same columns
+      // `createAppNotification` would. Best-effort: never turn an
+      // already-published article into a failure.
+      try {
+        const { error: notifErr } = await admin.from("app_notifications").insert({
+          type: "story_new",
+          title: "Neue Geschichte aus Röbel",
+          body: null,
+          link: `/app/blog/${articleId}`,
+          image_url: article.cover_image_url ?? null,
+        });
+        if (notifErr) {
+          console.error("[publishStory] app_notifications insert failed", notifErr);
+        }
+      } catch (notifError) {
+        console.error("[publishStory] notification insert failed", notifError);
+      }
     }
 
     revalidatePath("/app");
