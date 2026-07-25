@@ -72,37 +72,44 @@ export async function publishStory(
       return { success: false, error: "Artikel konnte nicht veröffentlicht werden." };
     }
 
-    const { post, link } = buildStoryTeaserPost(
-      {
-        id: articleId,
-        title: article.title,
-        excerpt: article.excerpt ?? "",
-        cover_image_url: article.cover_image_url ?? null,
-      },
-      { accountId, walletAddress: wallet },
-    );
+    // Best-effort from here on: the article is ALREADY published at this
+    // point (the primary success criterion). The teaser post / post_links /
+    // notification are secondary side-effects — a failure in any of them
+    // must never turn an already-published article into `{success:false}`.
+    let postId: string | undefined;
+    try {
+      const { post, link } = buildStoryTeaserPost(
+        {
+          id: articleId,
+          title: article.title,
+          excerpt: article.excerpt ?? "",
+          cover_image_url: article.cover_image_url ?? null,
+        },
+        { accountId, walletAddress: wallet },
+      );
 
-    const { data: insertedPost, error: postErr } = await admin
-      .from("posts")
-      .insert(post)
-      .select("id")
-      .single();
+      const { data: insertedPost, error: postErr } = await admin
+        .from("posts")
+        .insert(post)
+        .select("id")
+        .single();
 
-    if (postErr || !insertedPost) {
-      console.error("[publishStory] teaser post insert failed", postErr);
-      return { success: false, error: "Beitrag im Feed konnte nicht erstellt werden." };
-    }
+      if (postErr || !insertedPost) {
+        console.error("[publishStory] teaser post insert failed", postErr);
+      } else {
+        postId = insertedPost.id as string;
 
-    const postId = insertedPost.id as string;
+        const { error: linkErr } = await admin.from("post_links").insert({
+          post_id: postId,
+          ...link,
+        });
 
-    const { error: linkErr } = await admin.from("post_links").insert({
-      post_id: postId,
-      ...link,
-    });
-
-    if (linkErr) {
-      console.error("[publishStory] post_links insert failed", linkErr);
-      // Non-fatal — the teaser post already exists in the feed.
+        if (linkErr) {
+          console.error("[publishStory] post_links insert failed", linkErr);
+        }
+      }
+    } catch (teaserError) {
+      console.error("[publishStory] teaser post pipeline failed", teaserError);
     }
 
     createAppNotification({
@@ -114,6 +121,7 @@ export async function publishStory(
 
     revalidatePath("/app");
     revalidatePath("/app/blog");
+    revalidatePath(`/app/blog/${articleId}`);
 
     return { success: true, postId };
   } catch (error) {

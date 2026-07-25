@@ -48,5 +48,5 @@ test("buildStoryTeaserPost lowercases the wallet address", () => {
 test("buildStoryTeaserPost caps very long content at a sane length", () => {
   const longExcerpt = "x".repeat(500);
   const { post } = buildStoryTeaserPost({ ...article, excerpt: longExcerpt }, subject);
-  assert.ok(post.content.length <= 300, `content should be capped, was ${post.content.length}`);
+  assert.ok(post.content.length <= 280, `content should be capped, was ${post.content.length}`);
 });

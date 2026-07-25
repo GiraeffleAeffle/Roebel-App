@@ -43,7 +43,7 @@ export function buildStoryTeaserPost(
   article: StoryArticleForTeaser,
   subject: StoryTeaserSubject,
 ): StoryTeaserPostResult {
-  const raw = `Neue Geschichte: „${article.title}" — ${article.excerpt}`.trim();
+  const raw = `Neue Geschichte: „${article.title}“ — ${article.excerpt}`.trim();
   const content =
     raw.length > MAX_CONTENT_LENGTH ? `${raw.slice(0, MAX_CONTENT_LENGTH - 1).trimEnd()}…` : raw;
 
