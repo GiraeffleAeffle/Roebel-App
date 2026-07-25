@@ -6,8 +6,15 @@ export function createMemoryNonceStore(ttlMs = 5 * 60 * 1000): NonceStore {
   const issued = new Map<string, number>()
   return {
     issue() {
+      // Sweep expired-but-never-consumed nonces before adding a new one, so an
+      // unauthenticated caller looping GET /interaction/:uid/nonce can't grow
+      // this map without bound (memory-leak/DoS hardening).
+      const now = Date.now()
+      for (const [existingNonce, expiry] of issued) {
+        if (expiry < now) issued.delete(existingNonce)
+      }
       const nonce = generateNonce()
-      issued.set(nonce, Date.now() + ttlMs)
+      issued.set(nonce, now + ttlMs)
       return nonce
     },
     consume(nonce: string) {
