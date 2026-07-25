@@ -36,7 +36,7 @@ Each goal is a layer of "a sovereign node any org or person can own," plus the n
 | # | Goal | Where it lives today | Direction |
 |---|---|---|---|
 | **G1** | **Sovereign infrastructure** — own the compute + data, in the EU, on hardware we control | Supabase/Vercel/Fly (managed) | → self-host on **Hetzner** ([migration spec](superpowers/specs/2026-07-25-hetzner-sovereign-infra-migration-design.md)) |
-| **G2** | **Sovereign identity** — self-owned keys; wallet login as the root of identity | thirdweb smart accounts + soulbound CitizenNFT/AttesterNFT on Gnosis; Semaphore v4 | → passkeys+Safe+own-4337; **SIWE→OIDC ("Röbel ID")**; **eIDAS 2.0 / EUDI**; ZK proof-of-residence ([zk-residency](https://github.com/GiraeffleAeffle/zk-residency)) as an admission input |
+| **G2** | **Sovereign identity** — self-owned keys; wallet login as the root of identity | thirdweb smart accounts + soulbound CitizenNFT/AttesterNFT on Gnosis; Semaphore v4 | → passkeys+Safe+own-4337; **SIWE→OIDC ("Röbel ID")**; **eIDAS 2.0 / EUDI** (laddered, not launch-gated); an **anchor-tier Sybil model** — in-person attestation + proof-of-personhood with a **wallet-independent nullifier** — as the admission input |
 | **G3** | **Technodemocratic decision-making** — cryptographic, private, verifiable | MACI private voting + OZ Governor + Timelock; Shamir 3-of-5 coordinator | → MACI v3; futarchy/prediction layer as *advisory* input to the binding vote |
 | **G4** | **Real-money execution on-chain** — treasury, currency, scoped agent budgets | Safe (Gemeinschaftskasse), Circles "Röbel Münzen", Monerium EURe fiat rail | → Fiscal Constitution modules (50/30/20 splits, epoch dividends, auditable agent budgets) |
 | **G5** | **AI that reads across nodes + automates work** — MCP tool bus + AI gateway | Mecky (Claude, tool-using); Röbel MCP; edge-function AI | → sovereignty-tier routing (LiteLLM + **EuroLLM** on EU GPU), governance-controlled data-egress, a **Town Context Graph**, agent-to-agent coordination |
@@ -51,9 +51,12 @@ community or person can run it (G7).
 ## People
 
 - **Maintainer:** M. Brych (Röbel-Labs).
-- **Active contributor:** [GiraeffleAeffle](https://github.com/GiraeffleAeffle) — also building
-  [`zk-residency`](https://github.com/GiraeffleAeffle/zk-residency) (ZK proof-of-residence), a natural
-  fit for **G2**'s admission layer. Onboarding: [CONTRIBUTOR_ONBOARDING.md](CONTRIBUTOR_ONBOARDING.md).
+- **Active contributor & peer builder:** [GiraeffleAeffle](https://github.com/GiraeffleAeffle) —
+  contributes to Roebel-App (maintains a public fork) and independently builds a **sibling sovereign
+  civic-tech pilot for another German town** (Gnosis + passkeys + Circles + Noir/Semaphore ZK voting).
+  Collaboration is by design **shared data contracts, not shared code** — a licence boundary (their
+  project is MIT, Röbel is AGPL-3.0) — with architectural kinship on sovereign identity, benchmarked
+  both ways. Onboarding: [CONTRIBUTOR_ONBOARDING.md](CONTRIBUTOR_ONBOARDING.md).
 
 ## Standing principles
 
