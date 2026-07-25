@@ -1,9 +1,8 @@
 # Sovereign Workplace Suite — Identity-Gated, AI-Agent-Automated (Design)
 
 > **Status:** DRAFT for review · 2026-07-25 · the proposal for **Goal G6**
-> ([MISSION_AND_GOALS.md](../../MISSION_AND_GOALS.md)). *Current-state Buzz / openDesk / zk-residency
-> detail is being refreshed by parallel research; this synthesis is grounded in the already-verified
-> corpus and will be reconciled on any material delta.*
+> ([MISSION_AND_GOALS.md](../../MISSION_AND_GOALS.md)). *Reconciled 2026-07-25 with fresh, cited
+> Buzz / openDesk / zk-residency research (Fizz / Honey / Bumble).*
 > **Builds on (does NOT duplicate):**
 > [sovereign-community-os](2026-07-05-sovereign-community-os-design.md) (the 4-layer foundation + cockpit) ·
 > [Röbel ID keystone](2026-07-24-roebel-id-sso-keystone-design.md) (**approved for build** — the OIDC
@@ -29,44 +28,73 @@ money executes on-chain (G4) → metric predictions guide the next decision → 
 
 ## 2. Research digest — what to adopt, what to avoid
 
-*(From the corpus's verified research — [Röbel ID §0/§6/§10](2026-07-24-roebel-id-sso-keystone-design.md),
-[NETIZEN_SOVEREIGN_STACK_RESEARCH](../../future-research/2026-07-22_NETIZEN_SOVEREIGN_STACK_RESEARCH.md);
-being refreshed by the Fizz/Honey/Bumble agents.)*
+*(Verified 2026-07-25 by parallel research — Fizz (Buzz), Honey (openDesk), Bumble (zk-residency) — and
+reconciled into the corpus. Key sources cited inline.)*
 
-### openDesk (ZenDiS) — reuse the components, coexist via OIDC, don't compete
-- **What it is:** the German sovereign workplace suite (ZenDiS GmbH, sole shareholder = the Federal
-  Republic; Apache-2.0; production, ~v1.17 mid-2026). A bundle of mature open tools — **Nextcloud**
-  (files) · **Collabora** (documents) · **Open-Xchange** (mail/calendar) · **OpenProject** (tasks) ·
-  **XWiki** (wiki) · **Element/Matrix** (chat) · **Jitsi** (video) · **CryptPad** — glued by
-  **Univention Nubus (OpenLDAP)** + **Keycloak SSO**.
-- **Who it serves / the hole it leaves:** built for **large public institutions with real IT**
-  (Kubernetes + ~5–6 servers min; 500+ employee orgs). It structurally **cannot** serve individual
-  citizens, SMEs, small towns *as communities*, mobile-first, integrated AI, payments/treasury, or
-  wallet/self-sovereign identity. **That hole is exactly Röbel's target.**
-- **How we use it:** **(a) coexist** — because openDesk's SSO is Keycloak and it supports **external
-  OIDC IdP brokering since v1.4.0**, a town running openDesk registers **Röbel ID** as an external
-  OIDC provider → its citizens log into openDesk with their **town wallet**. Correction from research:
-  brokering is **OIDC-only**, users matched by **username**, and openDesk's **record-of-truth is
-  OpenLDAP (Nubus), SCIM-inbound not live** — so coexistence needs the **Nubus Directory Importer**
-  (or JIT-provision-without-deprovision for a pilot): **low-new-build, not zero.**
-  **(b) compose** — for small orgs that don't run openDesk's mega-deployment, **compose 2–3 upstream
-  components** (Nextcloud + Collabora + OpenProject) **behind Röbel ID**, mobile-wrapped. Reuse, not rebuild.
-- **Verdict:** openDesk is an *ally and a component supplier*, not a competitor. Adopt its components;
-  adopt nothing of its heavy deployment model.
+### openDesk (ZenDiS) — reuse the components, coexist via OIDC; its missing AI is our wedge
+- **What/who:** BMI-owned, **ZenDiS**-run sovereign MS-365 alternative; ~**€45M** funded; **live and
+  scaling** — Bundeswehr/BWI (7-yr deal), Robert-Koch-Institut (~7k users), the **ICC dropped M365 for
+  it**, social-insurer "crisis-workplace" pilots passed. Current **v1.17 (22 Jul 2026)**, monthly
+  releases. *(opendesk.eu, en.wikipedia.org/wiki/OpenDesk)*
+- **Components (shipped):** Nextcloud (files) · Collabora (office docs) · Open-Xchange (mail/cal/
+  contacts) · La Suite **Docs** (collab notes, Franco-German/DINUM) · Element/**Matrix** (chat) ·
+  **Jitsi** (video) · Nordeck **NeoBoard** (whiteboard)+NeoDateFix (scheduling) · **OpenProject**
+  (tasks) · **XWiki** (wiki) · **Nubus** IAM = OpenLDAP + **Keycloak** + UMC. Deploy = Kubernetes/Helm/
+  Helmfile on SCS/STACKIT (heavy). *(docs.opendesk.eu/operations/architecture)*
+- **The load-bearing finding — identity brokering is a *documented config*:** openDesk **explicitly
+  supports federating an external OIDC IdP via Keycloak** (`functional.authentication.ssoFederation`).
+  A standard-OIDC **Röbel ID** issuer registers as an upstream IdP → wallet-authenticated users reach
+  openDesk with **ad-hoc (JIT) provisioning on first login — no forking, no source changes.** Matched
+  by username; **deprovisioning (SCIM) is the only gap** (roadmap; Nubus Directory Importer covers
+  lifecycle meanwhile). *This strengthens the Röbel ID §6 coexistence path — JIT works out of the box.*
+  *(docs.opendesk.eu/operations/enhanced/idp-federation)*
+- **openDesk has NO AI shipped — this is our wedge.** AI is **roadmap only** (KIPITZ partnership;
+  self-hosted EU models; human-in-the-loop; doc-sorting, citizen chatbots, forecasting, compliance
+  pre-screen). **The AI-agent-automation layer openDesk lacks is exactly G6/L4.**
+  *(opendesk.eu/blog/ai-in-public-administration)*
+- **Licensing:** Apache-2.0 orchestration over **mostly-AGPL** components (Nextcloud/Element/Nubus
+  AGPL-3.0) — each independently reusable behind your own OIDC; AGPL network-copyleft applies if you
+  modify+serve them.
+- **Go-to-market opening:** ZenDiS is launching a **Vertriebspartner (sales-partner) program**
+  (applications Q2 2026, onboarding fall 2026) letting private providers resell openDesk Enterprise
+  Europe-wide — a possible public-sector channel for Netizen. *(zendis.de/newsroom)*
+- **Verdict (confirmed):** ally + component supplier, not competitor. Reuse the components; coexist via
+  OIDC brokering; **be the AI-automation + wallet-identity + payments layer it structurally lacks.**
 
-### Buzz (Block) — adopt the "agents as members" pattern, keep our differentiators below it
-- **What it is:** Block's open (Apache-2.0) agent framework (launched 2026-07-21) built on the thesis
-  that **agent identity is "the most fundamental problem in multi-agent collaboration."** Every agent
-  gets **its own keypair** and acts with *"the same audit trail, a different keypair."* Block chose
-  **Nostr** for agent identity + messaging.
-- **What we adopt:** the **pattern** — agents are principals with their own identity, attributable and
-  auditable actions, and cross-agent messaging. We already own a **stronger** identity primitive than a
-  raw Nostr keypair: a **gasless smart account with on-chain governance + treasury.** So we implement
-  the buzz pattern over **standard OIDC + smart accounts**, not Nostr (Röbel ID §10).
-- **What buzz deliberately omits — and we keep as our moat:** **payments** and **cross-org
-  federation.** Those layer *below* identity and are precisely G4 (on-chain money) + G7 (federation).
-- **Interop, not dependency:** a Röbel agent principal (Röbel ID token + scoped smart account) maps
-  cleanly onto a buzz-style agent world later — we can interoperate without depending on it.
+### Buzz (Block) — bigger than "a pattern": a shippable agent-native workspace (the comms plane)
+- **What it actually is (corrected):** an **open-source Slack + GitHub replacement** on **Nostr** —
+  team chat + git hosting/review (NIP-34) + YAML workflows + search + a **signed audit log**, where
+  **humans AND AI agents are first-class members.** Apache-2.0, **Block/Dorsey**, launched 2026-07-21,
+  **early** (v0.4.x, ~11.7k stars, Rust). Explicitly **"Not blockchain," no payments.**
+  *(github.com/block/buzz, block.xyz)*
+- **Self-hostable relay = a sovereign node:** an org runs its own relay; "code never touches Block's
+  servers." Mesh/multi-tenant-relay crates hint at cross-node federation. **This maps directly onto a
+  Netizen Node's comms/coordination plane.**
+- **Agent model (adopt this):** the **ACP (Agent Client Protocol)** harness `buzz-acp` listens for
+  @mentions and drives **any ACP agent — goose, Codex, Claude Code** — each with its own keypair;
+  **MCP is first-class** (`buzz-dev-mcp` + MCP-driven hooks); agents run tools, execute approved
+  workflows, submit patches; **per-channel membership + owner kill-switches** (`!shutdown`/`!cancel`/
+  `!rotate`); every action a **signed event = provenance.** A *shipping* version of "agents as bounded,
+  auditable members" — exactly L4.
+- **Identity mismatch (bridgeable):** Buzz identity = **Nostr secp256k1** keypairs; ours = **EVM smart
+  accounts + OIDC.** Both secp256k1 → bridgeable, but needs an **AuthBridge seam** (Buzz has no EVM/SCW
+  notion). Payments + on-chain governance + cross-org federation = **absent → our moat, layered below.**
+- **Office coverage:** comms + code + agent workflows — **NOT docs/sheets/tasks.** So **Buzz and
+  openDesk are complementary halves,** not competitors.
+
+### The synthesis — a sovereign workplace suite is THREE complementary planes
+The two researches make the shape obvious. Röbel/Netizen's job is the **identity + money + governance +
+AI glue** that unifies them — the part neither has:
+
+| Plane | Best-in-class sovereign option | What it LACKS → Röbel supplies |
+|---|---|---|
+| **Office / documents / tasks** | **openDesk** components (Nextcloud, Collabora, OpenProject, OX, Docs, XWiki) | **AI**, wallet identity, payments |
+| **Coordination / comms / agent workflows** | **Buzz** (self-host relay, ACP+MCP, agents-as-members, audit) | payments, on-chain governance, office docs |
+| **Identity · money · governance · AI-automation** | **Röbel / Netizen** (Röbel ID OIDC, smart accounts, Safe/Zodiac + scoped agent budgets, Circles/Monerium, MACI, LiteLLM+EuroLLM, MCP, cross-node federation) | — *(the moat)* |
+
+**Röbel is the spine that turns openDesk (office) + optionally Buzz (agent-comms) into one
+identity-gated, AI-agent-automated, on-chain-settling sovereign workplace — supplying each plane exactly
+what it structurally lacks.**
 
 ## 3. Proposed architecture — five layers
 
@@ -191,8 +219,13 @@ so **reuse documents/sheets/mail/calendar/tasks; build identity, agents, money, 
    high-overwhelm workflow?
 4. **Agent charter scope:** how conservative should v0 agent budgets/scopes be — read-only + draft-only
    at first, or allow bounded treasury proposals immediately (human-approved)?
-5. **buzz interop:** treat buzz purely as a pattern source, or invest early in actual ACP/MCP interop so
-   Röbel agents can operate in buzz workspaces (and vice-versa)?
+5. **Buzz — pattern, adopt, or run it?** (a) adopt its **ACP + agents-as-members** model in our own
+   runtime; (b) **run self-hosted Buzz relays** as the node's comms/agent plane + bridge Röbel ID↔Nostr
+   identity; or (c) both, phased?
+6. **openDesk go-to-market:** apply to the ZenDiS **Vertriebspartner** program (a public-sector reseller
+   channel, onboarding fall 2026) — or stay community/self-host and reach institutions via coexistence only?
+7. **zk-residency identity lesson (G2):** adopt the peer's **anchor-tier + wallet-independent-nullifier**
+   Sybil model (design, not code — respecting the MIT↔AGPL boundary) as Röbel's admission architecture?
 
 ---
 
