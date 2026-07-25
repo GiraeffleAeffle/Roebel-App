@@ -15,7 +15,7 @@ import React, {
 import { useActiveAccount } from 'thirdweb/react';
 import { disposeAnthropicChatService, getAnthropicChatService } from '@/lib/services/anthropic-chat';
 import { meckyToolDefinitions, executeMeckyTool } from '@/lib/tools/mecky-tools';
-import { getMeckySystemPrompt } from '@/lib/prompts/mecky-system-prompt';
+import { getMeckySystemPrompt, STORY_INTERVIEW_SYSTEM } from '@/lib/prompts/mecky-system-prompt';
 import { useConsent } from '@/context/ConsentContext';
 import { Events, track } from '@/lib/analytics';
 import type { AnthropicMessage } from '@/lib/types/anthropic';
@@ -35,10 +35,14 @@ interface MeckyContextValue {
   isEnabled: boolean;
   currentConversationId: string | null;
   conversations: MeckyConversation[];
+  /** True when the current conversation is a `kind: 'story'` thread (see `startStoryThread`). */
+  isStoryThread: boolean;
   sendMessage: (text: string) => Promise<void>;
   clearConversation: () => void;
   selectConversation: (id: string) => Promise<void>;
   newConversation: () => void;
+  /** Starts a fresh `kind: 'story'` Mecky conversation ("Erzähl deine Geschichte") and selects it. */
+  startStoryThread: () => Promise<void>;
   refreshConversations: () => Promise<void>;
 }
 
@@ -57,6 +61,11 @@ export function MeckyProvider({ children }: { children: React.ReactNode }) {
   const [streamingText, setStreamingText] = useState('');
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<MeckyConversation[]>([]);
+  // Tracked separately from `conversations` (which only refreshes after a
+  // round-trip) so a freshly-created story thread uses the story system
+  // prompt on its very first sent message, before `refreshConversations`
+  // has landed.
+  const [currentConversationKind, setCurrentConversationKind] = useState<'chat' | 'story'>('chat');
 
   const walletLower = account?.address?.toLowerCase();
 
@@ -169,11 +178,14 @@ export function MeckyProvider({ children }: { children: React.ReactNode }) {
 
       try {
         const service = getAnthropicChatService(true);
-        const systemPrompt = getMeckySystemPrompt({
-          walletAddress: account?.address,
-          userRole: undefined, // Could be enhanced with useUser() but keeping it simple
-          today: new Date().toISOString().split('T')[0],
-        });
+        const systemPrompt =
+          currentConversationKind === 'story'
+            ? STORY_INTERVIEW_SYSTEM
+            : getMeckySystemPrompt({
+                walletAddress: account?.address,
+                userRole: undefined, // Could be enhanced with useUser() but keeping it simple
+                today: new Date().toISOString().split('T')[0],
+              });
 
         let finalText = '';
 
@@ -266,7 +278,15 @@ export function MeckyProvider({ children }: { children: React.ReactNode }) {
         setIsStreaming(false);
       }
     },
-    [isStreaming, isEnabled, account?.address, walletLower, currentConversationId, refreshConversations]
+    [
+      isStreaming,
+      isEnabled,
+      account?.address,
+      walletLower,
+      currentConversationId,
+      currentConversationKind,
+      refreshConversations,
+    ]
   );
 
   // Clears in-memory state and detaches from the current thread; a fresh
@@ -276,6 +296,7 @@ export function MeckyProvider({ children }: { children: React.ReactNode }) {
     historyRef.current = [];
     setStreamingText('');
     setCurrentConversationId(null);
+    setCurrentConversationKind('chat');
   }, []);
 
   // Kept for backwards compatibility with existing call sites.
@@ -283,13 +304,44 @@ export function MeckyProvider({ children }: { children: React.ReactNode }) {
     newConversation();
   }, [newConversation]);
 
-  const selectConversation = useCallback(async (id: string) => {
-    const rows = await getConversationMessages(id);
-    setMessages(rows.map(rowToMeckyMessage));
-    historyRef.current = rowsToHistory(rows).slice(-40);
-    setCurrentConversationId(id);
+  const selectConversation = useCallback(
+    async (id: string) => {
+      const rows = await getConversationMessages(id);
+      setMessages(rows.map(rowToMeckyMessage));
+      historyRef.current = rowsToHistory(rows).slice(-40);
+      setCurrentConversationId(id);
+      setStreamingText('');
+      setCurrentConversationKind(conversations.find((c) => c.id === id)?.kind ?? 'chat');
+    },
+    [conversations]
+  );
+
+  // Starts a fresh "Erzähl deine Geschichte" thread: a `kind: 'story'`
+  // conversation whose system prompt (see `sendMessage` above) is
+  // STORY_INTERVIEW_SYSTEM instead of the concierge prompt. Mirrors the web
+  // dashboard's `startStoryConversation` action (apps/web/src/app/actions/story.ts),
+  // minus the org-account scoping — the Expo entry point resolves
+  // accountId/authorAccountId itself when it later requests the draft.
+  const startStoryThread = useCallback(async () => {
+    if (!walletLower || isStreaming) return;
+    setMessages([]);
+    historyRef.current = [];
     setStreamingText('');
-  }, []);
+    try {
+      const res = await createConversation(walletLower, { title: 'Deine Geschichte', kind: 'story' });
+      if (res.success) {
+        setCurrentConversationId(res.data.id);
+        setCurrentConversationKind('story');
+        await refreshConversations();
+      } else {
+        console.error('Mecky startStoryThread failed:', res.error);
+      }
+    } catch (error) {
+      console.error('Mecky startStoryThread error:', error);
+    }
+  }, [walletLower, isStreaming, refreshConversations]);
+
+  const isStoryThread = currentConversationKind === 'story';
 
   const value = useMemo(
     () => ({
@@ -299,10 +351,12 @@ export function MeckyProvider({ children }: { children: React.ReactNode }) {
       isEnabled,
       currentConversationId,
       conversations,
+      isStoryThread,
       sendMessage,
       clearConversation,
       selectConversation,
       newConversation,
+      startStoryThread,
       refreshConversations,
     }),
     [
@@ -312,10 +366,12 @@ export function MeckyProvider({ children }: { children: React.ReactNode }) {
       isEnabled,
       currentConversationId,
       conversations,
+      isStoryThread,
       sendMessage,
       clearConversation,
       selectConversation,
       newConversation,
+      startStoryThread,
       refreshConversations,
     ]
   );

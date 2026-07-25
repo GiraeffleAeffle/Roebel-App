@@ -2,8 +2,35 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createAppNotification } from "@/app/actions/app-notifications";
 import { buildStoryTeaserPost } from "@/lib/story/feed-post";
+import { createConversation } from "@/lib/mecky/conversation-store";
+
+/**
+ * Starts a new "Story mit Mecky" interview conversation for the dashboard
+ * flow (`/dashboard/stories`). Thin wrapper around the shared Mecky
+ * conversation store, scoped to `kind: "story"` + the org account so the
+ * transcript can later be turned into a `blog_articles` draft via
+ * `POST /api/mecky/story-draft`.
+ */
+export async function startStoryConversation(
+  accountId: string,
+  walletAddress: string,
+): Promise<{ success: boolean; conversationId?: string; error?: string }> {
+  if (!accountId || !walletAddress) {
+    return { success: false, error: "Konto oder Wallet fehlt" };
+  }
+
+  const result = await createConversation(walletAddress.toLowerCase(), {
+    kind: "story",
+    accountId,
+  });
+
+  if (!result.success || !result.conversationId) {
+    return { success: false, error: result.error ?? "Konversation konnte nicht gestartet werden" };
+  }
+
+  return { success: true, conversationId: result.conversationId };
+}
 
 /**
  * Publishes a Plan-B story article: flips the `blog_articles` row to
@@ -119,12 +146,27 @@ export async function publishStory(
         console.error("[publishStory] teaser post pipeline failed", teaserError);
       }
 
-      createAppNotification({
-        type: "story_new",
-        title: "Neue Geschichte aus Röbel",
-        link: `/app/blog/${articleId}`,
-        image_url: article.cover_image_url ?? undefined,
-      }).catch(console.error);
+      // `createAppNotification` reads a cookie/request-scoped Supabase client
+      // (`@/lib/supabase/server`). Called server-to-server from Expo (no
+      // Next.js session/cookies), that client silently drops the insert — no
+      // error surfaces, the notification just never lands. Use the admin
+      // client already in scope here instead, writing the same columns
+      // `createAppNotification` would. Best-effort: never turn an
+      // already-published article into a failure.
+      try {
+        const { error: notifErr } = await admin.from("app_notifications").insert({
+          type: "story_new",
+          title: "Neue Geschichte aus Röbel",
+          body: null,
+          link: `/app/blog/${articleId}`,
+          image_url: article.cover_image_url ?? null,
+        });
+        if (notifErr) {
+          console.error("[publishStory] app_notifications insert failed", notifErr);
+        }
+      } catch (notifError) {
+        console.error("[publishStory] notification insert failed", notifError);
+      }
     }
 
     revalidatePath("/app");

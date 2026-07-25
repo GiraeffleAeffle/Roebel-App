@@ -18,6 +18,7 @@ import {
   Vote,
   ExternalLink,
   LayoutGrid,
+  Sparkles,
 } from "lucide-react";
 import {
   subTypeFeatures,
@@ -58,6 +59,12 @@ export function OrgSidebar({ account }: OrgSidebarProps) {
       name: "Blog",
       href: "/dashboard/blog",
       icon: <FileText className="h-4 w-4" />,
+      visible: features.blog,
+    },
+    {
+      name: "Story mit Mecky",
+      href: "/dashboard/stories",
+      icon: <Sparkles className="h-4 w-4" />,
       visible: features.blog,
     },
     {
