@@ -100,6 +100,11 @@ export default function StoriesWithMeckyPage() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const startingRef = useRef(false);
+  // Bumped by the "Erneut versuchen" button to force the conversation-start
+  // effect below to re-run after a failed attempt (activeAccount/wallet/
+  // conversationId alone don't change on retry, so the effect wouldn't
+  // otherwise fire again).
+  const [retryToken, setRetryToken] = useState(0);
 
   const [flow, setFlow] = useState<Flow>("interview");
   const [articleId, setArticleId] = useState<string | null>(null);
@@ -116,7 +121,7 @@ export default function StoriesWithMeckyPage() {
         setStartError(res.error ?? "Interview konnte nicht gestartet werden");
       }
     });
-  }, [activeAccount, wallet?.address, conversationId]);
+  }, [activeAccount, wallet?.address, conversationId, retryToken]);
 
   if (!activeAccount || !wallet?.address) {
     return (
@@ -156,6 +161,7 @@ export default function StoriesWithMeckyPage() {
             onClick={() => {
               setStartError(null);
               startingRef.current = false;
+              setRetryToken((t) => t + 1);
             }}
           >
             Erneut versuchen
