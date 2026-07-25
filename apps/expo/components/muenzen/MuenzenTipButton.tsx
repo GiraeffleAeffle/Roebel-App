@@ -57,15 +57,22 @@ export default function MuenzenTipButton({ contextType, contextId, authorAccount
   }, [authorAccountId, contextType, contextId]);
 
   const isSelf = !!recipientWallet && !!myWallet && recipientWallet.toLowerCase() === myWallet;
-  const canTip = !!recipientWallet && !isSelf;
+  // Require a resolved wallet too: during the cold-start wallet-reconnect window
+  // myWallet is briefly null; showing the button then would let a tap silently
+  // no-op inside handleSend, which MuenzenSendSheet would treat as success.
+  const canTip = !!recipientWallet && !!myWallet && !isSelf;
 
   const handleSend = useCallback(
     async (amountRaw: bigint, amountDecimal: number) => {
-      if (!recipientWallet || !myWallet) return;
+      if (!recipientWallet || !myWallet) {
+        // Surfaces via MuenzenSendSheet's error state instead of a silent success.
+        throw new Error('Wallet nicht verbunden. Bitte versuch es erneut.');
+      }
       // On-chain send — throws on failure, which MuenzenSendSheet surfaces.
       const txHash = await send(recipientWallet, amountRaw);
-      // Best-effort record + notify — never block the successful send.
-      recordTip({
+      // Best-effort record (awaited so the tally below includes this tip); a
+      // record failure is swallowed and never fails the already-successful send.
+      await recordTip({
         fromWallet: myWallet,
         toWallet: recipientWallet,
         amountAtto: amountRaw,
