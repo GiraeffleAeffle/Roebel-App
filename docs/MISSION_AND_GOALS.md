@@ -10,8 +10,9 @@
 
 I'm building **sovereign blockchain × AI infrastructure** — starting in my hometown (Röbel/Müritz),
 but designed to scale to **businesses, other Gemeinden, communities, and every kind of coordinated
-human organisation — and to single sovereign persons.** The goal is to **solve coordination and
-decision-making by increasing the flow of both information and payments, using AI and crypto.**
+human organisation — and to single sovereign persons — worldwide** (from Röbel to communities across
+Europe, Asia, and beyond). The goal is to **solve coordination and decision-making by increasing the
+flow of both information and payments, using AI and crypto.**
 
 ## The thesis
 
@@ -40,7 +41,7 @@ Each goal is a layer of "a sovereign node any org or person can own," plus the n
 | **G3** | **Technodemocratic decision-making** — cryptographic, private, verifiable | MACI private voting + OZ Governor + Timelock; Shamir 3-of-5 coordinator | → MACI v3; futarchy/prediction layer as *advisory* input to the binding vote |
 | **G4** | **Real-money execution on-chain** — treasury, currency, scoped agent budgets | Safe (Gemeinschaftskasse), Circles "Röbel Münzen", Monerium EURe fiat rail | → Fiscal Constitution modules (50/30/20 splits, epoch dividends, auditable agent budgets) |
 | **G5** | **AI that reads across nodes + automates work** — MCP tool bus + AI gateway | Mecky (Claude, tool-using); Röbel MCP; edge-function AI | → sovereignty-tier routing (LiteLLM + **EuroLLM** on EU GPU), governance-controlled data-egress, a **Town Context Graph**, agent-to-agent coordination |
-| **G6** | **Sovereign workplace suite with AI agent automation** *(active research, 2026-07-25)* | — | give orgs & sovereign persons a workplace (docs, comms, tasks, mail) they **own**, gated by their sovereign identity, with **AI agents automating the office/coordination work** — reusing the German sovereign open stack (**openDesk**/ZenDiS components) **behind wallet identity** rather than competing with it. See the proposal: [`2026-07-25-sovereign-workplace-suite-design.md`](superpowers/specs/2026-07-25-sovereign-workplace-suite-design.md) *(forthcoming)* |
+| **G6** | **Sovereign workplace suite with AI agent automation** *(direction set 2026-07-25)* | — | a **cryptographic, AI-agent-automated workspace** (Buzz-model) built on **wallet identity**, with **openDesk tools enabled** — reuse the open office components behind our identity; **ride the EU openDesk wave via OIDC coexistence** *and* **scale worldwide** through a **global-core / regional-adapter** design (the office plane is pluggable: openDesk-federation in the EU, composed components everywhere). Proposal: [`sovereign-workplace-suite-design`](superpowers/specs/2026-07-25-sovereign-workplace-suite-design.md) |
 | **G7** | **Forkable protocol** — "deployment #2 is config, not rewrite" | one live deployment | → **Netizen** protocol (NSP-0…6) + node + SDK + cloud; adopt the existing order **one Satzung at a time** (the Decidim path) |
 
 **The loop these pillars form:** sovereign nodes own their data (G1/G2) → AI reads across them and

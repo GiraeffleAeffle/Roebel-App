@@ -26,6 +26,31 @@ This is Goal G6 as the *productivity face* of the whole thesis: sovereign nodes 
 → **agents read across them and automate work (G5/G6)** → humans decide technodemocratically (G3) →
 money executes on-chain (G4) → metric predictions guide the next decision → all of it forkable (G7).
 
+## 1b. Direction taken (2026-07-25) — a global core with regional adapters
+
+**Decision (Max):** build the **cryptographic, AI-agent-enhanced workspace** (the Buzz model) **on
+Wallet-ID infrastructure**, with **openDesk tools enabled** — designed to **ride the European openDesk
+wave *and* scale internationally** (Asia, Mumbai, communities worldwide). The architecture that makes
+those one goal, not a tension:
+
+- **The universal core is jurisdiction-neutral and deploys anywhere.** Wallet identity (Röbel ID OIDC +
+  smart accounts) + the agent-native workspace (Buzz-model: agents-as-members, ACP/MCP, audit,
+  kill-switch) + on-chain money/governance + sovereign AI depend **only on open protocols** — OIDC ·
+  EVM/Gnosis · Nostr · Matrix · MCP — none tied to a nation. Same deployment for a town in Brandenburg
+  or a community in Mumbai (the forkable **Netizen Node**, G7; region lives in the manifest: `chainId`,
+  language, adapters).
+- **openDesk is the *European coexistence adapter*, not the foundation.** In the EU public sector,
+  federate Röbel ID into a town's/institution's openDesk (Keycloak OIDC brokering — documented config)
+  to **ride that wave**. Everywhere else you don't need openDesk: its **underlying components are global
+  open-source** (Nextcloud, Collabora, OpenProject, Element/Matrix, Jitsi) — **compose those behind
+  Wallet ID** for the same office plane in any country. openDesk-the-bundle is a Germany/EU accelerant;
+  the components are worldwide.
+- **The office plane is therefore *pluggable*:** `openDesk-federation` (EU) · `composed-components`
+  (global) · future regional bundles — all behind the one Wallet-ID + agent core. **Ride the EU wave
+  without being EU-locked.**
+
+*Resolves §9 #2 and #5; sets international scale as a first-class requirement.*
+
 ## 2. Research digest — what to adopt, what to avoid
 
 *(Verified 2026-07-25 by parallel research — Fizz (Buzz), Honey (openDesk), Bumble (zk-residency) — and
@@ -210,6 +235,10 @@ so **reuse documents/sheets/mail/calendar/tasks; build identity, agents, money, 
   non-sensitive automation.
 
 ## 9. Decisions for Max
+
+> **Taken 2026-07-25 (see §1b):** go the **Buzz-model cryptographic AI workspace on Wallet-ID** (was #5);
+> **enable openDesk via OIDC coexistence in the EU + compose the open components globally** (was #2);
+> **international scale is now a first-class requirement** (global core, regional adapters). Remaining open:
 
 1. **Confirm the layering** — is L4 (Agent Runtime) the right next investment after the Röbel ID
    keystone (P1) + cockpit (P2), i.e. *identity → first automation → agent runtime*?
