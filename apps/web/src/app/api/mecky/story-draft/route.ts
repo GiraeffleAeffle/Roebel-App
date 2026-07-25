@@ -37,12 +37,15 @@ async function uniqueSlug(
   let slug = baseSlug;
   let n = 1;
   for (;;) {
-    const { data } = await admin
+    const { data, error } = await admin
       .from("blog_articles")
       .select("id")
       .eq("account_id", accountId)
       .eq("slug", slug)
       .limit(1);
+    if (error) {
+      throw new Error(error.message);
+    }
     if (!data || data.length === 0) return slug;
     n += 1;
     slug = `${baseSlug}-${n}`;
@@ -81,20 +84,57 @@ export async function POST(request: Request) {
   try {
     const admin = createAdminClient();
 
+    const wallet = walletAddress.toLowerCase();
+
     // Owner check: allow BOTH personal + org accounts — any row in
     // account_owners for this (accountId, wallet) is sufficient.
     const { data: owner, error: ownerErr } = await admin
       .from("account_owners")
       .select("role")
       .eq("account_id", accountId)
-      .eq("wallet_address", walletAddress.toLowerCase())
+      .eq("wallet_address", wallet)
       .maybeSingle();
 
-    if (ownerErr || !owner) {
+    if (ownerErr) {
+      console.error("[api/mecky/story-draft] owner check failed", ownerErr);
+      return NextResponse.json(
+        { success: false, error: "Fehler bei der Berechtigungsprüfung." },
+        { status: 500 },
+      );
+    }
+    if (!owner) {
       return NextResponse.json(
         { success: false, error: "Keine Berechtigung für dieses Konto" },
         { status: 403 },
       );
+    }
+
+    // Byline check: the caller must ALSO own the account they're bylining the
+    // draft to (authorAccountId), not just the account it's published under
+    // (accountId) — otherwise a caller could spoof authorship of another
+    // account's byline. Skip the second query when they're the same account
+    // (already verified above).
+    if (authorAccountId !== accountId) {
+      const { data: authorOwner, error: authorOwnerErr } = await admin
+        .from("account_owners")
+        .select("role")
+        .eq("account_id", authorAccountId)
+        .eq("wallet_address", wallet)
+        .maybeSingle();
+
+      if (authorOwnerErr) {
+        console.error("[api/mecky/story-draft] author owner check failed", authorOwnerErr);
+        return NextResponse.json(
+          { success: false, error: "Fehler bei der Berechtigungsprüfung." },
+          { status: 500 },
+        );
+      }
+      if (!authorOwner) {
+        return NextResponse.json(
+          { success: false, error: "Keine Berechtigung für das angegebene Autor:innen-Konto." },
+          { status: 403 },
+        );
+      }
     }
 
     const sources: DraftSources = {
@@ -128,7 +168,11 @@ export async function POST(request: Request) {
         return { articleId: data.id, slug: data.slug };
       },
       async linkDraft(id, articleId) {
-        await setDraftArticleId(id, articleId);
+        const { success, error } = await setDraftArticleId(id, articleId);
+        if (!success) {
+          console.error("[api/mecky/story-draft] linkDraft failed", error);
+          throw new Error(error ?? "Konversation konnte nicht mit dem Artikel verknüpft werden");
+        }
       },
     };
 
