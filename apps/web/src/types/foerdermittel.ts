@@ -7,7 +7,10 @@ export type ProbabilityBand = "hoch" | "mittel" | "niedrig";
 export type ProgramStatus = "curated" | "proposed" | "verified" | "archived";
 export type ProgramOrigin = "curated" | "research_agent";
 export type Confidence = "high" | "medium" | "low";
-export type FundingOrgSubType = "verein" | "unternehmen" | "restaurant" | "stadt";
+// Mirrors OrgSubType (account.ts) so matching sees the org's TRUE sub_type.
+// Which programs a type qualifies for is data-driven via FundingProgram.target_sub_types,
+// so fraktion/journalist honestly match only programs that target them (never coerced to verein).
+export type FundingOrgSubType = "verein" | "unternehmen" | "restaurant" | "stadt" | "fraktion" | "journalist";
 export type DeadlineType = "fixed" | "rolling" | "annual" | "unknown";
 export type MatchStatus = "new" | "seen" | "saved" | "dismissed" | "applying";
 

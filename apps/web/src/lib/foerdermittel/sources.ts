@@ -2,7 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type { MatchInput, FundingProgram, RankedMatch, OrgFundingProfile, FundingOrgSubType, ProgramEligibility } from "@/types/foerdermittel";
 import type { MatchSources } from "./run-match";
 
-const FUNDING_SUB_TYPES: FundingOrgSubType[] = ["verein", "unternehmen", "restaurant", "stadt"];
+const FUNDING_SUB_TYPES: FundingOrgSubType[] = ["verein", "unternehmen", "restaurant", "stadt", "fraktion", "journalist"];
 
 function normalizeEligibility(raw: unknown): ProgramEligibility {
   const e = (raw ?? {}) as Partial<ProgramEligibility>;
@@ -41,15 +41,18 @@ export function createMatchSources(): MatchSources {
     },
     async saveMatches(accountId: string, matches: RankedMatch[]): Promise<void> {
       // Refresh: drop prior auto-generated 'new' matches, keep user-touched states (saved/dismissed/applying).
-      await supabase.from("org_funding_matches").delete().eq("account_id", accountId).eq("status", "new");
+      const { error: deleteError } = await supabase
+        .from("org_funding_matches").delete().eq("account_id", accountId).eq("status", "new");
+      if (deleteError) throw new Error(`org_funding_matches delete failed: ${deleteError.message}`);
       if (matches.length === 0) return;
       const rows = matches.map((m) => ({
         account_id: accountId, program_id: m.program_id, score: m.score,
         probability_band: m.probability_band, rationale: m.rationale, requirements: m.requirements,
         red_flags: m.red_flags, collapsed: m.collapsed, status: "new",
       }));
-      await supabase.from("org_funding_matches")
+      const { error: upsertError } = await supabase.from("org_funding_matches")
         .upsert(rows, { onConflict: "account_id,program_id", ignoreDuplicates: true });
+      if (upsertError) throw new Error(`org_funding_matches upsert failed: ${upsertError.message}`);
     },
   };
 }
