@@ -43,6 +43,8 @@ export interface RequestStoryDraftResult {
   success: boolean;
   articleId?: string;
   slug?: string;
+  title?: string;
+  excerpt?: string;
   error?: string;
 }
 

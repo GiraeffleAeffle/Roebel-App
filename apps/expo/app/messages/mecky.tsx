@@ -22,7 +22,6 @@ import MeckyChatBubble from '@/components/mecky/MeckyChatBubble';
 import ChatInput from '@/components/messages/ChatInput';
 import { formatRelativeTimestamp } from '@/lib/utils';
 import { requestStoryDraft, publishStoryRemote } from '@/lib/story-api';
-import { getBlogArticleById } from '@/lib/supabase-blog-articles';
 import type { MeckyMessage, MeckyConversation } from '@/lib/types/mecky';
 
 import ChevronLeftIcon from '@/assets/icons/chevron-left.svg';
@@ -88,7 +87,11 @@ export default function MeckyScreen() {
   };
 
   const handleWriteArticle = async () => {
-    if (!currentConversationId || !activeAccount?.id || !wallet || draftLoading) return;
+    if (!currentConversationId || draftLoading) return;
+    if (!activeAccount?.id || !wallet) {
+      setDraftError('Bitte melde dich an, um deinen Artikel zu erstellen.');
+      return;
+    }
     setDraftLoading(true);
     setDraftError(null);
     const res = await requestStoryDraft({
@@ -103,18 +106,23 @@ export default function MeckyScreen() {
       setDraftError(res.error || 'Artikel konnte nicht erstellt werden.');
       return;
     }
-    const article = await getBlogArticleById(res.articleId);
     setDraftLoading(false);
+    // Title/excerpt come straight from the draft route's response — the fresh
+    // blog_articles row is status='draft', which anon RLS won't return.
     setDraftArticle({
       articleId: res.articleId,
       slug: res.slug,
-      title: article?.title ?? 'Deine Geschichte',
-      excerpt: article?.excerpt ?? null,
+      title: res.title ?? 'Deine Geschichte',
+      excerpt: res.excerpt ?? null,
     });
   };
 
   const handlePublish = async () => {
-    if (!draftArticle || !activeAccount?.id || !wallet || publishLoading) return;
+    if (!draftArticle || publishLoading) return;
+    if (!activeAccount?.id || !wallet) {
+      setPublishError('Bitte melde dich an, um zu veröffentlichen.');
+      return;
+    }
     setPublishLoading(true);
     setPublishError(null);
     const res = await publishStoryRemote({
