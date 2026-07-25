@@ -33,13 +33,13 @@ export async function createConversation(
       status: "active",
       draft_article_id: null,
       last_message_at: new Date().toISOString(),
-    });
+    }).select().single();
 
     if (error) {
       return { success: false, error: error.message };
     }
 
-    return { success: true, conversationId: data?.[0]?.id };
+    return { success: true, conversationId: data?.id };
   } catch (err) {
     return {
       success: false,
@@ -115,7 +115,7 @@ export async function appendMessage(
         rich_cards: message.richCards ?? null,
         nav_links: message.navLinks ?? null,
         created_at: now,
-      });
+      }).select().single();
 
     if (insertError) {
       return { success: false, error: insertError.message };
@@ -131,7 +131,7 @@ export async function appendMessage(
       return { success: false, error: updateError.message };
     }
 
-    return { success: true, messageId: data?.[0]?.id };
+    return { success: true, messageId: data?.id };
   } catch (err) {
     return {
       success: false,
