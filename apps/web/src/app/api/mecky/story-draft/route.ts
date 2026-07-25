@@ -206,7 +206,20 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ success: true, articleId: result.articleId, slug: result.slug });
+    // Return the drafted title/excerpt so the client can preview the draft
+    // (admin read bypasses the status='draft' RLS the anon client is blocked by).
+    const { data: draftRow } = await admin
+      .from("blog_articles")
+      .select("title, excerpt")
+      .eq("id", result.articleId)
+      .maybeSingle();
+    return NextResponse.json({
+      success: true,
+      articleId: result.articleId,
+      slug: result.slug,
+      title: draftRow?.title ?? null,
+      excerpt: draftRow?.excerpt ?? null,
+    });
   } catch (error) {
     console.error("[api/mecky/story-draft] failed", error);
     return NextResponse.json(
