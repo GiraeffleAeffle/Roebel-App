@@ -41,11 +41,19 @@ All other variables come from `.env.example` (hardcoded or shared).
 
 ### 2. Deploy
 
+Deploy from **inside `apps/roebel-id/`** — this directory is the Docker build
+context, so `fly.toml`, `Dockerfile`, and `.dockerignore` all resolve
+relative to it:
+
 ```bash
-fly deploy -c apps/roebel-id/fly.toml
+cd apps/roebel-id
+fly deploy
 ```
 
-Fly reads `Dockerfile` from the monorepo root and builds `apps/roebel-id/dist/index.js`.
+The Dockerfile is self-contained: it only copies files from `apps/roebel-id/`
+(`.dockerignore` excludes `node_modules`, `dist`, and other local build
+artifacts so they don't get baked into the image) and installs/builds with
+`--ignore-workspace`, so it needs nothing from the rest of the monorepo.
 
 **Note:** `min_machines_running = 1` ensures the service never scales to zero—session state and JWKS are memory-resident and not replicated.
 
