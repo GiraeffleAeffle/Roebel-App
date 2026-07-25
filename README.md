@@ -6,6 +6,8 @@ Open-source civic technology platform for Roebel/Mueritz, Mecklenburg-Vorpommern
 
 Verified residents get a soulbound **civic ID**, vote on local proposals with **encrypted MACI ballots**, and transact in **Röbel Münzen**, the town's own [Circles](https://aboutcircles.com) group currency. The whole stack — identity, private voting, and money — runs natively on **Gnosis Chain**.
 
+> 🎯 **Mission & Goals:** [docs/MISSION_AND_GOALS.md](docs/MISSION_AND_GOALS.md) — sovereign blockchain × AI infrastructure for coordination, and the 7 goals (sovereign infra, identity, technodemocratic decisions, on-chain money, cross-node AI automation, a sovereign workplace suite, and a forkable protocol) it decomposes into.
+
 ## What's Inside
 
 This [Turborepo](https://turbo.build/repo) monorepo contains:
