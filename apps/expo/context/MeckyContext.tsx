@@ -131,26 +131,41 @@ export function MeckyProvider({ children }: { children: React.ReactNode }) {
         historyRef.current = historyRef.current.slice(-40);
       }
 
-      // Persistence: lazily create a conversation thread on the first message
-      // of a turn, then persist the user message. Use a local convId through
-      // the rest of this turn — currentConversationId state won't have
-      // updated yet within this closure.
-      let convId = currentConversationId;
-      if (walletLower && convId === null) {
-        const res = await createConversation(walletLower, { title: deriveTitle(text.trim()) });
-        if (res.success) {
-          convId = res.data.id;
-          setCurrentConversationId(convId);
-        }
-      }
-      if (walletLower && convId) {
-        await appendMessage(convId, { role: 'user', content: text.trim() });
-      }
-
-      // Reset streaming state
+      // Reset streaming state — do this BEFORE any persistence I/O so the
+      // send button disables immediately and a second tap can't re-enter
+      // this function while `currentConversationId` is still null (which
+      // would otherwise race two conversation creations / two concurrent
+      // streams sharing historyRef/toolResultsRef).
       setIsStreaming(true);
       setStreamingText('');
       toolResultsRef.current = { richCards: [], navLinks: [] };
+
+      // Persistence: lazily create a conversation thread on the first message
+      // of a turn, then persist the user message. Use a local convId through
+      // the rest of this turn — currentConversationId state won't have
+      // updated yet within this closure. Persistence is best-effort and must
+      // never gate the chat turn: any failure here is logged and swallowed,
+      // and we fall through to streaming regardless.
+      let convId = currentConversationId;
+      try {
+        if (walletLower && convId === null) {
+          const res = await createConversation(walletLower, { title: deriveTitle(text.trim()) });
+          if (res.success) {
+            convId = res.data.id;
+            setCurrentConversationId(convId);
+          } else {
+            console.error('Mecky createConversation failed:', res.error);
+          }
+        }
+        if (walletLower && convId) {
+          const res = await appendMessage(convId, { role: 'user', content: text.trim() });
+          if (!res.success) {
+            console.error('Mecky appendMessage (user) failed:', res.error);
+          }
+        }
+      } catch (error) {
+        console.error('Mecky pre-stream persistence error:', error);
+      }
 
       try {
         const service = getAnthropicChatService(true);
@@ -209,14 +224,25 @@ export function MeckyProvider({ children }: { children: React.ReactNode }) {
               setStreamingText('');
               setIsStreaming(false);
 
+              // Persistence is best-effort and must never crash the stream
+              // completion path — anthropic-chat.ts calls onComplete without
+              // awaiting it, so an uncaught throw here becomes an unhandled
+              // rejection.
               if (walletLower && convId) {
-                await appendMessage(convId, {
-                  role: 'assistant',
-                  content: assistantMsg.content,
-                  richCards: assistantMsg.richCards ?? null,
-                  navLinks: assistantMsg.navigationLinks ?? null,
-                });
-                await refreshConversations();
+                try {
+                  const res = await appendMessage(convId, {
+                    role: 'assistant',
+                    content: assistantMsg.content,
+                    richCards: assistantMsg.richCards ?? null,
+                    navLinks: assistantMsg.navigationLinks ?? null,
+                  });
+                  if (!res.success) {
+                    console.error('Mecky appendMessage (assistant) failed:', res.error);
+                  }
+                  await refreshConversations();
+                } catch (error) {
+                  console.error('Mecky onComplete persistence error:', error);
+                }
               }
             },
             onError: (error: Error) => {
