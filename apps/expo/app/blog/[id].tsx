@@ -22,6 +22,7 @@ import {
 import { SUB_TYPE_EMOJI, SUB_TYPE_LABELS } from '@/lib/types';
 import RichTextRenderer from '@/components/RichTextRenderer';
 import MeckyNotFound from '@/components/MeckyNotFound';
+import MuenzenTipButton from '@/components/muenzen/MuenzenTipButton';
 
 export default function BlogArticleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -212,6 +213,13 @@ export default function BlogArticleScreen() {
           <View style={styles.richTextWrap}>
             <RichTextRenderer content={article.content} />
           </View>
+
+          <MuenzenTipButton
+            contextType="blog_article"
+            contextId={id}
+            authorAccountId={article.author_account_id ?? article.account_id}
+            recipientName={article.account?.name}
+          />
         </View>
       </ScrollView>
     </SafeAreaView>
