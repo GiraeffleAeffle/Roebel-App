@@ -4,6 +4,34 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createAppNotification } from "@/app/actions/app-notifications";
 import { buildStoryTeaserPost } from "@/lib/story/feed-post";
+import { createConversation } from "@/lib/mecky/conversation-store";
+
+/**
+ * Starts a new "Story mit Mecky" interview conversation for the dashboard
+ * flow (`/dashboard/stories`). Thin wrapper around the shared Mecky
+ * conversation store, scoped to `kind: "story"` + the org account so the
+ * transcript can later be turned into a `blog_articles` draft via
+ * `POST /api/mecky/story-draft`.
+ */
+export async function startStoryConversation(
+  accountId: string,
+  walletAddress: string,
+): Promise<{ success: boolean; conversationId?: string; error?: string }> {
+  if (!accountId || !walletAddress) {
+    return { success: false, error: "Konto oder Wallet fehlt" };
+  }
+
+  const result = await createConversation(walletAddress.toLowerCase(), {
+    kind: "story",
+    accountId,
+  });
+
+  if (!result.success || !result.conversationId) {
+    return { success: false, error: result.error ?? "Konversation konnte nicht gestartet werden" };
+  }
+
+  return { success: true, conversationId: result.conversationId };
+}
 
 /**
  * Publishes a Plan-B story article: flips the `blog_articles` row to
