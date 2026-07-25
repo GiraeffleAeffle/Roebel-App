@@ -38,6 +38,9 @@ export async function publishStory(
     if (!owner) {
       return { success: false, error: "Keine Berechtigung für dieses Konto" };
     }
+    if (owner.role !== "owner" && owner.role !== "admin") {
+      return { success: false, error: "Nur Inhaber:innen oder Admins dürfen veröffentlichen." };
+    }
 
     const { data: article, error: articleErr } = await admin
       .from("blog_articles")
@@ -76,48 +79,53 @@ export async function publishStory(
     // point (the primary success criterion). The teaser post / post_links /
     // notification are secondary side-effects — a failure in any of them
     // must never turn an already-published article into `{success:false}`.
+    // Both are also gated on `!alreadyPublished` so a re-publish (double-tap
+    // / re-hitting this action on an already-published article) does not
+    // insert a duplicate feed post or fire a second community notification.
     let postId: string | undefined;
-    try {
-      const { post, link } = buildStoryTeaserPost(
-        {
-          id: articleId,
-          title: article.title,
-          excerpt: article.excerpt ?? "",
-          cover_image_url: article.cover_image_url ?? null,
-        },
-        { accountId, walletAddress: wallet },
-      );
+    if (!alreadyPublished) {
+      try {
+        const { post, link } = buildStoryTeaserPost(
+          {
+            id: articleId,
+            title: article.title,
+            excerpt: article.excerpt ?? "",
+            cover_image_url: article.cover_image_url ?? null,
+          },
+          { accountId, walletAddress: wallet },
+        );
 
-      const { data: insertedPost, error: postErr } = await admin
-        .from("posts")
-        .insert(post)
-        .select("id")
-        .single();
+        const { data: insertedPost, error: postErr } = await admin
+          .from("posts")
+          .insert(post)
+          .select("id")
+          .single();
 
-      if (postErr || !insertedPost) {
-        console.error("[publishStory] teaser post insert failed", postErr);
-      } else {
-        postId = insertedPost.id as string;
+        if (postErr || !insertedPost) {
+          console.error("[publishStory] teaser post insert failed", postErr);
+        } else {
+          postId = insertedPost.id as string;
 
-        const { error: linkErr } = await admin.from("post_links").insert({
-          post_id: postId,
-          ...link,
-        });
+          const { error: linkErr } = await admin.from("post_links").insert({
+            post_id: postId,
+            ...link,
+          });
 
-        if (linkErr) {
-          console.error("[publishStory] post_links insert failed", linkErr);
+          if (linkErr) {
+            console.error("[publishStory] post_links insert failed", linkErr);
+          }
         }
+      } catch (teaserError) {
+        console.error("[publishStory] teaser post pipeline failed", teaserError);
       }
-    } catch (teaserError) {
-      console.error("[publishStory] teaser post pipeline failed", teaserError);
-    }
 
-    createAppNotification({
-      type: "story_new",
-      title: "Neue Geschichte aus Röbel",
-      link: `/app/blog/${articleId}`,
-      image_url: article.cover_image_url ?? undefined,
-    }).catch(console.error);
+      createAppNotification({
+        type: "story_new",
+        title: "Neue Geschichte aus Röbel",
+        link: `/app/blog/${articleId}`,
+        image_url: article.cover_image_url ?? undefined,
+      }).catch(console.error);
+    }
 
     revalidatePath("/app");
     revalidatePath("/app/blog");

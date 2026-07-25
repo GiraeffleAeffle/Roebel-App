@@ -108,6 +108,12 @@ export async function POST(request: Request) {
         { status: 403 },
       );
     }
+    if (owner.role !== "owner" && owner.role !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "Nur Inhaber:innen oder Admins dürfen Artikel erstellen." },
+        { status: 403 },
+      );
+    }
 
     // Byline check: the caller must ALSO own the account they're bylining the
     // draft to (authorAccountId), not just the account it's published under
@@ -130,6 +136,12 @@ export async function POST(request: Request) {
         );
       }
       if (!authorOwner) {
+        return NextResponse.json(
+          { success: false, error: "Keine Berechtigung für das angegebene Autor:innen-Konto." },
+          { status: 403 },
+        );
+      }
+      if (authorOwner.role !== "owner" && authorOwner.role !== "admin") {
         return NextResponse.json(
           { success: false, error: "Keine Berechtigung für das angegebene Autor:innen-Konto." },
           { status: 403 },
