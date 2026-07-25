@@ -1290,3 +1290,21 @@ Two execution options:
 
 1. **Subagent-Driven (recommended)** — a fresh subagent per task, two-stage review between tasks, fast iteration.
 2. **Inline Execution** — execute tasks in this session with checkpoints for review.
+
+---
+
+## Amendment (2026-07-25): agent-ready identity shaping
+
+Source: spec §10 (added from the buzz.xyz deep research + the "AI Agent automation" priority). Goal: make the keystone provably the on-ramp for the future Agent-Runtime layer, at near-zero build cost — **human-only implementation in v1**, but the claims model reserves the agent seam so no migration is needed later. Concrete deltas to the tasks above:
+
+- **Task 4 (claims resolver):**
+  - `src/claims/types.ts` — add `'roebel:actor_type'?: 'human' | 'agent'` to `RoebelClaims`.
+  - `src/claims/resolver.ts` — set `'roebel:actor_type': 'human'` in the returned claims (v1 issues human principals only; the field exists so agent principals slot in additively).
+  - `test/resolver.test.ts` — add one assertion: `expect(claims['roebel:actor_type']).toBe('human')`.
+- **Task 6 (provider assembly):**
+  - `src/oidc/provider.ts` — add `'roebel:actor_type'` to the `roebel` array in the `claims` config so the claim flows to relying parties.
+- **No other task changes.** No service-account/client-credentials grant, no `act` (delegation) claim, no ACP/MCP wiring in this build — those are the Agent-Runtime layer's own future spec (spec §10 "reserved seams").
+
+### Environment note for this build (non-interactive session)
+
+Tasks that need external auth/live infra are **handed to the user**, not run by the build agent: Task 5 Step 6 (apply migration via **Supabase MCP** — needs OAuth), Task 8 Step-anything requiring `fly` deploy, and Task 9 (live **Nextcloud** E2E). The build delivers Tasks 1–7 as code + passing local unit/integration tests (fakes/stubs for Supabase, chain, and the SIWE verifier), plus the Task 8 files (Dockerfile/fly.toml/.env.example/JWKS script/README) and Task 9 files (compose + docs + checklist) — with the *live* runs left as a documented ops checklist.

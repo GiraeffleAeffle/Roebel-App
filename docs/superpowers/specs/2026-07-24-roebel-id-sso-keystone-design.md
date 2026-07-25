@@ -1,7 +1,7 @@
 # Röbel ID — Wallet-Identity SSO Keystone (Design)
 
 **Date:** 2026-07-24
-**Status:** Design (brainstorming output) — awaiting user review before implementation planning
+**Status:** Design (brainstorming output) · **Amended 2026-07-25** — agent-ready identity shaping (§10) + openDesk LDAP-tax correction (§6), from buzz.xyz + openDesk deep research. **Approved for build.**
 **Scope of THIS spec:** the **SSO keystone** — a standards-compliant OIDC Identity Provider ("Röbel ID") that turns the existing wallet login into a login for open-source office components, proven end-to-end against **Nextcloud**. Plus a strategic preamble (§0) capturing the **openDesk coexistence thesis**. Everything else in the Sovereign Suite is out of scope and lives in the companion docs.
 
 **Where this sits in the corpus (build on, do not duplicate):**
@@ -144,7 +144,7 @@ The OIDC token Röbel ID issues:
 
 - **What is owned vs. rented.** Everything auth-*correctness* depends on is owned: the IdP, its signing keys, the claims logic, the store. thirdweb is confined to `ThirdwebAuthBridge` behind the one-function `verifyLogin → {address}` interface.
 - **The de-thirdweb migration (v2).** Replace `ThirdwebAuthBridge` with `SiweAuthBridge` (standalone EIP-4361 + ERC-1271). No other module changes — this is exactly netizen-stack L0's "make thirdweb swappable, not enshrined," and it makes the migration a backend change, not a rewrite.
-- **openDesk coexistence (later, no new build).** Because Röbel ID is a standard OIDC IdP, a town running openDesk registers Röbel ID as an **external OIDC identity provider in its Keycloak** — its citizens then authenticate to openDesk's components with their town wallet. This is the "sit on top of openDesk" path from §0, available for free once the IdP exists.
+- **openDesk coexistence (later, low new build — corrected 2026-07-25).** Because Röbel ID is a standard OIDC IdP, a town running openDesk registers Röbel ID as an **external OIDC identity provider in its Keycloak** — its citizens then authenticate to openDesk's components with their town wallet. **openDesk research correction:** this is supported since openDesk **v1.4.0** via Keycloak external-IdP brokering — but **OIDC only** (not SAML), users matched by **username**, and, critically, openDesk's **backend of record is OpenLDAP (Univention Nubus), not Keycloak**. Federation *authenticates*, but each user must **also exist in LDAP**, and **SCIM inbound is not live** (roadmap only). So coexistence is **low-new-build, not zero**: it needs the **Nubus Directory Importer** for user lifecycle (or accepting **JIT provisioning without deprovisioning** for a pilot) alongside the OIDC broker. This is still the "sit on top of openDesk" path from §0 — available once the IdP exists **plus that LDAP provisioning is wired** — and confirms the §0 posture: don't adopt openDesk's Kubernetes/Helmfile mega-deployment; compose 2–3 upstream apps behind Röbel ID and *federate to* openDesk where a town already runs it.
 - **Forkable as a Netizen Node component.** Röbel ID's only per-community config is: clients, `chainId`, contract addresses, and the Supabase URL. Built product-first for Röbel; clean enough to become the identity module of a Netizen Node.
 
 ---
@@ -175,3 +175,25 @@ The OIDC token Röbel ID issues:
 - **Recovery hardening** — passkeys + Safe Recovery Module; a wallet-layer slice, not identity-service.
 - **EAS-backed portable credentials** — "verified Röbel resident / verified local business" as EAS attestations a third party can check without Röbel's DB (safer than World ID for EU civic use).
 - **SCIM / deprovisioning** — how loss of citizen status or org membership propagates to Nextcloud (group removal) beyond next-login refresh.
+
+---
+
+## 10. Agent principals — the AI-automation on-ramp (shaped now, built later)
+
+**Amendment 2026-07-25** — from the buzz.xyz deep research + the user's stated priority ("focusing on AI Agent automation"). This section makes the keystone provably the foundation the future Agent-Runtime layer plugs into, at near-zero v1 build cost.
+
+**Why this belongs in the keystone.** The project's north star treats AI agents as *members*, not tools: an economic agent needs the same four things a human member needs — a verified identity, governance bounds, a scoped treasury, and a currency ([COORDINATION_PROTOCOL_THESIS](../../future-research/COORDINATION_PROTOCOL_THESIS.md), layer 05). Block's **buzz** (Apache-2.0, launched 2026-07-21) ships exactly this pattern in production: every agent gets its own keypair and acts with *"the same audit trail, a different keypair,"* and Block chose Nostr specifically because agent **identity** is "the most fundamental problem in multi-agent collaboration." Röbel already owns a *stronger* identity primitive than buzz's raw Nostr keypair — a gasless smart-account (secp256k1) with on-chain governance and treasury — so the keystone is the natural place agents get their identity.
+
+**The design consequence (why it's nearly free).** Röbel ID's `sub = smart-account address` **already generalizes to agents**: an agent is just a principal that owns its own address. So the IdP is the identity layer for humans *and* agents with **no model change** — only additive claims.
+
+**What v1 does (shaped, minimal — the only agent-related code in this build):**
+- Reserve a `roebel:actor_type` claim (`'human' | 'agent'`), defaulting to `'human'`, in the claims model (Task 4) and in the `roebel` claims scope (Task 6), so it flows to relying parties from day one. Adding agents later then needs **no claims-schema or Nextcloud-mapping migration**.
+
+**What a later Agent-Runtime spec builds (reserved seams, NOT built here):**
+- **Delegation via the OIDC `act` (actor) claim** (RFC 8693 token-exchange semantics): an agent token asserts *"agent X acting on behalf of principal Y,"* giving buzz-style attributable, auditable agent actions — every agent action traces to its authorizing human/org.
+- **A client-credentials / service-account grant** for non-interactive agent auth, distinct from the human `authorization_code` interactive flow, issuing **bounded scopes** per the thesis's "governance bounds."
+- **Audit**: every issued token (human or agent) logged; agent tokens carry `act`. This reproduces buzz's "same audit trail, different keypair" property over standard OIDC instead of Nostr.
+
+**Explicit v1 non-goals:** no service-account grant, no agent onboarding, no ACP/MCP wiring, no scope-bounding engine — those are the Agent-Runtime layer's own spec. The keystone only **reserves the seam** (`actor_type`) and records the on-ramp so the foundation is provably agent-ready.
+
+**Interop note.** Because this is standard OIDC over a smart-account identity, a Röbel agent principal maps cleanly onto buzz's ACP/MCP agent world later: an agent holding a Röbel ID token + a scoped smart account can act inside the sovereign suite (or a buzz-style workspace) identically. buzz deliberately omits payments and cross-org federation — those remain Röbel's differentiators, layered *below* this identity, not borrowed from buzz.
