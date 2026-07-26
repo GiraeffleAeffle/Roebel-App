@@ -88,3 +88,28 @@ export interface RankedMatch extends FitResult {
   amount_max: number | null;
   collapsed: boolean; // true for niedrig — surfaced collapsed, never hidden
 }
+
+/**
+ * A persisted `org_funding_matches` row joined with its `funding_programs`
+ * program, as the dashboard panel renders it (the DB row alone lacks the
+ * program name/source/deadline/amount — those live on the program).
+ */
+export interface FundingMatchView {
+  id: string;
+  program_id: string;
+  program_name: string;
+  provider: string;
+  level: FundingLevel;
+  source_url: string;
+  deadline: string | null;
+  amount_min: number | null;
+  amount_max: number | null;
+  score: number;
+  probability_band: ProbabilityBand;
+  rationale: string;
+  requirements: string;
+  red_flags: string;
+  collapsed: boolean;
+  status: MatchStatus;
+  created_at: string;
+}
