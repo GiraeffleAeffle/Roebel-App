@@ -2,6 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Bot, ShieldCheck, ArrowRight } from "lucide-react";
 import { useUserProfile } from "@/hooks/useUserProfile";
@@ -16,7 +17,38 @@ import { DAOContributionsCard } from "@/components/profile/DAOContributionsCard"
 import { MembershipsCard } from "@/components/dashboard/MembershipsCard";
 import { WorkspaceTilesCard } from "@/components/dashboard/WorkspaceTilesCard";
 
+// Skeleton reused for both the pre-mount gate and the in-flight loading state.
+function DashboardSkeleton() {
+  return (
+    <div className="max-w-2xl mx-auto animate-pulse space-y-4">
+      <div className="h-7 bg-muted rounded w-1/3" />
+      <div className="h-44 bg-card border border-border rounded-xl" />
+      <div className="h-32 bg-card border border-border rounded-xl" />
+      <div className="h-32 bg-card border border-border rounded-xl" />
+    </div>
+  );
+}
+
+/**
+ * Client-mount gate. The dashboard body reads wallet + on-chain state through
+ * thirdweb hooks (useActiveAccount via useUserProfile/useVerificationStatus and
+ * the reused voting/DAO cards). Rendering that tree during SSR or the first
+ * hydration pass can call those hooks before the ThirdwebProvider's connection
+ * manager is established for this route, throwing "useActiveAccount must be used
+ * within <ThirdwebProvider>". Deferring the whole hook-using subtree to after
+ * mount removes that timing window; SSR + first paint render a plain skeleton.
+ */
 export default function CitizenDashboardPage() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) return <DashboardSkeleton />;
+  return <CitizenDashboardContent />;
+}
+
+function CitizenDashboardContent() {
   const { user, isLoading, isConnected } = useUserProfile();
   const {
     isAttester,
@@ -35,14 +67,7 @@ export default function CitizenDashboardPage() {
 
   // Loading — wallet reconnect / profile / chain read still in flight.
   if (isLoading || verifyLoading) {
-    return (
-      <div className="max-w-2xl mx-auto animate-pulse space-y-4">
-        <div className="h-7 bg-muted rounded w-1/3" />
-        <div className="h-44 bg-card border border-border rounded-xl" />
-        <div className="h-32 bg-card border border-border rounded-xl" />
-        <div className="h-32 bg-card border border-border rounded-xl" />
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   // Not logged in — soft state (AuthGuard renders the shell for guests too).
