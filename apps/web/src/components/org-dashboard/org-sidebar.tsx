@@ -19,6 +19,7 @@ import {
   ExternalLink,
   LayoutGrid,
   Sparkles,
+  Landmark,
 } from "lucide-react";
 import {
   subTypeFeatures,
@@ -66,6 +67,12 @@ export function OrgSidebar({ account }: OrgSidebarProps) {
       href: "/dashboard/stories",
       icon: <Sparkles className="h-4 w-4" />,
       visible: features.blog,
+    },
+    {
+      name: "Fördermittel",
+      href: "/dashboard/foerdermittel",
+      icon: <Landmark className="h-4 w-4" />,
+      visible: features.foerdermittel,
     },
     {
       name: "Mitglieder",

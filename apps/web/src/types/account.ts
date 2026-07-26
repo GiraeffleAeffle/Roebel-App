@@ -167,6 +167,7 @@ export interface SubTypeFeatures {
   speisekarte: boolean;
   storyCollections: boolean;
   proposals: boolean;
+  foerdermittel: boolean;
 }
 
 /** Single source of truth for which dashboard panels each sub_type sees. */
@@ -186,6 +187,7 @@ export function subTypeFeatures(
         speisekarte: true,
         storyCollections: false,
         proposals: false,
+        foerdermittel: true,
       };
     case "unternehmen":
       return {
@@ -199,6 +201,7 @@ export function subTypeFeatures(
         speisekarte: false,
         storyCollections: false,
         proposals: false,
+        foerdermittel: true,
       };
     case "verein":
       return {
@@ -212,6 +215,7 @@ export function subTypeFeatures(
         speisekarte: false,
         storyCollections: false,
         proposals: false,
+        foerdermittel: true,
       };
     case "stadt":
       return {
@@ -225,6 +229,7 @@ export function subTypeFeatures(
         speisekarte: false,
         storyCollections: true,
         proposals: true,
+        foerdermittel: true,
       };
     case "fraktion":
       return {
@@ -238,6 +243,7 @@ export function subTypeFeatures(
         speisekarte: false,
         storyCollections: false,
         proposals: false,
+        foerdermittel: false,
       };
     case "journalist":
       return {
@@ -251,6 +257,7 @@ export function subTypeFeatures(
         speisekarte: false,
         storyCollections: false,
         proposals: false,
+        foerdermittel: false,
       };
     default:
       return {
@@ -264,6 +271,7 @@ export function subTypeFeatures(
         speisekarte: false,
         storyCollections: false,
         proposals: false,
+        foerdermittel: false,
       };
   }
 }
