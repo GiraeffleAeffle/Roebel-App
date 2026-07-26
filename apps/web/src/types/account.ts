@@ -169,6 +169,7 @@ export interface SubTypeFeatures {
   proposals: boolean;
   foerdermittel: boolean;
   flyer: boolean;
+  workspace: boolean;
 }
 
 /** Single source of truth for which dashboard panels each sub_type sees. */
@@ -190,6 +191,7 @@ export function subTypeFeatures(
         proposals: false,
         foerdermittel: true,
         flyer: true,
+        workspace: true,
       };
     case "unternehmen":
       return {
@@ -205,6 +207,7 @@ export function subTypeFeatures(
         proposals: false,
         foerdermittel: true,
         flyer: true,
+        workspace: true,
       };
     case "verein":
       return {
@@ -220,6 +223,7 @@ export function subTypeFeatures(
         proposals: false,
         foerdermittel: true,
         flyer: true,
+        workspace: true,
       };
     case "stadt":
       return {
@@ -235,6 +239,7 @@ export function subTypeFeatures(
         proposals: true,
         foerdermittel: true,
         flyer: true,
+        workspace: true,
       };
     case "fraktion":
       return {
@@ -250,6 +255,7 @@ export function subTypeFeatures(
         proposals: false,
         foerdermittel: false,
         flyer: true,
+        workspace: true,
       };
     case "journalist":
       return {
@@ -265,6 +271,7 @@ export function subTypeFeatures(
         proposals: false,
         foerdermittel: false,
         flyer: true,
+        workspace: true,
       };
     default:
       return {
@@ -280,6 +287,7 @@ export function subTypeFeatures(
         proposals: false,
         foerdermittel: false,
         flyer: false,
+        workspace: false,
       };
   }
 }
