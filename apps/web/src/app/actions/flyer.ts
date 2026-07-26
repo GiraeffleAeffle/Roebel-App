@@ -14,7 +14,11 @@ import {
   type FlyerEventContext,
 } from "@/lib/flyer/copy";
 import { resolveStyle } from "@/lib/flyer/styles";
-import { buildFlyerImagePrompt, renderFlyerImage } from "@/lib/flyer/render";
+import {
+  buildFlyerImagePrompt,
+  renderFlyerImage,
+  renderFlyerImageWithReference,
+} from "@/lib/flyer/render";
 import type { Flyer, FlyerEventOption } from "@/types/flyer";
 
 // Bounds gpt-image-1 cost. Counts flyers created by the account since UTC midnight.
@@ -52,7 +56,9 @@ async function loadEventContext(
 ): Promise<FlyerEventContext | null> {
   const { data } = await admin
     .from("events")
-    .select("title, date, time, location, description, account_id")
+    .select(
+      "title, date, time, end_time, location, description, category, ticket_price, website_url, organizer_name, image_url, account_id",
+    )
     .eq("id", eventId)
     .maybeSingle();
   if (!data || data.account_id !== accountId) return null;
@@ -60,8 +66,13 @@ async function loadEventContext(
     title: data.title,
     date: data.date,
     time: data.time,
+    end_time: data.end_time,
     location: data.location,
     description: data.description,
+    category: data.category,
+    ticket_price: data.ticket_price,
+    website_url: data.website_url,
+    organizer_name: data.organizer_name,
   };
 }
 
@@ -126,6 +137,44 @@ export async function draftFlyerCopyAction(
   }
 }
 
+const MAX_REFERENCE_BYTES = 10 * 1024 * 1024; // 10 MB
+
+/**
+ * Only fetch references from our own Supabase storage host (where uploaded
+ * references + event images live). Blocks SSRF to arbitrary/internal URLs — the
+ * referenceUrl is client-supplied and fetched server-side.
+ */
+function isAllowedReferenceUrl(url: string): boolean {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!base) return false;
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" && u.host === new URL(base).host;
+  } catch {
+    return false;
+  }
+}
+
+/** Fetch a reference image (logo / event photo) for the gpt-image-1 edit path. Null on any problem. */
+async function fetchReferenceImage(
+  url: string,
+): Promise<{ bytes: Uint8Array; contentType: string } | null> {
+  if (!isAllowedReferenceUrl(url)) return null;
+  try {
+    // redirect:"manual" fails closed — a redirect off the allowed host can't be followed.
+    const res = await fetch(url, { redirect: "manual" });
+    if (!res.ok) return null;
+    const contentType = res.headers.get("content-type") ?? "image/png";
+    if (!contentType.startsWith("image/")) return null;
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.byteLength === 0 || buf.byteLength > MAX_REFERENCE_BYTES) return null;
+    return { bytes: buf, contentType };
+  } catch (error) {
+    console.error("fetchReferenceImage failed", error);
+    return null;
+  }
+}
+
 /** Render the flyer (gpt-image-1), upload it, and save the row. Owner-gated + daily-capped. */
 export async function generateFlyerAction(
   accountId: string,
@@ -136,6 +185,7 @@ export async function generateFlyerAction(
     copy: FlyerCopy;
     style: string;
     eventId?: string | null;
+    referenceUrl?: string | null;
   },
 ): Promise<{ success: boolean; error?: string; flyer?: Flyer }> {
   const guard = await assertOwner(accountId, walletAddress);
@@ -169,11 +219,17 @@ export async function generateFlyerAction(
       validEventId = owned ? rawEventId : null;
     }
 
+    // Optional reference image (org logo / event photo) → gpt-image-1 edit path.
+    // Best-effort: an unfetchable reference falls back to plain text-to-image.
+    const reference = input.referenceUrl ? await fetchReferenceImage(input.referenceUrl) : null;
+
     const copy = normalizeCopy(input.copy);
     const resolvedStyle = resolveStyle(input.style);
-    const prompt = buildFlyerImagePrompt(copy, resolvedStyle);
+    const prompt = buildFlyerImagePrompt(copy, resolvedStyle, { hasReference: !!reference });
 
-    const bytes = await renderFlyerImage(prompt);
+    const bytes = reference
+      ? await renderFlyerImageWithReference(prompt, reference)
+      : await renderFlyerImage(prompt);
 
     const filePath = `flyers/${accountId}/${crypto.randomUUID()}.png`;
     const { error: uploadErr } = await admin.storage

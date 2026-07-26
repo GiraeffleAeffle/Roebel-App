@@ -29,10 +29,11 @@ import {
 import { RecurringDatesEditor } from "@/components/org-dashboard/RecurringDatesEditor"
 import { EventInterestsPanel } from "@/components/org-dashboard/EventInterestsPanel"
 import { EventStatsQrPanel } from "@/components/org-dashboard/EventStatsQrPanel"
+import { EventFlyerGenerator } from "@/components/org-dashboard/EventFlyerGenerator"
 import { updateOrgEvent } from "@/app/actions/org-events"
 import { deleteEvent } from "@/app/actions/manage-events"
 
-type Tab = "details" | "anmeldungen" | "statistik"
+type Tab = "details" | "anmeldungen" | "statistik" | "flyer"
 
 const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   approved: { label: "Veröffentlicht", className: "bg-green-100 text-green-700" },
@@ -55,6 +56,13 @@ export default function EditOrgEventPage() {
   const [values, setValues] = useState<OrgEventFormValues>(EMPTY_EVENT_VALUES)
   const [status, setStatus] = useState<string>("draft")
   const [title, setTitle] = useState("")
+  const [accountId, setAccountId] = useState<string | null>(null)
+
+  // Deep-link ?tab=flyer (e.g. from the events list) without needing useSearchParams.
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab")
+    if (t === "flyer" || t === "anmeldungen" || t === "statistik") setTab(t as Tab)
+  }, [])
 
   const fetchEvent = useCallback(async () => {
     const supabase = createClient()
@@ -91,6 +99,7 @@ export default function EditOrgEventPage() {
     })
     setStatus(data.status || "draft")
     setTitle(data.title || "")
+    setAccountId(data.account_id ?? null)
     setLoading(false)
   }, [eventId, isOwnerOf, router])
 
@@ -146,6 +155,7 @@ export default function EditOrgEventPage() {
   const badge = STATUS_BADGE[status] ?? STATUS_BADGE.draft
   const tabs: { key: Tab; label: string }[] = [
     { key: "details", label: "Details" },
+    { key: "flyer", label: "Flyer" },
     { key: "anmeldungen", label: "Anmeldungen" },
     { key: "statistik", label: "Statistik & QR" },
   ]
@@ -223,6 +233,15 @@ export default function EditOrgEventPage() {
           currentlyPublished={status === "approved"}
           onSubmit={handleSubmit}
           extraSection={<RecurringDatesEditor eventId={eventId} />}
+        />
+      )}
+
+      {tab === "flyer" && accountId && (
+        <EventFlyerGenerator
+          accountId={accountId}
+          eventId={eventId}
+          eventTitle={title}
+          eventImageUrl={values.image_url}
         />
       )}
 

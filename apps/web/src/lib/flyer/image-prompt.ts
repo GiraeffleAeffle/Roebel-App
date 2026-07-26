@@ -18,8 +18,15 @@ function textLine(label: string, value: string): string {
  * Build the gpt-image-1 prompt: names every non-empty copy field as text to
  * typeset, the style direction + palette, A4 portrait layout, and an explicit
  * "render all text crisply and correctly, no garbled/placeholder text" guard.
+ *
+ * When `hasReference` is set (a logo / photo is passed to the edit endpoint),
+ * append guidance to incorporate it tastefully without distorting it or the text.
  */
-export function buildFlyerImagePrompt(copy: FlyerCopy, style: FlyerStyle): string {
+export function buildFlyerImagePrompt(
+  copy: FlyerCopy,
+  style: FlyerStyle,
+  options?: { hasReference?: boolean },
+): string {
   const textBlock = [
     textLine("Headline (largest, dominant)", copy.headline),
     textLine("Subheadline", copy.subheadline),
@@ -43,5 +50,10 @@ export function buildFlyerImagePrompt(copy: FlyerCopy, style: FlyerStyle): strin
     "",
     "Layout rules: clear top-to-bottom hierarchy with the headline dominant; group date, time and place into one easily scannable info block; the call to action must stand out; leave comfortable print margins; text must never be cropped, warped, or overlapped by decoration.",
     "This is a real flyer a small-town organisation will print — it must look clean, trustworthy and legible, not like abstract AI art.",
-  ].join("\n");
+    options?.hasReference
+      ? "Incorporate the provided reference image (the organisation's logo or an event photo) tastefully — keep its proportions, do not distort it, and never let it cover or reduce the legibility of the text."
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }

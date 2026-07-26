@@ -8,13 +8,18 @@
 import { z } from "zod";
 import type { FlyerStyle } from "./styles";
 
-/** Optional event context that prefills the brief. */
+/** Optional event context that prefills the brief (all reliable event facts). */
 export interface FlyerEventContext {
   title: string;
   date?: string | null;
   time?: string | null;
+  end_time?: string | null;
   location?: string | null;
   description?: string | null;
+  category?: string | null;
+  ticket_price?: number | null;
+  website_url?: string | null;
+  organizer_name?: string | null;
 }
 
 /** The editable, structured flyer text. Empty string = "not on the flyer". */
@@ -64,11 +69,22 @@ export function buildCopyPrompt(
   parts.push(`Briefing der Organisation:\n${brief.trim() || "(kein Freitext — nutze die Event-Daten)"}`);
 
   if (event) {
+    const price =
+      event.ticket_price != null
+        ? event.ticket_price === 0
+          ? "Eintritt frei"
+          : `${event.ticket_price} €`
+        : null;
     const evLines = [
       line("Titel", event.title),
       line("Datum", event.date),
       line("Uhrzeit", event.time),
+      line("Ende", event.end_time),
       line("Ort", event.location),
+      line("Kategorie", event.category),
+      line("Eintritt", price),
+      line("Veranstalter", event.organizer_name),
+      line("Website", event.website_url),
       line("Beschreibung", event.description),
     ].filter(Boolean);
     if (evLines.length) {
