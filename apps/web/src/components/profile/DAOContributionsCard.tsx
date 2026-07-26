@@ -1,6 +1,5 @@
 "use client";
 
-import { useActiveAccount } from "thirdweb/react";
 import {
   governorContract,
   attesterNFTContract,
@@ -21,10 +20,16 @@ interface DAOContributionsCardProps {
   user: {
     created_at: string;
   };
+  /**
+   * Connected wallet address from the page (via useUserProfile). This card is
+   * bundled into the citizen-dashboard page chunk, which resolves a duplicate
+   * thirdweb/react instance with a null ThirdwebProvider context — so calling
+   * useActiveAccount() here would throw. Take the address as a prop instead.
+   */
+  walletAddress?: string;
 }
 
-export function DAOContributionsCard({ user }: DAOContributionsCardProps) {
-  const account = useActiveAccount();
+export function DAOContributionsCard({ user, walletAddress }: DAOContributionsCardProps) {
   const [contributions, setContributions] = useState<Contributions>({
     proposalsCreated: 0,
     attesterSignatures: 0,
@@ -35,7 +40,7 @@ export function DAOContributionsCard({ user }: DAOContributionsCardProps) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!account) {
+    if (!walletAddress) {
       setIsLoading(false);
       return;
     }
@@ -60,7 +65,7 @@ export function DAOContributionsCard({ user }: DAOContributionsCardProps) {
 
         const proposalsCreated = proposalEvents.filter(
           (event: any) =>
-            event.args.proposer?.toLowerCase() === account.address.toLowerCase()
+            event.args.proposer?.toLowerCase() === walletAddress.toLowerCase()
         ).length;
 
         // Define Attester RequestApproved event
@@ -79,7 +84,7 @@ export function DAOContributionsCard({ user }: DAOContributionsCardProps) {
 
         const attesterSignatures = attesterApprovalEvents.filter(
           (event: any) =>
-            event.args.approver?.toLowerCase() === account.address.toLowerCase()
+            event.args.approver?.toLowerCase() === walletAddress.toLowerCase()
         ).length;
 
         // Define Citizen RequestApproved event
@@ -99,7 +104,7 @@ export function DAOContributionsCard({ user }: DAOContributionsCardProps) {
 
         const citizenSignatures = citizenApprovalEvents.filter(
           (event: any) =>
-            event.args.approver?.toLowerCase() === account.address.toLowerCase()
+            event.args.approver?.toLowerCase() === walletAddress.toLowerCase()
         ).length;
 
         setContributions({
@@ -117,7 +122,7 @@ export function DAOContributionsCard({ user }: DAOContributionsCardProps) {
     };
 
     fetchContributions();
-  }, [account, user.created_at]);
+  }, [walletAddress, user.created_at]);
 
   const daysSince = getDaysSinceJoined(contributions.memberSince);
   const avgContributionsPerWeek =

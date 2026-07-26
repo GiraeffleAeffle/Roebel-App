@@ -49,7 +49,7 @@ export default function CitizenDashboardPage() {
 }
 
 function CitizenDashboardContent() {
-  const { user, isLoading, isConnected } = useUserProfile();
+  const { user, isLoading, isConnected, walletAddress } = useUserProfile();
   const {
     isAttester,
     isCitizen: isCitizenChain,
@@ -196,8 +196,8 @@ function CitizenDashboardContent() {
               <p className="text-xs text-muted-foreground mt-0.5">Punkte & Münzen</p>
             </Link>
           </div>
-          <VotingActivityCard user={user} />
-          <DAOContributionsCard user={user} />
+          <VotingActivityCard user={user} walletAddress={walletAddress} />
+          <DAOContributionsCard user={user} walletAddress={walletAddress} />
         </section>
       )}
 

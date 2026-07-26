@@ -1,6 +1,5 @@
 "use client";
 
-import { useActiveAccount } from "thirdweb/react";
 import { governorContract } from "@/lib/verification-contracts";
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -21,15 +20,22 @@ interface VotingActivityCardProps {
     last_vote_date: string | null;
     gamification_points: bigint;
   };
+  /**
+   * Connected wallet address, passed down from the page (sourced via
+   * useUserProfile). We deliberately do NOT call useActiveAccount() here:
+   * this card is bundled into the citizen-dashboard page chunk, which resolves
+   * a duplicate thirdweb/react instance whose ThirdwebProvider context is null,
+   * so calling the hook here throws "must be used within <ThirdwebProvider>".
+   */
+  walletAddress?: string;
 }
 
-export function VotingActivityCard({ user }: VotingActivityCardProps) {
-  const account = useActiveAccount();
+export function VotingActivityCard({ user, walletAddress }: VotingActivityCardProps) {
   const [recentVotes, setRecentVotes] = useState<VotingActivity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!account) {
+    if (!walletAddress) {
       setIsLoading(false);
       return;
     }
@@ -56,7 +62,7 @@ export function VotingActivityCard({ user }: VotingActivityCardProps) {
         const userVotes = events
           .filter(
             (event: any) =>
-              event.args.voter?.toLowerCase() === account.address.toLowerCase()
+              event.args.voter?.toLowerCase() === walletAddress.toLowerCase()
           )
           .map((event: any) => ({
             proposalId: event.args.proposalId?.toString() || "0",
@@ -75,7 +81,7 @@ export function VotingActivityCard({ user }: VotingActivityCardProps) {
     };
 
     fetchRecentVotes();
-  }, [account]);
+  }, [walletAddress]);
 
   const getSupportLabel = (support: number) => {
     switch (support) {
