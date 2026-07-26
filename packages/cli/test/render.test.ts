@@ -9,6 +9,7 @@ import {
   renderStrfryConf,
   renderCaddyfile,
   renderComposeYml,
+  renderBootstrap,
   collectSecretRefs,
   plan,
 } from "../src/render.js";
@@ -55,11 +56,19 @@ test("the plan is ordered and includes the workspace + chat + nostr steps", () =
 test("bundle emits the full deployable set (compose, caddy, matrix, nostr, nextcloud)", () => {
   const files = Object.keys(renderBundle(roebel).files);
   for (const f of [
-    "README.md", "docker-compose.yml", "Caddyfile", "roebel-id.env", "web.env", "PLAN.md", "SECRETS.md",
+    "README.md", "bootstrap.sh", "docker-compose.yml", "Caddyfile", "roebel-id.env", "web.env", "PLAN.md", "SECRETS.md",
     "mas/config.yaml", "element/config.json", "strfry.conf", "nextcloud/setup.sh",
   ]) {
     assert.ok(files.includes(f), `expected ${f} in bundle`);
   }
+});
+
+test("bootstrap.sh is an idempotent apply script (docker + .env gate + compose up)", () => {
+  const b = renderBootstrap(roebel);
+  assert.match(b, /command -v docker/);
+  assert.match(b, /if \[ ! -f \.env \]/); // refuses to apply without secrets
+  assert.match(b, /docker compose up -d/);
+  assert.match(b, /bash nextcloud\/setup\.sh/); // roebel declares nextcloud
 });
 
 test("declared openDesk tools (mail/project) get Caddy routes", () => {

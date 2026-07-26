@@ -77,7 +77,7 @@ packages/cli/
 |---|---|---|
 | **P1 — render core** *(done)* | the pure renderers (roebel-id env, MAS, Element, **strfry/Nostr**, Caddy, docker-compose, Nextcloud setup, web env, PLAN, SECRETS) + `plan()` + `netizen render` | **Yes** — pure, `node:test` |
 | **P2a — doctor + dry-run** *(done)* | `netizen doctor` (validate + secrets/endpoints/plan/warnings report) + `netizen up --dry-run` | **Yes** — pure core |
-| P2b — apply executor | `netizen up` (ssh + docker compose + occ + MAS + OIDC upsert + redeploy) | box + e2e ([HETZNER_SETUP.md](../../HETZNER_SETUP.md)) |
+| **P2b — apply executor** *(built; operator-run; e2e-untested)* | `netizen up --host user@ip` = rsync the bundle + run the idempotent `bootstrap.sh` (docker install → `docker compose up -d` → Nextcloud OIDC/group-folders). Thin ssh transport; **secrets stay in the box's `.env`, never through the CLI**. The operator runs it (their key + secrets); can't be run from here. | operator runs against the box ([HETZNER_SETUP.md](../../HETZNER_SETUP.md)) |
 | P3 — provisioning | box + DNS creation (Hetzner API) from the manifest; backups | box + e2e |
 | P4 — Cloud | managed `up` behind a control plane (the business) | later |
 

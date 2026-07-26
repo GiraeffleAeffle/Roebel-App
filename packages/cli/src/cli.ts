@@ -1,61 +1,76 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { parseManifest } from "@netizen-labs/protocol";
-import { renderBundle } from "./render.js";
+import { tmpdir } from "node:os";
+import { parseManifest, type NetizenManifest } from "@netizen-labs/protocol";
+import { renderBundle, type Bundle } from "./render.js";
 import { doctor, formatDoctorReport } from "./doctor.js";
+import { applyOverSsh } from "./executor.js";
 
-const loadManifest = (p: string) => parseManifest(JSON.parse(readFileSync(resolve(p), "utf8")));
+const loadManifest = (p: string): NetizenManifest =>
+  parseManifest(JSON.parse(readFileSync(resolve(p), "utf8")));
 
-/** `netizen render <manifest> [--out ./bundle]` — writes the pure-render bundle. */
-function cmdRender(manifestPath: string, outDir: string): void {
-  const manifest = loadManifest(manifestPath);
-  const bundle = renderBundle(manifest);
+function writeBundle(bundle: Bundle, outDir: string): void {
   for (const [rel, content] of Object.entries(bundle.files)) {
     const full = join(outDir, rel);
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, content);
   }
-  console.log(`Rendered node "${manifest.id}" → ${outDir}`);
-  console.log(
-    `  ${Object.keys(bundle.files).length} files · ${bundle.plan.length} steps · ${bundle.secretRefs.length} secrets to supply (see SECRETS.md)`,
-  );
 }
 
 const [cmd, manifestPath, ...rest] = process.argv.slice(2);
-const outIdx = rest.indexOf("--out");
-const outDir = outIdx >= 0 ? rest[outIdx + 1] : "./bundle";
+const flag = (name: string): string | undefined => {
+  const i = rest.indexOf(name);
+  return i >= 0 ? rest[i + 1] : undefined;
+};
+const has = (name: string): boolean => rest.includes(name);
+
+function requireManifest(usage: string): NetizenManifest {
+  if (!manifestPath) {
+    console.error(usage);
+    process.exit(1);
+  }
+  return loadManifest(manifestPath);
+}
 
 switch (cmd) {
-  case "render":
-    if (!manifestPath) {
-      console.error("usage: netizen render <manifest.json> [--out ./bundle]");
-      process.exit(1);
-    }
-    cmdRender(manifestPath, outDir);
+  case "render": {
+    const m = requireManifest("usage: netizen render <manifest.json> [--out ./bundle]");
+    const outDir = flag("--out") ?? "./bundle";
+    const bundle = renderBundle(m);
+    writeBundle(bundle, outDir);
+    console.log(`Rendered node "${m.id}" → ${outDir}`);
+    console.log(
+      `  ${Object.keys(bundle.files).length} files · ${bundle.plan.length} steps · ${bundle.secretRefs.length} secrets to supply (see SECRETS.md)`,
+    );
     break;
-  case "doctor":
-    if (!manifestPath) {
-      console.error("usage: netizen doctor <manifest.json>");
-      process.exit(1);
-    }
-    process.stdout.write(formatDoctorReport(doctor(loadManifest(manifestPath))));
+  }
+  case "doctor": {
+    const m = requireManifest("usage: netizen doctor <manifest.json>");
+    process.stdout.write(formatDoctorReport(doctor(m)));
     break;
+  }
   case "up": {
-    if (!manifestPath) {
-      console.error("usage: netizen up <manifest.json> [--dry-run] [--host user@ip]");
-      process.exit(1);
-    }
-    const bundle = renderBundle(loadManifest(manifestPath));
-    if (rest.includes("--dry-run")) {
-      console.log(`Plan for "${loadManifest(manifestPath).id}" (dry run — nothing applied):`);
+    const m = requireManifest(
+      "usage: netizen up <manifest.json> [--dry-run] [--host user@ip] [--identity ~/.ssh/key]",
+    );
+    const bundle = renderBundle(m);
+    if (has("--dry-run")) {
+      console.log(`Plan for "${m.id}" (dry run — nothing applied):`);
       bundle.plan.forEach((s, i) => console.log(`  ${i + 1}. [${s.phase}] ${s.title}`));
       break;
     }
-    console.error(
-      "The apply executor is P2b — it needs a provisioned box (see docs/HETZNER_SETUP.md) and a --host target.\n" +
-        "For now: `netizen render` the bundle, then apply it per PLAN.md, or run `netizen up <manifest> --dry-run`.",
-    );
-    process.exit(2);
+    const host = flag("--host");
+    if (!host) {
+      console.error(
+        "usage: netizen up <manifest.json> --host user@ip [--identity ~/.ssh/key]\n" +
+          "Operator-run: executes from where your ssh key + the box's .env live. Or use --dry-run.",
+      );
+      process.exit(1);
+    }
+    const dir = join(tmpdir(), `netizen-${m.id}`);
+    writeBundle(bundle, dir);
+    console.log(`Applying node "${m.id}" → ${host} (bundle: ${dir})`);
+    process.exit(applyOverSsh(dir, m.id, { host, identity: flag("--identity") }));
     break;
   }
   default:
