@@ -219,6 +219,104 @@ export async function generateFlyerAction(
   }
 }
 
+/** Share a flyer as a normal image post in the main feed. Owner-gated + account-scoped. */
+export async function postFlyerToFeed(
+  accountId: string,
+  walletAddress: string,
+  flyerId: string,
+  caption?: string,
+): Promise<{ success: boolean; error?: string }> {
+  const guard = await assertOwner(accountId, walletAddress);
+  if (!guard.ok) return { success: false, error: guard.error };
+  try {
+    const admin = createAdminClient();
+    const { data: flyer } = await admin
+      .from("flyers")
+      .select("image_url, title, account_id")
+      .eq("id", flyerId)
+      .eq("account_id", accountId)
+      .maybeSingle();
+    if (!flyer) return { success: false, error: "Flyer nicht gefunden" };
+
+    const row = flyer as { image_url: string; title: string | null };
+    const content = (caption?.trim() || row.title || "Unser neuer Flyer").slice(0, 240);
+    // post_type 'user' (the default) — custom post types need a CHECK migration; a
+    // flyer is just an image post, so no migration is required.
+    const { error } = await admin.from("posts").insert({
+      wallet_address: walletAddress.toLowerCase(),
+      account_id: accountId,
+      content,
+      media_urls: [row.image_url],
+      category: "generell",
+      feed_type: "main",
+      post_type: "user",
+      status: "published",
+    });
+    if (error) {
+      console.error("postFlyerToFeed failed", error);
+      return { success: false, error: "Der Flyer konnte nicht geteilt werden." };
+    }
+    revalidatePath("/app");
+    return { success: true };
+  } catch (error) {
+    console.error("postFlyerToFeed threw", error);
+    return { success: false, error: "Der Flyer konnte nicht geteilt werden." };
+  }
+}
+
+/** Set a flyer as an event's cover image (and link the flyer to it). Owner-gated + account-scoped. */
+export async function attachFlyerToEvent(
+  accountId: string,
+  walletAddress: string,
+  flyerId: string,
+  eventId: string,
+): Promise<{ success: boolean; error?: string }> {
+  const guard = await assertOwner(accountId, walletAddress);
+  if (!guard.ok) return { success: false, error: guard.error };
+  try {
+    const admin = createAdminClient();
+    const { data: flyer } = await admin
+      .from("flyers")
+      .select("image_url, account_id")
+      .eq("id", flyerId)
+      .eq("account_id", accountId)
+      .maybeSingle();
+    if (!flyer) return { success: false, error: "Flyer nicht gefunden" };
+
+    // Confirm the event belongs to this account before touching it.
+    const { data: ev } = await admin
+      .from("events")
+      .select("id, account_id")
+      .eq("id", eventId)
+      .maybeSingle();
+    if (!ev || (ev as { account_id: string | null }).account_id !== accountId) {
+      return { success: false, error: "Keine Berechtigung für dieses Event." };
+    }
+
+    const { error: evErr } = await admin
+      .from("events")
+      .update({ image_url: (flyer as { image_url: string }).image_url })
+      .eq("id", eventId)
+      .eq("account_id", accountId);
+    if (evErr) {
+      console.error("attachFlyerToEvent event update failed", evErr);
+      return { success: false, error: "Der Flyer konnte nicht angehängt werden." };
+    }
+    await admin
+      .from("flyers")
+      .update({ event_id: eventId, source: "event" })
+      .eq("id", flyerId)
+      .eq("account_id", accountId);
+
+    revalidatePath("/dashboard/flyer");
+    revalidatePath("/dashboard/events");
+    return { success: true };
+  } catch (error) {
+    console.error("attachFlyerToEvent threw", error);
+    return { success: false, error: "Der Flyer konnte nicht angehängt werden." };
+  }
+}
+
 /** List the org's saved flyers (newest first). Owner-gated. */
 export async function listFlyers(
   accountId: string,
