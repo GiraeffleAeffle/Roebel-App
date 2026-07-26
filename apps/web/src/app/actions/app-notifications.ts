@@ -253,7 +253,13 @@ export async function getUnifiedNotifications(params?: {
         }
 
         const postId = r.metadata?.post_id
-        const link = typeof postId === "string" ? `/app/posts/${postId}` : null
+        const metaLink = r.metadata?.link
+        const link =
+          typeof postId === "string"
+            ? `/app/posts/${postId}`
+            : typeof metaLink === "string" && metaLink.startsWith("/")
+              ? metaLink
+              : null
 
         unified.push({
           id: r.id,

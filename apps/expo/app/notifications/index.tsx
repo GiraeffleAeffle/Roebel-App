@@ -94,6 +94,7 @@ export default function NotificationsInboxScreen() {
         onPress={() => {
           userNotifs.markAsRead(item.data.id);
           if (postId) router.push(`/post/${postId}` as any);
+          else if (item.data.type === 'story_invite') router.push('/messages/mecky' as any);
         }}
         style={[styles.genericCard, { backgroundColor: colors.surface }]}
       >

@@ -21,16 +21,18 @@ export async function runStoryOutreach(): Promise<{
 }> {
   const admin = createAdminClient();
 
-  const { data: accounts } = await admin
+  const { data: accounts, error: accErr } = await admin
     .from("accounts")
     .select("id, account_type, sub_type, story_outreach_opt_in")
     .eq("account_type", "organisation");
+  if (accErr) console.error("[story-outreach] accounts query failed:", accErr.message);
   const candidates = (accounts ?? []) as OutreachCandidate[];
 
-  const { data: log } = await admin
+  const { data: log, error: logQErr } = await admin
     .from("mecky_outreach_log")
     .select("account_id")
     .eq("type", "story_invite");
+  if (logQErr) console.error("[story-outreach] outreach-log query failed:", logQErr.message);
   const alreadyInvited = new Set(
     ((log ?? []) as { account_id: string | null }[]).map((r) => r.account_id).filter(Boolean) as string[],
   );
