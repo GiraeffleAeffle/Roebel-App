@@ -21,6 +21,8 @@ import {
   generateFlyerAction,
   listFlyers,
   deleteFlyer,
+  postFlyerToFeed,
+  attachFlyerToEvent,
 } from "@/app/actions/flyer";
 import { FLYER_STYLES } from "@/lib/flyer/styles";
 import type { FlyerCopy } from "@/lib/flyer/copy";
@@ -43,10 +45,28 @@ import {
   Wand2,
   Download,
   Trash2,
+  Printer,
+  Share2,
 } from "lucide-react";
 import { toast } from "sonner";
 
 const NO_EVENT = "__none__";
+
+/** Open a print-ready A4 view (the browser's "Save as PDF" gives a true A4 file). */
+function printFlyer(url: string) {
+  const w = window.open("", "_blank");
+  if (!w) {
+    window.open(url, "_blank");
+    return;
+  }
+  w.document.write(
+    `<!doctype html><html><head><title>Flyer drucken</title><style>` +
+      `@page{size:A4;margin:0}html,body{margin:0;height:100%;background:#fff}` +
+      `img{width:100%;height:100vh;object-fit:contain;display:block}</style></head>` +
+      `<body><img src="${url}" onload="window.focus();window.print()" /></body></html>`,
+  );
+  w.document.close();
+}
 
 async function downloadImage(url: string, filename: string) {
   try {
@@ -99,6 +119,7 @@ export default function FlyerPage() {
   const [generating, setGenerating] = useState(false);
   const [preview, setPreview] = useState<Flyer | null>(null);
   const [flyers, setFlyers] = useState<Flyer[]>([]);
+  const [busyFlyerId, setBusyFlyerId] = useState<string | null>(null);
 
   const canUse = !!activeAccount && !!walletAddress;
 
@@ -180,6 +201,30 @@ export default function FlyerPage() {
       }
     },
     [activeAccount, walletAddress, preview],
+  );
+
+  const handleShareToFeed = useCallback(
+    async (id: string) => {
+      if (!activeAccount || !walletAddress) return;
+      setBusyFlyerId(id);
+      const res = await postFlyerToFeed(activeAccount.id, walletAddress, id);
+      setBusyFlyerId(null);
+      if (!res.success) toast.error(res.error ?? "Teilen fehlgeschlagen");
+      else toast.success("Flyer im Feed geteilt");
+    },
+    [activeAccount, walletAddress],
+  );
+
+  const handleAttachToEvent = useCallback(
+    async (id: string, evId: string) => {
+      if (!activeAccount || !walletAddress || evId === NO_EVENT) return;
+      setBusyFlyerId(id);
+      const res = await attachFlyerToEvent(activeAccount.id, walletAddress, id, evId);
+      setBusyFlyerId(null);
+      if (!res.success) toast.error(res.error ?? "Anhängen fehlgeschlagen");
+      else toast.success("Flyer als Event-Bild gesetzt");
+    },
+    [activeAccount, walletAddress],
   );
 
   if (!canUse) {
@@ -313,14 +358,47 @@ export default function FlyerPage() {
                   alt={preview.title}
                   className="w-full sm:w-64 rounded-md border border-border"
                 />
-                <div className="space-y-2">
-                  <Button
-                    onClick={() => downloadImage(preview.image_url, `${slugForFile(preview.title)}.png`)}
-                    variant="outline"
-                    size="sm"
-                  >
-                    <Download className="h-4 w-4 mr-2" /> Als PNG herunterladen
-                  </Button>
+                <div className="space-y-2 min-w-0">
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      onClick={() => downloadImage(preview.image_url, `${slugForFile(preview.title)}.png`)}
+                      variant="outline"
+                      size="sm"
+                    >
+                      <Download className="h-4 w-4 mr-2" /> PNG
+                    </Button>
+                    <Button onClick={() => printFlyer(preview.image_url)} variant="outline" size="sm">
+                      <Printer className="h-4 w-4 mr-2" /> Drucken / PDF
+                    </Button>
+                    <Button
+                      onClick={() => handleShareToFeed(preview.id)}
+                      variant="outline"
+                      size="sm"
+                      disabled={busyFlyerId === preview.id}
+                    >
+                      <Share2 className="h-4 w-4 mr-2" /> Im Feed teilen
+                    </Button>
+                  </div>
+                  {events.length > 0 && (
+                    <div className="space-y-1.5 max-w-xs">
+                      <Label className="text-xs">An Event anhängen (als Event-Bild)</Label>
+                      <Select
+                        key={preview.id}
+                        onValueChange={(v) => handleAttachToEvent(preview.id, v)}
+                        disabled={busyFlyerId === preview.id}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Event wählen…" /></SelectTrigger>
+                        <SelectContent>
+                          {events.map((e) => (
+                            <SelectItem key={e.id} value={e.id}>
+                              {e.title}
+                              {e.date ? ` · ${e.date}` : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -337,16 +415,39 @@ export default function FlyerPage() {
                     <img src={f.image_url} alt={f.title} className="w-full aspect-[2/3] object-cover" />
                     <div className="p-3 space-y-2">
                       <p className="text-sm font-medium truncate">{f.title || "Flyer"}</p>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         <Button
                           onClick={() => downloadImage(f.image_url, `${slugForFile(f.title)}.png`)}
                           variant="outline"
                           size="sm"
-                          className="flex-1"
+                          title="Als PNG herunterladen"
                         >
-                          <Download className="h-4 w-4 mr-1.5" /> PNG
+                          <Download className="h-4 w-4" />
                         </Button>
-                        <Button onClick={() => handleDelete(f.id)} variant="ghost" size="sm">
+                        <Button
+                          onClick={() => printFlyer(f.image_url)}
+                          variant="outline"
+                          size="sm"
+                          title="Drucken / als PDF speichern"
+                        >
+                          <Printer className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          onClick={() => handleShareToFeed(f.id)}
+                          variant="outline"
+                          size="sm"
+                          disabled={busyFlyerId === f.id}
+                          title="Im Feed teilen"
+                        >
+                          <Share2 className="h-4 w-4" />
+                        </Button>
+                        <div className="flex-1" />
+                        <Button
+                          onClick={() => handleDelete(f.id)}
+                          variant="ghost"
+                          size="sm"
+                          title="Löschen"
+                        >
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
