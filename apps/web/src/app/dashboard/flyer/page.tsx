@@ -25,6 +25,7 @@ import {
   attachFlyerToEvent,
 } from "@/app/actions/flyer";
 import { FLYER_STYLES } from "@/lib/flyer/styles";
+import { downloadImage, slugForFile, printFlyer, COPY_FIELDS } from "@/lib/flyer/ui";
 import type { FlyerCopy } from "@/lib/flyer/copy";
 import type { Flyer, FlyerEventOption } from "@/types/flyer";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ImageUploadDropzone } from "@/components/ui/image-upload-dropzone";
 import {
   Image as ImageIcon,
   Loader2,
@@ -52,58 +54,6 @@ import { toast } from "sonner";
 
 const NO_EVENT = "__none__";
 
-/** Open a print-ready A4 view (the browser's "Save as PDF" gives a true A4 file). */
-function printFlyer(url: string) {
-  const w = window.open("", "_blank");
-  if (!w) {
-    window.open(url, "_blank");
-    return;
-  }
-  w.document.write(
-    `<!doctype html><html><head><title>Flyer drucken</title><style>` +
-      `@page{size:A4;margin:0}html,body{margin:0;height:100%;background:#fff}` +
-      `img{width:100%;height:100vh;object-fit:contain;display:block}</style></head>` +
-      `<body><img src="${url}" onload="window.focus();window.print()" /></body></html>`,
-  );
-  w.document.close();
-}
-
-async function downloadImage(url: string, filename: string) {
-  try {
-    const res = await fetch(url);
-    const blob = await res.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = objectUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(objectUrl);
-  } catch {
-    window.open(url, "_blank");
-  }
-}
-
-function slugForFile(s: string): string {
-  return (s || "flyer")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40) || "flyer";
-}
-
-const COPY_FIELDS: { key: keyof FlyerCopy; label: string; multiline?: boolean }[] = [
-  { key: "headline", label: "Überschrift" },
-  { key: "subheadline", label: "Unterzeile" },
-  { key: "date_line", label: "Datum" },
-  { key: "time_line", label: "Uhrzeit" },
-  { key: "place_line", label: "Ort" },
-  { key: "body", label: "Text", multiline: true },
-  { key: "cta", label: "Handlungsaufruf" },
-  { key: "footer", label: "Fußzeile (Veranstalter / Kontakt)" },
-];
-
 export default function FlyerPage() {
   const { activeAccount } = useAccount();
   const wallet = useActiveAccount();
@@ -112,6 +62,7 @@ export default function FlyerPage() {
   const [loading, setLoading] = useState(true);
   const [brief, setBrief] = useState("");
   const [styleId, setStyleId] = useState("modern");
+  const [referenceUrl, setReferenceUrl] = useState("");
   const [eventId, setEventId] = useState<string>(NO_EVENT);
   const [events, setEvents] = useState<FlyerEventOption[]>([]);
   const [copy, setCopy] = useState<FlyerCopy | null>(null);
@@ -176,6 +127,7 @@ export default function FlyerPage() {
       copy,
       style: styleId,
       eventId: eventId === NO_EVENT ? null : eventId,
+      referenceUrl: referenceUrl || null,
     });
     setGenerating(false);
     if (!res.success || !res.flyer) {
@@ -301,6 +253,20 @@ export default function FlyerPage() {
                 placeholder="z. B. „Wir veranstalten am 12. Juli unser Sommerfest am See mit Livemusik, Kuchen und Spielen für Kinder. Eintritt frei.“"
                 value={brief}
                 onChange={(e) => setBrief(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Logo oder Foto als Vorlage (optional)</Label>
+              <p className="text-xs text-muted-foreground">
+                Mecky bezieht euer Logo oder ein Foto in den Flyer ein.
+              </p>
+              <ImageUploadDropzone
+                bucketName="images"
+                folder="flyer-references"
+                maxSizeMB={10}
+                currentImageUrl={referenceUrl}
+                onUploadComplete={setReferenceUrl}
               />
             </div>
 

@@ -80,3 +80,28 @@ test("buildFlyerImagePrompt omits empty fields (no empty quotes)", () => {
   assert.ok(!prompt.includes('Time: ""'));
   assert.ok(!prompt.includes('Footer (small, at the bottom): ""'));
 });
+
+test("buildFlyerImagePrompt adds reference guidance only when hasReference", () => {
+  const withRef = buildFlyerImagePrompt(sampleCopy, resolveStyle("modern"), { hasReference: true });
+  const withoutRef = buildFlyerImagePrompt(sampleCopy, resolveStyle("modern"));
+  assert.ok(/reference image/i.test(withRef));
+  assert.ok(!/reference image/i.test(withoutRef));
+});
+
+test("buildCopyPrompt includes enriched event facts (category, price, website, organizer)", () => {
+  const prompt = buildCopyPrompt(
+    "",
+    {
+      title: "Sommerfest",
+      category: "Fest",
+      ticket_price: 0,
+      website_url: "https://verein.de",
+      organizer_name: "Heimatverein",
+    },
+    resolveStyle("festlich"),
+  );
+  assert.ok(prompt.includes("Fest"));
+  assert.ok(prompt.includes("Eintritt frei")); // ticket_price 0 → "Eintritt frei"
+  assert.ok(prompt.includes("https://verein.de"));
+  assert.ok(prompt.includes("Heimatverein"));
+});

@@ -32,6 +32,7 @@ import {
   CalendarCheck,
   FileEdit,
   MapPin,
+  Image as ImageIcon,
 } from "lucide-react"
 import {
   getOrgEventsDashboard,
@@ -281,6 +282,11 @@ export default function OrgEventsPage() {
                     onClick={() => handleDuplicate(e)}
                   >
                     <Copy className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="sm" asChild title="Flyer erstellen">
+                    <Link href={`/dashboard/events/${e.id}/edit?tab=flyer`}>
+                      <ImageIcon className="h-4 w-4" />
+                    </Link>
                   </Button>
                   <Button variant="ghost" size="sm" asChild title="Bearbeiten">
                     <Link href={`/dashboard/events/${e.id}/edit`}>
