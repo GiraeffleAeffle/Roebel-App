@@ -20,6 +20,7 @@ import {
   LayoutGrid,
   Sparkles,
   Landmark,
+  Image as ImageIcon,
 } from "lucide-react";
 import {
   subTypeFeatures,
@@ -73,6 +74,12 @@ export function OrgSidebar({ account }: OrgSidebarProps) {
       href: "/dashboard/foerdermittel",
       icon: <Landmark className="h-4 w-4" />,
       visible: features.foerdermittel,
+    },
+    {
+      name: "Flyer",
+      href: "/dashboard/flyer",
+      icon: <ImageIcon className="h-4 w-4" />,
+      visible: features.flyer,
     },
     {
       name: "Mitglieder",
