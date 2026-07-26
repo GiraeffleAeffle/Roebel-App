@@ -9,9 +9,7 @@ import { useVerificationStatus } from "@/hooks/useVerificationStatus";
 import { useAccount } from "@/lib/context/AccountContext";
 import { useAppMode } from "@/lib/context/AppModeContext";
 import { dashboardFeatures } from "@/lib/dashboard/features";
-import type { UserTier } from "@/types/account";
 import { IdentityCard } from "@/components/profile/IdentityCard";
-import { NFTStatusCard } from "@/components/profile/NFTStatusCard";
 import { VerificationStatusCard } from "@/components/profile/VerificationStatusCard";
 import { VotingActivityCard } from "@/components/profile/VotingActivityCard";
 import { DAOContributionsCard } from "@/components/profile/DAOContributionsCard";
@@ -94,8 +92,11 @@ export default function CitizenDashboardPage() {
     );
   }
 
-  const tier = (user.tier as UserTier) ?? "citizen";
-  const features = dashboardFeatures(tier);
+  // We are past the citizen gate here, so the user IS a citizen — derive
+  // features from "citizen" directly. Using a possibly-stale `user.tier`
+  // (which can lag on-chain verification — the known is_verified_citizen
+  // drift) would wrongly hide every section for a freshly-verified citizen.
+  const features = dashboardFeatures("citizen");
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
@@ -120,7 +121,6 @@ export default function CitizenDashboardPage() {
             votingPower={votingPower}
           />
           <VerificationStatusCard />
-          <NFTStatusCard user={user} />
           {features.memberships && <MembershipsCard isCitizen={isCitizen} />}
         </section>
       )}

@@ -60,7 +60,10 @@ export function buildMembershipList(
       emoji: account.sub_type ? SUB_TYPE_EMOJI[account.sub_type] : "🏢",
       avatarUrl: account.avatar_url,
       verified: account.is_verified,
-      href: "/dashboard",
+      // Link to the org's public page when it has a slug; otherwise no link
+      // (never a bare "/dashboard", which would route to whatever org is
+      // currently active — not necessarily this one).
+      href: account.slug ? `/app/orgs/${account.slug}` : null,
     });
   }
 
