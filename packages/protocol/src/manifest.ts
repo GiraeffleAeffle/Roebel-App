@@ -45,10 +45,15 @@ const Identity = z.object({
     claims: z.array(z.string()).min(1),
   }),
   // The swappable wallet→account seam (MISSION G2). Flipping providers is a manifest edit.
+  // The ERC-4337 fields are what "Netizen mints accounts on its own rails" needs.
   authBridge: z.object({
     provider: z.enum(["thirdweb", "netizen"]),
     chain: z.number().int().positive(),
     accountType: z.literal("erc4337-smart"),
+    bundlerRpc: secretRef.optional(),
+    entryPoint: address.optional(),
+    factory: address.optional(),
+    paymaster: address.optional(),
   }),
   // Drives the keystone's first-party client list (apps/roebel-id firstPartyClientIds).
   relyingParties: z.array(RelyingParty),
@@ -106,11 +111,28 @@ const Treasury = z.object({
 /** NSP-7 (new) — the deployable infrastructure layer. */
 const Services = z.object({
   host: z.object({ provider: z.string(), region: z.string() }),
+  // The openDesk-equivalent office suite. Nextcloud/Collabora + Matrix are provisioned
+  // by the installer today; mail/wiki/video/project/portal are modeled here and
+  // provisioned on the roadmap. Each lights up its dashboard tile only when set.
   workspace: z
     .object({
-      nextcloud: z.string().url().optional(),
-      collabora: z.boolean().optional(),
-      groupFolders: z.boolean().optional(),
+      nextcloud: z.string().url().optional(), // files
+      collabora: z.boolean().optional(), // collaborative docs
+      groupFolders: z.boolean().optional(), // shared folder per org
+      mail: z.string().url().optional(), // Open-Xchange (mail/calendar/contacts)
+      wiki: z.string().url().optional(), // XWiki
+      video: z.string().url().optional(), // Jitsi
+      project: z.string().url().optional(), // OpenProject
+      portal: z.string().url().optional(), // openDesk-style launcher
+    })
+    .optional(),
+  // The community data backend (Netizen Node). Modeled here; provisioning is roadmap.
+  backend: z
+    .object({
+      provider: z.enum(["supabase", "postgres"]),
+      url: urlOrSecret.optional(),
+      realtime: z.boolean().optional(),
+      edgeFunctions: z.boolean().optional(),
     })
     .optional(),
   chat: z
@@ -134,9 +156,11 @@ const Services = z.object({
   secrets: z.record(secretRef).optional(),
 });
 
-/** NSP-8 (new) — sovereign AI: model routing, sovereignty tier, MCP, data-egress. */
+/** NSP-8 (new) — sovereign AI: model routing, sovereignty tier, MCP, data-egress, agent workers. */
 const Ai = z.object({
-  gateway: z.string(),
+  gateway: z.string(), // e.g. "litellm"
+  selfHosted: z.boolean().optional(), // does the gateway run on the node
+  gpuHost: z.string().optional(), // EU GPU host for sovereignty-tier models
   models: z.record(z.string()),
   sovereignty: z
     .object({
@@ -147,6 +171,10 @@ const Ai = z.object({
     .optional(),
   mcp: z.object({ toolBus: z.string().url() }).optional(),
   contextGraph: z.boolean().optional(),
+  // Long-running agent workers (the "AI members" of the Buzz-like workspace).
+  workers: z
+    .array(z.object({ name: z.string(), model: z.string().optional(), transport: z.enum(["xmtp", "nostr"]).optional() }))
+    .optional(),
 });
 
 /** NSP-6 — agent charter + agent-to-agent transport. */

@@ -151,7 +151,13 @@ export function renderCaddyfile(m: NetizenManifest): string {
     if (u) blocks.push(`${hostname(u)} {\n  reverse_proxy ${upstream}\n}`);
   };
   add(m.identity.idp.issuer, "roebel-id:3010");
-  add(m.services.workspace?.nextcloud, "nextcloud-aio:11000");
+  const ws = m.services.workspace;
+  add(ws?.nextcloud, "nextcloud-aio:11000");
+  add(ws?.mail, "ox:8080"); // Open-Xchange
+  add(ws?.wiki, "xwiki:8080");
+  add(ws?.video, "jitsi:8000");
+  add(ws?.project, "openproject:80");
+  add(ws?.portal, "portal:80");
   add(m.services.chat?.matrix?.homeserver, "synapse:8008");
   add(m.services.chat?.matrix?.mas, "mas:8080");
   add(m.services.chat?.matrix?.element, "element:80");

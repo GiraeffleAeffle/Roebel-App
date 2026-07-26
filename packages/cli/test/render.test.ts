@@ -40,7 +40,7 @@ test("secrets appear only as references, never resolved values", () => {
   // every secret the manifest names is surfaced as a ref in SECRETS.md
   assert.deepEqual(
     collectSecretRefs(roebel).sort(),
-    ["$COORDINATOR_PUBKEY", "$GNOSIS_RPC", "$MATRIX_CLIENT_SECRET", "$NEXTCLOUD_CLIENT_SECRET", "$ROEBEL_ID_JWKS"],
+    ["$COORDINATOR_PUBKEY", "$GNOSIS_BUNDLER_RPC", "$GNOSIS_RPC", "$MATRIX_CLIENT_SECRET", "$NEXTCLOUD_CLIENT_SECRET", "$ROEBEL_ID_JWKS", "$SUPABASE_URL"],
   );
   // the keystone env references the secret, it does not inline a value
   assert.match(bundle.files["roebel-id.env"], /NEXTCLOUD_CLIENT_SECRET=\$NEXTCLOUD_CLIENT_SECRET/);
@@ -60,6 +60,19 @@ test("bundle emits the full deployable set (compose, caddy, matrix, nostr, nextc
   ]) {
     assert.ok(files.includes(f), `expected ${f} in bundle`);
   }
+});
+
+test("declared openDesk tools (mail/project) get Caddy routes", () => {
+  const m = {
+    ...roebel,
+    services: {
+      ...roebel.services,
+      workspace: { ...roebel.services.workspace, mail: "https://mail.roebel.app", project: "https://project.roebel.app" },
+    },
+  };
+  const caddy = renderCaddyfile(m);
+  assert.match(caddy, /mail\.roebel\.app \{\n\s*reverse_proxy ox:8080/);
+  assert.match(caddy, /project\.roebel\.app \{\n\s*reverse_proxy openproject:80/);
 });
 
 test("the Nostr relay is rendered and wired through Caddy + compose", () => {

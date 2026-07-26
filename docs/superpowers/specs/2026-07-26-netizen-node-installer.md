@@ -75,10 +75,18 @@ packages/cli/
 
 | Phase | Deliverable | Testable now? |
 |---|---|---|
-| **P1 — render core** *(this slice)* | the pure renderers (roebel-id env, MAS config, Element config, web env, Nextcloud setup, PLAN, SECRETS) + `plan()` + `netizen render` writing the bundle | **Yes** — pure, `node:test` |
-| P2 — executor | `netizen up` (docker compose + ssh + occ + OIDC upsert), `doctor` pre-checks | box + e2e |
+| **P1 — render core** *(done)* | the pure renderers (roebel-id env, MAS, Element, **strfry/Nostr**, Caddy, docker-compose, Nextcloud setup, web env, PLAN, SECRETS) + `plan()` + `netizen render` | **Yes** — pure, `node:test` |
+| **P2a — doctor + dry-run** *(done)* | `netizen doctor` (validate + secrets/endpoints/plan/warnings report) + `netizen up --dry-run` | **Yes** — pure core |
+| P2b — apply executor | `netizen up` (ssh + docker compose + occ + MAS + OIDC upsert + redeploy) | box + e2e ([HETZNER_SETUP.md](../../HETZNER_SETUP.md)) |
 | P3 — provisioning | box + DNS creation (Hetzner API) from the manifest; backups | box + e2e |
 | P4 — Cloud | managed `up` behind a control plane (the business) | later |
+
+**Coverage note:** the manifest (NSP-0 v2) now *models* the full sovereign stack —
+openDesk suite (mail/wiki/video/project/portal), sovereign-AI runtime (gateway, GPU,
+MCP, agent workers), ERC-4337 wallet infra (bundler/paymaster/factory), and the data
+backend. The installer *provisions* the identity + core-workspace + Nostr subset today
+and Caddy-routes any declared openDesk tool; full provisioning of OX/XWiki/Jitsi/
+OpenProject + the AI gateway is roadmap.
 
 ## Testing
 

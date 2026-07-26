@@ -24,7 +24,7 @@
       "scopes": ["openid", "email", "profile", "roebel"],
       "claims": ["sub", "email", "name", "picture", "groups", "roebel:citizen", "roebel:attester", "roebel:tier", "roebel:actor_type"]
     },
-    "authBridge": { "provider": "thirdweb", "chain": 100, "accountType": "erc4337-smart" },
+    "authBridge": { "provider": "thirdweb", "chain": 100, "accountType": "erc4337-smart", "bundlerRpc": "$GNOSIS_BUNDLER_RPC" },
     "relyingParties": [
       { "id": "nextcloud", "redirectUris": ["https://cloud.roebel.app/apps/user_oidc/code"], "scopes": ["openid", "email", "profile", "roebel"] },
       { "id": "matrix", "redirectUris": ["https://auth.roebel.app/upstream/callback/01ROEBELIDPROVIDERULID000000"], "scopes": ["openid", "email", "profile", "roebel"] },
@@ -62,11 +62,13 @@
     "secrets": {
       "nextcloudClientSecret": "$NEXTCLOUD_CLIENT_SECRET",
       "matrixClientSecret": "$MATRIX_CLIENT_SECRET"
-    }
+    },
+    "backend": { "provider": "supabase", "url": "$SUPABASE_URL", "realtime": true, "edgeFunctions": true }
   },
 
   "ai": {
     "gateway": "litellm",
+    "selfHosted": false,
     "models": { "reason": "claude-opus-4-8", "chat": "claude-sonnet-5", "classify": "claude-haiku-4-5", "image": "gpt-image-1" },
     "sovereignty": { "tier": "eu-gpu", "model": "EuroLLM", "dataEgressPolicy": "governance-gated" },
     "mcp": { "toolBus": "https://www.roebel.app/api/roebel/mcp" },

@@ -32,6 +32,22 @@ test("rejects an unknown nsp version", () => {
   assert.equal(safeParseManifest(bad).success, false);
 });
 
+test("v2 coverage fields parse — AA infra, data backend, sovereign AI, openDesk suite", () => {
+  const m = parseManifest(roebel);
+  assert.equal(m.identity.authBridge.bundlerRpc, "$GNOSIS_BUNDLER_RPC");
+  assert.equal(m.services.backend?.provider, "supabase");
+  assert.equal(m.ai?.selfHosted, false);
+  // the full openDesk suite is expressible (optional) — a node declares its subset
+  const withSuite = {
+    ...roebel,
+    services: {
+      ...roebel.services,
+      workspace: { ...roebel.services.workspace, mail: "https://mail.roebel.app", wiki: "https://wiki.roebel.app", video: "https://meet.roebel.app", project: "https://project.roebel.app" },
+    },
+  };
+  assert.equal(safeParseManifest(withSuite).success, true);
+});
+
 test("rejects treasury splits that do not sum to 100", () => {
   const bad = { ...roebel, treasury: { ...roebel.treasury, splits: { reserve: 50, ops: 30, dividend: 10 } } };
   assert.equal(safeParseManifest(bad).success, false);
