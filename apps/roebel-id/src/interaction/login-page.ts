@@ -28,8 +28,14 @@ button{background:#00498B;color:#fff;border:0;border-radius:12px;padding:14px 22
   document.getElementById('login').onclick = async () => {
     try {
       status.textContent = 'Verbinde…'
-      const wallet = inAppWallet({ smartAccount: { chain: { id: ${chainId} }, sponsorGas: true } })
-      const account = await wallet.connect({ client, strategy: 'iframe' })
+      // Modern enclave in-app wallet (matches apps/web + apps/expo) so the visitor's EXISTING
+      // Google/email smart account is recovered. NOTE: strategy:'iframe' is the LEGACY sharded
+      // flow → it fails with "Missing recovery share" against enclave wallets.
+      const wallet = inAppWallet({
+        auth: { options: ['google', 'email', 'apple', 'facebook'] },
+        smartAccount: { chain: { id: ${chainId} }, sponsorGas: true },
+      })
+      const account = await wallet.connect({ client, strategy: 'google' })
       const nonce = await (await fetch('/interaction/${uid}/nonce')).text()
       const message = new SiweMessage({ domain: location.host, address: account.address, uri: location.origin,
         version: '1', chainId: ${chainId}, nonce, statement: '${SIWE_STATEMENT}',
