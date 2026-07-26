@@ -32,6 +32,17 @@ test("rejects an unknown nsp version", () => {
   assert.equal(safeParseManifest(bad).success, false);
 });
 
+test("a node can be any sovereign entity type (town, individual, business, club, agent, ...)", () => {
+  assert.equal(parseManifest(roebel).type, "community");
+  for (const t of ["individual", "business", "club", "institution", "agent", "town"]) {
+    assert.equal(safeParseManifest({ ...roebel, type: t }).success, true, `type ${t} should be valid`);
+  }
+  // type is optional (a bare node is still valid)
+  const noType = { ...roebel };
+  delete (noType as Record<string, unknown>).type;
+  assert.equal(safeParseManifest(noType).success, true);
+});
+
 test("v2 coverage fields parse — AA infra, data backend, sovereign AI, openDesk suite", () => {
   const m = parseManifest(roebel);
   assert.equal(m.identity.authBridge.bundlerRpc, "$GNOSIS_BUNDLER_RPC");

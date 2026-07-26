@@ -198,6 +198,12 @@ export const NetizenManifestSchema = z.object({
   manifestVersion: z.string().regex(/^\d+\.\d+\.\d+$/, "expected semver"),
   id: z.string().regex(/^[a-z0-9-]+$/, "node id must be a lowercase slug"),
   name: z.string().min(1),
+  // A node is ANY sovereign entity — not just a town. The stack empowers
+  // individuals, businesses, clubs, institutions, communities, and AI agents
+  // equally; each runs its own node (identity + wallet + governance + AI).
+  type: z
+    .enum(["community", "town", "individual", "business", "club", "institution", "agent"])
+    .optional(),
 
   chain: z.object({
     chainId: z.number().int().positive(),

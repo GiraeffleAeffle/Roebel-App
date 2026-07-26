@@ -3,6 +3,7 @@
   "manifestVersion": "1.0.0",
   "id": "roebel",
   "name": "Röbel / Müritz",
+  "type": "community",
 
   "chain": { "chainId": 100, "rpc": "$GNOSIS_RPC" },
   "contracts": {
