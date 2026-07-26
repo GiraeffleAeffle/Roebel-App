@@ -5,6 +5,13 @@
 [chat-protocol decision](future-research/2026-07-26_CHAT_PROTOCOL_DECISION.md)
 (poly-protocol, unified by identity). Not a production dependency yet.
 
+> **LIVE (2026-07-26):** Röbel's relay runs on the sovereign Hetzner node —
+> **`wss://relay.roebel.app`** (strfry behind Caddy/Let's Encrypt) and raw
+> `ws://178.105.19.80:7777`. Deployed from `netizen render`'s `strfry.conf`.
+> **Write access is gated to Röbel CitizenNFT holders** (reads open) — see the
+> write-policy plugin + how the allow-list is populated:
+> [`packages/cli/policies/nostr-citizen-write/`](../packages/cli/policies/nostr-citizen-write/README.md).
+
 "A relay" can mean two different things for us: a **bare Nostr relay**, or the
 **Buzz workspace-on-a-relay** (the agents-as-members model). This runbook covers
 both, plus how either ties back to Röbel ID.

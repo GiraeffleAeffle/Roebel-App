@@ -1,0 +1,4 @@
+# Roebel CitizenNFT allow-list — one lowercase 64-hex Nostr pubkey per line.
+# Populated from CitizenNFT holders' registered Nostr keys (Nostr pubkey derived
+# from the wallet via NIP-06/signature; verified CitizenNFTv2 holder on Gnosis).
+# Add a line with a hex pubkey to grant write access. Reads are always open.
