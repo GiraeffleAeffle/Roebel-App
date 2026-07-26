@@ -18,6 +18,7 @@ describe('claims resolver', () => {
     expect(claims.groups).toContain('citizen')
     expect(claims.groups).toContain('org:org-1:admin')
     expect(claims.groups).not.toContain('attester')
+    expect(claims['roebel:actor_type']).toBe('human')
   })
 
   it('tolerates a missing profile row', async () => {

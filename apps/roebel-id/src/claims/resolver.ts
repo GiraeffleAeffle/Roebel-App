@@ -23,6 +23,7 @@ export function createClaimsResolver(deps: {
       'roebel:citizen': status.citizen,
       'roebel:attester': status.attester,
       'roebel:tier': profile?.tier,
+      'roebel:actor_type': 'human', // v1 issues human principals only; agents reserved (spec §10)
     }
   }
 }

@@ -9,6 +9,9 @@ export interface RoebelClaims {
   'roebel:citizen': boolean
   'roebel:attester': boolean
   'roebel:tier'?: string
+  // Agent-ready on-ramp (spec §10): reserves the seam for AI-agent principals.
+  // v1 issues human principals only; the field exists so agents slot in with no schema migration.
+  'roebel:actor_type'?: 'human' | 'agent'
 }
 
 export type ProfileReader = (address: string) => Promise<{ email?: string; name?: string; picture?: string; tier?: string } | null>

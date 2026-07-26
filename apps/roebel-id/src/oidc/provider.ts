@@ -32,7 +32,7 @@ export function buildProvider(deps: {
       openid: ['sub'],
       email: ['email', 'email_verified'],
       profile: ['name', 'preferred_username', 'picture'],
-      roebel: ['groups', 'roebel:citizen', 'roebel:attester', 'roebel:tier'],
+      roebel: ['groups', 'roebel:citizen', 'roebel:attester', 'roebel:tier', 'roebel:actor_type'],
     },
     scopes: ['openid', 'email', 'profile', 'roebel'],
     async findAccount(_ctx, id) {
