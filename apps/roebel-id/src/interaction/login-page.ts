@@ -20,7 +20,7 @@ button{background:#00498B;color:#fff;border:0;border-radius:12px;padding:14px 22
   <p id="status" style="color:#6B7280;font-size:14px"></p>
 </main>
 <script type="module">
-  import { createThirdwebClient } from 'https://esm.sh/thirdweb@5'
+  import { createThirdwebClient, defineChain } from 'https://esm.sh/thirdweb@5'
   import { inAppWallet } from 'https://esm.sh/thirdweb@5/wallets'
   import { SiweMessage } from 'https://esm.sh/siwe@3'
   const client = createThirdwebClient({ clientId: '${thirdwebClientId}' })
@@ -33,7 +33,7 @@ button{background:#00498B;color:#fff;border:0;border-radius:12px;padding:14px 22
       // flow → it fails with "Missing recovery share" against enclave wallets.
       const wallet = inAppWallet({
         auth: { options: ['google', 'email', 'apple', 'facebook'] },
-        smartAccount: { chain: { id: ${chainId} }, sponsorGas: true },
+        smartAccount: { chain: defineChain(${chainId}), sponsorGas: true },
       })
       const account = await wallet.connect({ client, strategy: 'google' })
       const nonce = await (await fetch('/interaction/${uid}/nonce')).text()
