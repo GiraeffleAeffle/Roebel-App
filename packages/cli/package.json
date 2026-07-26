@@ -1,0 +1,20 @@
+{
+  "name": "@netizen-labs/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "netizen — one-time installer: render a Netizen Node Manifest into a deployable bundle, then apply it.",
+  "type": "module",
+  "scripts": {
+    "netizen": "tsx src/cli.ts",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@netizen-labs/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
