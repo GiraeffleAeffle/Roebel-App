@@ -11,17 +11,21 @@ export function buildProvider(deps: {
   const { config, adapterFactory, resolveClaims } = deps
   const jwks = loadJwks()
 
+  // Every first-party Röbel-run relying party. Nextcloud is always present;
+  // Matrix (MAS) is added when configured. Adding a new service is config-only.
+  const relyingParties = [config.nextcloud, ...(config.matrix ? [config.matrix] : [])]
+
   const configuration: Configuration = {
     adapter: adapterFactory,
-    clients: [{
-      client_id: config.nextcloud.clientId,
-      client_secret: config.nextcloud.clientSecret,
-      redirect_uris: config.nextcloud.redirectUris,
-      post_logout_redirect_uris: config.nextcloud.postLogoutRedirectUris,
+    clients: relyingParties.map((rp) => ({
+      client_id: rp.clientId,
+      client_secret: rp.clientSecret,
+      redirect_uris: rp.redirectUris,
+      post_logout_redirect_uris: rp.postLogoutRedirectUris,
       grant_types: ['authorization_code'],
       response_types: ['code'],
       token_endpoint_auth_method: 'client_secret_basic',
-    }],
+    })),
     ...(jwks.keys.length ? { jwks } : {}),
     cookies: { keys: config.cookieKeys },
     pkce: { required: () => true },

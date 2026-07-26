@@ -1,3 +1,15 @@
+/**
+ * A first-party relying party (Röbel-run service) that logs in via Röbel ID.
+ * All first-party RPs share the same trust level and get a pre-granted consent
+ * (see the interaction router). Nextcloud is always present; others are optional.
+ */
+export interface RelyingPartyConfig {
+  clientId: string
+  clientSecret: string
+  redirectUris: string[]
+  postLogoutRedirectUris: string[]
+}
+
 export interface Config {
   issuer: string
   port: number
@@ -9,7 +21,9 @@ export interface Config {
   supabaseUrl: string
   supabaseServiceKey: string
   thirdwebClientId: string
-  nextcloud: { clientId: string; clientSecret: string; redirectUris: string[]; postLogoutRedirectUris: string[] }
+  nextcloud: RelyingPartyConfig
+  /** Matrix Authentication Service (MAS) upstream OIDC. Registered only when MATRIX_CLIENT_ID is set. */
+  matrix?: RelyingPartyConfig
 }
 
 function required(name: string): string {
@@ -36,5 +50,17 @@ export function loadConfig(): Config {
       redirectUris: required('NEXTCLOUD_REDIRECT_URIS').split(','),
       postLogoutRedirectUris: (process.env.NEXTCLOUD_POST_LOGOUT_URIS ?? '').split(',').filter(Boolean),
     },
+    // Matrix is optional: registered only when MATRIX_CLIENT_ID is set, so the
+    // keystone boots unchanged before Matrix/MAS is stood up.
+    ...(process.env.MATRIX_CLIENT_ID
+      ? {
+          matrix: {
+            clientId: required('MATRIX_CLIENT_ID'),
+            clientSecret: required('MATRIX_CLIENT_SECRET'),
+            redirectUris: required('MATRIX_REDIRECT_URIS').split(','),
+            postLogoutRedirectUris: (process.env.MATRIX_POST_LOGOUT_URIS ?? '').split(',').filter(Boolean),
+          },
+        }
+      : {}),
   }
 }

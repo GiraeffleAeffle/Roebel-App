@@ -4,10 +4,10 @@ import type { AuthBridge } from '../auth-bridge/types.js'
 import { renderLoginPage } from './login-page.js'
 
 export function createInteractionRouter(deps: {
-  provider: Provider; bridge: AuthBridge; thirdwebClientId: string; chainId: number; nextcloudClientId: string
+  provider: Provider; bridge: AuthBridge; thirdwebClientId: string; chainId: number; firstPartyClientIds: string[]
 }): express.Router {
   const router = express.Router()
-  const { provider, bridge, nextcloudClientId } = deps
+  const { provider, bridge, firstPartyClientIds } = deps
 
   router.get('/interaction/:uid', async (req, res, next) => {
     try {
@@ -27,10 +27,10 @@ export function createInteractionRouter(deps: {
       const details = await provider.interactionDetails(req, res)
       const { params } = details
 
-      // Pre-granting consent (below) is only safe for the one first-party client Röbel ID is
-      // configured to trust. A future second, less-trusted client must NOT silently receive an
+      // Pre-granting consent (below) is only safe for first-party Röbel-run clients (Nextcloud,
+      // Matrix/MAS, ...). Any client_id outside that trusted set must NOT silently receive an
       // auto-grant — fail closed rather than skip a consent screen that doesn't exist yet.
-      if (params.client_id !== nextcloudClientId) {
+      if (!firstPartyClientIds.includes(String(params.client_id))) {
         res.status(400).json({ error: 'unsupported_client' })
         return
       }
