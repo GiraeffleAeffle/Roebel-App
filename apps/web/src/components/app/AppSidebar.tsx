@@ -20,6 +20,7 @@ import {
   Landmark,
   Bot,
   ChevronDown,
+  LayoutDashboard,
 } from "lucide-react";
 import { useAppMode, type AppMode } from "@/lib/context/AppModeContext";
 import { useAccount } from "@/lib/context/AccountContext";
@@ -48,6 +49,7 @@ interface NavItem {
 
 const mainNavItems: NavItem[] = [
   { href: "/app", label: "Feed", icon: Home, exact: true },
+  { href: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard, modes: ["citizen"] },
   { href: "/app/proposals", label: "Stadt", icon: Landmark },
   { href: "/app/events", label: "Veranstaltungen", icon: Calendar },
   { href: "/app/karte", label: "Karte", icon: MapPin },
@@ -81,13 +83,10 @@ export function AppSidebar() {
 
   const isVisible = (item: NavItem) => {
     if (!item.modes) return true;
-    if (item.modes.includes("citizen") || item.modes.includes("org")) {
-      return isCitizen || isOrg;
-    }
-    if (item.modes.includes("org") && !item.modes.includes("citizen")) {
-      return isOrg;
-    }
-    return item.modes.includes(activeMode);
+    if (item.modes.includes("citizen") && isCitizen) return true;
+    if (item.modes.includes("org") && isOrg) return true;
+    if (item.modes.includes("tourist") && activeMode === "tourist") return true;
+    return false;
   };
 
   const visibleMainItems = mainNavItems.filter(isVisible);

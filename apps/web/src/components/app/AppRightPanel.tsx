@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Calendar, ShieldCheck, Tag, ArrowRight, Landmark, Vote, TrendingUp } from "lucide-react";
+import { Calendar, ShieldCheck, Tag, ArrowRight, Landmark, Vote, TrendingUp, LayoutDashboard } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAppMode } from "@/lib/context/AppModeContext";
 import { useAccount } from "@/lib/context/AccountContext";
@@ -175,6 +175,25 @@ export function AppRightPanel() {
               Veranstaltung erstellen
             </Link>
           </div>
+        </div>
+      )}
+
+      {/* Citizen personal: Bürger-Dashboard CTA */}
+      {isCitizenPersonal && (
+        <div className="bg-card rounded-lg border border-border p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <LayoutDashboard className="h-5 w-5 text-primary" />
+            <h3 className="font-semibold text-sm text-foreground">Bürger-Dashboard</h3>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">
+            Deine Identität, Mitgliedschaften und Arbeitsbereich an einem Ort.
+          </p>
+          <Link
+            href="/app/dashboard"
+            className="flex items-center justify-center gap-2 w-full py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg text-sm font-medium transition-colors"
+          >
+            Dashboard öffnen
+          </Link>
         </div>
       )}
 
