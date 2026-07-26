@@ -23,7 +23,9 @@ export function applyOverSsh(bundleDir: string, nodeId: string, opts: UpOptions)
 
   const rsync = spawnSync(
     "rsync",
-    ["-az", "--delete", "-e", sshCmd, `${bundleDir}/`, `${opts.host}:${remote}/`],
+    // --exclude .env so we never delete/overwrite the operator's secrets on the box
+    // (secrets are not in the rendered bundle; the box's own .env supplies them).
+    ["-az", "--delete", "--exclude=.env", "-e", sshCmd, `${bundleDir}/`, `${opts.host}:${remote}/`],
     { stdio: "inherit" },
   );
   if (rsync.status !== 0) return rsync.status ?? 1;
