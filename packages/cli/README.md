@@ -15,11 +15,13 @@ netizen up     <manifest.json>                  # render, then apply to the targ
 netizen doctor <manifest.json>                  # validate + reachability/secret checks   (P2)
 ```
 
-`render` (P1, built) is a deterministic pure function — no I/O, no infra. It emits every
-config the manifest determines: `roebel-id.env` (with the generated first-party client
-list), `mas/config.yaml`, `element/config.json`, `nextcloud/setup.sh`, `web.env`, plus
-`PLAN.md` (ordered idempotent steps) and `SECRETS.md` (the references you must supply).
-**Secrets are never written into the bundle** — only their references.
+`render` (P1, built) is a deterministic pure function — no I/O, no infra. It emits the
+full deployable bundle the manifest determines: `docker-compose.yml` (keystone + Matrix +
+**Nostr relay/strfry** + Caddy), `Caddyfile`, `roebel-id.env` (with the generated
+first-party client list), `mas/config.yaml`, `element/config.json`, `strfry.conf`,
+`nextcloud/setup.sh`, `web.env`, plus `README.md`, `PLAN.md` (ordered idempotent steps)
+and `SECRETS.md` (the references you must supply). **Secrets are never written into the
+bundle** — only their references.
 
 ```bash
 pnpm --filter @netizen-labs/cli netizen render packages/protocol/examples/roebel.netizen.json --out ./bundle

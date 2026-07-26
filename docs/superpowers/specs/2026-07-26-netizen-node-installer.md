@@ -34,10 +34,13 @@ Everything the manifest uniquely determines:
 
 | File | From manifest | Purpose |
 |---|---|---|
-| `docker-compose.yml` | `services`, `chain` | Synapse + MAS + Postgres + Element (+ Nextcloud note) |
+| `README.md` | all | how to deploy this bundle |
+| `docker-compose.yml` | `services`, `chain` | keystone + Synapse + MAS + Postgres + Element + **strfry (Nostr)** + Caddy |
+| `Caddyfile` | `identity.idp`, `services` | reverse proxy + auto-TLS for every service subdomain |
 | `roebel-id.env` | `identity.idp`, `identity.relyingParties`, `chain`, `contracts` | keystone env incl. the generated first-party client list |
 | `mas/config.yaml` | `identity.idp`, the `matrix` relying party | MAS upstream OIDC = Röbel ID |
 | `element/config.json` | `services.chat.matrix` | Element → homeserver |
+| `strfry.conf` | `services.chat.nostr` | the Nostr relay config |
 | `nextcloud/setup.sh` | `identity`, `services.workspace` | `occ` OIDC + group-folder-per-org commands |
 | `web.env` | `services.workspace`, `services.chat` | `NEXT_PUBLIC_WORKSPACE_BASE_URL` + `_CHAT_BASE_URL` |
 | `PLAN.md` | all | the ordered, idempotent step list `up` executes |

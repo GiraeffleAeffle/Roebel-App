@@ -87,4 +87,8 @@ community or person can run it (G7).
 
 ---
 
+**Netizen project home (external to this repo):** the standalone Netizen project lives at
+`~/Documents/privat/side_projects/netizen_labs/` (landing site + orientation map
+`NETIZEN_PROJECT.md`). The Netizen **protocol** (`@netizen-labs/protocol`, [`packages/protocol`](../packages/protocol)) and **installer** (`@netizen-labs/cli`, [`packages/cli`](../packages/cli)) are dogfooded *inside this monorepo* on Röbel first (strangler-fig), then extracted there. Specs: [Node Manifest](superpowers/specs/2026-07-26-netizen-node-manifest.md) · [installer](superpowers/specs/2026-07-26-netizen-node-installer.md).
+
 *Related: [future-research index](future-research/README.md) · [Netizen technical blueprint](superpowers/specs/2026-07-21-netizen-stack-design.md) · [Sovereign-community-OS / openDesk coexistence spec](superpowers/specs/2026-07-05-sovereign-community-os-design.md) · [Business plan](future-research/2026-07-22_NETIZEN_BUSINESS_PLAN.md).*

@@ -6,6 +6,9 @@ import {
   renderBundle,
   renderRoebelIdEnv,
   renderWebEnv,
+  renderStrfryConf,
+  renderCaddyfile,
+  renderComposeYml,
   collectSecretRefs,
   plan,
 } from "../src/render.js";
@@ -44,14 +47,30 @@ test("secrets appear only as references, never resolved values", () => {
   assert.match(bundle.files["SECRETS.md"], /\$ROEBEL_ID_JWKS/);
 });
 
-test("the plan is ordered and includes the workspace + chat steps for this manifest", () => {
+test("the plan is ordered and includes the workspace + chat + nostr steps", () => {
   const ids = plan(roebel).map((s) => s.id);
-  assert.deepEqual(ids, ["dns", "compose", "roebel-id", "nextcloud-oidc", "mas-oidc", "web-env", "verify"]);
+  assert.deepEqual(ids, ["dns", "compose", "roebel-id", "nextcloud-oidc", "mas-oidc", "nostr-relay", "web-env", "verify"]);
 });
 
-test("bundle emits MAS + Element + Nextcloud files when those services are present", () => {
+test("bundle emits the full deployable set (compose, caddy, matrix, nostr, nextcloud)", () => {
   const files = Object.keys(renderBundle(roebel).files);
-  for (const f of ["roebel-id.env", "web.env", "PLAN.md", "SECRETS.md", "mas/config.yaml", "element/config.json", "nextcloud/setup.sh"]) {
+  for (const f of [
+    "README.md", "docker-compose.yml", "Caddyfile", "roebel-id.env", "web.env", "PLAN.md", "SECRETS.md",
+    "mas/config.yaml", "element/config.json", "strfry.conf", "nextcloud/setup.sh",
+  ]) {
     assert.ok(files.includes(f), `expected ${f} in bundle`);
   }
+});
+
+test("the Nostr relay is rendered and wired through Caddy + compose", () => {
+  const strfry = renderStrfryConf(roebel);
+  assert.match(strfry, /name = "Röbel \/ Müritz Relay"/);
+  assert.match(strfry, /port = 7777/);
+  const caddy = renderCaddyfile(roebel);
+  assert.match(caddy, /relay\.roebel\.app \{\n\s*reverse_proxy strfry:7777/);
+  assert.match(caddy, /id\.roebel\.app \{\n\s*reverse_proxy roebel-id:3010/);
+  const compose = renderComposeYml(roebel);
+  assert.match(compose, /strfry:/);
+  assert.match(compose, /synapse:/);
+  assert.match(compose, /roebel-id:/);
 });
