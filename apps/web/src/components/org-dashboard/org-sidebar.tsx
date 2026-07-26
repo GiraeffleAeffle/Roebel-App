@@ -20,6 +20,7 @@ import {
   LayoutGrid,
   Sparkles,
   Landmark,
+  Briefcase,
   Image as ImageIcon,
 } from "lucide-react";
 import {
@@ -140,6 +141,12 @@ export function OrgSidebar({ account }: OrgSidebarProps) {
       href: "/dashboard/mini-apps",
       icon: <LayoutGrid className="h-4 w-4" />,
       visible: true,
+    },
+    {
+      name: "Arbeitsbereich",
+      href: "/dashboard/arbeitsbereich",
+      icon: <Briefcase className="h-4 w-4" />,
+      visible: features.workspace,
     },
     {
       name: "Einstellungen",
