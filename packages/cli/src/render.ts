@@ -187,7 +187,12 @@ upstream_oauth2:
           template: "{{ user.sub }}"
         localpart:
           action: require
-          template: "{{ user.sub }}"
+          # NEVER user.sub — that is the wallet address, and a Matrix ID is
+          # immutable, public in every room, and federates. An address-derived
+          # MXID would permanently link a citizen's chat to their onchain
+          # balances, votes and holdings. The keystone emits a stable
+          # pseudonymous handle for exactly this.
+          template: "{{ user.preferred_username }}"
         displayname:
           action: suggest
           template: "{{ user.name }}"
