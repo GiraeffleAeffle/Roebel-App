@@ -53,3 +53,76 @@ export function formatDoctorReport(r: DoctorReport): string {
   lines.push(`warnings (${r.warnings.length}):`, ...r.warnings.map((w) => `  ! ${w}`));
   return lines.join("\n") + "\n";
 }
+
+/** A discrepancy between what the manifest declares and what the keystone serves. */
+export interface DriftFinding {
+  field: string;
+  expected: string;
+  actual: string;
+}
+
+/** The subset of an OIDC discovery document we compare against the manifest. */
+export interface LiveDiscovery {
+  issuer?: string;
+  authorization_endpoint?: string;
+  scopes_supported?: string[];
+  claims_supported?: string[];
+}
+
+/**
+ * Compare live OIDC discovery against the manifest.
+ *
+ * Pure, so it is testable without a network. This catches the class of failure
+ * that bit the Röbel node twice — the keystone advertising a different `issuer`
+ * than the manifest declares, and a stale registered redirect URI. Both surfaced
+ * only as an opaque login error AFTER a human clicked a button; both are visible
+ * here in one request.
+ */
+export function detectIdpDrift(m: NetizenManifest, live: LiveDiscovery | null): DriftFinding[] {
+  if (!live) return [{ field: "discovery", expected: m.identity.idp.discovery, actual: "unreachable" }];
+  const findings: DriftFinding[] = [];
+
+  if (live.issuer && live.issuer !== m.identity.idp.issuer) {
+    findings.push({ field: "issuer", expected: m.identity.idp.issuer, actual: live.issuer });
+  }
+  // A relying party whose redirect URI the keystone does not know fails with
+  // `invalid_redirect_uri` at login time.
+  const authHost = live.authorization_endpoint ? safeHost(live.authorization_endpoint) : "";
+  const issuerHost = safeHost(m.identity.idp.issuer);
+  if (authHost && issuerHost && authHost !== issuerHost) {
+    findings.push({ field: "authorization_endpoint host", expected: issuerHost, actual: authHost });
+  }
+  for (const scope of m.identity.idp.scopes) {
+    if (live.scopes_supported && !live.scopes_supported.includes(scope)) {
+      findings.push({ field: `scope:${scope}`, expected: "supported", actual: "missing" });
+    }
+  }
+  // `groups` drives workspace authorisation (org:<id>:<role> -> group folders and
+  // rooms). If the keystone stops emitting it, access silently degrades.
+  for (const claim of m.identity.idp.claims) {
+    if (live.claims_supported && !live.claims_supported.includes(claim)) {
+      findings.push({ field: `claim:${claim}`, expected: "supported", actual: "missing" });
+    }
+  }
+  return findings;
+}
+
+function safeHost(u: string): string {
+  try {
+    return new URL(u).host;
+  } catch {
+    return "";
+  }
+}
+
+/** Fetch discovery and report drift. Network-touching wrapper around detectIdpDrift. */
+export async function checkIdpDrift(m: NetizenManifest): Promise<DriftFinding[]> {
+  let live: LiveDiscovery | null = null;
+  try {
+    const res = await fetch(m.identity.idp.discovery, { signal: AbortSignal.timeout(15_000) });
+    if (res.ok) live = (await res.json()) as LiveDiscovery;
+  } catch {
+    live = null;
+  }
+  return detectIdpDrift(m, live);
+}

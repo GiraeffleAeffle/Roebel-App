@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { parseManifest, type NetizenManifest } from "@netizen-labs/protocol";
 import { renderBundle, type Bundle } from "./render.js";
-import { doctor, formatDoctorReport } from "./doctor.js";
+import { doctor, formatDoctorReport, checkIdpDrift } from "./doctor.js";
 import { applyOverSsh } from "./executor.js";
 
 const loadManifest = (p: string): NetizenManifest =>
@@ -47,6 +47,16 @@ switch (cmd) {
   case "doctor": {
     const m = requireManifest("usage: netizen doctor <manifest.json>");
     process.stdout.write(formatDoctorReport(doctor(m)));
+    // Live check: the manifest declares the truth, so anything the keystone
+    // serves differently is drift — and drift here means broken logins.
+    const drift = await checkIdpDrift(m);
+    if (drift.length === 0) {
+      console.log("identity: keystone matches the manifest ✓");
+    } else {
+      console.log(`identity DRIFT (${drift.length}) — logins may fail:`);
+      for (const f of drift) console.log(`  ! ${f.field}: expected ${f.expected}, got ${f.actual}`);
+      process.exitCode = 1;
+    }
     break;
   }
   case "up": {

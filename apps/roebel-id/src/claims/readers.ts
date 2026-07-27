@@ -21,10 +21,18 @@ export function createReaders(config: Config): { profile: ProfileReader; orgs: O
       // Surface errors instead of swallowing them: a wrong column / RLS failure must not
       // masquerade as "no profile" and silently drop email/name from every token.
       const { data, error } = await supabase.from('users')
-        .select('email, display_name, profile_picture_url, tier').eq('wallet_address', address).maybeSingle()
+        .select('email, display_name, username, profile_picture_url, tier').eq('wallet_address', address).maybeSingle()
       if (error) { console.error('[claims] users read failed', error); throw error }
       if (!data) return null
-      return { email: data.email ?? undefined, name: data.display_name ?? undefined, picture: data.profile_picture_url ?? undefined, tier: data.tier ?? undefined }
+      // display_name -> username, matching the app's own convention (see the
+      // COALESCE in like_comment_invite_notifications.sql). Without the fallback a
+      // citizen who set only a username gets NO name claim, and relying parties
+      // fall back to the opaque `sub` — Nextcloud showed a 64-hex blob as the
+      // display name. Never let a raw identifier stand in for a person's name.
+      const name = [data.display_name, data.username]
+        .map((v) => (typeof v === 'string' ? v.trim() : ''))
+        .find((v) => v.length > 0)
+      return { email: data.email ?? undefined, name, picture: data.profile_picture_url ?? undefined, tier: data.tier ?? undefined }
     },
     orgs: async (address) => {
       const { data, error } = await supabase.from('account_owners').select('account_id, role').eq('wallet_address', address)

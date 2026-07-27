@@ -172,7 +172,31 @@ export function renderCaddyfile(m: NetizenManifest): string {
   // would blackhole logins for every service on the node.
   if (m.identity.idp.hosted !== "external") add(m.identity.idp.issuer, "roebel-id:3010");
   const ws = m.services.workspace;
-  add(ws?.nextcloud, "nextcloud:80");
+  if (ws?.nextcloud && ws.collabora) {
+    // Collabora shares the Nextcloud host: its own paths go to the editor, the
+    // rest to Nextcloud. Same-origin keeps WOPI simple and needs no extra DNS
+    // record or certificate. (Without this the Office app 404s — the editor is
+    // running but unreachable.)
+    // `handle` blocks are mutually exclusive and evaluated in written order.
+    // Two bare `reverse_proxy` directives do NOT preserve order in Caddy — the
+    // Collabora paths silently fell through to Nextcloud and Office 404'd.
+    blocks.push(`${hostname(ws.nextcloud)} {
+  handle /browser/* {
+    reverse_proxy collabora:9980
+  }
+  handle /hosting/* {
+    reverse_proxy collabora:9980
+  }
+  handle /cool/* {
+    reverse_proxy collabora:9980
+  }
+  handle {
+    reverse_proxy nextcloud:80
+  }
+}`);
+  } else {
+    add(ws?.nextcloud, "nextcloud:80");
+  }
   add(ws?.mail, "ox:8080"); // Open-Xchange
   add(ws?.wiki, "xwiki:8080");
   add(ws?.video, "jitsi:8000");
@@ -558,6 +582,13 @@ set -a; . ./.env; set +a
 
 # 3. Bring up the stack (idempotent).
 docker compose up -d
+
+# 3b. Restart Caddy. Its config is a bind mount, so "compose up -d" writes the new
+# file but does NOT restart the container. "caddy reload" inside the container was
+# observed to report success while continuing to serve the OLD routes, so restart
+# is the only reliable way to apply routing changes (~1s of downtime).
+docker compose restart caddy 2>/dev/null || true
+
 ${nc}
 
 echo "Applied node \\"${m.id}\\". Verify: docker compose ps"
@@ -607,7 +638,7 @@ export function plan(m: NetizenManifest): Step[] {
   if (ws?.wiki) steps.push({ id: "wiki-oidc", phase: "workspace", title: "Enable the XWiki OIDC provider against the keystone" });
   if (ws?.video) steps.push({ id: "video-auth", phase: "workspace", title: "Jitsi JWT auth from the keystone session (+ prosody/jicofo/jvb, UDP 10000)" });
   if (ws?.project) steps.push({ id: "project-oidc", phase: "workspace", title: "Enable the OpenProject OIDC provider against the keystone" });
-  if (rp(m, "matrix")) steps.push({ id: "mas-oidc", phase: "chat", title: "Apply mas/config.yaml (upstream = the keystone) and restart MAS" });
+  if (m.services.chat?.matrix) steps.push({ id: "mas-oidc", phase: "chat", title: "Apply mas/config.yaml (upstream = the keystone) and restart MAS" });
   if (m.services.chat?.nostr) steps.push({ id: "nostr-relay", phase: "chat", title: "Nostr relay up behind Caddy, members-only writes (strfry-policy/)" });
   if (m.ai?.selfHosted) steps.push({ id: "ai-gateway", phase: "ai", title: "AI gateway (LiteLLM) up — model routing + data-egress policy" });
   steps.push({ id: "web-env", phase: "app", title: "Set web.env on the app host and redeploy (lights up the dashboard tiles)" });
