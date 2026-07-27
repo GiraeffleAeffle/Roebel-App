@@ -45,11 +45,42 @@ switch (cmd) {
     break;
   }
   case "doctor": {
-    const m = requireManifest("usage: netizen doctor <manifest.json>");
-    process.stdout.write(formatDoctorReport(doctor(m)));
+    const m = requireManifest("usage: netizen doctor <manifest.json> [--json]");
+    const report = doctor(m);
     // Live check: the manifest declares the truth, so anything the keystone
     // serves differently is drift — and drift here means broken logins.
     const drift = await checkIdpDrift(m);
+
+    if (has("--json")) {
+      // Machine-readable, for an agent runtime rather than a person. Same facts,
+      // no prose to scrape: `ok` is the single field a caller must branch on.
+      const own = report.sovereignty.filter((s) => s.sovereign);
+      process.stdout.write(
+        JSON.stringify(
+          {
+            node: report.node,
+            ok: drift.length === 0,
+            drift,
+            sovereignty: {
+              score: `${own.length}/${report.sovereignty.length}`,
+              owned: own.length,
+              total: report.sovereignty.length,
+              layers: report.sovereignty,
+            },
+            warnings: report.warnings,
+            endpoints: report.endpoints,
+            secretRefs: report.secretRefs,
+            plan: report.plan,
+          },
+          null,
+          2,
+        ) + "\n",
+      );
+      if (drift.length > 0) process.exitCode = 1;
+      break;
+    }
+
+    process.stdout.write(formatDoctorReport(report));
     if (drift.length === 0) {
       console.log("identity: keystone matches the manifest ✓");
     } else {

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { doctor, formatDoctorReport, detectIdpDrift } from "../src/doctor.js";
+import { doctor, formatDoctorReport, detectIdpDrift, sovereigntyReport } from "../src/doctor.js";
 
 const roebel = JSON.parse(
   readFileSync(
@@ -86,4 +86,51 @@ test("a keystone matching the manifest reports no drift", () => {
     claims_supported: roebel.identity.idp.claims,
   });
   assert.deepEqual(d, []);
+});
+
+test("sovereignty is measured from the manifest, pessimistically", () => {
+  const r = sovereigntyReport(roebel);
+  const byLayer = Object.fromEntries(r.map((l) => [l.layer, l]));
+
+  // The deepest lock-in: the account minter decides every citizen's ADDRESS.
+  assert.equal(byLayer["identity-keys"].provider, "thirdweb");
+  assert.equal(byLayer["identity-keys"].sovereign, false);
+  assert.match(byLayer["identity-keys"].note, /changing it changes addresses/);
+
+  // The app's data spine is still managed SaaS.
+  assert.equal(byLayer["data"].provider, "supabase");
+  assert.equal(byLayer["data"].sovereign, false);
+
+  // What the node genuinely owns.
+  assert.equal(byLayer["workspace"].sovereign, true);
+  assert.equal(byLayer["comms"].sovereign, true);
+
+  // Durability counts as a sovereignty layer. Röbel declares restic-sftp, so it
+  // reads as sovereign here — but the note points at the runtime check, because
+  // a DECLARED offsite that is never configured still leaves dumps on the box.
+  assert.equal(byLayer["durability"].sovereign, true);
+  assert.match(byLayer["durability"].note, /verify ops\/status\.json/);
+});
+
+test("a node with no backups is reported as not durable, loudly", () => {
+  const bare = { ...roebel };
+  delete (bare as Record<string, unknown>).operations;
+  const d = doctor(bare);
+  const dur = d.sovereignty.find((l) => l.layer === "durability");
+  assert.equal(dur?.sovereign, false);
+  assert.match(dur?.note ?? "", /NO BACKUPS DECLARED/);
+  assert.ok(d.warnings.some((w) => /less sovereign than the SaaS it replaced/.test(w)));
+  assert.ok(d.warnings.some((w) => /no hardening declared/.test(w)));
+
+  // On-box-only backups are called out separately: they protect against
+  // corruption, not against losing the machine.
+  const onBox = { ...roebel, operations: { backup: { schedule: "02:30", retentionDays: 14, offsite: "none" } } };
+  assert.ok(doctor(onBox).warnings.some((w) => /never leave the box/.test(w)));
+});
+
+test("the human report shows a sovereignty score an operator can watch move", () => {
+  const text = formatDoctorReport(doctor(roebel));
+  assert.match(text, /sovereignty \(\d+\/\d+ layers under own control\)/);
+  assert.match(text, /✗ identity-keys: thirdweb/);
+  assert.match(text, /✓ workspace: self/);
 });

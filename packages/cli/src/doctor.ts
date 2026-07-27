@@ -19,6 +19,119 @@ export interface DoctorReport {
   endpoints: DoctorEndpoint[];
   plan: Step[];
   warnings: string[];
+  sovereignty: SovereigntyLayer[];
+}
+
+/**
+ * One layer of the stack and whether this node actually controls it.
+ *
+ * Sovereignty is otherwise argued about in prose. This turns it into a number
+ * you can watch move: an agent (or a human) reads the same manifest and gets the
+ * same verdict, so "are we more sovereign than last month" has an answer.
+ */
+export interface SovereigntyLayer {
+  layer: string;
+  /** Who runs it today. "self" means on infrastructure the community owns. */
+  provider: string;
+  /** True only when losing the vendor would NOT take the node down. */
+  sovereign: boolean;
+  note: string;
+}
+
+/**
+ * Derive the vendor-dependency posture from the manifest alone.
+ *
+ * Deliberately pessimistic: a layer counts as sovereign only when the community
+ * could keep running it after a vendor withdrew. "We could migrate" is not
+ * sovereignty; "it already runs on our hardware" is.
+ */
+export function sovereigntyReport(m: NetizenManifest): SovereigntyLayer[] {
+  const out: SovereigntyLayer[] = [];
+
+  out.push({
+    layer: "hosting",
+    provider: m.services.host.provider,
+    // Rented hardware you can re-provision from a manifest is as sovereign as
+    // infrastructure gets short of owning the building.
+    sovereign: true,
+    note: `own box, ${m.services.host.region}; the installer can rebuild it elsewhere`,
+  });
+
+  const idpExternal = m.identity.idp.hosted === "external";
+  out.push({
+    layer: "identity-issuer",
+    provider: idpExternal ? "external keystone" : "self",
+    sovereign: true,
+    note: `${m.identity.idp.issuer} — the node owns its own OIDC issuer`,
+  });
+
+  // The account minter is the deepest lock-in: it determines every citizen's
+  // ADDRESS, and an address change orphans soulbound memberships and balances.
+  const bridge = m.identity.authBridge.provider;
+  out.push({
+    layer: "identity-keys",
+    provider: bridge,
+    sovereign: bridge !== "thirdweb",
+    note:
+      bridge === "thirdweb"
+        ? "a third party mints citizen accounts; changing it changes addresses (soulbound NFTs, Circles balances, MACI signups)"
+        : "the node mints its own accounts",
+  });
+
+  const backend = m.services.backend?.provider;
+  out.push({
+    layer: "data",
+    provider: backend ?? "undeclared",
+    sovereign: backend === "postgres",
+    note:
+      backend === "supabase"
+        ? "community data lives in managed SaaS — the spine of the app is not on the node"
+        : backend === "postgres"
+          ? "data on the node's own Postgres"
+          : "no backend declared",
+  });
+
+  out.push({
+    layer: "workspace",
+    provider: m.services.workspace?.nextcloud ? "self" : "none",
+    sovereign: !!m.services.workspace?.nextcloud,
+    note: m.services.workspace?.nextcloud ? "Nextcloud/Collabora on the node" : "no workspace declared",
+  });
+
+  const relay = m.services.chat?.nostr?.relay;
+  out.push({
+    layer: "comms",
+    provider: relay ? "self" : "none",
+    sovereign: !!relay,
+    note: relay ? `own relay at ${relay}` : "no self-hosted relay declared",
+  });
+
+  const aiSelf = m.ai?.selfHosted === true;
+  out.push({
+    layer: "ai",
+    provider: aiSelf ? "self" : (m.ai?.gateway ?? "none"),
+    sovereign: aiSelf,
+    note: aiSelf
+      ? `gateway on the node (${m.ai?.sovereignty?.tier ?? "tier unset"})`
+      : `model calls egress off-node; egress policy: ${m.ai?.sovereignty?.dataEgressPolicy ?? "unset"}`,
+  });
+
+  // Durability is a sovereignty layer, not an ops afterthought: a node you
+  // cannot restore from is less sovereign than the SaaS it replaced.
+  const backup = m.operations?.backup;
+  const offsite = backup?.offsite && backup.offsite !== "none";
+  out.push({
+    layer: "durability",
+    provider: backup ? (offsite ? "self+offsite" : "self (on-box only)") : "none",
+    sovereign: !!backup && !!offsite,
+    note: !backup
+      ? "NO BACKUPS DECLARED — one disk failure from losing everything"
+      : offsite
+        ? `nightly ${backup.schedule ?? "02:30"}, ${backup.offsite}; verify ops/status.json reports offsite "ok", not "unconfigured"`
+        : "backups exist but never leave the box; a snapshot on the same provider dies with the account",
+  });
+
+  return out;
 }
 
 export function doctor(m: NetizenManifest): DoctorReport {
@@ -40,8 +153,22 @@ export function doctor(m: NetizenManifest): DoctorReport {
     warnings.push("authBridge.provider is 'thirdweb' — a third-party mints accounts; flip to 'netizen' for full wallet sovereignty");
   if (m.services.chat?.matrix && !m.services.chat?.nostr)
     warnings.push("Matrix present but no Nostr relay — agents-as-members transport unavailable");
+  // Durability warnings rank first in severity: everything else is recoverable.
+  if (!m.operations?.backup)
+    warnings.push("no backups declared (operations.backup) — a node you cannot restore from is less sovereign than the SaaS it replaced");
+  else if (!m.operations.backup.offsite || m.operations.backup.offsite === "none")
+    warnings.push("backups never leave the box (operations.backup.offsite) — a snapshot on the same provider dies with the account");
+  if (!m.operations?.hardening)
+    warnings.push("no hardening declared (operations.hardening) — SSH policy and fail2ban are left to whoever remembers");
 
-  return { node: m.id, secretRefs: collectSecretRefs(m), endpoints, plan: plan(m), warnings };
+  return {
+    node: m.id,
+    secretRefs: collectSecretRefs(m),
+    endpoints,
+    plan: plan(m),
+    warnings,
+    sovereignty: sovereigntyReport(m),
+  };
 }
 
 /** Render a DoctorReport as human-readable text for the CLI. */
@@ -50,6 +177,12 @@ export function formatDoctorReport(r: DoctorReport): string {
   lines.push(`secrets to supply (${r.secretRefs.length}):`, ...r.secretRefs.map((s) => `  - ${s}`), "");
   lines.push(`endpoints to verify (${r.endpoints.length}):`, ...r.endpoints.map((e) => `  - ${e.name}: ${e.url}`), "");
   lines.push(`plan (${r.plan.length} steps):`, ...r.plan.map((s, i) => `  ${i + 1}. [${s.phase}] ${s.title}`), "");
+  const own = r.sovereignty.filter((s) => s.sovereign).length;
+  lines.push(
+    `sovereignty (${own}/${r.sovereignty.length} layers under own control):`,
+    ...r.sovereignty.map((s) => `  ${s.sovereign ? "✓" : "✗"} ${s.layer}: ${s.provider} — ${s.note}`),
+    "",
+  );
   lines.push(`warnings (${r.warnings.length}):`, ...r.warnings.map((w) => `  ! ${w}`));
   return lines.join("\n") + "\n";
 }
