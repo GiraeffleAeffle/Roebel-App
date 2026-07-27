@@ -90,12 +90,27 @@ Precedent: [`MaciContext.tsx:312-335`](../../../apps/expo/context/MaciContext.ts
 Columns: `wallet_address` (lowercase), `pubkey_hex`, `npub`, `eth_signature`,
 `binding_event` (jsonb), `created_at`, `revoked_at`, `last_verified_at`.
 
-**The table is not publicly readable.** RLS lets an authenticated user insert and update only
-their own row. There is deliberately **no public view**: the registry maps
-`wallet_address ↔ npub`, and the Supabase anon key ships inside the app bundle, so a public
-view would hand anyone a table linking every Citizen's Nostr posts to their Gnosis wallet —
-and therefore to their MACI signup and Circles balance. That inverts the project's
-"never show wallet addresses" rule. The box authenticates with a scoped service key instead.
+**The table is not publicly readable.** This schema does not use Supabase Auth for RLS —
+every other table carries a permissive `USING (true)` policy, because auth is thirdweb wallets
+and the anon key has direct table access. Following that pattern here would publish the
+registry. So this table is the deliberate exception: **RLS enabled with no policies at all**,
+plus an explicit `REVOKE`, leaving only `service_role` (which bypasses RLS) able to touch it.
+
+The reason is that the registry maps `wallet_address ↔ npub`, and the anon key ships inside
+the app bundle — a readable version would hand anyone a bulk index linking every Citizen's
+Nostr activity to their Gnosis wallet, and therefore to their MACI signup and Circles balance.
+That inverts the project's "never show wallet addresses" rule.
+
+**Honest limit:** this protects the *bulk mapping*, not every individual inference. A Citizen
+who dual-writes public posts can still be correlated by matching post content between the app
+feed and the relay. What stays protected is the clean lookup table, and the identities of
+Citizens who register but never publish. The consent copy in the app says so plainly.
+
+**Write path:** the app cannot insert directly, so registration goes through the
+`nostr-identity-register` Edge Function (service role), which verifies **both** halves of the
+binding before writing. Verifying the Ethereum half there — not only in the syncer — is what
+stops a griefing upsert: otherwise anyone could overwrite a Citizen's row with a binding made
+by their own Nostr key naming the victim's wallet, and knock the victim off the allow-list.
 
 ### 4.2 `@netizen-labs/relay-sync` — runs on the node
 
@@ -153,12 +168,18 @@ leaves signed events on a public relay — the GDPR exposure plan §5 warns abou
 - **Render** — `strfry.conf` contains the plugin line when the manifest declares a write policy.
 - **Integration** — manual checklist against the live relay (needs the box).
 
-## 8. Closing the config drift
+## 8. Config drift — resolved upstream
 
-`services.chat.nostr.writePolicy` is added to the manifest schema. When set,
-`netizen render` emits the plugin line in `strfry.conf`, ships the `strfry-policy/` directory
-in the bundle, mounts it read-only in compose, and adds the sync service. Without this, the
-installer would un-gate the relay the policy exists to protect.
+The drift identified at the top of this spec (`renderStrfryConf` emitting an empty
+`writePolicy`) was **fixed independently in `53bc182`** while this slice was being built.
+`netizen render` now ships the whole `strfry-policy/` directory — `policy.awk`,
+`write-policy.sh`, `members.txt`, `add-member.sh` — mounts it read-only in compose, and points
+`strfry.conf` at the plugin. No further CLI change is needed here.
+
+One consequence to track: the installer standardizes on **`members.txt`**, while the currently
+live Röbel box predates that and reads `citizens.txt`. `@netizen-labs/relay-sync` therefore
+defaults to `/etc/strfry/members.txt` and takes an `ALLOWLIST_PATH` override for the live box
+until it is re-applied from a fresh bundle.
 
 ## 9. What this leaves for the federation phase
 

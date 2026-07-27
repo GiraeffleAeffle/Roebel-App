@@ -28,6 +28,24 @@ export class DeleteAccountError extends Error {
 }
 
 /**
+ * Best-effort NIP-09 erasure request for everything this device published, then
+ * forget the Nostr key locally. Never throws — a relay problem must not block a
+ * user from deleting their account.
+ */
+async function requestNostrErasure(): Promise<void> {
+  try {
+    const [{ publishDeletions, publishedEventIds, closeRelay }, { clearIdentity }] =
+      await Promise.all([import('./nostr/publish'), import('./nostr/identity')]);
+    const ids = await publishedEventIds();
+    if (ids.length > 0) await publishDeletions(ids, 'Konto gelöscht');
+    closeRelay();
+    await clearIdentity();
+  } catch (err) {
+    console.warn('[nostr] erasure request skipped', (err as Error)?.message);
+  }
+}
+
+/**
  * Calls the delete-user-account Edge Function with a wallet-signed message
  * proving control of the wallet. The server purges the user row, all
  * solely-owned org accounts, and every user-scoped row.
@@ -44,6 +62,13 @@ export async function deleteUserAccount(account: Account): Promise<void> {
   const issuedAt = Math.floor(Date.now() / 1000);
   const message = `delete-account:${wallet.toLowerCase()}:${issuedAt}`;
   const signature = await account.signMessage({ message });
+
+  // Ask the relay to drop anything this device published, BEFORE the local key is
+  // gone — after deletion we could no longer sign the request. NIP-09 deletion is
+  // advisory (relays may ignore it, clients that already fetched the event keep
+  // it), so this is the correct signal to send, not a guarantee of erasure. It is
+  // also why no erasable citizen data is ever published to the relay.
+  await requestNostrErasure();
 
   let response: Response;
   try {

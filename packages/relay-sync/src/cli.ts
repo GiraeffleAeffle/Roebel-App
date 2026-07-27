@@ -29,7 +29,10 @@ async function main(): Promise<void> {
     rpcUrl: required("GNOSIS_RPC_URL"),
     citizenNftAddress: required("CITIZEN_NFT_ADDRESS"),
   });
-  const allowListPath = process.env.ALLOWLIST_PATH ?? "/etc/strfry/citizens.txt";
+  // Default matches what `netizen render` ships as strfry-policy/members.txt and
+  // mounts at /etc/strfry. The currently-live Röbel box predates that naming and
+  // reads citizens.txt — point ALLOWLIST_PATH at it there until it is re-applied.
+  const allowListPath = process.env.ALLOWLIST_PATH ?? "/etc/strfry/members.txt";
   const intervalSeconds = Number(process.env.SYNC_INTERVAL_SECONDS ?? 300);
   const once = process.argv.includes("--once");
 

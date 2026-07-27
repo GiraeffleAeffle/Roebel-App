@@ -1,5 +1,5 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 /**
  * The relay's write-policy allow-list — one lowercase 64-hex Nostr pubkey per
@@ -12,6 +12,7 @@ const HEADER = [
   "# Do not edit by hand: the next sync pass overwrites this file.",
   "# One lowercase 64-hex Nostr pubkey per line. Each entry proved joint control",
   "# of a wallet + npub (mutual signatures) and held a CitizenNFT on-chain.",
+  "# Shipped by `netizen render` as strfry-policy/members.txt.",
 ];
 
 /** Render the allow-list file contents. Pubkeys are deduped and sorted for a stable diff. */
@@ -47,7 +48,7 @@ export async function writeAllowList(path: string, pubkeys: string[]): Promise<b
   }
   if (current === next) return false;
 
-  const temporary = join(dirname(path), `.${"citizens"}.${process.pid}.tmp`);
+  const temporary = join(dirname(path), `.${basename(path)}.${process.pid}.tmp`);
   await writeFile(temporary, next, "utf8");
   await rename(temporary, path);
   return true;
