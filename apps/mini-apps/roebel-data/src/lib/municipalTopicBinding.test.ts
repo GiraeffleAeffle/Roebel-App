@@ -10,6 +10,7 @@ import {
   ROEBEL_MARIENFELDER_DEMO_TOPIC_SELECTOR,
   topicBindingMatchesCase,
   topicContextMatchesBinding,
+  syntheticLifecycleReceiptMatchesTopic,
 } from "./municipalTopicBinding";
 
 function topicContextWithRuntimeReceipt() {
@@ -240,6 +241,38 @@ test("a historical runtime receipt stays scoped to the separate synthetic topic"
           ...runtimeReceipt().caseKey,
           decisionCaseSlug: "another-case" as "marienfelder-strasse",
         },
+      }
+    ),
+    false
+  );
+});
+
+test("the lifecycle receipt remains bound to the unlinked synthetic topic", () => {
+  const fixture = JSON.parse(
+    `{
+      "caseKey":{"municipalityId":"roebel-mueritz","decisionCaseSlug":"marienfelder-strasse"},
+      "truthState":"demo",
+      "authority":"none",
+      "publicProjection":{"truthState":"demo","authority":"none","recommendation":null},
+      "participation":{"totalAccepted":0},
+      "effects":{"publication":false,"authority":false,"liveMutation":false,"stageTransition":false,"citizenNotification":false,"workspaceWrite":false,"councilSubmission":false}
+    }`
+  );
+  assert.equal(
+    syntheticLifecycleReceiptMatchesTopic(
+      ROEBEL_MARIENFELDER_DEMO_TOPIC_BINDING,
+      topicContextWithRuntimeReceipt(),
+      fixture
+    ),
+    true
+  );
+  assert.equal(
+    syntheticLifecycleReceiptMatchesTopic(
+      ROEBEL_MARIENFELDER_DEMO_TOPIC_BINDING,
+      topicContextWithRuntimeReceipt(),
+      {
+        ...fixture,
+        effects: { ...fixture.effects, publication: true },
       }
     ),
     false
