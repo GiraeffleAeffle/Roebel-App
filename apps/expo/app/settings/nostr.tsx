@@ -17,6 +17,8 @@ import { useRouter } from 'expo-router';
 import { useActiveAccount } from 'thirdweb/react';
 import { useTheme } from '@/context/ThemeContext';
 import { useUser } from '@/context/UserContext';
+import { balanceOf } from 'thirdweb/extensions/erc721';
+import { citizenNFTGnosisContract } from '@/constants/gnosis';
 import { fontFamily } from '@/constants/theme';
 import ChevronLeftIcon from '@/assets/icons/chevron-left.svg';
 import {
@@ -47,9 +49,15 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 
 type Stage = 'loading' | 'new' | 'waiting' | 'active';
 
-/** How long to keep re-checking for write access before telling the user to come back later. */
-const POLL_INTERVAL_MS = 15_000;
-const POLL_ATTEMPTS = 12;
+/**
+ * How often to re-check relay access while this screen is open.
+ *
+ * The allow-list syncer on the node runs on its own schedule (~2 min), so there
+ * is nothing to poll faster than. It keeps checking for as long as the screen is
+ * open rather than giving up after N tries — a spinner that silently stops is
+ * worse than one that keeps its promise.
+ */
+const POLL_INTERVAL_MS = 20_000;
 
 const EXPLAINERS: { question: string; answer: string }[] = [
   {
@@ -91,7 +99,8 @@ export default function NostrIdentityScreen() {
   const [copied, setCopied] = useState<'npub' | 'hex' | null>(null);
   const [openExplainer, setOpenExplainer] = useState<number | null>(null);
   const [showDetails, setShowDetails] = useState(false);
-  const pollsLeft = useRef(0);
+  /** null = not looked up yet. Read straight off Gnosis, so it resolves in a second. */
+  const [hasCitizenNft, setHasCitizenNft] = useState<boolean | null>(null);
 
   const profileMetadata = useCallback(
     () => ({
@@ -148,17 +157,34 @@ export default function NostrIdentityScreen() {
     void load();
   }, [load]);
 
+  // Membership is an on-chain fact — read it directly instead of inferring it
+  // from whether the relay has admitted us yet. One RPC call, about a second,
+  // and it separates "you are not a Citizen" (actionable) from "you are, the
+  // relay just has not caught up" (nothing to do but wait).
+  useEffect(() => {
+    if (!account?.address) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const balance = await balanceOf({
+          contract: citizenNFTGnosisContract(),
+          owner: account.address,
+        });
+        if (!cancelled) setHasCitizenNft(balance > 0n);
+      } catch {
+        if (!cancelled) setHasCitizenNft(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [account?.address]);
+
   // While waiting for the allow-list to catch up, keep checking quietly instead of
   // making the Citizen come back and tap something.
   useEffect(() => {
     if (stage !== 'waiting' || !identity) return;
-    pollsLeft.current = POLL_ATTEMPTS;
     const timer = setInterval(async () => {
-      if (pollsLeft.current <= 0) {
-        clearInterval(timer);
-        return;
-      }
-      pollsLeft.current -= 1;
       if (await probeAccess(identity)) {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setStage('active');
@@ -188,22 +214,6 @@ export default function NostrIdentityScreen() {
     }
   }, [account, busy, probeAccess]);
 
-  const onCheckNow = useCallback(async () => {
-    if (!identity || busy) return;
-    setBusy(true);
-    const granted = await probeAccess(identity);
-    setBusy(false);
-    if (granted) {
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setStage('active');
-    } else {
-      Alert.alert(
-        'Noch nicht freigeschaltet',
-        'Deine Mitgliedschaft wird noch geprüft. Das dauert in der Regel wenige Minuten — du musst nichts weiter tun.',
-      );
-    }
-  }, [identity, busy, probeAccess]);
-
   const copy = useCallback(async (value: string, which: 'npub' | 'hex') => {
     await Clipboard.setStringAsync(value);
     setCopied(which);
@@ -230,22 +240,36 @@ export default function NostrIdentityScreen() {
     );
   }, []);
 
+  // Two genuinely different things were hidden behind one "Mitgliedschaft prüfen"
+  // step: an on-chain fact we can read instantly, and a wait on the node's
+  // allow-list. Separating them means the screen never shows a spinner for
+  // something already known.
+  const membershipDetail =
+    hasCitizenNft === true
+      ? 'Bürger-NFT bestätigt.'
+      : hasCitizenNft === false
+        ? 'Kein Bürger-NFT gefunden. Schreibrechte haben nur verifizierte Bürgerinnen und Bürger.'
+        : 'Wird auf der Blockchain nachgesehen …';
+
   const steps: { title: string; detail: string }[] = [
     {
       title: 'Identität erstellen',
       detail: 'Dein Wallet erzeugt deinen Ausweis. Ein Tipp genügt.',
     },
+    { title: 'Bürger-NFT', detail: membershipDetail },
     {
-      title: 'Mitgliedschaft prüfen',
-      detail: 'Röbel bestätigt dein Bürger-NFT. Dauert wenige Minuten.',
-    },
-    {
-      title: 'Beiträge veröffentlichen',
-      detail: 'Neue Beiträge erscheinen automatisch auch auf dem Relay.',
+      title: 'Freischaltung auf dem Relay',
+      detail:
+        stage === 'active'
+          ? 'Aktiv. Neue Beiträge erscheinen automatisch auch auf dem Relay.'
+          : 'Röbel trägt dich in die Schreibliste ein. Das läuft im Hintergrund und dauert meist ein paar Minuten.',
     },
   ];
-  const currentStep = stage === 'active' ? 2 : stage === 'waiting' ? 1 : 0;
-  const completedThrough = stage === 'active' ? 3 : stage === 'waiting' ? 1 : 0;
+
+  // Step 2 is complete as soon as the chain says so — it does not wait on step 3.
+  const nftDone = hasCitizenNft === true;
+  const currentStep = stage === 'active' ? 2 : hasCitizenNft === null ? 1 : stage === 'waiting' ? 2 : 0;
+  const completedThrough = stage === 'active' ? 3 : nftDone && stage === 'waiting' ? 2 : nftDone ? 1 : 0;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
@@ -297,11 +321,11 @@ export default function NostrIdentityScreen() {
                     {step.title}
                   </Text>
                   <Text style={[styles.stepDetail, { color: colors.textSecondary }]}>{step.detail}</Text>
-                  {active && stage === 'waiting' && (
+                  {active && index === 2 && stage === 'waiting' && (
                     <View style={styles.inlineStatus}>
                       <ActivityIndicator size="small" color={colors.primary} />
                       <Text style={[styles.inlineStatusText, { color: colors.primary }]}>
-                        Wird geprüft …
+                        Wird automatisch geprüft …
                       </Text>
                     </View>
                   )}
@@ -338,19 +362,12 @@ export default function NostrIdentityScreen() {
         )}
 
         {stage === 'waiting' && (
-          <Pressable
-            style={[styles.secondaryButton, { borderColor: colors.border, opacity: busy ? 0.5 : 1 }]}
-            disabled={busy}
-            onPress={onCheckNow}
-          >
-            {busy ? (
-              <ActivityIndicator color={colors.primary} />
-            ) : (
-              <Text style={[styles.secondaryButtonText, { color: colors.textPrimary }]}>
-                Jetzt prüfen
-              </Text>
-            )}
-          </Pressable>
+          // No "check now" button: the screen already polls on its own, and a
+          // button that duplicates automatic behaviour just implies the automatic
+          // part cannot be trusted.
+          <Text style={[styles.buttonNote, { color: colors.textSecondary, marginTop: 0 }]}>
+            Du kannst die Seite verlassen — die Freischaltung läuft weiter.
+          </Text>
         )}
 
         {identity && (
