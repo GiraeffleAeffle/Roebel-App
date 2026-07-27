@@ -1,7 +1,12 @@
 # Röbel Sovereign Node — what is live, what remains
 
-**Date:** 2026-07-27 · **Audience:** an agent (or human) who must finish the workspace
-so real users can test it. Self-contained; assumes no memory of the session that built it.
+**Date:** 2026-07-27 (second revision, same day) · **Audience:** an agent (or human) who
+must finish the workspace so real users can test it. Self-contained; assumes no memory
+of the sessions that built it.
+
+> **Every claim below was checked against the live box on 2026-07-27**, not carried over
+> from the previous revision. Three items the earlier revision listed as open had already
+> shipped in `93e7bc52` — if this doc and the box ever disagree again, **the box wins**.
 
 ---
 
@@ -11,7 +16,7 @@ so real users can test it. Self-contained; assumes no memory of the session that
 |---|---|
 | Host | Hetzner **CPX42** (8 vCPU / 16 GB / 320 GB), Ubuntu, Falkenstein |
 | IPv4 | **178.105.19.80** |
-| SSH | `root@178.105.19.80`, key `~/.ssh/id_ed25519` (passphrase — run `ssh-add` first) |
+| SSH | `root@178.105.19.80`, key `~/.ssh/id_ed25519` (passphrase — run `ssh-add` first). **Password auth is now OFF** |
 | Deploy dir | `/opt/netizen/roebel/` (the rendered bundle + `.env`) |
 | Secrets | `/opt/netizen/roebel/.env` — `root:root`, mode `600`, **generated on the box**, never in git |
 | Manifest | `packages/protocol/examples/roebel.netizen.json` |
@@ -23,108 +28,178 @@ pnpm --filter @netizen-labs/cli exec tsx src/cli.ts up \
   "$PWD/packages/protocol/examples/roebel.netizen.json" --host root@178.105.19.80
 ```
 `up` = rsync the rendered bundle to the box, then run the idempotent `bootstrap.sh`.
-It is safe to re-run. **Secrets never pass through the CLI** — the box's `.env` supplies them.
+Safe to re-run. **Secrets never pass through the CLI** — the box's `.env` supplies them.
 
 ## 2. LIVE and verified
 
-| Service | URL | Notes |
+| Service | URL | Verified |
 |---|---|---|
-| **Identity keystone** | `https://id.roebel.app` | panva OIDC on **Fly** (not the box). Wallet login (thirdweb smart account, Gnosis) + Google/Apple/Facebook/email. Discovery 200, issuer correct. |
-| **Nextcloud + Collabora** | `https://cloud.roebel.app` | Files live. **SSO works** — verified end to end with a Google login landing in Nextcloud. Apps installed: `user_oidc`, `groupfolders`, `richdocuments`. |
-| **Nostr relay** | `wss://relay.roebel.app` | strfry behind Caddy/TLS. **Members-only writes** (CitizenNFT allow-list, currently empty = nobody writes). Reads open. Raw port 7777 is **closed**. |
-| **TLS / routing** | Caddy | Auto Let's Encrypt for every declared host. |
-| **Postgres** | internal | Per-service role+database created by a rendered init script. |
+| **Identity keystone** | `https://id.roebel.app` | discovery `200`; `netizen doctor` reports **no drift** against the manifest |
+| **Nextcloud** | `https://cloud.roebel.app` | `status.php` `200`; SSO end-to-end |
+| **Collabora** | same host, `/browser` `/hosting/discovery` `/cool` | `/hosting/discovery` returns the WOPI XML **through Caddy** |
+| **Nostr relay** | `wss://relay.roebel.app` | NIP-11 `200`, strfry 1.1.0. Members-only writes; reads open. Raw 7777 closed |
+| **TLS / routing** | Caddy | auto Let's Encrypt for every declared host |
+| **Postgres** | internal | per-service role+database from a rendered init script |
+| **Backups** | `ops/` | nightly timer active; **a restore has been tested** — see §3 |
 
-Running containers: `caddy`, `nextcloud`, `collabora`, `postgres`, `strfry`
+Containers: `caddy`, `nextcloud`, `collabora`, `postgres`, `strfry`, `relay-sync`
 (`cd /opt/netizen/roebel && docker compose ps`).
 
-## 3. NOT done — the work that remains
+**Sovereignty score — `netizen doctor` reports 5/8 layers under own control:**
 
-Ordered by what unblocks user testing fastest.
+```
+✓ hosting        hetzner, eu-central — the installer can rebuild it elsewhere
+✓ identity-issuer  id.roebel.app — the node owns its own OIDC issuer
+✗ identity-keys  thirdweb — a third party mints citizen accounts
+✗ data           supabase — the app's spine is not on the node
+✓ workspace      Nextcloud/Collabora on the node
+✓ comms          own relay
+✗ ai             model calls egress off-node
+✓ durability     nightly 02:30 + offsite declared
+```
 
-### 3.1 Collabora routing (blocks live document editing) — **small**
-Collabora runs but **Caddy has no route to it**, so Nextcloud Office cannot reach the
-editor. `richdocuments.wopi_url` was set to `https://cloud.roebel.app/collabora`,
-which currently 404s.
-- Fix in `packages/cli/src/render.ts` (never hand-patch the box): either a dedicated
-  host (`office.roebel.app` → `collabora:9980`, needs a DNS record) or path-based
-  proxying on `cloud.roebel.app` for Collabora's paths (`/browser`, `/hosting/discovery`,
-  `/cool`). Then set `wopi_url` to match and verify a document opens.
+Track it with `netizen doctor <manifest>` (add `--json` for an agent runtime).
 
-### 3.2 Display name is a hex blob — **small, user-visible**
-The keystone emits no `name` claim, so a citizen appears in Nextcloud as
-`2f36e31e1cd8…`. Usernames are hashed (good — the raw address is not exposed), but the
-**display name** must come from the profile. Fix in `apps/roebel-id/src/claims/`.
-Project rule: never show raw wallet addresses in UI.
+## 3. Durability — what exists now
 
-### 3.3 Per-org group folders — **medium; the actual org feature**
-`groupfolders` is installed but no folder exists. The design: one Nextcloud group
-folder per org, ACL'd to the `org:<accountId>:<role>` claim the keystone already emits,
-so joining an org grants the shared folder and leaving revokes it.
-- Provision from the org registry (idempotent, create-if-absent) and render it into
-  the installer. See `docs/WORKSPACE_SSO_SETUP.md` §A4.
+Declared in the manifest under `operations` and rendered by the installer, so **node #2
+inherits it** rather than repeating node #1's gap.
 
-### 3.4 Matrix (chat) — **large; currently removed from the manifest**
-Synapse/MAS/Element are modeled but **not deployed**, because the installer renders
-only a fragment of MAS config and **no `homeserver.yaml` at all** — they would
-crash-loop. Deliberately removed from `roebel.netizen.json` rather than ship broken.
+- **Nightly `netizen-backup.timer` at 02:30** (`Persistent=true`, so a night the box was
+  off is caught at next boot). `journalctl -u netizen-backup.service`.
+- **Postgres** via `pg_dump -Fc`, databases enumerated live. **Nextcloud** files + DB
+  inside one maintenance window (with a `trap`, so a failed backup can never leave the
+  town's cloud offline). **strfry** via its own exporter — never a live LMDB copy.
+- **Restore tested 2026-07-27**, non-destructively into a scratch database:
+  145 tables / 1 user / 202 filecache rows — exact match against live. Archive gzip OK.
+  ```bash
+  bash ops/restore.sh /var/backups/netizen/<stamp> --yes
+  ```
+- **`ops/status.json`** is the machine-readable result (written atomically; `ok` is false
+  whenever `errors > 0`; a zero-byte dump counts as an error).
+
+**Still on-box only.** `status.json` reports `"offsite": "unconfigured"` until both refs
+exist in `/opt/netizen/roebel/.env` — see §4.1. That is deliberately loud: silence would
+read as safety.
+
+## 4. NOT done — the work that remains
+
+Ordered by what unblocks real use fastest.
+
+### 4.1 Off-box backups — **small, and the highest-value item on this page**
+Local dumps protect against *corruption*, not against *losing the box*. Buy a **Hetzner
+Storage Box** (BX11, ~€3.81/mo, 1 TB) and add to `/opt/netizen/roebel/.env`:
+```
+BACKUP_RESTIC_REPOSITORY=sftp:uXXXXXX@uXXXXXX.your-storagebox.de:/backups/roebel
+BACKUP_RESTIC_PASSWORD=<long random string>
+```
+**Store that password somewhere you will still have if the box is gone** — without it the
+backups are unreadable ciphertext. Then `bash ops/backup.sh` and confirm
+`"offsite": "ok"`. Nothing else needs changing; the code path is already rendered.
+
+### 4.2 The relay allow-list is still empty — **one secret away**
+`strfry-policy/members.txt` contains **zero pubkeys** (only comments), so **nobody can
+publish**. The syncer now runs as a compose service and fails with exactly one message:
+```
+missing required env var: SUPABASE_SERVICE_KEY
+```
+Add the Supabase **service-role** key to `/opt/netizen/roebel/.env` (never to git, never
+into a chat), then:
+```bash
+cd /opt/netizen/roebel && docker compose up -d relay-sync && docker compose logs -f relay-sync
+```
+It then syncs on-chain CitizenNFTv2 membership into the allow-list every 5 minutes;
+revocation follows automatically. Old hand-wired copy at `/root/relay-sync/` is now
+**dead weight** — delete it once the compose service is confirmed working.
+
+### 4.3 Hetzner Cloud Firewall — **small**
+`ufw` is **inactive and would not help anyway**: Docker writes its own iptables rules and
+bypasses it, so a published container port stays reachable regardless. Use the **Cloud
+Firewall** (outside the host, unbypassable): allow **22, 80, 443** only. This is the one
+hardening item the installer deliberately cannot do for you.
+
+*Already done:* SSH password auth off (verified via `sshd -T`), fail2ban active — it had
+already logged 53 failed SSH attempts, so the box is actively probed.
+
+### 4.4 Per-org group folders — **medium; the actual org feature**
+`groupfolders` is installed but no folder exists. One Nextcloud group folder per org,
+ACL'd to the `org:<accountId>:<role>` claim the keystone already emits, so joining an org
+grants the shared folder and leaving revokes it. Provision from the org registry
+(idempotent, create-if-absent) and render it into the installer.
+See `docs/WORKSPACE_SSO_SETUP.md` §A4.
+
+### 4.5 Matrix (chat) — **large; currently removed from the manifest**
+Synapse/MAS/Element are modeled but **not deployed**: the installer renders only a
+fragment of MAS config and **no `homeserver.yaml` at all**, so they would crash-loop.
+Deliberately removed from `roebel.netizen.json` rather than ship broken.
 - Generate a real `synapse/homeserver.yaml` (Postgres, `server_name: roebel.app`,
-  MSC3861 delegation to MAS) and a complete `mas/config.yaml` (database, secrets,
-  upstream OIDC = the keystone).
-- The keystone already has `MATRIX_CLIENT_ID/SECRET/REDIRECT_URIS` set, and the
-  Postgres init script already creates `synapse` + `mas` databases when Matrix is declared.
-- Then re-add `services.chat.matrix` to the manifest and `netizen up`.
+  MSC3861 delegation to MAS) and a complete `mas/config.yaml`.
+- The keystone already has `MATRIX_CLIENT_ID/SECRET/REDIRECT_URIS`; the Postgres init
+  script already creates `synapse` + `mas` databases when Matrix is declared.
+- Read `docs/future-research/2026-07-26_CHAT_PROTOCOL_DECISION.md` first — the decision is
+  poly-protocol unified by identity, not a message bridge.
 
-### 3.5 openDesk suite: XWiki, Jitsi, OpenProject, Open-Xchange — **large**
+### 4.6 openDesk suite: XWiki, Jitsi, OpenProject, Open-Xchange — **large**
 Compose blocks exist but are **scaffolds** (Jitsi needs prosody/jicofo/jvb + UDP 10000;
-OX needs an IMAP/SMTP backend). Removed from the manifest for the same reason. Each
-needs real config generation + an OIDC provider wired to the keystone.
+OX needs an IMAP/SMTP backend). Removed from the manifest for the same reason. Each needs
+real config generation + an OIDC provider wired to the keystone.
 
-### 3.6 Nostr allow-list has no members — **blocks relay usage**
-Writes are gated to CitizenNFT holders, and the list is empty by design, so **no one
-can publish**. A parallel session shipped `@netizen-labs/nostr` +
-`@netizen-labs/relay-sync` (derive npub from the wallet signer, verify on-chain
-holding, sync the allow-list) — **verified working** (cross-checked against `nak`;
-a signed event reached the live relay and was rejected only by policy). Remaining:
-deploy the syncer to the box and let citizens register.
+### 4.7 Pin image digests — **small**
+Every image floats (`nextcloud:stable`, `caddy:2`, `postgres:16`, `collabora/code:latest`,
+`ghcr.io/hoytech/strfry:latest`). Convenient for patches, but an upstream compromise
+reaches the node automatically and a redeploy is not reproducible. Pin by digest and bump
+deliberately, or accept floating tags *knowingly*. Pick one; do not drift.
 
-### 3.7 Security hardening — **see `docs/NODE_SECURITY_POLICY.md`**
-Highest value, quick: disable SSH `PasswordAuthentication`, add fail2ban, enable the
-**Hetzner Cloud Firewall** (22/80/443 — `ufw` is bypassed by Docker), nightly
-`pg_dump` off-box **with a tested restore**, pin image digests.
+### 4.8 The three non-sovereign layers — **large, strategic**
+See §2's score. `identity-keys` (thirdweb) and `data` (Supabase) are the two that matter;
+each has its own document:
+- `docs/superpowers/specs/2026-07-27-thirdweb-independence.md` — kickoff spec
+- `docs/future-research/2026-07-27_DATA_SOVEREIGNTY_SUPABASE_EXIT.md` — staged exit plan
 
-### 3.8 `netizen doctor` drift check — **small, high leverage**
-Manifest↔keystone drift caused two confusing outages this session (`ISSUER_URL`, and
-`NEXTCLOUD_REDIRECT_URIS`), each surfacing only as a cryptic login error. `doctor`
-should fetch live OIDC discovery + registered redirect URIs and diff them against the
-manifest, before a human clicks anything.
-
-## 4. Known gotchas (learned the hard way — do not rediscover)
+## 5. Known gotchas (learned the hard way — do not rediscover)
 
 1. **Mount the strfry policy DIRECTORY**, never the single `members.txt` file. `sed -i`
    replaces the inode, so a single-file bind mount silently ignores live revokes.
-2. **The keystone is external** (`identity.idp.hosted: "external"`). The installer must
+2. **`members.txt` is generated state, not bundle content.** `netizen up` rsyncs with
+   `--delete`; without an exclude it overwrites the live allow-list with the empty stub
+   and revokes write access for the whole town. Same for `ops/status.json`. Both are now
+   excluded in `executor.ts`.
+3. **Never pipe a long producer into `grep -q` under `set -o pipefail`.** `grep -q` exits
+   at the first match, the producer takes SIGPIPE and returns 141, and `pipefail` promotes
+   that to the pipeline status — so the test reads as "no match". This made the hardening
+   script report "SSH password auth already off" while changing nothing, and it is
+   *non-deterministic* (an interactive shell without `pipefail` matches fine). Capture into
+   a variable and use `case`. **A security check that cannot measure must say so, never
+   assume it is already compliant.**
+4. **`strfry` is not on `PATH`** in the official image — call `/app/strfry`.
+5. **The keystone is external** (`identity.idp.hosted: "external"`). The installer must
    not start a second one — that would shadow the real issuer.
-3. **Postgres creates only the default superuser.** Every service needs its own
-   role+database, or you get `password authentication failed for user "nextcloud"`.
-   Synapse additionally requires `C` collation + `template0`.
-4. **`docker compose` plugin ≠ docker engine.** Check them separately in bootstrap.
-5. **Fly's CNAME target is app-scoped** (`0pko0lo.roebel-id.fly.dev`), not the bare
-   `roebel-id.fly.dev`; the bare one never validates.
-6. **Two A records for one host** = requests land on the wrong server ~half the time
-   and TLS issuance fails intermittently.
-7. **Run `fly deploy` from `apps/roebel-id/`**, not the repo root — otherwise the build
-   context is 30 GB and the Dockerfile is not found.
-8. **Commit with pathspecs.** `git commit` commits the *whole index*; this repo often has
-   another agent's staged work in it.
+6. **Postgres creates only the default superuser.** Every service needs its own
+   role+database. Synapse additionally requires `C` collation + `template0`.
+7. **`docker compose` plugin ≠ docker engine.** Check them separately in bootstrap.
+8. **Caddy's Caddyfile is a bind mount.** `compose up -d` writes it without restarting,
+   and `caddy reload` inside the container reported success while still serving the OLD
+   routes. Restart the container (~1s) — the only reliable apply.
+9. **Bare `handle` directives do not preserve written order** — use mutually exclusive
+   `handle` blocks, or Collabora's paths fall through to Nextcloud and Office 404s.
+10. **Fly's CNAME target is app-scoped** (`0pko0lo.roebel-id.fly.dev`), not the bare
+    `roebel-id.fly.dev`; the bare one never validates.
+11. **Two A records for one host** = requests land on the wrong server ~half the time and
+    TLS issuance fails intermittently.
+12. **Run `fly deploy` from `apps/roebel-id/`**, not the repo root — otherwise the build
+    context is 30 GB and the Dockerfile is not found.
+13. **Commit with pathspecs.** `git commit` commits the *whole index*; this repo often has
+    another agent's staged work in it.
 
-## 5. Definition of "ready for users"
+## 6. Definition of "ready for users"
 
-- [ ] A citizen logs in with their wallet and sees their **name**, not a hash
-- [ ] They can upload a file and **co-edit a document** (Collabora working)
-- [ ] An org's members share a **group folder**, gated by the org claim
-- [ ] Chat works (Matrix) **or** is honestly absent from the UI
-- [ ] Citizens can publish to the relay (allow-list synced)
-- [ ] Backups run **and a restore has been tested**
-- [ ] Firewall on, SSH password auth off
-- [ ] `netizen doctor` is clean
+- [x] A citizen logs in with their wallet and sees their **name**, not a hash
+- [x] They can upload a file and **co-edit a document** (Collabora working)
+- [x] Backups run **and a restore has been tested**
+- [x] SSH password auth off, fail2ban active
+- [x] `netizen doctor` is clean (no keystone drift)
+- [ ] **Backups leave the box** (§4.1) ← highest value
+- [ ] Citizens can publish to the relay (§4.2 — one secret)
+- [ ] Cloud firewall on (§4.3)
+- [ ] An org's members share a **group folder**, gated by the org claim (§4.4)
+- [ ] Chat works (Matrix) **or** is honestly absent from the UI (§4.5)
