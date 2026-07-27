@@ -24,7 +24,7 @@ export function applyOverSsh(bundleDir: string, nodeId: string, opts: UpOptions)
   const rsync = spawnSync(
     "rsync",
     [
-      "-az",
+      "-az", "--no-owner", "--no-group",
       "--delete",
       // Secrets are not in the rendered bundle; the box's own .env supplies them.
       "--exclude=.env",

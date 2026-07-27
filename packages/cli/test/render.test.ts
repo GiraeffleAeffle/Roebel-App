@@ -190,7 +190,9 @@ test("Synapse delegates ALL auth to MAS and trusts the proxy", () => {
   assert.match(c, /server_name: "roebel\.app"/);          // not matrix.roebel.app
   // Synapse REMOVED experimental_features.msc3861; newer builds reject it outright
   assert.match(c, /matrix_authentication_service:\n\s+enabled: true/);
-  assert.ok(!c.includes("msc3861"), "the removed experimental key must not be emitted");
+  // the removed key must not be EMITTED (it may still be named in a comment)
+  assert.ok(!/^\s*msc3861:/m.test(c), "the removed experimental key must not be emitted");
+  assert.ok(!/experimental_features:/.test(c), "no experimental auth block at all");
   assert.match(c, /x_forwarded: true/);                    // real client IPs behind Caddy
   assert.match(c, /enable_registration: false/);
   assert.match(c, /password_config:\n\s+enabled: false/);  // no shadow password accounts
