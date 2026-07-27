@@ -21,7 +21,7 @@
 // Auto env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY. Optional: GNOSIS_RPC_URL.
 // Logic mirrors packages/nostr (binding.ts, events.ts, keys.ts) — that package is
 // the source of truth; this is its Deno-side twin.
-import { createPublicClient, http } from "https://esm.sh/viem@2.21.0";
+import { createPublicClient, hashMessage, http } from "https://esm.sh/viem@2.21.0";
 import { gnosis } from "https://esm.sh/viem@2.21.0/chains";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { schnorr } from "https://esm.sh/@noble/curves@1.9.7/secp256k1";
@@ -103,6 +103,67 @@ function verifyBindingEvent(event: NostrEvent, wallet: string): string | null {
   return null;
 }
 
+const ERC1271_ABI = [
+  {
+    name: "isValidSignature",
+    type: "function",
+    stateMutability: "view",
+    inputs: [
+      { name: "hash", type: "bytes32" },
+      { name: "signature", type: "bytes" },
+    ],
+    outputs: [{ name: "", type: "bytes4" }],
+  },
+] as const;
+
+/** ERC-6492 magic suffix marking a signature for a not-yet-deployed account. */
+const ERC6492_SUFFIX = "6492".repeat(16);
+
+/**
+ * Work out WHY an ERC-1271 check failed.
+ *
+ * Smart-account signing has several incompatible conventions (raw EIP-191 hash,
+ * an EIP-712 `AccountMessage` re-wrap as thirdweb's Account does, ERC-6492 for
+ * counterfactual accounts). A bare `false` cannot tell them apart, and each needs
+ * a different fix — so ask the contract directly and report the outcome.
+ */
+async function diagnoseSignature(
+  wallet: string,
+  statement: string,
+  signature: string,
+): Promise<{ deployed: boolean; code: string; detail: string }> {
+  let deployed = false;
+  try {
+    const bytecode = await chainClient.getBytecode({ address: wallet as `0x${string}` });
+    deployed = !!bytecode && bytecode !== "0x";
+  } catch (error) {
+    return { deployed: true, code: "code-check-failed", detail: String(error).slice(0, 200) };
+  }
+  if (!deployed) return { deployed: false, code: "no-bytecode", detail: "" };
+
+  const wrapped = signature.toLowerCase().endsWith(ERC6492_SUFFIX);
+  try {
+    const result = await chainClient.readContract({
+      address: wallet as `0x${string}`,
+      abi: ERC1271_ABI,
+      functionName: "isValidSignature",
+      args: [hashMessage(statement), signature as `0x${string}`],
+    });
+    // 0x1626ba7e is the ERC-1271 magic value. Anything else is a considered "no".
+    return {
+      deployed: true,
+      code: result === "0x1626ba7e" ? "magic-ok-but-viem-said-no" : `returned-${result}`,
+      detail: `sigLen=${signature.length} erc6492=${wrapped}`,
+    };
+  } catch (error) {
+    return {
+      deployed: true,
+      code: "reverted",
+      detail: `sigLen=${signature.length} erc6492=${wrapped} ${String(error).slice(0, 300)}`,
+    };
+  }
+}
+
 function bad(message: string, status = 400): Response {
   return new Response(JSON.stringify({ error: message }), {
     status,
@@ -154,19 +215,22 @@ Deno.serve(async (request) => {
     return bad("could not verify the wallet signature right now — please retry", 503);
   }
   if (!walletSignatureValid) {
-    // A false here is ambiguous. The common cause is not a bad signature at all:
-    // an ERC-4337 account is counterfactual until its first outgoing transaction,
-    // and `isValidSignature` on an address with no code reverts — which viem
-    // reports the same way as a genuine mismatch. Distinguish them, because the
-    // two have completely different remedies.
-    let deployed = true;
-    try {
-      const code = await chainClient.getBytecode({ address: wallet as `0x${string}` });
-      deployed = !!code && code !== "0x";
-    } catch (error) {
-      console.error("bytecode check failed:", error);
+    // viem's verifyMessage collapses several very different failures into one
+    // `false`. Ask the contract directly instead of guessing which one it was.
+    const diagnosis = await diagnoseSignature(wallet, bindingStatement(wallet, npub), ethSignature);
+    console.error("ERC-1271 rejected:", JSON.stringify(diagnosis));
+
+    if (diagnosis.code === "magic-ok-but-viem-said-no") {
+      // The account itself returned the ERC-1271 magic value: the signature IS
+      // valid and viem's helper was the thing that failed. The contract is the
+      // authority on its own signatures, so trust it.
+      console.log("accepting on direct ERC-1271 magic value");
+      walletSignatureValid = true;
+    } else if (!diagnosis.deployed) {
+      return bad("wallet-not-deployed");
+    } else {
+      return bad(`wallet-signature-invalid:${diagnosis.code}`);
     }
-    return bad(deployed ? "wallet-signature-invalid" : "wallet-not-deployed");
   }
 
   const { error } = await db.from("nostr_identities").upsert(
