@@ -1,13 +1,8 @@
-// Pure builder for the gpt-image-1 flyer prompt (no I/O, no server-only) so it
-// stays unit-testable. The OpenAI call lives in render.ts.
+// Pure builders for the flyer image prompts (no I/O, no server-only) so they
+// stay unit-testable. The kie.ai / Nano Banana 2 Lite call lives in render.ts.
 
 import type { FlyerCopy } from "./copy";
 import type { FlyerStyle } from "./styles";
-
-// gpt-image-1 portrait; ≈ A4 (2:3 vs A4 1:1.414 — the PDF export letterboxes it onto a true A4 page).
-export const FLYER_IMAGE_SIZE = "1024x1536" as const;
-// Print-quality default; the per-org daily cap bounds the cost.
-export const FLYER_IMAGE_QUALITY = "high" as const;
 
 function textLine(label: string, value: string): string {
   const v = value.trim();
@@ -15,7 +10,7 @@ function textLine(label: string, value: string): string {
 }
 
 /**
- * Build the gpt-image-1 prompt: names every non-empty copy field as text to
+ * Build the image prompt: names every non-empty copy field as text to
  * typeset, the style direction + palette, A4 portrait layout, and an explicit
  * "render all text crisply and correctly, no garbled/placeholder text" guard.
  *
@@ -56,4 +51,24 @@ export function buildFlyerImagePrompt(
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/**
+ * Build the prompt for editing an EXISTING flyer: the current flyer is passed
+ * as the reference image and the model applies one requested change while
+ * preserving everything else.
+ *
+ * NOTE: deliberately does NOT restate the stored copy as "must-keep" strings.
+ * The stored `copy` reflects the ORIGINAL text, so after one edit it can be
+ * stale — replaying it would tell the model to undo the previous change. The
+ * reference image itself is the source of truth for what must stay.
+ */
+export function buildFlyerEditPrompt(instruction: string): string {
+  return [
+    "Edit the provided A4 portrait flyer image.",
+    `Apply exactly this change: ${instruction.trim()}`,
+    "",
+    "Keep everything else identical — the overall layout, style, colours, imagery and all remaining text must stay exactly as they appear in the provided image. Do not re-invent the design, do not translate anything, and do not add extra text.",
+    "All text must stay crisp, correctly spelled and fully legible; keep comfortable print margins for A4.",
+  ].join("\n");
 }

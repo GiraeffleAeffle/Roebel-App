@@ -1,54 +1,15 @@
-// KIE.ai job client for the mini-app store images — Seedream 4.5
-// (text-to-image + edit; same model ids/contracts as the generate-menu-image
-// edge function). Reaches KIE directly when KIE_API_KEY is set, otherwise
-// through the kie-proxy Supabase edge function authenticated with
-// SUPABASE_SEED_TOKEN — the KIE key itself lives only in Supabase secrets.
-// 1:1 output for icons/previews; the store hero uses 16:9.
+// Mini-app store images — thin adapter over the shared kie.ai client
+// (`@/lib/images/kie`), which defaults to Nano Banana 2 Lite. Keeps the
+// MiniAppError semantics the image routes expect. 1:1 for icons/previews,
+// 16:9 for the store hero.
 import "server-only";
+import {
+  createKieImageTask,
+  pollKieImageTask,
+  KieImageError,
+  type KieTaskState,
+} from "@/lib/images/kie";
 import { MiniAppError } from "../types";
-
-const KIE_BASE = "https://api.kie.ai/api/v1/jobs";
-const T2I_MODEL = "seedream/4.5-text-to-image";
-const EDIT_MODEL = "seedream/4.5-edit";
-
-type KieRequest =
-  | { action: "createTask"; payload: Record<string, unknown> }
-  | { action: "recordInfo"; taskId: string };
-
-/** Direct KIE call (KIE_API_KEY) or forward via the kie-proxy edge function. */
-async function kieFetch(req: KieRequest): Promise<Response> {
-  const directKey = process.env.KIE_API_KEY;
-  if (directKey) {
-    if (req.action === "createTask") {
-      return fetch(`${KIE_BASE}/createTask`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${directKey}`,
-        },
-        body: JSON.stringify(req.payload),
-      });
-    }
-    return fetch(`${KIE_BASE}/recordInfo?taskId=${encodeURIComponent(req.taskId)}`, {
-      headers: { Authorization: `Bearer ${directKey}` },
-    });
-  }
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const seedToken = process.env.SUPABASE_SEED_TOKEN;
-  if (!supabaseUrl || !seedToken) {
-    throw new MiniAppError(
-      "internal",
-      "Bildgenerierung ist nicht konfiguriert (KIE_API_KEY oder SUPABASE_SEED_TOKEN fehlt).",
-      503,
-    );
-  }
-  return fetch(`${supabaseUrl.replace(/\/$/, "")}/functions/v1/kie-proxy`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-seed-token": seedToken },
-    body: JSON.stringify(req),
-  });
-}
 
 export async function createImageTask(opts: {
   prompt: string;
@@ -56,64 +17,29 @@ export async function createImageTask(opts: {
   /** Defaults to 1:1 (icons/previews); the store hero uses 16:9. */
   aspectRatio?: "1:1" | "16:9";
 }): Promise<string> {
-  const refs = opts.referenceUrls ?? [];
-  const aspectRatio = opts.aspectRatio ?? "1:1";
-  // Seedream 4.5 splits generation and edit into two models; references go
-  // in via `image_urls`. 'basic' quality = the faster ~1K tier — plenty for
-  // store icons and previews.
-  const payload =
-    refs.length > 0
-      ? {
-          model: EDIT_MODEL,
-          input: { prompt: opts.prompt, image_urls: refs, aspect_ratio: aspectRatio },
-        }
-      : {
-          model: T2I_MODEL,
-          input: { prompt: opts.prompt, aspect_ratio: aspectRatio, quality: "basic" },
-        };
-
-  const res = await kieFetch({ action: "createTask", payload });
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    console.error("[miniapp/images] KIE createTask failed:", res.status, txt.slice(0, 300));
-    throw new MiniAppError("internal", "Bildgenerierung konnte nicht gestartet werden.", 502);
+  try {
+    // One model id covers both modes — references simply go in via image_urls.
+    return await createKieImageTask({
+      prompt: opts.prompt,
+      imageUrls: opts.referenceUrls ?? [],
+      aspectRatio: opts.aspectRatio ?? "1:1",
+    });
+  } catch (error) {
+    if (error instanceof KieImageError) {
+      console.error("[miniapp/images] createTask failed:", error.message);
+      throw new MiniAppError("internal", error.message, 502);
+    }
+    throw error;
   }
-  const json = (await res.json()) as { data?: { taskId?: string } };
-  const taskId = json.data?.taskId;
-  if (!taskId) {
-    throw new MiniAppError("internal", "Bildgenerierung konnte nicht gestartet werden.", 502);
-  }
-  return taskId;
 }
 
-export type ImageTaskState =
-  | { state: "pending" }
-  | { state: "success"; url: string }
-  | { state: "fail"; error: string };
+export type ImageTaskState = KieTaskState;
 
 export async function getImageTask(taskId: string): Promise<ImageTaskState> {
-  const res = await kieFetch({ action: "recordInfo", taskId });
-  if (!res.ok) {
+  try {
+    return await pollKieImageTask(taskId);
+  } catch (error) {
+    console.error("[miniapp/images] recordInfo failed:", error);
     return { state: "pending" };
   }
-  const json = (await res.json()) as {
-    data?: { state?: string; resultJson?: string; failMsg?: string };
-  };
-  const state = json.data?.state;
-  if (state === "success") {
-    try {
-      const parsed = JSON.parse(json.data?.resultJson ?? "{}") as {
-        resultUrls?: string[];
-      };
-      const url = parsed.resultUrls?.[0];
-      if (url) return { state: "success", url };
-    } catch {
-      // fällt unten auf "fail" durch
-    }
-    return { state: "fail", error: "Kein Bild im Ergebnis." };
-  }
-  if (state === "fail") {
-    return { state: "fail", error: json.data?.failMsg || "Generierung fehlgeschlagen." };
-  }
-  return { state: "pending" };
 }
