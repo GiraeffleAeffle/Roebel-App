@@ -55,6 +55,9 @@ importers:
       '@netizen-labs/miniapp-sdk':
         specifier: workspace:*
         version: link:../../packages/miniapp-sdk
+      '@netizen-labs/nostr':
+        specifier: workspace:*
+        version: link:../../packages/nostr
       '@react-native-async-storage/async-storage':
         specifier: 2.2.0
         version: 2.2.0(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@5.0.10))
@@ -987,12 +990,53 @@ importers:
         specifier: ^5.7.0
         version: 5.8.3
 
+  packages/nostr:
+    dependencies:
+      '@noble/curves':
+        specifier: ^1.9.7
+        version: 1.9.7
+      '@noble/hashes':
+        specifier: ^1.8.0
+        version: 1.8.0
+      '@scure/base':
+        specifier: ^1.2.6
+        version: 1.2.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.7.4
+        version: 22.19.15
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
+      typescript:
+        specifier: ^5.6.3
+        version: 5.8.3
+
   packages/protocol:
     dependencies:
       zod:
         specifier: ^3.23.8
         version: 3.25.76
     devDependencies:
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
+      typescript:
+        specifier: ^5.6.3
+        version: 5.8.3
+
+  packages/relay-sync:
+    dependencies:
+      '@netizen-labs/nostr':
+        specifier: workspace:*
+        version: link:../nostr
+      viem:
+        specifier: ^2.47.6
+        version: 2.53.1(bufferutil@4.1.0)(typescript@5.8.3)(utf-8-validate@6.0.6)(zod@4.3.6)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.7.4
+        version: 22.19.15
       tsx:
         specifier: ^4.19.2
         version: 4.22.4
@@ -26858,7 +26902,7 @@ snapshots:
     dependencies:
       '@types/keygrip': 1.0.6
       '@types/koa': 3.0.3
-      '@types/node': 20.19.37
+      '@types/node': 22.19.15
 
   '@types/parse-json@4.0.2': {}
 
@@ -26882,7 +26926,7 @@ snapshots:
 
   '@types/qrcode@1.5.6':
     dependencies:
-      '@types/node': 20.19.37
+      '@types/node': 22.19.15
 
   '@types/qs@6.15.1': {}
 

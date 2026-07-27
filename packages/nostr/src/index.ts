@@ -1,0 +1,42 @@
+/**
+ * `@netizen-labs/nostr` — the Nostr primitives a Netizen node and its apps share.
+ *
+ * Wallet-derived identity, NIP-01 events, the wallet↔npub binding proof, and a
+ * dependency-free relay client. Isomorphic: the same code runs in the Expo app,
+ * in the allow-list syncer on the sovereign node, and in tests.
+ *
+ * See docs/superpowers/specs/2026-07-27-nostr-citizen-identity-bridge-design.md.
+ */
+export {
+  NOSTR_KEY_DERIVATION_MESSAGE,
+  deriveNostrIdentity,
+  deriveNostrSecretKey,
+  getPublicKeyHex,
+  isNostrPubkey,
+  npubDecode,
+  npubEncode,
+} from "./keys";
+
+export {
+  KIND,
+  buildDeletionEvent,
+  buildEvent,
+  buildNoteEvent,
+  buildProfileEvent,
+  eventId,
+  signEvent,
+  verifyEvent,
+} from "./events";
+export type { NostrEvent, NostrTag, ProfileMetadata, UnsignedEvent } from "./events";
+
+export {
+  BINDING_ACCOUNT_TAG,
+  BINDING_D_TAG,
+  bindingStatement,
+  buildBindingEvent,
+  verifyBindingEvent,
+} from "./binding";
+export type { BindingFailure, BindingResult, BindingSubject } from "./binding";
+
+export { RelayClient } from "./relay";
+export type { Filter, PublishResult, RelayOptions } from "./relay";

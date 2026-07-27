@@ -433,7 +433,29 @@ export async function createPost(input: CreatePostInput): Promise<PostRecord | n
       .catch((err) => console.warn('[moderate-post] invoke failed', err?.message));
   }
 
+  // Mirror public feed posts to the sovereign Nostr relay as signed events, so
+  // other nodes and agents can read the town's public record. Strictly
+  // best-effort and never awaited: Supabase stays the source of truth for this
+  // slice, and a Citizen without a Nostr identity (or not yet allow-listed)
+  // simply posts as before. Only main-feed human posts are mirrored — nothing
+  // private, nothing auto-generated.
+  if (post.post_type === 'user' && post.feed_type === 'main') {
+    void mirrorPostToNostr(post);
+  }
+
   return post;
+}
+
+/** Publish a post to the relay if this device holds a Nostr identity. Swallows everything. */
+async function mirrorPostToNostr(post: PostRecord): Promise<void> {
+  try {
+    const { publishPost } = await import('./nostr/publish');
+    const media = (post.media_urls ?? []).join('\n');
+    const content = media ? `${post.content}\n\n${media}` : post.content;
+    await publishPost(post.id, content);
+  } catch (err) {
+    console.warn('[nostr] post mirror skipped', (err as Error)?.message);
+  }
 }
 
 /**

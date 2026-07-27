@@ -166,7 +166,10 @@ export default function SettingsScreen() {
             <Text style={[styles.chevron, { color: colors.textTertiary }]}>›</Text>
           </Pressable>
           <Pressable
-            style={styles.themeOptionRow}
+            style={[
+              styles.themeOptionRow,
+              { borderBottomWidth: 1, borderBottomColor: colors.borderSecondary },
+            ]}
             onPress={() => router.push('/settings/reveal-key' as any)}
           >
             <View style={styles.themeOptionTextContainer}>
@@ -175,6 +178,20 @@ export default function SettingsScreen() {
               </Text>
               <Text style={[styles.themeOptionDescription, { color: colors.textSecondary }]}>
                 Nur mit biometrischer Bestätigung sichtbar.
+              </Text>
+            </View>
+            <Text style={[styles.chevron, { color: colors.textTertiary }]}>›</Text>
+          </Pressable>
+          <Pressable
+            style={styles.themeOptionRow}
+            onPress={() => router.push('/settings/nostr' as any)}
+          >
+            <View style={styles.themeOptionTextContainer}>
+              <Text style={[styles.themeOptionLabel, { color: colors.textPrimary }]}>
+                Nostr-Identität
+              </Text>
+              <Text style={[styles.themeOptionDescription, { color: colors.textSecondary }]}>
+                Deine öffentlichen Beiträge gehören dir — auch außerhalb dieser App.
               </Text>
             </View>
             <Text style={[styles.chevron, { color: colors.textTertiary }]}>›</Text>
