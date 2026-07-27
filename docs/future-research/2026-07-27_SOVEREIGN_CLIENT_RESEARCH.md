@@ -656,7 +656,132 @@ Stated properly, because the brief demanded it.
 
 ---
 
-## 10. Sources
+## 10. Addendum: the agent argument (added same day, after review)
+
+The original brief framed the browser as a *consumer distribution* bet: Ethereum users would
+enjoy an Ethereum-native browser. Section 1.4 dismantles that. But there is a stronger framing
+that the brief did not ask about, and it deserves a separate answer:
+
+> Netizen is a full sovereign stack (workspace, identity, AI, governance, money). Agents have to
+> operate across all of it, which means they need the web. The human has to verify and sign with
+> their onchain identity. Doesn't that require a client that unifies browsing, identity and
+> signing?
+
+**It requires browser capability. It does not require a browser product. And on inspection the
+agent argument is the strongest argument yet *against* merging the agent and the signing key into
+one client.**
+
+### 10.1 The security finding that decides it
+
+Agentic browsers have a vulnerability class that is, by the vendors' own admission, not fully
+fixable:
+
+- **Brave security team, 2025-08-20**: demonstrated indirect prompt injection against Perplexity
+  Comet. Instructions hidden in a Reddit spoiler tag caused the agent to read the user's email
+  address, pull an OTP from Gmail, and exfiltrate both by posting them back to Reddit. The attack
+  **bypassed same-origin policy and CORS**, because the agent operates with full user privileges
+  across authenticated sessions. Brave's conclusion: "traditional Web security assumptions don't
+  hold for agentic AI." ([brave.com/blog/comet-prompt-injection](https://brave.com/blog/comet-prompt-injection/))
+- Brave followed with [unseeable prompt injections in screenshots](https://brave.com/blog/unseeable-prompt-injections/), affecting Comet and others.
+- **Zenity Labs, March 2026**: the "PleaseFix" family, zero-click agent hijacking in Comet.
+- Reporting through 2026 states that prompt injection cannot be fully patched in Atlas, Comet or
+  Dia, and that OpenAI says it is unlikely to ever be fully solved.
+
+**Brave's own recommended mitigation #4 is: "isolate agentic browsing from regular browsing."**
+And #3: "require explicit user interaction for security-sensitive operations."
+
+A Netizen browser that renders the open web, runs an agent, and holds the citizen's signing key is
+that vulnerability class shipped as a product, aimed at a municipality, with a treasury behind it.
+The correct architecture is the exact opposite of unification:
+
+| Function | Where it belongs | Why |
+|---|---|---|
+| Agent executes on the web | **Headless browser on the node**, sandboxed, no keys, no authenticated user sessions | Attacker-controlled content never shares a process with credentials |
+| Human verifies and signs | **Signing client**, small, auditable, renders only node-authored content | Its security property comes from *not* being a browser |
+| Agent proves a human authorized it | **Signed mandate** (protocol layer), not a UI trick | Survives the agent being compromised |
+
+The trust boundary between "the thing that reads hostile input" and "the thing that holds the key"
+is the whole security model. A browser is by definition the place where that boundary collapses.
+
+### 10.2 The four protocols that already decompose the problem
+
+Everything the agent framing asks for shipped as standards in the last 18 months. Building a
+browser to unify them would mean re-implementing them behind glass.
+
+| Need | What exists | Status |
+|---|---|---|
+| **The agent's hands on the web** | [Steel Browser](https://github.com/steel-dev/steel-browser) (open source, Docker, Chromium + CDP, session/cookie/proxy management, self-hostable) and Browserless (self-host Docker image, in market since ~2017) | Production, self-hostable today |
+| **Agents acting on Netizen surfaces** | **WebMCP**: `navigator.modelContext`, a site declares its own capabilities as callable tools instead of the agent screenshotting and guessing. W3C Web Machine Learning CG, authored by Microsoft and Google engineers, announced **2026-02-10**. Chrome 146 Canary behind a flag; **origin trial Chrome 149 to 156**; Gemini in Chrome will support it | Early preview, production readiness expected mid-to-late 2026 |
+| **Agent identity and reputation** | **ERC-8004 Trustless Agents**: Identity, Reputation and Validation registries. Draft EIP, v1 Oct 2025, **core registries deployed to Ethereum mainnet 2026-01-29**; in the Ethereum Foundation dAI team's 2026 roadmap | Live reference deployments, adoption early |
+| **Proving a human authorized a specific agent action** | **AP2 (Agent Payments Protocol)**: cryptographically signed *mandates* defining what an agent may do, under what conditions and limits (price ceilings, time windows, action scope), provable to a counterparty. **Google donated AP2 to the FIDO Alliance in April 2026.** Alongside x402 for machine-to-machine settlement | Standardizing |
+
+AP2 mandates are precisely "the human verifies with their onchain identity and signs", expressed
+as a protocol rather than a UI. Netizen already has the onchain analogue: **Zodiac Roles Modifier
+v2 onchain per-role spending allowances** (see the [2026-07-22 stack research](2026-07-22_NETIZEN_SOVEREIGN_STACK_RESEARCH.md) §2). A Netizen
+agent mandate should be a Roles Modifier role plus a signed AP2-shaped attestation, not a consent
+dialog in a browser Netizen maintains.
+
+### 10.3 The inversion that is actually the opportunity
+
+The instinct is "build a browser so our agents can use the world." The higher-leverage move is
+the inverse:
+
+> **Publish WebMCP on every Netizen surface so that the world's agents can use a Netizen node.**
+
+Röbel already exposes MCP endpoints (`/api/roebel/mcp`, `/api/mcp`). WebMCP is the browser-side
+twin of that, and Chrome is running a production origin trial for it right now. If a citizen's
+ChatGPT Atlas, Gemini in Chrome, or Claude can call "check my Münzen balance", "sign this
+proposal", "book the Bürgerhaus" as declared tools against a Netizen node, Netizen gets agent
+reach across every browser without maintaining any of them. A Netizen browser would deliver the
+same capability to an audience of zero.
+
+This also flips the ERC-8004 story: Netizen's attestation stack (soulbound memberships,
+attester graph, EAS) is exactly the reputation and validation layer ERC-8004 declares but leaves
+open. Being the credential issuer for agents in a town is a better position than being the
+browser those agents run in.
+
+### 10.4 What this changes in the recommendation
+
+The stage ladder in section 0 gains a stage, and it is the one to start on:
+
+- **Stage 0b (new, high priority): browser as node infrastructure.** Steel Browser or Browserless
+  in the Node Manifest, provisioned by `netizen render` / `netizen up`, so every node ships an
+  agent execution sandbox it owns. This is real browser engineering, it is sovereign (self-hosted,
+  no vendor), and it costs days, not FTE-years. Per the standing rule that everything on a node
+  must land in the manifest, this belongs in an NSP, not in a hand-wired box config.
+- **Stage 0c (new): publish WebMCP.** Track the Chrome 149 to 156 origin trial. Cheap, and it is
+  the distribution channel the browser was supposed to provide.
+- **Stage 1 gains a purpose.** The signing client is not just a wallet, it is the **consent and
+  provenance surface**: "agent X (ERC-8004 identity) proposes action Y against node Z under
+  mandate M, sign?" Nobody ships this well today, it is genuinely unbuilt, and it is small enough
+  for a small team to own. It is also the one component whose value depends on it *not* being a
+  browser.
+- **Stage 2 gains a second justification.** For institutions, a managed Chromium distribution is
+  now also how you *disable* Gemini in Chrome and route all agent traffic to the node's own model
+  and the node's own search. Enterprise policy does this on stock Chromium. A fork still buys
+  nothing extra.
+- **Stage 3 is unchanged.** The agent argument does not move the fork gates. If anything it
+  raises the bar, because shipping a consumer agentic browser means owning an unpatchable
+  vulnerability class on behalf of a municipality.
+
+### 10.5 The honest residue
+
+Two things in the agent framing are true and are not fully answered by the above:
+
+1. **The trusted terminal is genuinely unbuilt.** No existing client shows an agent's proposed
+   action with verifiable provenance and a one-tap onchain signature. That is a real product gap
+   and Netizen is unusually well placed to fill it. The report's recommendation is that this is
+   the *wallet*, given a bigger job, and that its security case rests on it staying small.
+2. **Brand and narrative.** "A fast, private, AI-native, good-for-the-world browser" is a story a
+   normal person can repeat, and "an SD-JWT credential issuer with a WebMCP surface" is not. That
+   is a genuine cost of this recommendation. The mitigation is that the good-for-the-world story
+   already has a better vehicle (the node, the currency, the town) and that stage 2 gives it a
+   branded window whenever it needs one. Sovereign search does not require building a search
+   engine either: EUSP's Staan index is open to third parties via API.
+
+---
+
+## 11. Sources
 
 Browser economics and post-mortems: [Brave, Building and releasing Brave](https://brave.com/blog/building-brave/) (2021-06-25) · [Brave, 100M MAU](https://brave.com/blog/100m-mau/) (2025-10-01) · [Brave Chromium rebases wiki](https://github.com/brave/brave-browser/wiki/Chromium-rebases) · [Vivaldi, How we work with Chromium code](https://vivaldi.com/blog/vivaldi-code-integration/) (2018-09-12) · [Browserbase, Why we forked Chromium](https://www.browserbase.com/blog/chromium-fork-for-ai-automation) (2025-11-19) · [TechCrunch, Atlassian to buy The Browser Company for $610M](https://techcrunch.com/2025/09/04/atlassian-to-buy-arc-developer-the-browser-company-for-610m) (2025-09-04) · [Atlassian announcement](https://www.atlassian.com/blog/announcements/atlassian-acquires-the-browser-company) · [Opera delists the Crypto Browser](https://blogs.opera.com/desktop/2024/02/opera-delists-the-experimental-crypto-browser/) (2024-02) · [Beaker archive notice](https://github.com/beakerbrowser/beaker/blob/master/archive-notice.md) (2021/2022)
 
@@ -669,5 +794,7 @@ Naming: [ENS, How ENS is approaching ICANN's gTLD expansion](https://ens.domains
 Extensions: [Igalia, Protocol handler registration via browser extensions](https://blogs.igalia.com/jfernandez/2026/03/24/protocol-handler-registration-via-browser-extensions/) (2026-03-24) · [Chrome, declarativeNetRequest](https://developer.chrome.com/docs/extensions/reference/api/declarativeNetRequest) · [Chrome, Replace blocking web request listeners](https://developer.chrome.com/docs/extensions/develop/migrate/blocking-web-requests) · [Brave ENS offchain lookup wiki](https://github.com/brave/brave-browser/wiki/ENS-offchain-lookup) · [ComfyGummy/chrome-web3](https://github.com/ComfyGummy/chrome-web3) · [cpacia/ens-chrome-extension](https://github.com/cpacia/ens-chrome-extension)
 
 Identity and EU: [EUDI ARF](https://eudi.dev/2.2.0/architecture-and-reference-framework-main/) · [EUDI relying-party registration](https://eudi.dev/latest/discussion-topics/x-relying-party-registration/) · [TS6, relying-party information](https://github.com/eu-digital-identity-wallet/eudi-doc-standards-and-technical-specifications/blob/main/docs/technical-specifications/ts6-common-set-of-rp-information-to-be-registered.md) · [EUDI reference implementation](https://github.com/eu-digital-identity-wallet) · [OpenID4VP 1.0](https://openid.net/specs/openid-4-verifiable-presentations-1_0.html) · [walt.id, eIDAS2 wallet provider requirements](https://walt.id/eidas2/wallet-provider) · [Council of the EU, European business wallets negotiating position](https://www.consilium.europa.eu/en/press/press-releases/2026/06/09/european-business-wallets-council-adopts-negotiating-position/) (2026-06-09) · [European Parliament legislative train, European business wallets](https://www.europarl.europa.eu/legislative-train/theme-a-new-plan-for-europe-s-sustainable-prosperity-and-competitiveness/file-european-business-wallet) · [EDPS opinion on EBW](https://www.edps.europa.eu/system/files/2026-01/26-01-20_opinion_establishment_of_european_business_wallets_en.pdf) (2026-01-20) · [CoinDesk, Holonym acquires Gitcoin Passport](https://www.coindesk.com/business/2025/02/10/digital-identity-startup-holonym-acquires-gitcoin-passport) (2025-02-10) · [Human Passport rebrand](https://passport.human.tech/blog/from-gitcoin-passport-to-human-passport-we-re-now-part-of-human-tech) · [Semaphore docs](https://docs.semaphore.pse.dev/) · [EAS docs](https://docs.attest.org/) · [SpruceID](https://spruceid.com/)
+
+Agents (section 10): [Brave, Agentic browser security: indirect prompt injection in Comet](https://brave.com/blog/comet-prompt-injection/) (2025-08-20) · [Brave, Unseeable prompt injections in screenshots](https://brave.com/blog/unseeable-prompt-injections/) · [Chrome for Developers, WebMCP](https://developer.chrome.com/docs/ai/webmcp) · [VentureBeat, Chrome ships WebMCP in early preview](https://venturebeat.com/infrastructure/google-chrome-ships-webmcp-in-early-preview-turning-every-website-into-a) · [Chrome at I/O 2026](https://developer.chrome.com/blog/chrome-at-io26) · [ERC-8004: Trustless Agents](https://eips.ethereum.org/EIPS/eip-8004) · [erc-8004-contracts](https://github.com/erc-8004/erc-8004-contracts) · [Steel Browser](https://github.com/steel-dev/steel-browser) · [AP2 explainer](https://eco.com/support/en/articles/14845479-ap2-agent-payments-protocol-explained)
 
 Distribution and search: [a16z, State of Crypto 2025](https://a16zcrypto.com/posts/article/state-of-crypto-report-2025/) · [growthepie, daily active addresses](https://www.growthepie.com/fundamentals/daily-active-addresses) · [Ecosia, teaming up with Qwant on a European search index](https://blog.ecosia.org/eusp/) · [European Search Perspective](https://www.eu-searchperspective.com/) · [ZenDiS](https://www.zendis.de/en) · [openProject, the rise of the Sovereign Workplace](https://www.openproject.org/blog/sovereign-workplace/)
