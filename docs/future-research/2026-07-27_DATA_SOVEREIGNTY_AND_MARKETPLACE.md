@@ -146,9 +146,27 @@ Two engineering facts that matter specifically for Netizen:
    Gnosis. **To do x402 on Gnosis, Netizen must run its own facilitator.** That is entirely
    feasible, the facilitator model is open, and it is arguably on-brand for a sovereignty project,
    but it is work that must be scoped rather than assumed.
-2. **Token support**: the gasless path via EIP-3009 `transferWithAuthorization` works natively for
-   USDC and EURC. **Whether EURe implements EIP-3009 is unverified** and must be checked onchain.
-   If not, the fallback is Permit2, which changes the UX and the gas story.
+2. **Token support: VERIFIED ONCHAIN 2026-07-27. EURe does not implement EIP-3009.**
+   The gasless x402 fast path via `transferWithAuthorization` works natively for USDC and EURC.
+   EURe does not have it. Probed against Gnosis mainnet:
+
+   | Check | Result |
+   |---|---|
+   | `symbol()` on `0x420CA0f9B9b604cE0fd9C18EF134C705e5Fa3430` | `EURe` (right contract) |
+   | EIP-1967 implementation | `0x60cb9fdd0fcfd9bb3b2b721864db5e7c07f4635d`, 16,630 bytes |
+   | `authorizationState(address,bytes32)` (`0xe94a0102`) | **execution reverted**, selector **absent** from implementation bytecode |
+   | `transferWithAuthorization(...)` (`0xe3ee160e`) | **absent** |
+   | `receiveWithAuthorization(...)` (`0xef55bec6`) | **absent** |
+   | `permit(...)` (`0xd505accf`) | **present** |
+   | `DOMAIN_SEPARATOR()` (`0x3644e515`) | **present**, returns `0x861e4d4b…d078` |
+   | `nonces(address)` (`0x7ecebe00`) | **present**, returns 0 |
+
+   **So: EIP-2612 permit yes, EIP-3009 no.** x402 supports arbitrary ERC-20s via Permit2, and
+   EURe's `permit` makes the Permit2 approval flow workable, but it is the slower two-step path
+   (approve Permit2 once, then signature-based transfers) rather than the single-signature
+   gasless flow USDC gets. Combined with Gnosis being absent from the Coinbase facilitator's
+   network list, **an x402 rail for EURe means running your own facilitator and taking the
+   Permit2 path.** Scope it before promising agent-to-agent EURe payments.
    ([x402 network and token support](https://docs.x402.org/core-concepts/network-and-token-support))
 
 ### 2.4 Sell the answer, never the corpus
@@ -281,9 +299,13 @@ Ordered, and every item is independent of the client question:
 
 ## 5. Unverified
 
-- Whether **EURe implements EIP-3009** `transferWithAuthorization`. Must be checked onchain.
+- ~~Whether EURe implements EIP-3009~~ **RESOLVED 2026-07-27: it does not.** EIP-2612 permit only.
+  See §2.3, verified onchain against Gnosis mainnet.
+- ~~Railgun's Gnosis support~~ **RESOLVED: not supported.** Railgun is live on Ethereum, BSC,
+  Polygon and Arbitrum; announced 2026 expansions are Solana, NEAR, Arbitrum and Metis. Gnosis is
+  neither supported nor announced, and Kohaku's "mainnet then L2s" path does not cover an
+  independent L1 sidechain.
 - Whether any **x402 facilitator supports Gnosis** today, or whether self-hosting is the only path.
-- **Railgun's Gnosis support** (carried over from the client research, still open).
 - The **$600M annualized x402 volume** and the "roughly half is testing" characterization both come
   from secondary analysis, not protocol telemetry.
 - **Ocean Protocol's litigation status** and what it means for depending on their contracts.
