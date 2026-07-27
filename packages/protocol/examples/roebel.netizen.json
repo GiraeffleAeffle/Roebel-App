@@ -70,7 +70,7 @@
       {
         "id": "matrix",
         "redirectUris": [
-          "https://auth.roebel.app/upstream/callback/01ROEBELIDPROVIDERULID000000"
+          "https://auth.roebel.app/upstream/callback/01JBXR8QW3ZK7YFN2MHTVC4DS6"
         ],
         "scopes": [
           "openid",
@@ -148,6 +148,11 @@
       "nostr": {
         "relay": "wss://relay.roebel.app",
         "groupsRelay": true
+      },
+      "matrix": {
+        "homeserver": "https://matrix.roebel.app",
+        "mas": "https://auth.roebel.app",
+        "element": "https://chat.roebel.app"
       }
     },
     "secrets": {
@@ -199,7 +204,11 @@
     "backup": {
       "schedule": "02:30",
       "retentionDays": 14,
-      "include": ["postgres", "nextcloud", "strfry"],
+      "include": [
+        "postgres",
+        "nextcloud",
+        "strfry"
+      ],
       "offsite": "restic-sftp"
     },
     "hardening": {

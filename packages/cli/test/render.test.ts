@@ -188,7 +188,9 @@ test("a node that hosts its own keystone still provisions it", () => {
 test("Synapse delegates ALL auth to MAS and trusts the proxy", () => {
   const c = renderSynapseConfig(fullNode);
   assert.match(c, /server_name: "roebel\.app"/);          // not matrix.roebel.app
-  assert.match(c, /msc3861:\n\s+enabled: true/);           // auth delegated
+  // Synapse REMOVED experimental_features.msc3861; newer builds reject it outright
+  assert.match(c, /matrix_authentication_service:\n\s+enabled: true/);
+  assert.ok(!c.includes("msc3861"), "the removed experimental key must not be emitted");
   assert.match(c, /x_forwarded: true/);                    // real client IPs behind Caddy
   assert.match(c, /enable_registration: false/);
   assert.match(c, /password_config:\n\s+enabled: false/);  // no shadow password accounts
