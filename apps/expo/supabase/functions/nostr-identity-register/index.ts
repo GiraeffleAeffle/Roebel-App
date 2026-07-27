@@ -26,6 +26,8 @@ import {
   decodeAbiParameters,
   hashMessage,
   http,
+  recoverMessageAddress,
+  recoverTypedDataAddress,
 } from "https://esm.sh/viem@2.21.0";
 import { gnosis } from "https://esm.sh/viem@2.21.0/chains";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -158,6 +160,95 @@ function unwrapErc6492(signature: string): string | null {
   }
 }
 
+const IS_ADMIN_ABI = [
+  {
+    name: "isAdmin",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+] as const;
+
+/**
+ * Verify by recovering the signer and asking the account whether it is an admin.
+ *
+ * Why not just trust `isValidSignature`? A thirdweb smart account signs a message
+ * one of two ways — plain EIP-191 `personal_sign` by the admin EOA, or an EIP-712
+ * `AccountMessage` wrap — and both produce a 65-byte signature. If the client
+ * picks one convention and the deployed account expects the other, the account
+ * recovers a stranger and REVERTS instead of returning a non-magic value. That is
+ * exactly what the live diagnosis showed (`sigLen=132`, `erc6492=false`,
+ * `reverted: "Account: ca…"`).
+ *
+ * Recovering the signer ourselves and checking `isAdmin` is convention-agnostic:
+ * we try both digests, and admin-ness is still decided ON-CHAIN by the account
+ * itself, so this loosens nothing about who is allowed to bind an identity.
+ */
+async function verifyByAdminRecovery(
+  wallet: string,
+  statement: string,
+  signature: string,
+): Promise<{ ok: boolean; outcome: string }> {
+  const candidates: { label: string; address: string }[] = [];
+
+  try {
+    candidates.push({
+      label: "personal_sign",
+      address: await recoverMessageAddress({
+        message: statement,
+        signature: signature as `0x${string}`,
+      }),
+    });
+  } catch (error) {
+    candidates.push({ label: "personal_sign", address: `recover-failed:${String(error).slice(0, 40)}` });
+  }
+
+  try {
+    candidates.push({
+      label: "eip712-AccountMessage",
+      address: await recoverTypedDataAddress({
+        domain: {
+          name: "Account",
+          version: "1",
+          chainId: gnosis.id,
+          verifyingContract: wallet as `0x${string}`,
+        },
+        types: { AccountMessage: [{ name: "message", type: "bytes" }] },
+        primaryType: "AccountMessage",
+        message: { message: hashMessage(statement) },
+        signature: signature as `0x${string}`,
+      }),
+    });
+  } catch (error) {
+    candidates.push({
+      label: "eip712-AccountMessage",
+      address: `recover-failed:${String(error).slice(0, 40)}`,
+    });
+  }
+
+  const tried: string[] = [];
+  for (const candidate of candidates) {
+    if (!candidate.address.startsWith("0x")) {
+      tried.push(`${candidate.label}=${candidate.address}`);
+      continue;
+    }
+    try {
+      const isAdmin = await chainClient.readContract({
+        address: wallet as `0x${string}`,
+        abi: IS_ADMIN_ABI,
+        functionName: "isAdmin",
+        args: [candidate.address as `0x${string}`],
+      });
+      if (isAdmin) return { ok: true, outcome: `admin-via-${candidate.label}` };
+      tried.push(`${candidate.label}=not-admin`);
+    } catch (error) {
+      tried.push(`${candidate.label}=isAdmin-failed(${String(error).slice(0, 60)})`);
+    }
+  }
+  return { ok: false, outcome: tried.join(" | ") };
+}
+
 async function callErc1271(
   wallet: string,
   hash: string,
@@ -172,7 +263,9 @@ async function callErc1271(
     });
     return { ok: result === ERC1271_MAGIC, outcome: `returned-${result}` };
   } catch (error) {
-    return { ok: false, outcome: `reverted(${String(error).slice(0, 120)})` };
+    // Keep enough of the revert reason to be useful — the last cap truncated the
+    // thirdweb error to "Account: ca" and cost a round trip.
+    return { ok: false, outcome: `reverted(${String(error).slice(0, 220)})` };
   }
 }
 
@@ -218,11 +311,24 @@ async function diagnoseSignature(
     outcomes.push(`${attempt.label}:${outcome}`);
   }
 
+  // ERC-1271 said no in every form. Before rejecting, recover the signer and ask
+  // the account whether it is an admin — that survives a signing-convention
+  // mismatch, which is the common cause of a revert here.
+  const recovery = await verifyByAdminRecovery(wallet, statement, signature);
+  if (recovery.ok) {
+    return {
+      deployed: true,
+      valid: true,
+      code: `valid-via-${recovery.outcome}`,
+      detail: `sigLen=${signature.length}`,
+    };
+  }
+
   return {
     deployed: true,
     valid: false,
     code: inner ? "erc6492-unwrapped-still-invalid" : "reverted",
-    detail: `sigLen=${signature.length} erc6492=${!!inner} ${outcomes.join(" | ")}`,
+    detail: `sigLen=${signature.length} erc6492=${!!inner} ${outcomes.join(" | ")} || recovery: ${recovery.outcome}`,
   };
 }
 
