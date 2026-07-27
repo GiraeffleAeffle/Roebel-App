@@ -37,6 +37,13 @@ const Identity = z.object({
   idp: z.object({
     issuer: z.string().url(),
     discovery: z.string().url(),
+    /**
+     * Where the identity provider RUNS. "node" = provisioned by the installer on
+     * this node's box. "external" = already hosted elsewhere (e.g. Fly), so the
+     * installer must NOT start a second keystone or route to a local one — it
+     * only points the other services at `issuer`. Defaults to "node".
+     */
+    hosted: z.enum(["node", "external"]).optional(),
     jwks: secretRef,
     authMethods: z
       .array(z.enum(["wallet-siwe", "google", "apple", "facebook", "email"]))

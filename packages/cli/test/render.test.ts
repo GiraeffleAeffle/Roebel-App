@@ -21,6 +21,13 @@ const roebel = JSON.parse(
   ),
 );
 
+// Röbel hosts its keystone on Fly (hosted: "external"). Tests that assert on
+// keystone artifacts use this self-hosting variant.
+const selfHosted = {
+  ...roebel,
+  identity: { ...roebel.identity, idp: { ...roebel.identity.idp, hosted: "node" } },
+};
+
 test("roebel-id.env is generated from the manifest's relying parties", () => {
   const env = renderRoebelIdEnv(roebel);
   assert.match(env, /NEXTCLOUD_CLIENT_ID=nextcloud/);
@@ -44,25 +51,27 @@ test("secrets appear only as references, never resolved values", () => {
     ["$COORDINATOR_PUBKEY", "$GNOSIS_BUNDLER_RPC", "$GNOSIS_RPC", "$MATRIX_CLIENT_SECRET", "$NEXTCLOUD_CLIENT_SECRET", "$ROEBEL_ID_JWKS", "$SUPABASE_URL"],
   );
   // the keystone env references the secret, it does not inline a value
-  assert.match(bundle.files["roebel-id.env"], /NEXTCLOUD_CLIENT_SECRET=\$NEXTCLOUD_CLIENT_SECRET/);
+  assert.match(renderBundle(selfHosted).files["roebel-id.env"], /NEXTCLOUD_CLIENT_SECRET=\$NEXTCLOUD_CLIENT_SECRET/);
   assert.match(bundle.files["SECRETS.md"], /\$ROEBEL_ID_JWKS/);
 });
 
 test("the plan is ordered and covers every declared surface", () => {
   const ids = plan(roebel).map((s) => s.id);
   assert.deepEqual(ids, [
-    "dns", "secrets", "compose", "roebel-id",
+    "dns", "secrets", "compose", "identity",
     "nextcloud-oidc", "wiki-oidc", "video-auth", "project-oidc",
     "mas-oidc", "nostr-relay", "web-env", "verify",
   ]);
   // the DNS step names every host the node actually needs
-  assert.match(plan(roebel)[0].title, /id, cloud, matrix, auth, chat, relay, wiki, meet, project/);
+  // the external keystone is NOT a host that points at this box
+  assert.match(plan(roebel)[0].title, /cloud, matrix, auth, chat, relay, wiki, meet, project/);
+  assert.deepEqual(plan(selfHosted).map((s) => s.id)[3], "roebel-id");
 });
 
 test("bundle emits the full deployable set (compose, caddy, matrix, nostr, nextcloud)", () => {
   const files = Object.keys(renderBundle(roebel).files);
   for (const f of [
-    "README.md", "bootstrap.sh", "docker-compose.yml", "Caddyfile", "roebel-id.env", "web.env", "PLAN.md", "SECRETS.md",
+    "README.md", "bootstrap.sh", "docker-compose.yml", "Caddyfile", "web.env", "PLAN.md", "SECRETS.md",
     "mas/config.yaml", "element/config.json", "strfry.conf", "nextcloud/setup.sh",
   ]) {
     assert.ok(files.includes(f), `expected ${f} in bundle`);
@@ -71,8 +80,9 @@ test("bundle emits the full deployable set (compose, caddy, matrix, nostr, nextc
 
 test("the installer provisions the whole declared stack (identity, comms, workspace, AI)", () => {
   const compose = renderComposeYml(roebel);
-  // identity + comms
-  for (const s of ["roebel-id:", "synapse:", "mas:", "element:", "strfry:", "caddy:"]) {
+  assert.ok(renderComposeYml(selfHosted).includes("roebel-id:"), "self-hosted keystone is provisioned");
+  // comms
+  for (const s of ["synapse:", "mas:", "element:", "strfry:", "caddy:"]) {
     assert.ok(compose.includes(s), `expected service ${s}`);
   }
   // workspace suite declared by the Röbel manifest
@@ -93,7 +103,7 @@ test("services are config-gated — a node that declares nothing gets no workspa
   for (const s of ["nextcloud:", "xwiki:", "jitsi:", "openproject:", "synapse:", "strfry:", "litellm:"]) {
     assert.ok(!compose.includes(s), `did not expect ${s} in a bare node`);
   }
-  assert.ok(compose.includes("caddy:") && compose.includes("roebel-id:"));
+  assert.ok(compose.includes("caddy:"));
 });
 
 test("the Nostr members-only write policy ships WITH the node (not hand-wired)", () => {
@@ -118,6 +128,25 @@ test("web.env carries one var per declared workspace surface", () => {
   }
   // undeclared surfaces are omitted (Röbel runs no Open-Xchange yet)
   assert.ok(!env.includes("NEXT_PUBLIC_MAIL_BASE_URL"));
+});
+
+test("an externally hosted keystone is never re-provisioned by the installer", () => {
+  // Röbel runs its keystone on Fly (hosted: "external").
+  const b = renderBundle(roebel);
+  assert.ok(!b.files["docker-compose.yml"].includes("roebel-id:"), "must not start a second keystone");
+  assert.ok(!b.files["Caddyfile"].includes("id.roebel.app"), "must not route the external issuer locally");
+  assert.ok(!Object.keys(b.files).includes("roebel-id.env"), "must not emit keystone env it does not own");
+  assert.match(b.files["PLAN.md"], /hosted externally/);
+  // ...but the services still point at it
+  assert.match(b.files["mas/config.yaml"], /issuer: https:\/\/id\.roebel\.app/);
+});
+
+test("a node that hosts its own keystone still provisions it", () => {
+  const selfHosted = { ...roebel, identity: { ...roebel.identity, idp: { ...roebel.identity.idp, hosted: "node" } } };
+  const b = renderBundle(selfHosted);
+  assert.ok(b.files["docker-compose.yml"].includes("roebel-id:"));
+  assert.ok(b.files["Caddyfile"].includes("id.roebel.app"));
+  assert.ok(Object.keys(b.files).includes("roebel-id.env"));
 });
 
 test("bootstrap.sh is an idempotent apply script (docker + .env gate + compose up)", () => {
@@ -149,9 +178,9 @@ test("the Nostr relay is rendered and wired through Caddy + compose", () => {
   assert.match(strfry, /port = 7777/);
   const caddy = renderCaddyfile(roebel);
   assert.match(caddy, /relay\.roebel\.app \{\n\s*reverse_proxy strfry:7777/);
-  assert.match(caddy, /id\.roebel\.app \{\n\s*reverse_proxy roebel-id:3010/);
+  assert.match(renderCaddyfile(selfHosted), /id\.roebel\.app \{\n\s*reverse_proxy roebel-id:3010/);
   const compose = renderComposeYml(roebel);
   assert.match(compose, /strfry:/);
   assert.match(compose, /synapse:/);
-  assert.match(compose, /roebel-id:/);
+  assert.match(renderComposeYml(selfHosted), /roebel-id:/);
 });

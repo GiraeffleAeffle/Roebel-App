@@ -20,6 +20,7 @@
     "idp": {
       "issuer": "https://id.roebel.app",
       "discovery": "https://id.roebel.app/.well-known/openid-configuration",
+      "hosted": "external",
       "jwks": "$ROEBEL_ID_JWKS",
       "authMethods": ["wallet-siwe", "google", "apple", "facebook", "email"],
       "scopes": ["openid", "email", "profile", "roebel"],

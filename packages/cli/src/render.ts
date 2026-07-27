@@ -161,9 +161,12 @@ export function renderCaddyfile(m: NetizenManifest): string {
   const add = (u: string | undefined, upstream: string) => {
     if (u) blocks.push(`${hostname(u)} {\n  reverse_proxy ${upstream}\n}`);
   };
-  add(m.identity.idp.issuer, "roebel-id:3010");
+  // Only route the IdP locally when this node actually hosts it. An externally
+  // hosted keystone (e.g. on Fly) resolves via its own DNS/TLS — routing it here
+  // would blackhole logins for every service on the node.
+  if (m.identity.idp.hosted !== "external") add(m.identity.idp.issuer, "roebel-id:3010");
   const ws = m.services.workspace;
-  add(ws?.nextcloud, "nextcloud-aio:11000");
+  add(ws?.nextcloud, "nextcloud:80");
   add(ws?.mail, "ox:8080"); // Open-Xchange
   add(ws?.wiki, "xwiki:8080");
   add(ws?.video, "jitsi:8000");
@@ -177,22 +180,27 @@ export function renderCaddyfile(m: NetizenManifest): string {
   return header(m, "Caddy reverse proxy (auto TLS)") + "\n" + blocks.join("\n\n") + "\n";
 }
 
-/** The deployable stack. Nextcloud runs via AIO (separate); Caddy proxies it. */
+/** The deployable stack — every service this node declares, and nothing else. */
 export function renderComposeYml(m: NetizenManifest): string {
   const hasMatrix = !!m.services.chat?.matrix;
   const hasNostr = !!m.services.chat?.nostr;
+  // An externally hosted keystone (identity.idp.hosted === "external") is NOT
+  // provisioned here: starting a second one would shadow the real issuer.
+  const hostsIdp = m.identity.idp.hosted !== "external";
   const svc: string[] = [
     `  caddy:
     image: caddy:2
     restart: unless-stopped
     ports: ["80:80", "443:443"]
     volumes: ["./Caddyfile:/etc/caddy/Caddyfile", "caddy_data:/data"]`,
-    `  roebel-id:
-    image: \${ROEBEL_ID_IMAGE:-ghcr.io/roebel-labs/roebel-id:latest}   # or keep the keystone on Fly and drop this service + its Caddy route
+  ];
+  if (hostsIdp) {
+    svc.push(`  roebel-id:
+    image: \${ROEBEL_ID_IMAGE:-ghcr.io/roebel-labs/roebel-id:latest}
     restart: unless-stopped
     env_file: ["./roebel-id.env"]
-    expose: ["3010"]`,
-  ];
+    expose: ["3010"]`);
+  }
   if (hasMatrix) {
     svc.push(
       `  postgres:
@@ -337,8 +345,10 @@ export function renderComposeYml(m: NetizenManifest): string {
   // Postgres backs Matrix, Nextcloud, XWiki and OpenProject — include it if any need it.
   const needsPostgres =
     hasMatrix || !!ws?.nextcloud || !!ws?.wiki || !!ws?.project || !!ws?.mail;
+  // (hasMatrix already emitted postgres above; append it here for the other cases.
+  // Order within `services:` is irrelevant to compose — depends_on drives startup.)
   if (needsPostgres && !hasMatrix) {
-    svc.splice(2, 0, `  postgres:
+    svc.push(`  postgres:
     image: postgres:16
     restart: unless-stopped
     environment: { POSTGRES_PASSWORD: "\${POSTGRES_PASSWORD}" }
@@ -539,7 +549,11 @@ export function plan(m: NetizenManifest): Step[] {
   steps.push({ id: "dns", phase: "provision", title: `Point DNS at the box for: ${hosts.join(", ")}` });
   steps.push({ id: "secrets", phase: "provision", title: "Place .env on the box with every ref from SECRETS.md" });
   steps.push({ id: "compose", phase: "services", title: "docker compose up -d — brings up the whole declared stack" });
-  steps.push({ id: "roebel-id", phase: "identity", title: "Keystone live (roebel-id.env) — the single sign-in for every service below" });
+  steps.push(
+    m.identity.idp.hosted === "external"
+      ? { id: "identity", phase: "identity", title: `Keystone hosted externally at ${m.identity.idp.issuer} — verify discovery resolves; nothing to deploy here` }
+      : { id: "roebel-id", phase: "identity", title: "Keystone live (roebel-id.env) — the single sign-in for every service below" },
+  );
   if (rp(m, "nextcloud")) steps.push({ id: "nextcloud-oidc", phase: "workspace", title: "Run nextcloud/setup.sh (OIDC provider + group folder per org)" });
   if (ws?.mail) steps.push({ id: "mail-oidc", phase: "workspace", title: "Point Open-Xchange at the keystone (OIDC) + its IMAP/SMTP backend" });
   if (ws?.wiki) steps.push({ id: "wiki-oidc", phase: "workspace", title: "Enable the XWiki OIDC provider against the keystone" });
@@ -566,7 +580,9 @@ export function renderBundle(m: NetizenManifest): Bundle {
     "bootstrap.sh": renderBootstrap(m),
     "docker-compose.yml": renderComposeYml(m),
     "Caddyfile": renderCaddyfile(m),
-    "roebel-id.env": renderRoebelIdEnv(m),
+    // Keystone env only when this node hosts it; an external keystone keeps its
+    // own secrets at its host (emitting a stray env file here would mislead).
+    ...(m.identity.idp.hosted === "external" ? {} : { "roebel-id.env": renderRoebelIdEnv(m) }),
     "web.env": renderWebEnv(m),
     "PLAN.md": renderPlanMd(m),
     "SECRETS.md": renderSecretsChecklist(m),
