@@ -3,7 +3,7 @@
 /**
  * Event-specific flyer generator, embedded on the event edit page. Uses ALL the
  * event's data as copy context (via draftFlyerCopyAction(eventId)) and, by
- * default, the event's own image as the gpt-image-1 reference. One click can set
+ * default, the event's own image as the image-model reference. One click can set
  * the result as the event's cover image.
  */
 
@@ -17,6 +17,7 @@ import {
 } from "@/app/actions/flyer";
 import { FLYER_STYLES } from "@/lib/flyer/styles";
 import { downloadImage, slugForFile, printFlyer, COPY_FIELDS } from "@/lib/flyer/ui";
+import { FlyerEditControl } from "@/components/flyer/FlyerEditControl";
 import type { FlyerCopy } from "@/lib/flyer/copy";
 import type { Flyer } from "@/types/flyer";
 import { Button } from "@/components/ui/button";
@@ -241,6 +242,12 @@ export function EventFlyerGenerator({ accountId, eventId, eventTitle, eventImage
               <Button onClick={handleFeed} variant="outline" size="sm" disabled={busy}>
                 <Share2 className="h-4 w-4 mr-2" /> Im Feed teilen
               </Button>
+              <FlyerEditControl
+                accountId={accountId}
+                walletAddress={walletAddress}
+                flyer={preview}
+                onEdited={setPreview}
+              />
             </div>
           </div>
         </div>

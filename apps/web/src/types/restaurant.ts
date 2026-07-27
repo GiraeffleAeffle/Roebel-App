@@ -16,15 +16,17 @@ export const AI_IMAGE_STYLE_LABELS: Record<AiImageStyle, string> = {
   wooden_board: "Holzbrett",
 }
 
-export type AiImageModel = "seedream" | "nano_banana_pro"
+export type AiImageModel = "nano_banana_2_lite" | "seedream" | "nano_banana_pro"
 
 export const AI_IMAGE_MODEL_LABELS: Record<AiImageModel, string> = {
+  nano_banana_2_lite: "Nano Banana 2 Lite",
   seedream: "Seedream 4.5",
   nano_banana_pro: "Nano Banana Pro",
 }
 
 export const AI_IMAGE_MODEL_DESCRIPTIONS: Record<AiImageModel, string> = {
-  seedream: "Standard — schnell und zuverlässig.",
+  nano_banana_2_lite: "Standard — Google · schnell und günstig.",
+  seedream: "Alternative — schnell und zuverlässig.",
   nano_banana_pro: "Google · höhere Detailtreue, etwas langsamer.",
 }
 

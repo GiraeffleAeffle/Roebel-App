@@ -50,8 +50,8 @@ const PRESETS: AiImageStyle[] = [
 ];
 const DEFAULT_PRESET_VALUE = "__default__";
 
-const MODELS: AiImageModel[] = ["seedream", "nano_banana_pro"];
-const DEFAULT_MODEL: AiImageModel = "seedream";
+const MODELS: AiImageModel[] = ["nano_banana_2_lite", "seedream", "nano_banana_pro"];
+const DEFAULT_MODEL: AiImageModel = "nano_banana_2_lite";
 const modelStorageKey = (kind: ItemKind, itemId: string) =>
   `roebel:ai-model:${kind}:${itemId}`;
 
@@ -135,7 +135,8 @@ export function AiImageEditor({
     }
     try {
       const rawModel = window.localStorage.getItem(modelStorageKey(kind, itemId));
-      setModel(rawModel === "nano_banana_pro" ? "nano_banana_pro" : DEFAULT_MODEL);
+      const saved = MODELS.find((m) => m === rawModel);
+      setModel(saved ?? DEFAULT_MODEL);
     } catch {
       setModel(DEFAULT_MODEL);
     }

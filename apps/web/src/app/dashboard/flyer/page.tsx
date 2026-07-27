@@ -6,7 +6,7 @@
  * One page:
  *   1. Werkstatt — brief (+ optional event prefill) + style → "Text entwerfen"
  *      (Claude Sonnet drafts editable German copy) → edit → "Flyer erstellen"
- *      (gpt-image-1 renders a text-legible A4 flyer) → preview + download.
+ *      (Nano Banana 2 Lite renders a text-legible A4 flyer) → preview + download.
  *   2. Bibliothek — the org's saved flyers (re-download, delete).
  *
  * Wallet/account wiring + styling mirror dashboard/foerdermittel + dashboard/stories.
@@ -40,6 +40,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ImageUploadDropzone } from "@/components/ui/image-upload-dropzone";
+import { FlyerEditControl } from "@/components/flyer/FlyerEditControl";
 import {
   Image as ImageIcon,
   Loader2,
@@ -137,7 +138,7 @@ export default function FlyerPage() {
     setPreview(res.flyer);
     setFlyers((prev) => [res.flyer as Flyer, ...prev]);
     toast.success("Flyer erstellt!");
-  }, [activeAccount, walletAddress, copy, brief, styleId, eventId]);
+  }, [activeAccount, walletAddress, copy, brief, styleId, eventId, referenceUrl]);
 
   const handleDelete = useCallback(
     async (id: string) => {
@@ -345,6 +346,15 @@ export default function FlyerPage() {
                       <Share2 className="h-4 w-4 mr-2" /> Im Feed teilen
                     </Button>
                   </div>
+                  <FlyerEditControl
+                    accountId={activeAccount.id}
+                    walletAddress={walletAddress}
+                    flyer={preview}
+                    onEdited={(f) => {
+                      setPreview(f);
+                      setFlyers((prev) => [f, ...prev]);
+                    }}
+                  />
                   {events.length > 0 && (
                     <div className="space-y-1.5 max-w-xs">
                       <Label className="text-xs">An Event anhängen (als Event-Bild)</Label>
@@ -381,7 +391,7 @@ export default function FlyerPage() {
                     <img src={f.image_url} alt={f.title} className="w-full aspect-[2/3] object-cover" />
                     <div className="p-3 space-y-2">
                       <p className="text-sm font-medium truncate">{f.title || "Flyer"}</p>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <Button
                           onClick={() => downloadImage(f.image_url, `${slugForFile(f.title)}.png`)}
                           variant="outline"
@@ -407,6 +417,13 @@ export default function FlyerPage() {
                         >
                           <Share2 className="h-4 w-4" />
                         </Button>
+                        <FlyerEditControl
+                          compact
+                          accountId={activeAccount.id}
+                          walletAddress={walletAddress}
+                          flyer={f}
+                          onEdited={(nf) => setFlyers((prev) => [nf, ...prev])}
+                        />
                         <div className="flex-1" />
                         <Button
                           onClick={() => handleDelete(f.id)}
