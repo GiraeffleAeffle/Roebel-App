@@ -995,12 +995,7 @@ export async function regenerateItemImageWithAi(
         : { special_menu_item_id: itemId }
     if (opts?.prompt_hint) payload.prompt_hint = opts.prompt_hint
     if (opts?.style_preset) payload.style_preset = opts.style_preset
-    // Send the model only when it differs from the app default, so the Edge
-    // Function falls back to ITS own default instead. This keeps the two
-    // deploys order-independent: an older function that doesn't yet know
-    // `nano_banana_2_lite` would reject it with INVALID_MODEL, and once the
-    // function is redeployed its default IS nano_banana_2_lite.
-    if (opts?.model && opts.model !== "nano_banana_2_lite") payload.model = opts.model
+    if (opts?.model) payload.model = opts.model
     if (opts?.preview) payload.preview = true
     if (opts?.reference_image_urls?.length)
       payload.reference_image_urls = opts.reference_image_urls

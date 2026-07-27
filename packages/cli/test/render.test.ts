@@ -48,9 +48,15 @@ test("secrets appear only as references, never resolved values", () => {
   assert.match(bundle.files["SECRETS.md"], /\$ROEBEL_ID_JWKS/);
 });
 
-test("the plan is ordered and includes the workspace + chat + nostr steps", () => {
+test("the plan is ordered and covers every declared surface", () => {
   const ids = plan(roebel).map((s) => s.id);
-  assert.deepEqual(ids, ["dns", "compose", "roebel-id", "nextcloud-oidc", "mas-oidc", "nostr-relay", "web-env", "verify"]);
+  assert.deepEqual(ids, [
+    "dns", "secrets", "compose", "roebel-id",
+    "nextcloud-oidc", "wiki-oidc", "video-auth", "project-oidc",
+    "mas-oidc", "nostr-relay", "web-env", "verify",
+  ]);
+  // the DNS step names every host the node actually needs
+  assert.match(plan(roebel)[0].title, /id, cloud, matrix, auth, chat, relay, wiki, meet, project/);
 });
 
 test("bundle emits the full deployable set (compose, caddy, matrix, nostr, nextcloud)", () => {
@@ -63,12 +69,65 @@ test("bundle emits the full deployable set (compose, caddy, matrix, nostr, nextc
   }
 });
 
+test("the installer provisions the whole declared stack (identity, comms, workspace, AI)", () => {
+  const compose = renderComposeYml(roebel);
+  // identity + comms
+  for (const s of ["roebel-id:", "synapse:", "mas:", "element:", "strfry:", "caddy:"]) {
+    assert.ok(compose.includes(s), `expected service ${s}`);
+  }
+  // workspace suite declared by the Röbel manifest
+  for (const s of ["nextcloud:", "collabora:", "xwiki:", "jitsi:", "openproject:"]) {
+    assert.ok(compose.includes(s), `expected service ${s}`);
+  }
+  // postgres is included because Matrix/Nextcloud/XWiki/OpenProject need it
+  assert.ok(compose.includes("postgres:"));
+});
+
+test("services are config-gated — a node that declares nothing gets no workspace services", () => {
+  const bare = {
+    ...roebel,
+    services: { host: roebel.services.host },
+    ai: undefined,
+  };
+  const compose = renderComposeYml(bare);
+  for (const s of ["nextcloud:", "xwiki:", "jitsi:", "openproject:", "synapse:", "strfry:", "litellm:"]) {
+    assert.ok(!compose.includes(s), `did not expect ${s} in a bare node`);
+  }
+  assert.ok(compose.includes("caddy:") && compose.includes("roebel-id:"));
+});
+
+test("the Nostr members-only write policy ships WITH the node (not hand-wired)", () => {
+  const b = renderBundle(roebel);
+  for (const f of ["strfry-policy/policy.awk", "strfry-policy/write-policy.sh", "strfry-policy/members.txt", "strfry-policy/add-member.sh"]) {
+    assert.ok(Object.keys(b.files).includes(f), `expected ${f}`);
+  }
+  // strfry.conf points at the rendered plugin
+  assert.match(b.files["strfry.conf"], /writePolicy \{ plugin = "\/etc\/strfry\/write-policy\.sh" \}/);
+  // and the relay mounts the policy DIRECTORY (inode gotcha: single-file mounts
+  // break live revokes because sed -i replaces the inode)
+  assert.match(b.files["docker-compose.yml"], /\.\/strfry-policy:\/etc\/strfry:ro/);
+});
+
+test("web.env carries one var per declared workspace surface", () => {
+  const env = renderWebEnv(roebel);
+  for (const v of [
+    "NEXT_PUBLIC_WORKSPACE_BASE_URL", "NEXT_PUBLIC_CHAT_BASE_URL", "NEXT_PUBLIC_WIKI_BASE_URL",
+    "NEXT_PUBLIC_VIDEO_BASE_URL", "NEXT_PUBLIC_PROJECT_BASE_URL", "NEXT_PUBLIC_AGENTS_BASE_URL",
+  ]) {
+    assert.ok(env.includes(v), `expected ${v}`);
+  }
+  // undeclared surfaces are omitted (Röbel runs no Open-Xchange yet)
+  assert.ok(!env.includes("NEXT_PUBLIC_MAIL_BASE_URL"));
+});
+
 test("bootstrap.sh is an idempotent apply script (docker + .env gate + compose up)", () => {
   const b = renderBootstrap(roebel);
   assert.match(b, /command -v docker/);
   assert.match(b, /if \[ ! -f \.env \]/); // refuses to apply without secrets
   assert.match(b, /docker compose up -d/);
-  assert.match(b, /bash nextcloud\/setup\.sh/); // roebel declares nextcloud
+  // roebel declares nextcloud → the bootstrap runs its OIDC/group-folder setup
+  // inside the container (idempotent, tolerates a not-yet-installed instance)
+  assert.match(b, /nextcloud sh < nextcloud\/setup\.sh/);
 });
 
 test("declared openDesk tools (mail/project) get Caddy routes", () => {

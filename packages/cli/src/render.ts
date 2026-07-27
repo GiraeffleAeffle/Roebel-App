@@ -67,12 +67,23 @@ export function renderRoebelIdEnv(m: NetizenManifest): string {
   return lines.join("\n") + "\n";
 }
 
+/**
+ * App env — one line per workspace surface the node declares. Each var lights up
+ * exactly one dashboard tile (citizen + org), so a node ships with the subset it runs.
+ */
 export function renderWebEnv(m: NetizenManifest): string {
+  const ws = m.services.workspace;
+  const pairs: Array<[string, string | undefined]> = [
+    ["NEXT_PUBLIC_WORKSPACE_BASE_URL", ws?.nextcloud],
+    ["NEXT_PUBLIC_CHAT_BASE_URL", m.services.chat?.matrix?.element],
+    ["NEXT_PUBLIC_MAIL_BASE_URL", ws?.mail],
+    ["NEXT_PUBLIC_WIKI_BASE_URL", ws?.wiki],
+    ["NEXT_PUBLIC_VIDEO_BASE_URL", ws?.video],
+    ["NEXT_PUBLIC_PROJECT_BASE_URL", ws?.project],
+    ["NEXT_PUBLIC_AGENTS_BASE_URL", ws?.portal],
+  ];
   const lines = [header(m, "web app env").trimEnd()];
-  const ws = m.services.workspace?.nextcloud;
-  const el = m.services.chat?.matrix?.element;
-  if (ws) lines.push(`NEXT_PUBLIC_WORKSPACE_BASE_URL=${ws}`);
-  if (el) lines.push(`NEXT_PUBLIC_CHAT_BASE_URL=${el}`);
+  for (const [key, value] of pairs) if (value) lines.push(`${key}=${value}`);
   return lines.join("\n") + "\n";
 }
 
@@ -139,7 +150,7 @@ relay {
     name = "${m.name} Relay"
     description = "Sovereign community relay for ${m.name}${host ? ` (${host})` : ""}"
   }
-  writePolicy { plugin = "" }   # add a members allow-list plugin to gate writes to this node
+  writePolicy { plugin = "/etc/strfry/write-policy.sh" }   # members-only writes (reads open)
 }
 `;
 }
@@ -210,25 +221,218 @@ export function renderComposeYml(m: NetizenManifest): string {
     );
   }
   if (hasNostr) {
+    // The relay mounts the POLICY DIRECTORY (not single files): editors/sed -i
+    // replace inodes, and a single-file bind mount would keep the stale inode,
+    // so live grants/revokes of the write allow-list would silently not apply.
     svc.push(
       `  strfry:
     image: ghcr.io/hoytech/strfry:latest
     restart: unless-stopped
     command: relay
-    volumes: ["./strfry.conf:/etc/strfry.conf", "strfry_db:/app/strfry-db"]
+    volumes:
+      - "./strfry.conf:/etc/strfry.conf"
+      - "./strfry-policy:/etc/strfry:ro"
+      - "strfry_db:/app/strfry-db"
     expose: ["7777"]`,
     );
   }
+
+  // ---- Workspace (the openDesk-equivalent suite). Each is provisioned only
+  // when the manifest declares its URL, so every node picks its own subset.
+  const ws = m.services.workspace;
+  if (ws?.nextcloud) {
+    svc.push(
+      `  nextcloud:
+    image: nextcloud:stable
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: nextcloud
+      POSTGRES_USER: nextcloud
+      POSTGRES_PASSWORD: "\${POSTGRES_PASSWORD}"
+      NEXTCLOUD_TRUSTED_DOMAINS: "${hostname(ws.nextcloud)}"
+      OVERWRITEPROTOCOL: https
+    volumes: ["nextcloud_data:/var/www/html"]
+    depends_on: [postgres]
+    expose: ["80"]`,
+    );
+    if (ws.collabora) {
+      svc.push(
+        `  collabora:
+    image: collabora/code:latest
+    restart: unless-stopped
+    environment:
+      aliasgroup1: "https://${hostname(ws.nextcloud)}"
+      DONT_GEN_SSL_CERT: "true"
+      extra_params: "--o:ssl.enable=false --o:ssl.termination=true"
+    expose: ["9980"]`,
+      );
+    }
+  }
+  if (ws?.mail) {
+    svc.push(
+      `  ox:                      # Open-Xchange (mail/calendar/contacts)
+    image: \${OX_IMAGE:-openexchange/appsuite:latest}
+    restart: unless-stopped
+    depends_on: [postgres]
+    expose: ["8080"]
+    # NOTE: OX needs an IMAP/SMTP backend + its own provisioning — see PLAN.md`,
+    );
+  }
+  if (ws?.wiki) {
+    svc.push(
+      `  xwiki:
+    image: xwiki:stable-postgres-tomcat
+    restart: unless-stopped
+    environment:
+      DB_USER: xwiki
+      DB_PASSWORD: "\${POSTGRES_PASSWORD}"
+      DB_HOST: postgres
+    volumes: ["xwiki_data:/usr/local/xwiki"]
+    depends_on: [postgres]
+    expose: ["8080"]`,
+    );
+  }
+  if (ws?.video) {
+    svc.push(
+      `  jitsi:                   # single-container Jitsi Meet (web + prosody + jicofo + jvb)
+    image: jitsi/web:stable
+    restart: unless-stopped
+    environment:
+      PUBLIC_URL: "${ws.video}"
+      ENABLE_AUTH: "1"
+      AUTH_TYPE: jwt          # tokens minted from the Röbel ID session
+    expose: ["80"]
+    # NOTE: full Jitsi needs prosody/jicofo/jvb sidecars + UDP 10000 — see PLAN.md`,
+    );
+  }
+  if (ws?.project) {
+    svc.push(
+      `  openproject:
+    image: openproject/openproject:14
+    restart: unless-stopped
+    environment:
+      OPENPROJECT_HOST__NAME: "${hostname(ws.project)}"
+      OPENPROJECT_HTTPS: "true"
+      DATABASE_URL: "postgres://openproject:\${POSTGRES_PASSWORD}@postgres/openproject"
+    volumes: ["openproject_data:/var/openproject/assets"]
+    depends_on: [postgres]
+    expose: ["80"]`,
+    );
+  }
+
+  // ---- Sovereign AI gateway (model routing; keeps egress under node policy).
+  if (m.ai?.selfHosted) {
+    svc.push(
+      `  litellm:                 # AI gateway — routes models, enforces data-egress policy
+    image: ghcr.io/berriai/litellm:main-latest
+    restart: unless-stopped
+    env_file: ["./.env"]
+    volumes: ["./ai/litellm.yaml:/app/config.yaml"]
+    command: ["--config", "/app/config.yaml"]
+    expose: ["4000"]`,
+    );
+  }
+
+  // Postgres backs Matrix, Nextcloud, XWiki and OpenProject — include it if any need it.
+  const needsPostgres =
+    hasMatrix || !!ws?.nextcloud || !!ws?.wiki || !!ws?.project || !!ws?.mail;
+  if (needsPostgres && !hasMatrix) {
+    svc.splice(2, 0, `  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment: { POSTGRES_PASSWORD: "\${POSTGRES_PASSWORD}" }
+    volumes: ["pg_data:/var/lib/postgresql/data"]`);
+  }
+
   const vols = ["caddy_data:"];
-  if (hasMatrix) vols.push("pg_data:");
+  if (needsPostgres) vols.push("pg_data:");
   if (hasNostr) vols.push("strfry_db:");
-  return `# Generated by \`netizen render\` — sovereign node stack for "${m.id}".
-# Nextcloud is stood up via Nextcloud AIO (its own installer); Caddy proxies it.
-# This is a starting-point compose — refine per your box (secrets, TLS, backups).
+  if (ws?.nextcloud) vols.push("nextcloud_data:");
+  if (ws?.wiki) vols.push("xwiki_data:");
+  if (ws?.project) vols.push("openproject_data:");
+
+  return `# Generated by \`netizen render\` — the sovereign node stack for "${m.id}".
+# One command brings up everything this node declares: identity, comms, workspace,
+# and AI. Services appear only when the manifest declares them.
+# Secrets come from ./.env (see SECRETS.md) — never from this file.
 services:
 ${svc.join("\n")}
 volumes:
 ${vols.map((v) => `  ${v}`).join("\n")}
+`;
+}
+
+/**
+ * The Nostr write policy — CitizenNFT-gated. Rendered by the installer so every
+ * node gets the same members-only relay without hand-wiring it (reads stay open).
+ * Mirrors packages/cli/policies/nostr-citizen-write/.
+ */
+export function renderNostrPolicyAwk(m: NetizenManifest): string {
+  return `# Generated by \`netizen render\` — write policy for node "${m.id}".
+# Accept an EVENT only if its author pubkey is in the members allow-list.
+# Re-reads the list per event (live grants/revokes) and fflush()es so strfry
+# never blocks on a buffered pipe. Reads are unaffected.
+{
+  line = $0
+  if (!match(line, /"id":"[0-9a-fA-F]{64}"/)) next
+  id = substr(line, RSTART + 6, 64)
+  pk = ""
+  if (match(line, /"pubkey":"[0-9a-fA-F]{64}"/)) pk = tolower(substr(line, RSTART + 10, 64))
+  allowed = 0
+  if (pk != "") {
+    while ((getline p < "/etc/strfry/members.txt") > 0) {
+      gsub(/[ \\t\\r\\n]/, "", p)
+      if (p != "" && substr(p, 1, 1) != "#" && tolower(p) == pk) { allowed = 1; break }
+    }
+    close("/etc/strfry/members.txt")
+  }
+  if (allowed)
+    printf("{\\"id\\":\\"%s\\",\\"action\\":\\"accept\\"}\\n", id)
+  else
+    printf("{\\"id\\":\\"%s\\",\\"action\\":\\"reject\\",\\"msg\\":\\"blocked: only ${m.name} members may publish to this relay\\"}\\n", id)
+  fflush()
+}
+`;
+}
+
+export function renderNostrPolicyWrapper(): string {
+  return `#!/bin/sh\nexec awk -f /etc/strfry/policy.awk\n`;
+}
+
+export function renderNostrMembers(m: NetizenManifest): string {
+  const cred = m.identity.membership.credential;
+  return `# ${m.name} — Nostr write allow-list. One lowercase 64-hex pubkey per line.
+# Populated from ${cred} holders: derive each member's Nostr key from their wallet
+# (NIP-06 style, Schnorr != ECDSA so it is a DERIVED key), verify they hold the
+# credential on chain, then add the pubkey here. Reads are always open.
+# Grant: add-member.sh <pubkey>   Revoke: delete the line. Both take effect live.
+`;
+}
+
+export function renderNostrAddMember(): string {
+  return `#!/bin/sh
+# Usage: add-member.sh <64-hex-nostr-pubkey>  — grant write access (live, no restart)
+pk="$1"
+echo "$pk" | grep -qiE '^[0-9a-f]{64}$' || { echo "not a 64-hex nostr pubkey: $pk" >&2; exit 1; }
+f="$(dirname "$0")/members.txt"
+grep -qi "^\${pk}$" "$f" 2>/dev/null || printf '%s\\n' "$pk" >> "$f"
+echo "granted write: $pk"
+`;
+}
+
+/** LiteLLM gateway config — model routing + the node's data-egress posture. */
+export function renderLiteLlmConfig(m: NetizenManifest): string {
+  const models = Object.entries(m.ai?.models ?? {})
+    .map(([role, model]) => `  - model_name: ${role}\n    litellm_params:\n      model: ${model}`)
+    .join("\n");
+  const tier = m.ai?.sovereignty?.tier ?? "unset";
+  const policy = m.ai?.sovereignty?.dataEgressPolicy ?? "unset";
+  return `# Generated by \`netizen render\` — AI gateway for node "${m.id}".
+# Sovereignty tier: ${tier} · data-egress policy: ${policy}
+# API keys come from ./.env (never this file).
+model_list:
+${models || "  []"}
 `;
 }
 
@@ -238,18 +442,28 @@ export function renderBundleReadme(m: NetizenManifest): string {
 Generated by \`netizen render\` from a Netizen Node Manifest. This is the sovereign
 node for **${m.name}** (id: \`${m.id}\`).
 
-## Deploy (P1 = manual apply; \`netizen up\` will automate this)
+A **full sovereign stack** — identity, communication, workspace, money rails and AI —
+on infrastructure you own. Everything below is generated from one manifest.
 
-1. Provision one Hetzner box (Ubuntu, Docker) and point DNS at it for every subdomain
-   in \`Caddyfile\`.
-2. Supply the secrets in \`SECRETS.md\` (env / vault) — they are referenced, never in the bundle.
-3. Stand up Nextcloud via **Nextcloud AIO** (separate installer); Caddy proxies \`cloud.*\`.
-4. \`docker compose up -d\` — brings up the keystone, Matrix (Synapse + MAS + Element),
-   and the Nostr relay (strfry), all behind Caddy with auto-TLS.
-5. Run \`nextcloud/setup.sh\` inside the Nextcloud container (OIDC + group folders).
-6. Set \`web.env\` on the app host (Vercel) and redeploy so the dashboard tiles light up.
+## Deploy
+
+1. Provision one box (Ubuntu + Docker) and point DNS at it for every subdomain in
+   \`Caddyfile\`.
+2. Put a \`.env\` next to this file with every reference listed in \`SECRETS.md\`
+   (secrets are referenced, never written into the bundle).
+3. \`sudo bash bootstrap.sh\` — or \`netizen up <manifest> --host user@box\` from your
+   machine. Brings up the whole declared stack behind Caddy with auto-TLS.
+4. Run the post-config steps in \`PLAN.md\` (each service's OIDC provider against the
+   keystone — they are idempotent and safe to re-run).
+5. Set \`web.env\` on the app host and redeploy so the dashboard tiles light up.
 
 Follow \`PLAN.md\` for the exact ordered, idempotent steps.
+
+## What this node runs
+
+Only what the manifest declares. Every service authenticates against **your own**
+identity keystone, so one wallet-based sign-in spans all of them — and the same
+identity model makes AI agents members alongside people.
 `;
 }
 
@@ -258,9 +472,10 @@ export function renderBootstrap(m: NetizenManifest): string {
   const hasNextcloud = !!m.services.workspace?.nextcloud;
   const nc = hasNextcloud
     ? `
-# 4. Nextcloud OIDC provider + group folders (only once Nextcloud AIO is initialized).
-if docker ps --format '{{.Names}}' | grep -qi nextcloud; then
-  bash nextcloud/setup.sh || echo "note: run nextcloud/setup.sh after Nextcloud AIO first-run finishes"
+# 4. Nextcloud OIDC provider + group folders (once the container is initialized).
+if docker compose ps --services 2>/dev/null | grep -qx nextcloud; then
+  docker compose exec -T -u www-data nextcloud sh < nextcloud/setup.sh \\
+    || echo "note: re-run once Nextcloud finished its first-run install"
 fi`
     : "";
   return `#!/usr/bin/env bash
@@ -316,15 +531,25 @@ ${items}
 }
 
 export function plan(m: NetizenManifest): Step[] {
+  const ws = m.services.workspace;
+  const hosts = ["id", ...(ws?.nextcloud ? ["cloud"] : []), ...(m.services.chat?.matrix ? ["matrix", "auth", "chat"] : []),
+    ...(m.services.chat?.nostr ? ["relay"] : []), ...(ws?.mail ? ["mail"] : []), ...(ws?.wiki ? ["wiki"] : []),
+    ...(ws?.video ? ["meet"] : []), ...(ws?.project ? ["project"] : [])];
   const steps: Step[] = [];
-  steps.push({ id: "dns", phase: "provision", title: `Point DNS for node "${m.id}" at the box (id/cloud/matrix/auth/chat)` });
-  steps.push({ id: "compose", phase: "services", title: "docker compose up — Synapse + MAS + Postgres + Element (+ Nextcloud AIO)" });
-  steps.push({ id: "roebel-id", phase: "identity", title: "Apply roebel-id.env and deploy the keystone" });
-  if (rp(m, "nextcloud")) steps.push({ id: "nextcloud-oidc", phase: "workspace", title: "Run nextcloud/setup.sh (OIDC provider + group folders)" });
-  if (rp(m, "matrix")) steps.push({ id: "mas-oidc", phase: "chat", title: "Apply mas/config.yaml (upstream = Röbel ID) and restart MAS" });
-  if (m.services.chat?.nostr) steps.push({ id: "nostr-relay", phase: "chat", title: "Bring up the Nostr relay (strfry) behind Caddy" });
-  steps.push({ id: "web-env", phase: "app", title: "Set web.env on the app host and redeploy" });
-  steps.push({ id: "verify", phase: "verify", title: "doctor — discovery reachable, SSO round-trips, dashboard tiles light up" });
+  steps.push({ id: "dns", phase: "provision", title: `Point DNS at the box for: ${hosts.join(", ")}` });
+  steps.push({ id: "secrets", phase: "provision", title: "Place .env on the box with every ref from SECRETS.md" });
+  steps.push({ id: "compose", phase: "services", title: "docker compose up -d — brings up the whole declared stack" });
+  steps.push({ id: "roebel-id", phase: "identity", title: "Keystone live (roebel-id.env) — the single sign-in for every service below" });
+  if (rp(m, "nextcloud")) steps.push({ id: "nextcloud-oidc", phase: "workspace", title: "Run nextcloud/setup.sh (OIDC provider + group folder per org)" });
+  if (ws?.mail) steps.push({ id: "mail-oidc", phase: "workspace", title: "Point Open-Xchange at the keystone (OIDC) + its IMAP/SMTP backend" });
+  if (ws?.wiki) steps.push({ id: "wiki-oidc", phase: "workspace", title: "Enable the XWiki OIDC provider against the keystone" });
+  if (ws?.video) steps.push({ id: "video-auth", phase: "workspace", title: "Jitsi JWT auth from the keystone session (+ prosody/jicofo/jvb, UDP 10000)" });
+  if (ws?.project) steps.push({ id: "project-oidc", phase: "workspace", title: "Enable the OpenProject OIDC provider against the keystone" });
+  if (rp(m, "matrix")) steps.push({ id: "mas-oidc", phase: "chat", title: "Apply mas/config.yaml (upstream = the keystone) and restart MAS" });
+  if (m.services.chat?.nostr) steps.push({ id: "nostr-relay", phase: "chat", title: "Nostr relay up behind Caddy, members-only writes (strfry-policy/)" });
+  if (m.ai?.selfHosted) steps.push({ id: "ai-gateway", phase: "ai", title: "AI gateway (LiteLLM) up — model routing + data-egress policy" });
+  steps.push({ id: "web-env", phase: "app", title: "Set web.env on the app host and redeploy (lights up the dashboard tiles)" });
+  steps.push({ id: "verify", phase: "verify", title: "doctor — discovery reachable, SSO round-trips, tiles light up" });
   return steps;
 }
 
@@ -352,6 +577,14 @@ export function renderBundle(m: NetizenManifest): Bundle {
   }
   if (m.services.chat?.nostr) {
     files["strfry.conf"] = renderStrfryConf(m);
+    // The members-only write policy, shipped with the node (not hand-wired).
+    files["strfry-policy/policy.awk"] = renderNostrPolicyAwk(m);
+    files["strfry-policy/write-policy.sh"] = renderNostrPolicyWrapper();
+    files["strfry-policy/members.txt"] = renderNostrMembers(m);
+    files["strfry-policy/add-member.sh"] = renderNostrAddMember();
+  }
+  if (m.ai?.selfHosted) {
+    files["ai/litellm.yaml"] = renderLiteLlmConfig(m);
   }
   if (m.services.workspace?.nextcloud) {
     files["nextcloud/setup.sh"] = renderNextcloudSetup(m);

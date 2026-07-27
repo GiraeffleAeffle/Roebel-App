@@ -26,7 +26,6 @@ const KIE_POLL = 'https://api.kie.ai/api/v1/jobs/recordInfo';
 const SEEDREAM_MODEL = 'seedream/4.5-text-to-image';
 const SEEDREAM_EDIT_MODEL = 'seedream/4.5-edit';
 const NANO_BANANA_PRO_MODEL = 'nano-banana-pro';
-const NANO_BANANA_2_LITE_MODEL = 'nano-banana-2-lite';
 const MAX_REFERENCE_IMAGES = 10;
 const BUCKET = 'images';
 const POLL_INTERVAL_MS = 2500;
@@ -48,12 +47,10 @@ function json(status: number, body: Record<string, unknown>) {
 
 type GastroKey = 'mt' | 'delizia' | 'waage' | 'generic';
 type StylePreset = 'dark_stoneware' | 'italian_gingham' | 'light_concrete' | 'wooden_board';
-type ImageModel = 'nano_banana_2_lite' | 'seedream' | 'nano_banana_pro';
-
-const DEFAULT_IMAGE_MODEL: ImageModel = 'nano_banana_2_lite';
+type ImageModel = 'seedream' | 'nano_banana_pro';
 
 function isValidModel(v: unknown): v is ImageModel {
-  return v === 'nano_banana_2_lite' || v === 'seedream' || v === 'nano_banana_pro';
+  return v === 'seedream' || v === 'nano_banana_pro';
 }
 
 function gastroFor(restaurantName: string): GastroKey {
@@ -231,7 +228,7 @@ serve(async (req: Request) => {
   if (body.model !== undefined && !isValidModel(body.model)) {
     return json(400, { ok: false, code: 'INVALID_MODEL' });
   }
-  const model: ImageModel = isValidModel(body.model) ? body.model : DEFAULT_IMAGE_MODEL;
+  const model: ImageModel = isValidModel(body.model) ? body.model : 'seedream';
   const referenceImageUrls =
     body.reference_image_urls === undefined || body.reference_image_urls === null
       ? null
@@ -305,18 +302,7 @@ serve(async (req: Request) => {
   //  - Nano Banana Pro: one model id for both modes, references via `image_input`
   //    (empty array for text-to-image), sized via `resolution`/`output_format`.
   let createBody: Record<string, unknown>;
-  if (model === 'nano_banana_2_lite') {
-    // Nano Banana 2 Lite (default): one model id for both modes, references via
-    // `image_urls` (empty array = text-to-image), fast ~1K output.
-    createBody = {
-      model: NANO_BANANA_2_LITE_MODEL,
-      input: {
-        prompt,
-        image_urls: useEdit ? referenceImageUrls : [],
-        aspect_ratio: '16:9',
-      },
-    };
-  } else if (model === 'nano_banana_pro') {
+  if (model === 'nano_banana_pro') {
     createBody = {
       model: NANO_BANANA_PRO_MODEL,
       input: {

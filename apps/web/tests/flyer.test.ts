@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { resolveStyle, FLYER_STYLES, ROEBEL_NAVY } from "../src/lib/flyer/styles";
 import { buildCopyPrompt, normalizeCopy, type FlyerCopy } from "../src/lib/flyer/copy";
-import { buildFlyerImagePrompt, buildFlyerEditPrompt } from "../src/lib/flyer/image-prompt";
+import { buildFlyerImagePrompt } from "../src/lib/flyer/image-prompt";
 
 const sampleCopy: FlyerCopy = {
   headline: "Sommerfest am See",
@@ -86,24 +86,6 @@ test("buildFlyerImagePrompt adds reference guidance only when hasReference", () 
   const withoutRef = buildFlyerImagePrompt(sampleCopy, resolveStyle("modern"));
   assert.ok(/reference image/i.test(withRef));
   assert.ok(!/reference image/i.test(withoutRef));
-});
-
-test("buildFlyerEditPrompt carries the instruction and a preserve-everything-else rule", () => {
-  const prompt = buildFlyerEditPrompt("Datum auf 19. Juli ändern");
-  assert.ok(prompt.includes("Datum auf 19. Juli ändern"));
-  assert.ok(/Keep everything else identical/i.test(prompt));
-});
-
-test("buildFlyerEditPrompt trims the instruction", () => {
-  const prompt = buildFlyerEditPrompt("  mehr Kontrast  ");
-  assert.ok(prompt.includes("Apply exactly this change: mehr Kontrast"));
-});
-
-test("buildFlyerEditPrompt never replays stored copy (a 2nd edit must not revert the 1st)", () => {
-  const prompt = buildFlyerEditPrompt("Hintergrund dunkler");
-  // The stored copy reflects the ORIGINAL text; restating it would undo prior edits.
-  assert.ok(!prompt.includes(sampleCopy.date_line));
-  assert.ok(!prompt.includes(sampleCopy.headline));
 });
 
 test("buildCopyPrompt includes enriched event facts (category, price, website, organizer)", () => {

@@ -3,7 +3,7 @@
 /**
  * Event-specific flyer generator, embedded on the event edit page. Uses ALL the
  * event's data as copy context (via draftFlyerCopyAction(eventId)) and, by
- * default, the event's own image as the image-model reference. One click can set
+ * default, the event's own image as the gpt-image-1 reference. One click can set
  * the result as the event's cover image.
  */
 
@@ -16,8 +16,7 @@ import {
   postFlyerToFeed,
 } from "@/app/actions/flyer";
 import { FLYER_STYLES } from "@/lib/flyer/styles";
-import { downloadImage, flyerFileName, printFlyer, COPY_FIELDS } from "@/lib/flyer/ui";
-import { FlyerEditControl } from "@/components/flyer/FlyerEditControl";
+import { downloadImage, slugForFile, printFlyer, COPY_FIELDS } from "@/lib/flyer/ui";
 import type { FlyerCopy } from "@/lib/flyer/copy";
 import type { Flyer } from "@/types/flyer";
 import { Button } from "@/components/ui/button";
@@ -70,46 +69,34 @@ export function EventFlyerGenerator({ accountId, eventId, eventTitle, eventImage
   const handleDraft = useCallback(async () => {
     if (!walletAddress) return;
     setDrafting(true);
-    try {
-      const res = await draftFlyerCopyAction(accountId, walletAddress, note, styleId, eventId);
-      if (!res.success || !res.copy) {
-        toast.error(res.error ?? "Text konnte nicht entworfen werden");
-        return;
-      }
-      setCopy(res.copy);
-      toast.success("Textentwurf fertig — passt ihn an und erstellt den Flyer.");
-    } catch (error) {
-      console.error("draftFlyerCopyAction threw", error);
-      toast.error("Text konnte nicht entworfen werden. Bitte erneut versuchen.");
-    } finally {
-      setDrafting(false);
+    const res = await draftFlyerCopyAction(accountId, walletAddress, note, styleId, eventId);
+    setDrafting(false);
+    if (!res.success || !res.copy) {
+      toast.error(res.error ?? "Text konnte nicht entworfen werden");
+      return;
     }
+    setCopy(res.copy);
+    toast.success("Textentwurf fertig — passt ihn an und erstellt den Flyer.");
   }, [walletAddress, accountId, note, styleId, eventId]);
 
   const handleGenerate = useCallback(async () => {
     if (!walletAddress || !copy) return;
     setGenerating(true);
-    try {
-      const res = await generateFlyerAction(accountId, walletAddress, {
-        title: copy.headline || eventTitle,
-        brief: note,
-        copy,
-        style: styleId,
-        eventId,
-        referenceUrl: useEventImage ? eventImageUrl ?? null : null,
-      });
-      if (!res.success || !res.flyer) {
-        toast.error(res.error ?? "Flyer konnte nicht erstellt werden");
-        return;
-      }
-      setPreview(res.flyer);
-      toast.success("Flyer erstellt!");
-    } catch (error) {
-      console.error("generateFlyerAction threw", error);
-      toast.error("Flyer konnte nicht erstellt werden. Bitte erneut versuchen.");
-    } finally {
-      setGenerating(false);
+    const res = await generateFlyerAction(accountId, walletAddress, {
+      title: copy.headline || eventTitle,
+      brief: note,
+      copy,
+      style: styleId,
+      eventId,
+      referenceUrl: useEventImage ? eventImageUrl ?? null : null,
+    });
+    setGenerating(false);
+    if (!res.success || !res.flyer) {
+      toast.error(res.error ?? "Flyer konnte nicht erstellt werden");
+      return;
     }
+    setPreview(res.flyer);
+    toast.success("Flyer erstellt!");
   }, [walletAddress, accountId, copy, note, styleId, eventId, useEventImage, eventImageUrl, eventTitle]);
 
   const handleSetCover = useCallback(async () => {
@@ -242,7 +229,7 @@ export function EventFlyerGenerator({ accountId, eventId, eventTitle, eventImage
                 <ImageIcon className="h-4 w-4 mr-2" /> Als Event-Bild setzen
               </Button>
               <Button
-                onClick={() => downloadImage(preview.image_url, flyerFileName(preview.title, preview.image_url))}
+                onClick={() => downloadImage(preview.image_url, `${slugForFile(preview.title)}.png`)}
                 variant="outline"
                 size="sm"
               >
@@ -254,12 +241,6 @@ export function EventFlyerGenerator({ accountId, eventId, eventTitle, eventImage
               <Button onClick={handleFeed} variant="outline" size="sm" disabled={busy}>
                 <Share2 className="h-4 w-4 mr-2" /> Im Feed teilen
               </Button>
-              <FlyerEditControl
-                accountId={accountId}
-                walletAddress={walletAddress}
-                flyer={preview}
-                onEdited={setPreview}
-              />
             </div>
           </div>
         </div>

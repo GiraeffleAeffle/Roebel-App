@@ -55,7 +55,15 @@
 
   "services": {
     "host": { "provider": "hetzner", "region": "eu-central" },
-    "workspace": { "nextcloud": "https://cloud.roebel.app", "collabora": true, "groupFolders": true },
+    "workspace": {
+      "nextcloud": "https://cloud.roebel.app",
+      "collabora": true,
+      "groupFolders": true,
+      "wiki": "https://wiki.roebel.app",
+      "video": "https://meet.roebel.app",
+      "project": "https://project.roebel.app",
+      "portal": "https://agents.roebel.app"
+    },
     "chat": {
       "matrix": { "homeserver": "https://matrix.roebel.app", "mas": "https://auth.roebel.app", "element": "https://chat.roebel.app" },
       "nostr": { "relay": "wss://relay.roebel.app", "groupsRelay": true }
