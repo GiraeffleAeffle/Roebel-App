@@ -14,6 +14,10 @@ import {
   renderMasConfig,
   renderMatrixSecretsScript,
   collectSecretRefs,
+  backupTargets,
+  renderBackupScript,
+  renderRestoreScript,
+  renderHardeningScript,
   plan,
 } from "../src/render.js";
 
@@ -88,7 +92,11 @@ test("the plan is ordered and covers every declared surface", () => {
   assert.deepEqual(ids, [
     "dns", "secrets", "compose", "identity",
     "nextcloud-oidc", "mail-oidc", "wiki-oidc", "video-auth", "project-oidc",
-    "mas-oidc", "nostr-relay", "web-env", "verify",
+    "mas-oidc", "nostr-relay", "web-env",
+    // Operations come after the services exist but before "verify" — a node is
+    // not verified until it is also survivable.
+    "backup", "backup-offsite", "backup-restore-test", "harden", "firewall",
+    "verify",
   ]);
   // the DNS step names every host the node actually needs
   // the external keystone is NOT a host that points at this box
@@ -244,4 +252,156 @@ test("the Nostr relay is rendered and wired through Caddy + compose", () => {
   assert.match(compose, /strfry:/);
   assert.match(compose, /synapse:/);
   assert.match(renderComposeYml(selfHosted), /roebel-id:/);
+});
+
+// ---------------------------------------------------------------------------
+// Operations (NSP-9). These assert the FAILURE modes, not the happy path — each
+// one below corresponds to a way a backup can look successful while being useless.
+// ---------------------------------------------------------------------------
+
+test("backup targets narrow to what the node actually runs", () => {
+  // An include list can filter, but must never invent a target the node lacks —
+  // that would render a dump step for a container that does not exist and the
+  // nightly run would report an error every night until someone muted it.
+  const noRelay = { ...roebel, services: { ...roebel.services, chat: {} } };
+  assert.deepEqual(backupTargets(roebel), ["postgres", "nextcloud", "strfry"]);
+  assert.deepEqual(backupTargets(noRelay), ["postgres", "nextcloud"]);
+  const narrowed = { ...roebel, operations: { ...roebel.operations, backup: { ...roebel.operations.backup, include: ["postgres"] } } };
+  assert.deepEqual(backupTargets(narrowed), ["postgres"]);
+});
+
+test("postgres is dumped with pg_dump, never copied as files", () => {
+  const s = renderBackupScript(roebel);
+  // A snapshot of a running Postgres is crash-consistent, not transaction-
+  // consistent — it can restore into a corrupt database.
+  assert.match(s, /pg_dump -U postgres -Fc/);
+  // Databases are enumerated live; a hardcoded list silently misses a new one.
+  assert.match(s, /select datname from pg_database where not datistemplate/);
+});
+
+test("nextcloud files+db are captured in one maintenance window, and the trap always closes it", () => {
+  const s = renderBackupScript(roebel);
+  assert.match(s, /maintenance:mode --on/);
+  // Without the trap, a backup that dies mid-run leaves the town's cloud offline
+  // until a human notices. This is the single most important line in the script.
+  assert.match(s, /trap 'maintenance_off' EXIT INT TERM/);
+  assert.match(s, /maintenance_off\(\)/);
+});
+
+test("strfry is exported, never file-copied (live LMDB can be torn)", () => {
+  const s = renderBackupScript(roebel);
+  assert.match(s, /strfry export/);
+  assert.doesNotMatch(s, /cp .*strfry-db/);
+  // The write allow-list is state too: losing it silently locks out every citizen.
+  assert.match(s, /members\.txt/);
+});
+
+test("a zero-byte artifact is an error, not a success", () => {
+  const s = renderBackupScript(roebel);
+  assert.match(s, /-gt 0 \] \|\| fail "\$1 is empty"/);
+  // status.json is written atomically so an agent never parses a half-written file.
+  assert.match(s, /mv "\$STATUS\.tmp" "\$STATUS"/);
+  assert.match(s, /"ok": \$\(\[ "\$ERRORS" -eq 0 \]/);
+});
+
+test("offsite is loud when unconfigured — silence would read as safety", () => {
+  const s = renderBackupScript(roebel);
+  assert.match(s, /BACKUP_RESTIC_REPOSITORY/);
+  assert.match(s, /OFFSITE_STATE="unconfigured"/);
+  assert.match(s, /warn "BACKUP_RESTIC_REPOSITORY/);
+  // A node that declares no offsite says so in the status, rather than omitting it.
+  const none = { ...roebel, operations: { ...roebel.operations, backup: { ...roebel.operations.backup, offsite: "none" } } };
+  assert.match(renderBackupScript(none), /OFFSITE_STATE="disabled-by-manifest"/);
+});
+
+test("restore refuses to overwrite live data without --yes", () => {
+  const s = renderRestoreScript(roebel);
+  assert.match(s, /Refusing to overwrite live data without --yes/);
+  assert.match(s, /pg_restore -U postgres --clean --if-exists/);
+  // Restoring files and db must re-enter the same maintenance window.
+  assert.match(s, /maintenance:mode --on/);
+});
+
+test("hardening refuses to lock the operator out", () => {
+  const s = renderHardeningScript(roebel);
+  // Reading the EFFECTIVE config (sshd -T), because a later Include can override
+  // whatever was just written into sshd_config.
+  assert.match(s, /sshd -T/);
+  assert.match(s, /\[ -s \/root\/\.ssh\/authorized_keys \]/);
+  assert.match(s, /REFUSED: \/root\/\.ssh\/authorized_keys is empty/);
+  assert.match(s, /fail2ban/);
+  // ufw is never trusted: Docker bypasses it.
+  assert.match(s, /does NOT protect published Docker ports/);
+});
+
+test("ops files ship in the bundle and bootstrap installs the timer", () => {
+  const { files, plan: steps } = renderBundle(roebel);
+  for (const f of ["ops/backup.sh", "ops/restore.sh", "ops/harden.sh", "ops/netizen-backup.timer", "ops/netizen-backup.service", "ops/README.md"]) {
+    assert.ok(files[f], `missing ${f}`);
+  }
+  assert.match(files["ops/netizen-backup.timer"], /OnCalendar=02:30/);
+  // If the box was off at 02:30, run at next boot rather than skipping the night.
+  assert.match(files["ops/netizen-backup.timer"], /Persistent=true/);
+  const b = renderBootstrap(roebel);
+  assert.match(b, /systemctl enable --now netizen-backup\.timer/);
+  assert.match(b, /bash ops\/harden\.sh/);
+  // The plan names the restore test explicitly — it is the step people skip.
+  assert.ok(steps.some((s) => s.id === "backup-restore-test"));
+  assert.ok(steps.some((s) => s.id === "firewall"));
+});
+
+test("a node declaring no operations renders no ops files (nothing is forced)", () => {
+  const bare = { ...roebel };
+  delete (bare as Record<string, unknown>).operations;
+  const { files } = renderBundle(bare);
+  assert.equal(files["ops/backup.sh"], undefined);
+  assert.doesNotMatch(renderBootstrap(bare), /netizen-backup\.timer/);
+});
+
+test("hardening never treats 'cannot measure' as 'already compliant'", () => {
+  const s = renderHardeningScript(roebel);
+  // REGRESSION. This shipped once and silently did nothing:
+  //   sshd -T | grep -qx "passwordauthentication yes"
+  // grep -q exits at the first match -> sshd takes SIGPIPE -> 141 -> `set -o
+  // pipefail` promotes it to the pipeline status -> the test reads "no match" ->
+  // the script printed "already off" while password auth stayed ON. Capture into
+  // a variable; never pipe a long producer into an early-exiting consumer.
+  // Comment lines are excluded — the fix is DOCUMENTED in a comment that names
+  // the very pattern it bans, so asserting over the raw text would match itself.
+  const code = s.split("\n").filter((l) => !l.trim().startsWith("#"));
+  for (const producer of ["sshd -T", "ufw status"]) {
+    const piped = code.filter((l) => l.includes(producer) && /\|\s*grep -q/.test(l));
+    assert.deepEqual(piped, [], `${producer} must not be piped into grep -q (SIGPIPE + pipefail = fail-open)`);
+  }
+  // No pipe at all: `case` globbing over a captured variable. Nothing to SIGPIPE.
+  assert.match(s, /sshd_effective="\$\(sshd -T 2>\/dev\/null\)"/);
+  assert.match(s, /case "\$sshd_effective" in/);
+  // "cannot determine" is its own branch, and it is an error.
+  assert.match(s, /refusing to claim SSH is hardened/);
+  // Applying is not the same as working: assert the end state, and exit non-zero.
+  assert.match(s, /but sshd does not report password auth off/);
+  assert.match(s, /exit "\$HARDEN_ERRORS"/);
+  assert.match(s, /ERROR: fail2ban is not active/);
+});
+
+test("a hardening failure makes `netizen up` exit non-zero", () => {
+  const b = renderBootstrap(roebel);
+  assert.match(b, /bash ops\/harden\.sh \|\| HARDEN_RC=\$\?/);
+  // Reported at the end, so the rest of the node still finishes converging.
+  assert.match(b, /exit "\$\{HARDEN_RC:-0\}"/);
+});
+
+test("strfry uses the absolute binary path and tolerates a legitimately empty relay", () => {
+  const s = renderBackupScript(roebel);
+  // The official strfry image does NOT put the binary on PATH; `strfry export`
+  // fails with "executable file not found". Found by running the real backup.
+  assert.match(s, /dc exec -T strfry \/app\/strfry export/);
+  // A members-only relay with an empty allow-list has zero events. That is a
+  // healthy state, not a backup failure — alarming on it nightly trains people
+  // to ignore the alarm that matters.
+  assert.match(s, /record_allow_empty "strfry-events\.jsonl\.gz"/);
+  assert.match(s, /"relayEvents": \$RELAY_EVENTS/);
+  // Database dumps get the strict treatment: empty is always failure.
+  assert.match(s, /record "pg-\$db\.dump"/);
+  assert.match(s, /\|\| fail "\$1 is empty"/);
 });

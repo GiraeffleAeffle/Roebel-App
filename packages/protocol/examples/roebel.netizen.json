@@ -195,6 +195,19 @@
       "nostrKey": "NIP-06 derived from the agent smart account"
     }
   },
+  "operations": {
+    "backup": {
+      "schedule": "02:30",
+      "retentionDays": 14,
+      "include": ["postgres", "nextcloud", "strfry"],
+      "offsite": "restic-sftp"
+    },
+    "hardening": {
+      "sshPasswordAuth": false,
+      "fail2ban": true
+    },
+    "agentReadableHealth": true
+  },
   "branding": {
     "primary": "#00498B",
     "logo": "/favicon.svg",

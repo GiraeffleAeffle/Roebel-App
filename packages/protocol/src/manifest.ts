@@ -200,6 +200,50 @@ const Agents = z.object({
     .optional(),
 });
 
+/**
+ * NSP-9 — node operations: durability and host hardening.
+ *
+ * Sovereignty means owning the infrastructure AND the responsibility. A managed
+ * SaaS quietly does this work for you; a sovereign node does not. **A node you
+ * cannot restore from is less sovereign than the SaaS it replaced**, so this
+ * block is declarative like everything else — node #2 inherits the durability,
+ * it does not repeat the mistake.
+ */
+const Operations = z.object({
+  backup: z
+    .object({
+      /** systemd OnCalendar expression. "02:30" = nightly at 02:30 local. */
+      schedule: z.string().default("02:30"),
+      /** Local dumps older than this are pruned. Offsite retention is restic's. */
+      retentionDays: z.number().int().positive().default(14),
+      /**
+       * What to dump. Postgres is transaction-consistent (`pg_dump -Fc`);
+       * Nextcloud's data dir is captured under maintenance mode so files and DB
+       * agree; strfry is exported as JSONL because copying a live LMDB is not safe.
+       */
+      include: z.array(z.enum(["postgres", "nextcloud", "strfry"])).optional(),
+      /**
+       * Off-box destination. A snapshot on the same provider is NOT a backup
+       * strategy — it dies with the account. `restic-sftp` targets e.g. a Hetzner
+       * Storage Box; credentials come from .env, never from this manifest.
+       */
+      offsite: z.enum(["restic-sftp", "restic-s3", "none"]).default("none"),
+    })
+    .optional(),
+  hardening: z
+    .object({
+      /** false ⇒ installer sets `PasswordAuthentication no` (keys only). */
+      sshPasswordAuth: z.boolean().optional(),
+      fail2ban: z.boolean().optional(),
+    })
+    .optional(),
+  /**
+   * Emit machine-readable health at a stable path so an AI agent can read node
+   * state as data instead of scraping human prose. See `ops/status.json`.
+   */
+  agentReadableHealth: z.boolean().optional(),
+});
+
 export const NetizenManifestSchema = z.object({
   nsp: z.literal("0"),
   manifestVersion: z.string().regex(/^\d+\.\d+\.\d+$/, "expected semver"),
@@ -233,6 +277,7 @@ export const NetizenManifestSchema = z.object({
   services: Services,
   ai: Ai.optional(),
   agents: Agents.optional(),
+  operations: Operations.optional(),
 
   branding: z
     .object({

@@ -675,6 +675,501 @@ EOSQL
 `;
 }
 
+// ---------------------------------------------------------------------------
+// Operations (NSP-9): durability + hardening. A node you cannot restore from is
+// less sovereign than the SaaS it replaced.
+// ---------------------------------------------------------------------------
+
+/** What this node actually has worth backing up, given what it declares. */
+export function backupTargets(m: NetizenManifest): Array<"postgres" | "nextcloud" | "strfry"> {
+  const declared = m.operations?.backup?.include;
+  const available: Array<"postgres" | "nextcloud" | "strfry"> = [];
+  if (composeNeedsPostgres(m)) available.push("postgres");
+  if (m.services.workspace?.nextcloud) available.push("nextcloud");
+  if (m.services.chat?.nostr) available.push("strfry");
+  // An explicit include list narrows, but can never name a target the node does
+  // not run — that would produce a backup that silently skips.
+  return declared ? available.filter((t) => declared.includes(t)) : available;
+}
+
+/**
+ * Nightly backup. Correctness notes, each learned from a real failure mode:
+ *
+ * - **Postgres** goes through `pg_dump -Fc`, not a file copy. A snapshot of a
+ *   running Postgres is crash-consistent, not transaction-consistent — it can
+ *   restore into a corrupt database.
+ * - **Nextcloud** files and its database must agree, so both are captured inside
+ *   ONE maintenance-mode window. The `trap` is not decoration: without it a
+ *   failed backup leaves the town's cloud offline until a human notices.
+ * - **strfry** is LMDB. Copying a live LMDB file can capture a torn write, so we
+ *   use strfry's own exporter (JSONL), which is consistent by construction.
+ * - Every run writes `ops/status.json` — see `renderBackupStatusContract`.
+ */
+export function renderBackupScript(m: NetizenManifest): string {
+  const targets = backupTargets(m);
+  const retention = m.operations?.backup?.retentionDays ?? 14;
+  const offsite = m.operations?.backup?.offsite ?? "none";
+
+  const pg = targets.includes("postgres")
+    ? `
+# --- Postgres: every non-template database, custom format (pg_restore-able).
+# Enumerated live rather than hardcoded, so a database added later is not silently missed.
+for db in $(dc exec -T postgres psql -U postgres -Atc \\
+      "select datname from pg_database where not datistemplate and datname <> 'postgres'" \\
+      | tr -d '\\r'); do
+  step "postgres/$db"
+  if dc exec -T postgres pg_dump -U postgres -Fc "$db" > "$DEST/pg-$db.dump"; then
+    record "pg-$db.dump"
+  else
+    fail "pg_dump $db"
+  fi
+done`
+    : "";
+
+  const ncOn = targets.includes("nextcloud")
+    ? `
+# --- Nextcloud: files + database must agree, so both happen inside ONE
+# maintenance window. The trap guarantees the window closes even if we die.
+step "nextcloud/maintenance-on"
+occ() { dc exec -T -u www-data nextcloud php occ "$@"; }
+maintenance_off() { occ maintenance:mode --off >/dev/null 2>&1 || true; }
+trap 'maintenance_off' EXIT INT TERM
+occ maintenance:mode --on >/dev/null || fail "could not enter maintenance mode"
+
+step "nextcloud/data"
+if dc exec -T nextcloud tar -C /var/www/html -cf - data 2>/dev/null | gzip > "$DEST/nextcloud-data.tar.gz"; then
+  record "nextcloud-data.tar.gz"
+else
+  fail "nextcloud data tar"
+fi`
+    : "";
+
+  const ncOff = targets.includes("nextcloud")
+    ? `
+step "nextcloud/maintenance-off"
+maintenance_off
+trap - EXIT INT TERM`
+    : "";
+
+  const strfry = targets.includes("strfry")
+    ? `
+# --- strfry: export events as JSONL. Never copy a live LMDB file — a live LMDB
+# can be captured mid-write. The binary is at /app/strfry and is NOT on PATH in
+# the official image, so it must be called by absolute path.
+step "strfry/export"
+if dc exec -T strfry /app/strfry export > "$DEST/strfry-events.jsonl" 2>/dev/null; then
+  RELAY_EVENTS=$(wc -l < "$DEST/strfry-events.jsonl" | tr -d ' ')
+  gzip -f "$DEST/strfry-events.jsonl"
+  # A relay with no events is normal (members-only writes, empty allow-list), so
+  # this artifact may legitimately be empty — unlike a database dump, where empty
+  # always means failure. Alarming nightly on a healthy state is how real alarms
+  # get ignored, so record the count instead of raising an error.
+  record_allow_empty "strfry-events.jsonl.gz"
+else
+  fail "strfry export"
+fi
+
+# The relay write allow-list is state too — small, and losing it silently
+# un-gates or locks out every citizen.
+[ -f strfry-policy/members.txt ] && cp strfry-policy/members.txt "$DEST/" && record "members.txt"`
+    : "";
+
+  const offsitePush =
+    offsite === "none"
+      ? `
+# --- Off-box: NOT configured in the manifest (operations.backup.offsite: "none").
+# A backup that lives only on the machine it protects is not a backup.
+OFFSITE_STATE="disabled-by-manifest"`
+      : `
+# --- Off-box push. A snapshot on the same provider dies with the account, so the
+# only backup that counts is the one on different hardware. Activates the moment
+# the two refs below exist in .env — until then it says so, loudly, in status.json.
+if [ -n "\${BACKUP_RESTIC_REPOSITORY:-}" ] && [ -n "\${BACKUP_RESTIC_PASSWORD:-}" ]; then
+  step "offsite/restic"
+  export RESTIC_REPOSITORY="$BACKUP_RESTIC_REPOSITORY"
+  export RESTIC_PASSWORD="$BACKUP_RESTIC_PASSWORD"
+  command -v restic >/dev/null 2>&1 || apt-get -y install restic >/dev/null 2>&1 || true
+  restic snapshots >/dev/null 2>&1 || restic init >/dev/null 2>&1 || true
+  if restic backup --tag "${m.id}" "$DEST" >/dev/null 2>&1 \\
+     && restic forget --keep-daily ${retention} --keep-weekly 8 --prune >/dev/null 2>&1; then
+    OFFSITE_STATE="ok"
+  else
+    OFFSITE_STATE="failed"; fail "restic push"
+  fi
+else
+  OFFSITE_STATE="unconfigured"
+  warn "BACKUP_RESTIC_REPOSITORY / BACKUP_RESTIC_PASSWORD unset — dumps are ON THIS BOX ONLY."
+fi`;
+
+  return `#!/usr/bin/env bash
+# Generated by \`netizen render\` — nightly backup for node "${m.id}".
+# Idempotent, safe to run by hand: bash ops/backup.sh
+#
+# Restore with ops/restore.sh. An untested backup is a belief, not a backup.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+[ -f .env ] && { set -a; . ./.env; set +a; }
+
+ROOT="\${BACKUP_ROOT:-/var/backups/netizen}"
+STAMP="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
+DEST="$ROOT/$STAMP"
+STATUS="$(pwd)/ops/status.json"
+STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+T0=$SECONDS
+ERRORS=0
+ARTIFACTS=""
+OFFSITE_STATE="unconfigured"
+RELAY_EVENTS=0
+
+mkdir -p "$DEST"
+chmod 700 "$ROOT" "$DEST"
+
+dc() { docker compose "$@"; }
+step() { echo "[backup] $1"; }
+warn() { echo "[backup] WARN: $1" >&2; }
+fail() { echo "[backup] ERROR: $1" >&2; ERRORS=$((ERRORS + 1)); }
+_add_artifact() {
+  local b; b=$(stat -c%s "$DEST/$1" 2>/dev/null || echo 0)
+  ARTIFACTS="$ARTIFACTS{\\"name\\":\\"$1\\",\\"bytes\\":$b},"
+}
+record() {
+  _add_artifact "$1"
+  # A zero-byte dump is a failure wearing a success costume: the run "completed",
+  # the file exists, and there is nothing in it to restore from.
+  [ "$(stat -c%s "$DEST/$1" 2>/dev/null || echo 0)" -gt 0 ] || fail "$1 is empty"
+}
+# For artifacts where empty is a legitimate state, not a failure.
+record_allow_empty() { _add_artifact "$1"; }
+${pg}
+${ncOn}
+${strfry}
+${ncOff}
+${offsitePush}
+
+# --- Retention. Local dumps only; offsite retention is restic's own policy.
+step "prune/local (keep ${retention}d)"
+find "$ROOT" -mindepth 1 -maxdepth 1 -type d -mtime +${retention} -exec rm -rf {} + 2>/dev/null || true
+
+# --- Machine-readable result. Written LAST and atomically, so a reader never
+# sees a half-written file and an agent can trust what it parses.
+TOTAL=$(du -sb "$DEST" 2>/dev/null | cut -f1 || echo 0)
+mkdir -p "$(dirname "$STATUS")"
+cat > "$STATUS.tmp" <<JSON
+{
+  "node": "${m.id}",
+  "kind": "backup",
+  "startedAt": "$STARTED",
+  "finishedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "durationSeconds": $((SECONDS - T0)),
+  "ok": $([ "$ERRORS" -eq 0 ] && echo true || echo false),
+  "errors": $ERRORS,
+  "destination": "$DEST",
+  "totalBytes": \${TOTAL:-0},
+  "offsite": "$OFFSITE_STATE",
+  "retentionDays": ${retention},${targets.includes("strfry") ? '\n  "relayEvents": $RELAY_EVENTS,' : ""}
+  "artifacts": [\${ARTIFACTS%,}]
+}
+JSON
+mv "$STATUS.tmp" "$STATUS"
+
+if [ "$ERRORS" -eq 0 ]; then
+  echo "[backup] ok — $DEST (offsite: $OFFSITE_STATE)"
+else
+  echo "[backup] FAILED with $ERRORS error(s) — see $STATUS" >&2
+fi
+exit "$ERRORS"
+`;
+}
+
+/**
+ * Restore. Deliberately blunt and deliberately manual: it overwrites live data,
+ * so it refuses to run without --yes and always names what it is about to touch.
+ */
+export function renderRestoreScript(m: NetizenManifest): string {
+  const targets = backupTargets(m);
+  return `#!/usr/bin/env bash
+# Generated by \`netizen render\` — restore node "${m.id}" from a backup directory.
+#
+#   bash ops/restore.sh <backup-dir> --yes            # everything in that dir
+#   bash ops/restore.sh <backup-dir> --yes --only pg-nextcloud.dump
+#
+# DESTRUCTIVE: overwrites the live database and/or files. There is no undo.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+[ -f .env ] && { set -a; . ./.env; set +a; }
+
+SRC="\${1:-}"
+shift || true
+ONLY=""
+CONFIRM=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --yes) CONFIRM=1 ;;
+    --only) ONLY="\${2:-}"; shift ;;
+  esac
+  shift
+done
+
+[ -d "$SRC" ] || { echo "usage: restore.sh <backup-dir> --yes [--only FILE]" >&2; exit 2; }
+echo "About to restore node \\"${m.id}\\" from: $SRC"
+ls -la "$SRC"
+[ -n "$CONFIRM" ] || { echo; echo "Refusing to overwrite live data without --yes." >&2; exit 2; }
+
+dc() { docker compose "$@"; }
+want() { [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; }
+${
+  targets.includes("nextcloud")
+    ? `
+# Files and database must be restored inside one maintenance window, for the same
+# reason they are captured inside one.
+if ls "$SRC"/nextcloud-data.tar.gz "$SRC"/pg-nextcloud.dump >/dev/null 2>&1; then
+  dc exec -T -u www-data nextcloud php occ maintenance:mode --on >/dev/null || true
+  trap 'dc exec -T -u www-data nextcloud php occ maintenance:mode --off >/dev/null 2>&1 || true' EXIT
+fi
+`
+    : ""
+}
+for dump in "$SRC"/pg-*.dump; do
+  [ -e "$dump" ] || continue
+  base="$(basename "$dump")"
+  want "$base" || continue
+  db="\${base#pg-}"; db="\${db%.dump}"
+  echo "[restore] postgres/$db"
+  # --clean --if-exists makes this repeatable; a half-restored database is worse
+  # than a missing one.
+  dc exec -T postgres pg_restore -U postgres --clean --if-exists -d "$db" < "$dump" \\
+    || echo "[restore] pg_restore reported non-fatal errors for $db (usual for --clean on a fresh db)" >&2
+done
+${
+  targets.includes("nextcloud")
+    ? `
+if [ -f "$SRC/nextcloud-data.tar.gz" ] && want "nextcloud-data.tar.gz"; then
+  echo "[restore] nextcloud/data"
+  gunzip -c "$SRC/nextcloud-data.tar.gz" | dc exec -T nextcloud tar -C /var/www/html -xf -
+  dc exec -T -u www-data nextcloud php occ maintenance:repair >/dev/null 2>&1 || true
+  dc exec -T -u www-data nextcloud php occ files:scan --all >/dev/null 2>&1 || true
+fi
+
+dc exec -T -u www-data nextcloud php occ maintenance:mode --off >/dev/null 2>&1 || true
+trap - EXIT
+`
+    : ""
+}${
+  targets.includes("strfry")
+    ? `
+if [ -f "$SRC/strfry-events.jsonl.gz" ] && want "strfry-events.jsonl.gz"; then
+  echo "[restore] strfry/import"
+  gunzip -c "$SRC/strfry-events.jsonl.gz" | dc exec -T strfry strfry import
+fi
+[ -f "$SRC/members.txt" ] && want "members.txt" && cp "$SRC/members.txt" strfry-policy/members.txt
+`
+    : ""
+}
+echo "[restore] done. Verify before trusting it: docker compose ps && curl -sf localhost"
+`;
+}
+
+/** systemd units — chosen over cron: real status, journald logs, and a recorded last-run. */
+export function renderBackupUnits(m: NetizenManifest): { service: string; timer: string } {
+  const schedule = m.operations?.backup?.schedule ?? "02:30";
+  return {
+    service: `[Unit]
+Description=Netizen node "${m.id}" — nightly backup
+Documentation=file:///opt/netizen/${m.id}/ops/README.md
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/netizen/${m.id}
+ExecStart=/usr/bin/env bash /opt/netizen/${m.id}/ops/backup.sh
+# A backup that hangs is a backup that never runs again.
+TimeoutStartSec=3600
+`,
+    timer: `[Unit]
+Description=Netizen node "${m.id}" — nightly backup timer
+
+[Timer]
+OnCalendar=${schedule}
+# Spread load and avoid every node in a fleet hitting its Storage Box at once.
+RandomizedDelaySec=900
+# If the box was off at 02:30, run at next boot rather than skipping the night.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+`,
+  };
+}
+
+/**
+ * Host hardening. Only the items that are safe to automate: SSH policy and
+ * fail2ban. The firewall is deliberately NOT here — see ops/README.md: Docker
+ * writes its own iptables rules and bypasses ufw, so the only firewall that
+ * works sits OUTSIDE the box (Hetzner Cloud Firewall) and cannot be rendered.
+ */
+export function renderHardeningScript(m: NetizenManifest): string {
+  const h = m.operations?.hardening ?? {};
+  const ssh =
+    h.sshPasswordAuth === false
+      ? `
+# --- SSH: keys only.
+#
+# Read the EFFECTIVE config (sshd -T), not sshd_config: a later Include can
+# override whatever you just wrote, so grepping the file proves nothing.
+#
+# Captured into a variable rather than piped into grep. With \`set -o pipefail\`,
+# \`sshd -T | grep -q\` is a NON-DETERMINISTIC FAIL-OPEN: grep -q exits at the
+# first match, sshd takes SIGPIPE and returns 141, pipefail promotes that to the
+# pipeline status, the test reads as "no match" and the script reports
+# "already off" while changing nothing. That exact bug shipped once and was only
+# caught by checking the box afterwards. A security check that cannot measure
+# must SAY SO, never assume it is already compliant.
+step "ssh/password-auth-off"
+sshd_effective="$(sshd -T 2>/dev/null)" || sshd_effective=""
+# \`case\` glob, not \`grep\` — no pipe at all, so there is nothing to SIGPIPE.
+# All three states are handled EXPLICITLY, including "could not determine",
+# which is an error rather than a silent pass.
+case "$sshd_effective" in
+  *"passwordauthentication yes"*)
+    # Refuse to lock ourselves out: only proceed if a key is actually installed.
+    if [ -s /root/.ssh/authorized_keys ]; then
+      f=/etc/ssh/sshd_config.d/60-netizen-hardening.conf
+      mkdir -p /etc/ssh/sshd_config.d
+      printf 'PasswordAuthentication no\\nKbdInteractiveAuthentication no\\n' > "$f"
+      chmod 644 "$f"
+      if sshd -t 2>/dev/null; then
+        systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+        # Verify the change actually took. Applying is not the same as working.
+        sshd_after="$(sshd -T 2>/dev/null)" || sshd_after=""
+        case "$sshd_after" in
+          *"passwordauthentication no"*) echo "[harden] SSH password auth disabled (verified)" ;;
+          *)
+            echo "[harden] ERROR: wrote $f but sshd does not report password auth off" >&2
+            HARDEN_ERRORS=$((HARDEN_ERRORS + 1)) ;;
+        esac
+      else
+        rm -f "$f"
+        echo "[harden] ERROR: sshd config test failed — reverted, sshd untouched" >&2
+        HARDEN_ERRORS=$((HARDEN_ERRORS + 1))
+      fi
+    else
+      echo "[harden] REFUSED: /root/.ssh/authorized_keys is empty — disabling passwords would lock you out" >&2
+      HARDEN_ERRORS=$((HARDEN_ERRORS + 1))
+    fi ;;
+  *"passwordauthentication no"*)
+    echo "[harden] SSH password auth already off (verified)" ;;
+  *)
+    echo "[harden] ERROR: cannot read effective sshd config — refusing to claim SSH is hardened" >&2
+    HARDEN_ERRORS=$((HARDEN_ERRORS + 1)) ;;
+esac`
+      : "";
+  const f2b = h.fail2ban
+    ? `
+step "fail2ban"
+if ! systemctl is-active --quiet fail2ban; then
+  DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
+  DEBIAN_FRONTEND=noninteractive apt-get -y install fail2ban >/dev/null 2>&1 || true
+  systemctl enable --now fail2ban >/dev/null 2>&1 || true
+fi
+# Assert the end state rather than assuming the install worked.
+if systemctl is-active --quiet fail2ban; then
+  echo "[harden] fail2ban: active"
+else
+  echo "[harden] ERROR: fail2ban is not active" >&2
+  HARDEN_ERRORS=$((HARDEN_ERRORS + 1))
+fi`
+    : "";
+  return `#!/usr/bin/env bash
+# Generated by \`netizen render\` — host hardening for node "${m.id}". Idempotent.
+set -uo pipefail
+HARDEN_ERRORS=0
+step() { echo "[harden] $1"; }
+${ssh}
+${f2b}
+
+# --- Firewall: intentionally not automated here.
+# Docker writes its own iptables rules and BYPASSES ufw — a published container
+# port stays reachable even when \`ufw status\` says "deny". Use the Hetzner Cloud
+# Firewall (outside the host, unbypassable): allow 22, 80, 443 only.
+# (Captured, not piped — same pipefail/SIGPIPE trap as the sshd check above.)
+ufw_state="$(ufw status 2>/dev/null)" || ufw_state=""
+case "$ufw_state" in
+  *"Status: active"*)
+    echo "[harden] NOTE: ufw is active but does NOT protect published Docker ports. Use a cloud firewall." >&2 ;;
+esac
+
+if [ "$HARDEN_ERRORS" -eq 0 ]; then
+  echo "[harden] done — all checks verified"
+else
+  echo "[harden] done with $HARDEN_ERRORS problem(s) — the node is NOT hardened as declared" >&2
+fi
+exit "$HARDEN_ERRORS"
+`;
+}
+
+/**
+ * The contract an AI agent reads. Kept next to the data it describes so the
+ * schema and the producer cannot drift apart.
+ */
+export function renderOpsReadme(m: NetizenManifest): string {
+  const targets = backupTargets(m);
+  const schedule = m.operations?.backup?.schedule ?? "02:30";
+  return `# Operations — node "${m.id}"
+
+Generated by \`netizen render\`. **Do not hand-patch these on the box** — change the
+manifest and re-run \`netizen up\`, or the next render silently reverts you.
+
+## Backup
+
+Nightly at \`${schedule}\` via \`netizen-backup.timer\`. Targets: ${targets.join(", ") || "none"}.
+
+    systemctl list-timers netizen-backup.timer   # when it next runs
+    journalctl -u netizen-backup.service -n 50   # what happened last night
+    bash ops/backup.sh                           # run one now
+
+**Restore — test it before you need it:**
+
+    bash ops/restore.sh /var/backups/netizen/<stamp> --yes
+
+An untested backup is a belief, not a backup.
+
+### Off-box
+
+Local dumps protect against *corruption*, not against *losing the box*. Off-box push
+activates the moment these two land in \`.env\`:
+
+    BACKUP_RESTIC_REPOSITORY=sftp:uXXXXXX@uXXXXXX.your-storagebox.de:/backups/${m.id}
+    BACKUP_RESTIC_PASSWORD=<long random string — LOSE THIS AND THE BACKUPS ARE UNREADABLE>
+
+Until then \`ops/status.json\` reports \`"offsite": "unconfigured"\` and the nightly run
+warns. That is deliberate: silence would read as safety.
+
+## Health as data (for AI agents)
+
+\`ops/status.json\` is the machine-readable result of the last backup — agents read
+node state as **data**, never by scraping human prose:
+
+    { "node": "${m.id}", "kind": "backup", "ok": true, "errors": 0,
+      "finishedAt": "...", "durationSeconds": 12, "totalBytes": 145000000,
+      "offsite": "unconfigured", "retentionDays": ${m.operations?.backup?.retentionDays ?? 14},
+      "artifacts": [ { "name": "pg-nextcloud.dump", "bytes": 17000000 } ] }
+
+Stable guarantees an agent may rely on: written **atomically** (never half-read),
+\`ok\` is false whenever \`errors > 0\`, and a **zero-byte artifact counts as an
+error** — a failed dump must never look like a successful one.
+
+\`netizen doctor --json\` emits the same shape for the whole node, so an agent can
+diff intent (manifest) against reality (box) without a human in the loop.
+
+## Firewall — the one thing not automated
+
+Docker writes its own iptables rules and **bypasses \`ufw\`**. A published port stays
+reachable even when \`ufw\` says "deny". Use the **Hetzner Cloud Firewall** (outside
+the host): allow **22, 80, 443** only.
+`;
+}
+
 /** LiteLLM gateway config — model routing + the node's data-egress posture. */
 export function renderLiteLlmConfig(m: NetizenManifest): string {
   const models = Object.entries(m.ai?.models ?? {})
@@ -734,6 +1229,33 @@ if docker compose ps --services 2>/dev/null | grep -qx nextcloud; then
     || echo "note: re-run once Nextcloud finished its first-run install"
 fi`
     : "";
+  // Durability + hardening. Installed here rather than hand-run, so node #2
+  // inherits them instead of repeating node #1's gap.
+  const ops = [
+    m.operations?.backup
+      ? `
+# 5. Backups. Install the systemd timer (idempotent) — chosen over cron because
+# it records a real last-run status the operator (and an agent) can read back.
+chmod +x ops/backup.sh ops/restore.sh
+install -m 644 ops/netizen-backup.service /etc/systemd/system/netizen-backup.service
+install -m 644 ops/netizen-backup.timer   /etc/systemd/system/netizen-backup.timer
+systemctl daemon-reload
+systemctl enable --now netizen-backup.timer
+echo "backup timer: $(systemctl is-active netizen-backup.timer) — next: $(systemctl show -p NextElapseUSecRealtime --value netizen-backup.timer)"`
+      : "",
+    m.operations?.hardening
+      ? `
+# 6. Host hardening (SSH policy, fail2ban). Idempotent; refuses to lock you out.
+# Its exit status is carried to the END of bootstrap rather than aborting here:
+# the rest of the node is already up, and a hardening problem must be reported
+# loudly (non-zero \`netizen up\`) instead of silently swallowed.
+chmod +x ops/harden.sh
+HARDEN_RC=0
+bash ops/harden.sh || HARDEN_RC=$?`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
   return `#!/usr/bin/env bash
 # Generated by \`netizen render\` — idempotent apply for node "${m.id}". Run ON the box (Ubuntu, sudo).
 # Safe to re-run: docker compose converges; every step is create-if-absent.
@@ -784,8 +1306,9 @@ docker compose up -d
 docker compose restart caddy 2>/dev/null || true
 
 ${nc}
-
+${ops}
 echo "Applied node \\"${m.id}\\". Verify: docker compose ps"
+${m.operations?.hardening ? 'exit "${HARDEN_RC:-0}"' : ""}
 `;
 }
 
@@ -836,6 +1359,13 @@ export function plan(m: NetizenManifest): Step[] {
   if (m.services.chat?.nostr) steps.push({ id: "nostr-relay", phase: "chat", title: "Nostr relay up behind Caddy, members-only writes (strfry-policy/)" });
   if (m.ai?.selfHosted) steps.push({ id: "ai-gateway", phase: "ai", title: "AI gateway (LiteLLM) up — model routing + data-egress policy" });
   steps.push({ id: "web-env", phase: "app", title: "Set web.env on the app host and redeploy (lights up the dashboard tiles)" });
+  if (m.operations?.backup) {
+    steps.push({ id: "backup", phase: "operations", title: `Enable netizen-backup.timer (${m.operations.backup.schedule ?? "02:30"} nightly)` });
+    steps.push({ id: "backup-offsite", phase: "operations", title: "Set BACKUP_RESTIC_REPOSITORY + BACKUP_RESTIC_PASSWORD in .env — until then dumps never leave the box" });
+    steps.push({ id: "backup-restore-test", phase: "operations", title: "TEST A RESTORE (ops/restore.sh). An untested backup is a belief, not a backup" });
+  }
+  if (m.operations?.hardening) steps.push({ id: "harden", phase: "operations", title: "Run ops/harden.sh (SSH keys-only, fail2ban)" });
+  steps.push({ id: "firewall", phase: "operations", title: "Hetzner Cloud Firewall: allow 22/80/443 only — ufw cannot protect Docker-published ports" });
   steps.push({ id: "verify", phase: "verify", title: "doctor — discovery reachable, SSO round-trips, tiles light up" });
   return steps;
 }
@@ -882,6 +1412,17 @@ export function renderBundle(m: NetizenManifest): Bundle {
   }
   if (m.services.workspace?.nextcloud) {
     files["nextcloud/setup.sh"] = renderNextcloudSetup(m);
+  }
+  if (m.operations?.backup) {
+    const units = renderBackupUnits(m);
+    files["ops/backup.sh"] = renderBackupScript(m);
+    files["ops/restore.sh"] = renderRestoreScript(m);
+    files["ops/netizen-backup.service"] = units.service;
+    files["ops/netizen-backup.timer"] = units.timer;
+    files["ops/README.md"] = renderOpsReadme(m);
+  }
+  if (m.operations?.hardening) {
+    files["ops/harden.sh"] = renderHardeningScript(m);
   }
   return { files, plan: plan(m), secretRefs: collectSecretRefs(m) };
 }
