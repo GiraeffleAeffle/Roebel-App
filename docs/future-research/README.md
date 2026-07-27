@@ -18,6 +18,7 @@
 | [`PRODUCT_B_MARKET_SCAN.md`](PRODUCT_B_MARKET_SCAN.md) | Treasury/Identity/Agentic-Commerce market + competitive landscape | Partial — focused pass, cited |
 | [`2026-07-22_NETIZEN_SOVEREIGN_STACK_RESEARCH.md`](2026-07-22_NETIZEN_SOVEREIGN_STACK_RESEARCH.md) | **Verified research report**: vendor-independence per layer (thirdweb replacement, Safe/Zodiac, EURe, Semaphore/MACI, sovereign AI, Ocean/C2D) — 93 adversarially verified claims + refuted-claims ledger | Current — verified 2026-07-21/22 |
 | [`2026-07-22_NETIZEN_BUSINESS_PLAN.md`](2026-07-22_NETIZEN_BUSINESS_PLAN.md) | **Business plan v0.1**: mission, products (Cloud / Fiscal Constitution / verified-member governance / sovereign AI / services), local→global ladder, roadmap + unit economics + kill conditions | Draft — pending review |
+| [`2026-07-27_SOVEREIGN_CLIENT_RESEARCH.md`](2026-07-27_SOVEREIGN_CLIENT_RESEARCH.md) | **Sovereign client decision**: browser vs extension vs identity wallet. Verdict = build the identity/attestation wallet, ship a thin extension as a falsifiable distribution probe, do **not** fork Chromium. Includes the Chromium-fork cost evidence, the "AI does not lower the fork floor" finding, the ENS/ICANN structural blocker, MV3 limits + the new `protocol_handlers` key, and the EUDI/EBW interop path | Current — researched 2026-07-27 |
 
 **Interactive artifacts (private, on claude.ai):**
 - Field study (v0.2, 🌱): https://claude.ai/code/artifact/d95a5973-09f1-4fd3-a2f9-ee57aa6e9363
