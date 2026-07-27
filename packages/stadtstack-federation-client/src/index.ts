@@ -5,5 +5,7 @@ export * from "./activityJournalRuntimeProjectionContracts";
 export * from "./client";
 export * from "./contracts";
 export * from "./demo";
+export * from "./syntheticLifecycleReceipt";
+export * from "./syntheticLifecycleReceiptContracts";
 export * from "./topicContext";
 export * from "./topicContextContracts";

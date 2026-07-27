@@ -4,11 +4,13 @@ import {
   loadRoebelActivityJournalRuntimeProjection,
   loadRoebelDepartmentDemo,
   loadRoebelMarienfelderTopicContext,
+  loadRoebelSyntheticLifecycleReceipt,
   loadReviewedCivicCases,
   type CivicActivityJournalCapabilitiesV1,
   type CivicActivityJournalEventListV1,
   type CivicTopicContextV1,
   type RoebelActivityJournalRuntimeProjectionV1,
+  type RoebelPublicSyntheticLifecycleReceiptV1,
   type ReviewedCivicCase,
   type RoebelDepartmentConnectionDemoV1,
 } from "@roebel/stadtstack-federation-client";
@@ -26,6 +28,7 @@ import {
   ROEBEL_MARIENFELDER_DEMO_TOPIC_BINDING,
   topicBindingMatchesCase,
   topicContextMatchesBinding,
+  syntheticLifecycleReceiptMatchesTopic,
   type CivicTopicBindingV1,
 } from "../lib/municipalTopicBinding";
 import {
@@ -302,6 +305,11 @@ export function MunicipalDemoTopicView({
       ) : state.status === "ready" ? (
         <>
           <TopicBoundarySummary context={state.context} />
+          <SyntheticLifecycleReceipt
+            baseUrl={baseUrl}
+            binding={binding}
+            context={state.context}
+          />
           <DepartmentWalkthrough baseUrl={baseUrl} binding={binding} />
           <ActivityJournalWalkthrough baseUrl={baseUrl} binding={binding} />
           <ActivityJournalRuntimeReceipt
@@ -358,6 +366,165 @@ function TopicBoundarySummary({
         Governance-Eintrag. Eine solche Verbindung braucht später ein explizit
         geprüftes Zuordnungsartefakt.
       </p>
+    </Card>
+  );
+}
+
+type SyntheticLifecycleReceiptState =
+  | { status: "loading" }
+  | {
+      status: "ready";
+      receipt: RoebelPublicSyntheticLifecycleReceiptV1;
+    }
+  | { status: "unavailable" };
+
+const syntheticLifecycleStatusLabel: Record<
+  RoebelPublicSyntheticLifecycleReceiptV1["stages"][number]["status"],
+  string
+> = {
+  captured_unreviewed: "erfasst · ungeprüft",
+  partial_unreviewed: "teilweise · ungeprüft",
+  awaiting_input: "wartet auf Mandat",
+  not_started: "nicht begonnen",
+};
+
+function SyntheticLifecycleReceipt({
+  baseUrl,
+  binding,
+  context,
+}: {
+  baseUrl: string;
+  binding: CivicTopicBindingV1;
+  context: CivicTopicContextV1;
+}) {
+  const [state, setState] = useState<SyntheticLifecycleReceiptState>({
+    status: "loading",
+  });
+
+  useEffect(() => {
+    let active = true;
+    void loadRoebelSyntheticLifecycleReceipt({ baseUrl })
+      .then((receipt) => {
+        if (!active) return;
+        setState(
+          syntheticLifecycleReceiptMatchesTopic(binding, context, receipt)
+            ? { status: "ready", receipt }
+            : { status: "unavailable" }
+        );
+      })
+      .catch(() => {
+        if (active) setState({ status: "unavailable" });
+      });
+    return () => {
+      active = false;
+    };
+  }, [baseUrl, binding, context]);
+
+  if (state.status === "loading") {
+    return <Skeleton className="h-[220px]" />;
+  }
+  if (state.status === "unavailable") {
+    return (
+      <Card className="border-dashed border-amber-300/70 bg-amber-50/35 p-4 shadow-none">
+        <p className="text-[13px] font-semibold text-foreground">
+          Lebenszyklus-Quittung nicht sicher verfügbar
+        </p>
+        <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+          Inhalt, Prüfsumme oder Themenbindung passen nicht exakt zur
+          wirkungsfreien R4-Demo. Es wird kein Ersatzablauf angezeigt.
+        </p>
+      </Card>
+    );
+  }
+
+  const { receipt } = state;
+  const waitingCount = receipt.stages.filter(
+    (stage) => stage.status === "awaiting_input"
+  ).length;
+  const notStartedCount = receipt.stages.filter(
+    (stage) => stage.status === "not_started"
+  ).length;
+
+  return (
+    <Card className="overflow-hidden border-[#00498B]/25 bg-card shadow-sm">
+      <div className="border-b border-[#00498B]/15 bg-[#00498B]/[0.035] p-4">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Pill tone="primary">12-stufiger Ablauf</Pill>
+          <Pill>synthetische R4-Quittung</Pill>
+          <Pill>keine Wirkung</Pill>
+        </div>
+        <h4 className="mt-2 text-[15px] font-semibold text-foreground">
+          Vom Thema bis zur Wirkungsrückmeldung
+        </h4>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+          Diese auf Talos bereitgestellte Demo verbindet den gesamten
+          Informationsweg. Sie zeigt das Modell — nicht den aktuellen Stand
+          einer echten Röbeler Entscheidung.
+        </p>
+      </div>
+
+      <div className="p-4">
+        <ol
+          aria-label="Zwölf Stufen des synthetischen Lebenszyklus"
+          className="grid grid-cols-6 gap-x-2 gap-y-3"
+        >
+          {receipt.stages.map((stage, index) => {
+            const observed =
+              stage.status === "captured_unreviewed" ||
+              stage.status === "partial_unreviewed";
+            const waiting = stage.status === "awaiting_input";
+            return (
+              <li key={stage.id} className="min-w-0 text-center">
+                <span
+                  className={`mx-auto flex h-7 w-7 items-center justify-center rounded-full border text-[10px] font-semibold tnum ${
+                    observed
+                      ? "border-amber-400 bg-amber-50 text-amber-800"
+                      : waiting
+                        ? "border-[#00498B] bg-[#00498B]/10 text-[#00498B]"
+                        : "border-border bg-muted/40 text-muted-foreground"
+                  }`}
+                  title={syntheticLifecycleStatusLabel[stage.status]}
+                >
+                  {index + 1}
+                </span>
+                <span className="mt-1 block truncate text-[8.5px] text-muted-foreground">
+                  {syntheticLifecycleStatusLabel[stage.status]}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+
+        <dl className="mt-4 space-y-2 border-t border-border pt-3 text-[12px]">
+          <CaseFact
+            label="Quellenstand"
+            value="1 erfasst · 1 teilweise · beide ungeprüft"
+          />
+          <CaseFact
+            label="Mandat"
+            value={`${waitingCount} Schritt wartet auf eine zuständige Stelle`}
+          />
+          <CaseFact
+            label="Noch offen"
+            value={`${notStartedCount} reale Schritte nicht begonnen`}
+          />
+          <CaseFact
+            label="Szenarien"
+            value={`${receipt.publicProjection.scenarioCount} illustriert · keine Empfehlung`}
+          />
+          <CaseFact label="Umsetzung" value={receipt.delivery.status} />
+          <CaseFact label="Wirkung" value={receipt.outcome.summary} />
+        </dl>
+      </div>
+
+      <div className="border-t border-[#00498B]/15 bg-[#00498B]/[0.025] px-4 py-3">
+        <p className="text-[10.5px] font-medium leading-relaxed text-foreground">
+          Nächster echter Schritt
+        </p>
+        <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
+          {receipt.outcome.nextStep}
+        </p>
+      </div>
     </Card>
   );
 }

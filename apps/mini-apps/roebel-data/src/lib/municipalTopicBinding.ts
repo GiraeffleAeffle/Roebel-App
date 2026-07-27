@@ -1,4 +1,7 @@
-import type { RoebelActivityJournalRuntimeProjectionV1 } from "@roebel/stadtstack-federation-client";
+import type {
+  RoebelActivityJournalRuntimeProjectionV1,
+  RoebelPublicSyntheticLifecycleReceiptV1,
+} from "@roebel/stadtstack-federation-client";
 
 export const ROEBEL_MARIENFELDER_DEMO_TOPIC_SELECTOR =
   "roebel-marienfelder-strasse-demo" as const;
@@ -164,6 +167,29 @@ export function activityJournalRuntimeReceiptMatchesTopic(
     receipt.runtime.eventCount === expected.eventCount &&
     receipt.runtime.backfilled === expected.backfilled &&
     receipt.runtime.publicProjectionState === expected.publicProjectionState
+  );
+}
+
+/**
+ * The R4 lifecycle remains a separate synthetic receipt. It may be rendered
+ * only beside the exact unbound topic context and never as proposal state.
+ */
+export function syntheticLifecycleReceiptMatchesTopic(
+  binding: CivicTopicBindingV1,
+  context: Parameters<typeof topicContextMatchesBinding>[1],
+  receipt: RoebelPublicSyntheticLifecycleReceiptV1
+): boolean {
+  return (
+    topicContextMatchesBinding(binding, context) &&
+    receipt.caseKey.municipalityId === binding.municipalityId &&
+    receipt.caseKey.decisionCaseSlug === binding.decisionCaseSlug &&
+    receipt.truthState === binding.truthState &&
+    receipt.authority === binding.authorityBinding &&
+    receipt.publicProjection.truthState === binding.truthState &&
+    receipt.publicProjection.authority === binding.authorityBinding &&
+    receipt.participation.totalAccepted === 0 &&
+    receipt.publicProjection.recommendation === null &&
+    Object.values(receipt.effects).every((effect) => effect === false)
   );
 }
 
