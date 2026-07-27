@@ -215,27 +215,40 @@ async function verifyByAdminRecovery(
     candidates.push({ label: "personal_sign", address: `recover-failed:${String(error).slice(0, 40)}` });
   }
 
-  try {
-    candidates.push({
-      label: "eip712-AccountMessage",
-      address: await recoverTypedDataAddress({
-        domain: {
-          name: "Account",
-          version: "1",
-          chainId: gnosis.id,
-          verifyingContract: wallet as `0x${string}`,
-        },
-        types: { AccountMessage: [{ name: "message", type: "bytes" }] },
-        primaryType: "AccountMessage",
-        message: { message: hashMessage(statement) },
-        signature: signature as `0x${string}`,
-      }),
-    });
-  } catch (error) {
-    candidates.push({
-      label: "eip712-AccountMessage",
-      address: `recover-failed:${String(error).slice(0, 40)}`,
-    });
+  // A thirdweb smart account stamps its EIP-712 domain with the chain its WALLET
+  // is configured for — which is not necessarily the chain the account is
+  // deployed on. The Röbel app's primary wallet is still configured for Base
+  // (apps/expo/constants/wallets.ts -> constants/thirdweb.ts `chain = base`),
+  // while the account itself is read on Gnosis. The address is identical on both
+  // (deterministic CREATE2 from factory + admin + salt), so the same admin key
+  // signs with a Base domain for an account we verify on Gnosis.
+  //
+  // Accepting both domains is safe: whichever domain produced the signature, the
+  // recovered address is still checked with `isAdmin` ON THE GNOSIS ACCOUNT. The
+  // chain only selects which digest to recover from; authorisation is unchanged.
+  for (const chainId of [gnosis.id, 8453]) {
+    try {
+      candidates.push({
+        label: `eip712-AccountMessage-cid${chainId}`,
+        address: await recoverTypedDataAddress({
+          domain: {
+            name: "Account",
+            version: "1",
+            chainId,
+            verifyingContract: wallet as `0x${string}`,
+          },
+          types: { AccountMessage: [{ name: "message", type: "bytes" }] },
+          primaryType: "AccountMessage",
+          message: { message: hashMessage(statement) },
+          signature: signature as `0x${string}`,
+        }),
+      });
+    } catch (error) {
+      candidates.push({
+        label: `eip712-AccountMessage-cid${chainId}`,
+        address: `recover-failed:${String(error).slice(0, 40)}`,
+      });
+    }
   }
 
   // Most authoritative candidate: ask the account for the digest IT expects
@@ -366,17 +379,9 @@ async function diagnoseSignature(
     deployed: true,
     valid: false,
     code: inner ? "erc6492-unwrapped-still-invalid" : "reverted",
-    // TEMPORARY (debugging): echo the signature and the exact statement bytes.
-    // Every recovery path lands on a different pseudorandom address, which means
-    // the signed payload is not the statement we reconstruct — and the only way
-    // to find out what WAS signed is to work backwards from the signature itself.
-    // Remove this once the convention is identified: a signature over a public
-    // statement is not a secret, but it does not belong in a user-facing error.
     detail:
       `sigLen=${signature.length} erc6492=${!!inner} ${outcomes.join(" | ")}` +
-      ` || recovery: ${recovery.outcome}` +
-      ` || sig=${signature}` +
-      ` || stmtHash=${hashMessage(statement)}`,
+      ` || recovery: ${recovery.outcome}`,
   };
 }
 
