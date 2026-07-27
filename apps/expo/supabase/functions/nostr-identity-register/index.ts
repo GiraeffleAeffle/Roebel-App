@@ -21,7 +21,12 @@
 // Auto env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY. Optional: GNOSIS_RPC_URL.
 // Logic mirrors packages/nostr (binding.ts, events.ts, keys.ts) — that package is
 // the source of truth; this is its Deno-side twin.
-import { createPublicClient, hashMessage, http } from "https://esm.sh/viem@2.21.0";
+import {
+  createPublicClient,
+  decodeAbiParameters,
+  hashMessage,
+  http,
+} from "https://esm.sh/viem@2.21.0";
 import { gnosis } from "https://esm.sh/viem@2.21.0/chains";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { schnorr } from "https://esm.sh/@noble/curves@1.9.7/secp256k1";
@@ -127,41 +132,98 @@ const ERC6492_SUFFIX = "6492".repeat(16);
  * counterfactual accounts). A bare `false` cannot tell them apart, and each needs
  * a different fix — so ask the contract directly and report the outcome.
  */
-async function diagnoseSignature(
-  wallet: string,
-  statement: string,
-  signature: string,
-): Promise<{ deployed: boolean; code: string; detail: string }> {
-  let deployed = false;
-  try {
-    const bytecode = await chainClient.getBytecode({ address: wallet as `0x${string}` });
-    deployed = !!bytecode && bytecode !== "0x";
-  } catch (error) {
-    return { deployed: true, code: "code-check-failed", detail: String(error).slice(0, 200) };
-  }
-  if (!deployed) return { deployed: false, code: "no-bytecode", detail: "" };
+const ERC1271_MAGIC = "0x1626ba7e";
 
-  const wrapped = signature.toLowerCase().endsWith(ERC6492_SUFFIX);
+/**
+ * Strip an ERC-6492 wrapper, if present.
+ *
+ * A 6492 signature is `abi.encode(factory, factoryCalldata, realSignature)`
+ * followed by a 32-byte magic suffix. It exists so a signature can be validated
+ * for an account that does not exist yet. Wallets sometimes emit it even for a
+ * DEPLOYED account — and handing that blob to `isValidSignature` reverts inside
+ * `ECDSA.recover`, because it is nothing like a 65-byte signature. Unwrapping
+ * recovers the inner signature the deployed account can actually check.
+ */
+function unwrapErc6492(signature: string): string | null {
+  if (!signature.toLowerCase().endsWith(ERC6492_SUFFIX)) return null;
+  try {
+    const payload = signature.slice(0, signature.length - ERC6492_SUFFIX.length) as `0x${string}`;
+    const [, , inner] = decodeAbiParameters(
+      [{ type: "address" }, { type: "bytes" }, { type: "bytes" }],
+      payload,
+    );
+    return inner as string;
+  } catch {
+    return null;
+  }
+}
+
+async function callErc1271(
+  wallet: string,
+  hash: string,
+  signature: string,
+): Promise<{ ok: boolean; outcome: string }> {
   try {
     const result = await chainClient.readContract({
       address: wallet as `0x${string}`,
       abi: ERC1271_ABI,
       functionName: "isValidSignature",
-      args: [hashMessage(statement), signature as `0x${string}`],
+      args: [hash as `0x${string}`, signature as `0x${string}`],
     });
-    // 0x1626ba7e is the ERC-1271 magic value. Anything else is a considered "no".
-    return {
-      deployed: true,
-      code: result === "0x1626ba7e" ? "magic-ok-but-viem-said-no" : `returned-${result}`,
-      detail: `sigLen=${signature.length} erc6492=${wrapped}`,
-    };
+    return { ok: result === ERC1271_MAGIC, outcome: `returned-${result}` };
+  } catch (error) {
+    return { ok: false, outcome: `reverted(${String(error).slice(0, 120)})` };
+  }
+}
+
+async function diagnoseSignature(
+  wallet: string,
+  statement: string,
+  signature: string,
+): Promise<{ deployed: boolean; valid: boolean; code: string; detail: string }> {
+  let deployed = false;
+  try {
+    const bytecode = await chainClient.getBytecode({ address: wallet as `0x${string}` });
+    deployed = !!bytecode && bytecode !== "0x";
   } catch (error) {
     return {
       deployed: true,
-      code: "reverted",
-      detail: `sigLen=${signature.length} erc6492=${wrapped} ${String(error).slice(0, 300)}`,
+      valid: false,
+      code: "code-check-failed",
+      detail: String(error).slice(0, 200),
     };
   }
+  if (!deployed) return { deployed: false, valid: false, code: "no-bytecode", detail: "" };
+
+  const hash = hashMessage(statement);
+  const inner = unwrapErc6492(signature);
+
+  // Try the unwrapped signature FIRST when there is one: for a deployed account
+  // that is the only form it can validate.
+  const attempts: { label: string; sig: string }[] = [];
+  if (inner) attempts.push({ label: "erc6492-inner", sig: inner });
+  attempts.push({ label: "raw", sig: signature });
+
+  const outcomes: string[] = [];
+  for (const attempt of attempts) {
+    const { ok, outcome } = await callErc1271(wallet, hash, attempt.sig);
+    if (ok) {
+      return {
+        deployed: true,
+        valid: true,
+        code: `valid-via-${attempt.label}`,
+        detail: `sigLen=${signature.length}`,
+      };
+    }
+    outcomes.push(`${attempt.label}:${outcome}`);
+  }
+
+  return {
+    deployed: true,
+    valid: false,
+    code: inner ? "erc6492-unwrapped-still-invalid" : "reverted",
+    detail: `sigLen=${signature.length} erc6492=${!!inner} ${outcomes.join(" | ")}`,
+  };
 }
 
 function bad(message: string, status = 400): Response {
@@ -220,16 +282,18 @@ Deno.serve(async (request) => {
     const diagnosis = await diagnoseSignature(wallet, bindingStatement(wallet, npub), ethSignature);
     console.error("ERC-1271 rejected:", JSON.stringify(diagnosis));
 
-    if (diagnosis.code === "magic-ok-but-viem-said-no") {
-      // The account itself returned the ERC-1271 magic value: the signature IS
-      // valid and viem's helper was the thing that failed. The contract is the
-      // authority on its own signatures, so trust it.
-      console.log("accepting on direct ERC-1271 magic value");
+    if (diagnosis.valid) {
+      // The account itself returned the ERC-1271 magic value — the signature IS
+      // valid and viem's helper was what failed. A contract is the authority on
+      // its own signatures, so trust it over the helper.
+      console.log(`accepting on direct ERC-1271: ${diagnosis.code}`);
       walletSignatureValid = true;
     } else if (!diagnosis.deployed) {
       return bad("wallet-not-deployed");
     } else {
-      return bad(`wallet-signature-invalid:${diagnosis.code}`);
+      // Carry the detail into the response too: it is the caller's own data, and
+      // it saves a round trip through the function logs to find out what happened.
+      return bad(`wallet-signature-invalid:${diagnosis.code} [${diagnosis.detail}]`);
     }
   }
 
