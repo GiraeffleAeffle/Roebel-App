@@ -1,4 +1,4 @@
-#!/usr/bin/env -S npx tsx
+#!/usr/bin/env node
 import { createGnosisVerifier } from "./chain.js";
 import { createSupabaseRegistry } from "./registry.js";
 import { syncAllowList } from "./sync.js";
