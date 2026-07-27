@@ -153,7 +153,21 @@ Deno.serve(async (request) => {
     console.error("ERC-1271 verification failed to complete:", error);
     return bad("could not verify the wallet signature right now — please retry", 503);
   }
-  if (!walletSignatureValid) return bad("wallet-signature-invalid");
+  if (!walletSignatureValid) {
+    // A false here is ambiguous. The common cause is not a bad signature at all:
+    // an ERC-4337 account is counterfactual until its first outgoing transaction,
+    // and `isValidSignature` on an address with no code reverts — which viem
+    // reports the same way as a genuine mismatch. Distinguish them, because the
+    // two have completely different remedies.
+    let deployed = true;
+    try {
+      const code = await chainClient.getBytecode({ address: wallet as `0x${string}` });
+      deployed = !!code && code !== "0x";
+    } catch (error) {
+      console.error("bytecode check failed:", error);
+    }
+    return bad(deployed ? "wallet-signature-invalid" : "wallet-not-deployed");
+  }
 
   const { error } = await db.from("nostr_identities").upsert(
     {

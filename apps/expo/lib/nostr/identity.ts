@@ -81,7 +81,24 @@ export interface RegistrationResult {
   /** German, safe to surface directly. */
   message: string;
   /** Machine-readable cause, for logs and for deciding whether retrying can help. */
-  reason?: 'not-deployed' | 'verification-failed' | 'chain-unavailable' | 'network' | 'unknown';
+  reason?:
+    | 'not-deployed'
+    | 'verification-failed'
+    | 'wallet-not-deployed'
+    | 'chain-unavailable'
+    | 'network'
+    | 'unknown';
+}
+
+/** Pull the server's own error code out of a failed Edge Function response. */
+async function serverErrorCode(error: unknown): Promise<string> {
+  try {
+    const response = (error as { context?: Response })?.context;
+    if (!response || typeof response.json !== 'function') return '';
+    return String((await response.clone().json())?.error ?? '');
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -91,7 +108,16 @@ export interface RegistrationResult {
  * someone to wait for a condition that will never resolve on its own — a function
  * that is not deployed — sends them into a retry loop instead of to the fix.
  */
-function describeFailure(status: number | undefined): RegistrationResult {
+function describeFailure(status: number | undefined, code = ''): RegistrationResult {
+  // The one failure with a remedy the Citizen can actually act on.
+  if (code === 'wallet-not-deployed') {
+    return {
+      ok: false,
+      reason: 'wallet-not-deployed',
+      message:
+        'Dein Wallet ist auf der Blockchain noch nicht aktiviert — das passiert automatisch bei deiner ersten Transaktion. Sende oder empfange einmal Röbel Münzen und versuche es dann erneut.',
+    };
+  }
   if (status === 404) {
     return {
       ok: false,
@@ -112,7 +138,11 @@ function describeFailure(status: number | undefined): RegistrationResult {
     return {
       ok: false,
       reason: 'verification-failed',
-      message: 'Die Signaturprüfung ist fehlgeschlagen. Bitte melde dich bei uns, wenn das erneut passiert.',
+      // Quote the server's own code: it costs the reader nothing and turns a
+      // support conversation from "it didn't work" into one exact answer.
+      message: `Die Signaturprüfung ist fehlgeschlagen. Bitte melde dich bei uns, wenn das erneut passiert.${
+        code ? `\n\nDetail: ${code}` : ''
+      }`,
     };
   }
   return {
@@ -153,14 +183,14 @@ export async function registerIdentity(
       // what distinguishes "not deployed" from "your signature is wrong".
       const status: number | undefined =
         (error as { context?: { status?: number } })?.context?.status;
-      const failure = describeFailure(status);
-      console.warn('[nostr] registration failed', status ?? 'no-status', error.message);
-      return failure;
+      const code = await serverErrorCode(error);
+      console.warn('[nostr] registration failed', status ?? 'no-status', code || error.message);
+      return describeFailure(status, code);
     }
     if ((data as { error?: string } | null)?.error) {
       const detail = (data as { error: string }).error;
       console.warn('[nostr] registration rejected', detail);
-      return describeFailure(400);
+      return describeFailure(400, detail);
     }
 
     await SecureStore.setItemAsync(REGISTRATION_STORE, new Date().toISOString());
