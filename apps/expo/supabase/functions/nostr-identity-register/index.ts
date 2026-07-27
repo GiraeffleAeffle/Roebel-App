@@ -26,6 +26,7 @@ import {
   decodeAbiParameters,
   hashMessage,
   http,
+  recoverAddress,
   recoverMessageAddress,
   recoverTypedDataAddress,
 } from "https://esm.sh/viem@2.21.0";
@@ -160,6 +161,16 @@ function unwrapErc6492(signature: string): string | null {
   }
 }
 
+const GET_MESSAGE_HASH_ABI = [
+  {
+    name: "getMessageHash",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "hash", type: "bytes32" }],
+    outputs: [{ name: "", type: "bytes32" }],
+  },
+] as const;
+
 const IS_ADMIN_ABI = [
   {
     name: "isAdmin",
@@ -227,6 +238,30 @@ async function verifyByAdminRecovery(
     });
   }
 
+  // Most authoritative candidate: ask the account for the digest IT expects
+  // (`getMessageHash`) and recover from that. This depends on no assumption about
+  // the signing convention — the contract states its own terms.
+  try {
+    const expected = await chainClient.readContract({
+      address: wallet as `0x${string}`,
+      abi: GET_MESSAGE_HASH_ABI,
+      functionName: "getMessageHash",
+      args: [hashMessage(statement)],
+    });
+    candidates.unshift({
+      label: "account-getMessageHash",
+      address: await recoverAddress({
+        hash: expected as `0x${string}`,
+        signature: signature as `0x${string}`,
+      }),
+    });
+  } catch (error) {
+    candidates.push({
+      label: "account-getMessageHash",
+      address: `unavailable:${String(error).slice(0, 40)}`,
+    });
+  }
+
   const tried: string[] = [];
   for (const candidate of candidates) {
     if (!candidate.address.startsWith("0x")) {
@@ -241,7 +276,10 @@ async function verifyByAdminRecovery(
         args: [candidate.address as `0x${string}`],
       });
       if (isAdmin) return { ok: true, outcome: `admin-via-${candidate.label}` };
-      tried.push(`${candidate.label}=not-admin`);
+      // Report WHICH address was recovered. "not-admin" alone cannot distinguish
+      // "we reconstructed the wrong message" from "the signer really isn't an
+      // admin", and those need opposite fixes.
+      tried.push(`${candidate.label}->${candidate.address}(not-admin)`);
     } catch (error) {
       tried.push(`${candidate.label}=isAdmin-failed(${String(error).slice(0, 60)})`);
     }
