@@ -23,9 +23,23 @@ export function applyOverSsh(bundleDir: string, nodeId: string, opts: UpOptions)
 
   const rsync = spawnSync(
     "rsync",
-    // --exclude .env so we never delete/overwrite the operator's secrets on the box
-    // (secrets are not in the rendered bundle; the box's own .env supplies them).
-    ["-az", "--delete", "--exclude=.env", "-e", sshCmd, `${bundleDir}/`, `${opts.host}:${remote}/`],
+    [
+      "-az",
+      "--delete",
+      // Secrets are not in the rendered bundle; the box's own .env supplies them.
+      "--exclude=.env",
+      // The allow-list is GENERATED STATE on the box (written by relay-sync from
+      // on-chain membership), not bundle content. Without this exclude, every
+      // deploy overwrites it with the empty rendered stub and revokes write
+      // access for the whole town until the next sync pass.
+      "--exclude=strfry-policy/members.txt",
+      // Backup output and the status file an agent reads must survive a deploy.
+      "--exclude=ops/status.json",
+      "-e",
+      sshCmd,
+      `${bundleDir}/`,
+      `${opts.host}:${remote}/`,
+    ],
     { stdio: "inherit" },
   );
   if (rsync.status !== 0) return rsync.status ?? 1;

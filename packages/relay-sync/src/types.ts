@@ -51,6 +51,8 @@ export type VerificationOutcome =
 export interface SyncSummary {
   checked: number;
   allowed: number;
+  /** Declared agent keys unioned in (manifest-authorised, not on-chain verified). */
+  agents: number;
   rejected: Array<{ wallet: string; reason: RejectionReason }>;
   /** True when the allow-list file actually changed this pass. */
   changed: boolean;

@@ -194,3 +194,71 @@ describe("fail-closed", () => {
     assert.equal(await readFile(path, "utf8"), before);
   });
 });
+
+describe("agent keys on the allow-list", () => {
+  const AGENT = identityFor("c3");
+
+  it("keeps declared agent keys through a pass that would otherwise erase them", async () => {
+    // The bug this prevents: a pass rewrites the allow-list from the citizen
+    // registry alone. An agent's key — NIP-06 derived from an agent smart account
+    // that holds NO CitizenNFT — would be deleted on the next tick, so an agent
+    // could never keep write access to its own community's relay.
+    let written: string[] = [];
+    const summary = await syncAllowList({
+      fetchRegistry: async () => [rowFor(ALICE, ALICE_WALLET)],
+      chain: permissiveChain,
+      allowListPath: "/unused",
+      alwaysAllow: [AGENT.publicKey],
+      write: async (_p, keys) => {
+        written = keys;
+        return true;
+      },
+    });
+    assert.ok(written.includes(AGENT.publicKey), "agent key survives the rewrite");
+    assert.ok(written.includes(ALICE.publicKey), "citizens still admitted");
+    assert.equal(summary.allowed, 1);
+    assert.equal(summary.agents, 1);
+  });
+
+  it("drops malformed agent entries instead of writing them", async () => {
+    // strfry reads this file on every event, so a single bad line is a policy
+    // bug for the whole town. Better to lose one agent than corrupt the list.
+    const logs: string[] = [];
+    let written: string[] = [];
+    await syncAllowList({
+      fetchRegistry: async () => [],
+      chain: permissiveChain,
+      allowListPath: "/unused",
+      alwaysAllow: ["not-a-pubkey", "", AGENT.publicKey.toUpperCase()],
+      log: (m) => logs.push(m),
+      write: async (_p, keys) => {
+        written = keys;
+        return true;
+      },
+    });
+    // Case-normalised, so an operator pasting an uppercase key still works.
+    assert.deepEqual(written, [AGENT.publicKey.toLowerCase()]);
+    assert.ok(logs.some((l) => /ignoring malformed alwaysAllow entry: not-a-pubkey/.test(l)));
+  });
+
+  it("still fails closed: a registry outage never writes an agent-only list", async () => {
+    // Agent keys must not become a backdoor around the fail-closed rule — if the
+    // registry is down, writing [agents] alone would revoke the entire town.
+    let wrote = false;
+    await assert.rejects(
+      syncAllowList({
+        fetchRegistry: async () => {
+          throw new Error("supabase 503");
+        },
+        chain: permissiveChain,
+        allowListPath: "/unused",
+        alwaysAllow: [AGENT.publicKey],
+        write: async () => {
+          wrote = true;
+          return true;
+        },
+      }),
+    );
+    assert.equal(wrote, false, "allow-list left untouched");
+  });
+});

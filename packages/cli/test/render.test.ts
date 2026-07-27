@@ -405,3 +405,28 @@ test("strfry uses the absolute binary path and tolerates a legitimately empty re
   assert.match(s, /record "pg-\$db\.dump"/);
   assert.match(s, /\|\| fail "\$1 is empty"/);
 });
+
+test("the allow-list syncer is rendered as a node service, not hand-wired", () => {
+  const compose = renderComposeYml(roebel);
+  assert.match(compose, /relay-sync:/);
+  // The relay reads the policy dir :ro; the syncer needs the SAME dir writable.
+  assert.match(compose, /"\.\/strfry-policy:\/etc\/strfry"/);
+  assert.match(compose, /"\.\/strfry-policy:\/etc\/strfry:ro"/);
+  // The service-role key is referenced from the box's .env, never inlined.
+  assert.match(compose, /SUPABASE_SERVICE_KEY: "\$\{SUPABASE_SERVICE_KEY\}"/);
+  assert.match(compose, /CITIZEN_NFT_ADDRESS: "0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5"/);
+  // Declared agent keys reach the syncer, so agents keep relay write access.
+  assert.match(compose, /AGENT_PUBKEYS:/);
+
+  // No backend declared => no syncer (there is no registry to read).
+  const noBackend = { ...roebel, services: { ...roebel.services, backend: undefined } };
+  assert.doesNotMatch(renderComposeYml(noBackend), /relay-sync:/);
+});
+
+test("declared agent pubkeys are passed through to the syncer", () => {
+  const withAgent = {
+    ...roebel,
+    agents: { ...roebel.agents, a2a: { ...roebel.agents.a2a, relayPubkeys: ["a".repeat(64), "b".repeat(64)] } },
+  };
+  assert.match(renderComposeYml(withAgent), new RegExp(`AGENT_PUBKEYS: "${"a".repeat(64)},${"b".repeat(64)}"`));
+});

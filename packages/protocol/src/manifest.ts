@@ -196,6 +196,18 @@ const Agents = z.object({
     .object({
       transport: z.enum(["xmtp", "nostr"]),
       nostrKey: z.string().optional(),
+      /**
+       * Nostr pubkeys (64-hex) of this node's own agents, which keep relay write
+       * access across every allow-list sync.
+       *
+       * An agent's key is NIP-06 derived from an agent smart account that holds
+       * no CitizenNFT, so the citizen-membership syncer would erase it on the
+       * next pass. Declaring it here IS the authorisation — auditable in git,
+       * rather than hand-added to a generated file that is about to be rewritten.
+       */
+      relayPubkeys: z
+        .array(z.string().regex(/^[0-9a-f]{64}$/, "expected a lowercase 64-hex nostr pubkey"))
+        .optional(),
     })
     .optional(),
 });

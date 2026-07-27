@@ -1,6 +1,7 @@
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { parseManifest, type NetizenManifest } from "@netizen-labs/protocol";
 import { renderBundle, type Bundle } from "./render.js";
 import { doctor, formatDoctorReport, checkIdpDrift } from "./doctor.js";
@@ -15,6 +16,32 @@ function writeBundle(bundle: Bundle, outDir: string): void {
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, content);
   }
+  copyRelaySyncBundle(bundle, outDir);
+}
+
+/**
+ * The allow-list syncer ships as a single pre-built file rather than as text the
+ * renderer emits, because it is a real program with dependencies (viem, nostr
+ * crypto) — not config. It is copied in here so `netizen up` carries it like any
+ * other bundle file, instead of the operator scp-ing it to /root by hand.
+ *
+ * Missing artifact is a WARNING, not a failure: the rest of the node is fine
+ * without it, and the compose service simply will not start. Saying nothing
+ * would leave an operator wondering why membership never syncs.
+ */
+function copyRelaySyncBundle(bundle: Bundle, outDir: string): void {
+  if (!bundle.files["docker-compose.yml"]?.includes("relay-sync:")) return;
+  const built = fileURLToPath(new URL("../../relay-sync/dist/relay-sync.cjs", import.meta.url));
+  if (!existsSync(built)) {
+    console.warn(
+      "warning: relay-sync is declared but dist/relay-sync.cjs is missing — membership will NOT sync.\n" +
+        "         build it first: pnpm --filter @netizen-labs/relay-sync build",
+    );
+    return;
+  }
+  const dest = join(outDir, "relay-sync", "relay-sync.cjs");
+  mkdirSync(dirname(dest), { recursive: true });
+  copyFileSync(built, dest);
 }
 
 const [cmd, manifestPath, ...rest] = process.argv.slice(2);

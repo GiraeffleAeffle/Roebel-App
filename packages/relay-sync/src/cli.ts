@@ -35,6 +35,13 @@ async function main(): Promise<void> {
   const allowListPath = process.env.ALLOWLIST_PATH ?? "/etc/strfry/members.txt";
   const intervalSeconds = Number(process.env.SYNC_INTERVAL_SECONDS ?? 300);
   const once = process.argv.includes("--once");
+  // The node's own AI agents. Their Nostr key is NIP-06 derived from an agent
+  // smart account, which holds no CitizenNFT — so without this they would be
+  // erased from the allow-list on every pass and could never publish.
+  const agentPubkeys = (process.env.AGENT_PUBKEYS ?? "")
+    .split(",")
+    .map((k) => k.trim())
+    .filter(Boolean);
 
   const runPass = async (): Promise<void> => {
     const startedAt = new Date().toISOString();
@@ -43,6 +50,7 @@ async function main(): Promise<void> {
         fetchRegistry: registry,
         chain,
         allowListPath,
+        alwaysAllow: agentPubkeys,
         log: (message) => console.log(`[${startedAt}] ${message}`),
       });
       if (summary.changed) {

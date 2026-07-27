@@ -456,6 +456,36 @@ export function renderComposeYml(m: NetizenManifest): string {
       - "strfry_db:/app/strfry-db"
     expose: ["7777"]`,
     );
+    // The allow-list syncer: on-chain CitizenNFT membership -> relay write access,
+    // so admission and revocation are automatic rather than a hand-run script.
+    // It mounts the SAME policy directory as the relay but WRITABLE (the relay
+    // gets :ro), and it only reaches out — no inbound surface added to the box.
+    if (m.services.backend) {
+      const agentKeys = m.agents?.a2a?.relayPubkeys ?? [];
+      svc.push(
+        `  relay-sync:
+    image: node:22-alpine
+    restart: unless-stopped
+    command: ["node", "/app/relay-sync.cjs"]
+    volumes:
+      - "./relay-sync/relay-sync.cjs:/app/relay-sync.cjs:ro"
+      - "./strfry-policy:/etc/strfry"
+    environment:
+      SUPABASE_URL: "\${SUPABASE_URL}"
+      # Service-role key: reads the private wallet<->npub registry. Never in the
+      # bundle or in git — it comes from the box's own .env.
+      SUPABASE_SERVICE_KEY: "\${SUPABASE_SERVICE_KEY}"
+      GNOSIS_RPC_URL: "\${GNOSIS_RPC}"
+      CITIZEN_NFT_ADDRESS: "${m.contracts.citizenNft}"
+      ALLOWLIST_PATH: "/etc/strfry/members.txt"
+      SYNC_INTERVAL_SECONDS: "300"
+      # This node's own agents. Their key is NIP-06 derived from an agent smart
+      # account holding no CitizenNFT, so without this the syncer would erase
+      # them every pass and no agent could publish to its own community's relay.
+      AGENT_PUBKEYS: "${agentKeys.join(",")}"
+    depends_on: [strfry]`,
+      );
+    }
   }
 
   // ---- Workspace (the openDesk-equivalent suite). Each is provisioned only
