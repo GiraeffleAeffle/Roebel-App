@@ -366,7 +366,17 @@ async function diagnoseSignature(
     deployed: true,
     valid: false,
     code: inner ? "erc6492-unwrapped-still-invalid" : "reverted",
-    detail: `sigLen=${signature.length} erc6492=${!!inner} ${outcomes.join(" | ")} || recovery: ${recovery.outcome}`,
+    // TEMPORARY (debugging): echo the signature and the exact statement bytes.
+    // Every recovery path lands on a different pseudorandom address, which means
+    // the signed payload is not the statement we reconstruct — and the only way
+    // to find out what WAS signed is to work backwards from the signature itself.
+    // Remove this once the convention is identified: a signature over a public
+    // statement is not a secret, but it does not belong in a user-facing error.
+    detail:
+      `sigLen=${signature.length} erc6492=${!!inner} ${outcomes.join(" | ")}` +
+      ` || recovery: ${recovery.outcome}` +
+      ` || sig=${signature}` +
+      ` || stmtHash=${hashMessage(statement)}`,
   };
 }
 
