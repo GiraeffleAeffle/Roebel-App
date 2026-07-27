@@ -11,8 +11,25 @@ const roebel = JSON.parse(
   ),
 );
 
+// Röbel declares only what the installer can stand up today; endpoint coverage
+// is asserted against a node that declares Matrix too.
+const withMatrix = {
+  ...roebel,
+  services: {
+    ...roebel.services,
+    chat: {
+      ...roebel.services.chat,
+      matrix: {
+        homeserver: "https://matrix.roebel.app",
+        mas: "https://auth.roebel.app",
+        element: "https://chat.roebel.app",
+      },
+    },
+  },
+};
+
 test("doctor reports secrets, endpoints, and plan for the node", () => {
-  const r = doctor(roebel);
+  const r = doctor(withMatrix);
   assert.equal(r.node, "roebel");
   assert.ok(r.secretRefs.includes("$ROEBEL_ID_JWKS"));
   assert.ok(r.endpoints.some((e) => e.name === "matrix homeserver" && e.url.includes("matrix.roebel.app")));

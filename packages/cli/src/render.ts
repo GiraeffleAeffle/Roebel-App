@@ -171,7 +171,8 @@ export function renderCaddyfile(m: NetizenManifest): string {
   add(ws?.wiki, "xwiki:8080");
   add(ws?.video, "jitsi:8000");
   add(ws?.project, "openproject:80");
-  add(ws?.portal, "portal:80");
+  // NOTE: `portal` is a link target for the agent-workspace tile, not a service
+  // this installer provisions yet — no Caddy route until something backs it.
   add(m.services.chat?.matrix?.homeserver, "synapse:8008");
   add(m.services.chat?.matrix?.mas, "mas:8080");
   add(m.services.chat?.matrix?.element, "element:80");
@@ -484,7 +485,9 @@ export function renderBootstrap(m: NetizenManifest): string {
     ? `
 # 4. Nextcloud OIDC provider + group folders (once the container is initialized).
 if docker compose ps --services 2>/dev/null | grep -qx nextcloud; then
-  docker compose exec -T -u www-data nextcloud sh < nextcloud/setup.sh \\
+  docker compose exec -T -u www-data \\
+    -e NEXTCLOUD_CLIENT_SECRET="$NEXTCLOUD_CLIENT_SECRET" \\
+    nextcloud sh < nextcloud/setup.sh \\
     || echo "note: re-run once Nextcloud finished its first-run install"
 fi`
     : "";
@@ -494,10 +497,17 @@ fi`
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# 1. Docker
+# 1. Docker engine + the compose plugin. Checked SEPARATELY: a box can have
+# docker without the plugin, and skipping on \`docker\` alone leaves \`docker
+# compose\` broken.
 if ! command -v docker >/dev/null 2>&1; then
-  apt-get update && apt-get -y install docker.io docker-compose-plugin
+  apt-get update && apt-get -y install docker.io
   systemctl enable --now docker
+fi
+if ! docker compose version >/dev/null 2>&1; then
+  apt-get update && apt-get -y install docker-compose-plugin \\
+    || apt-get -y install docker-compose-v2 \\
+    || { echo "ERROR: could not install the docker compose plugin" >&2; exit 1; }
 fi
 
 # 2. Secrets — a .env next to this script must supply the refs listed in SECRETS.md.

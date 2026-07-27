@@ -4,8 +4,10 @@
   "id": "roebel",
   "name": "Röbel / Müritz",
   "type": "community",
-
-  "chain": { "chainId": 100, "rpc": "$GNOSIS_RPC" },
+  "chain": {
+    "chainId": 100,
+    "rpc": "$GNOSIS_RPC"
+  },
   "contracts": {
     "citizenNft": "0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5",
     "attesterNft": "0xC587F383696D3c9DF7A6eE03A9160E40Ae1cdb82",
@@ -15,81 +17,198 @@
     "safe": "0x3A08c86Efc5ff38CC35d850F1D4d564e497bFDEa",
     "gatekeeper": "0xc4B9E45F0e84BC0CDe930CE888E4D0e38184f277"
   },
-
   "identity": {
     "idp": {
       "issuer": "https://id.roebel.app",
       "discovery": "https://id.roebel.app/.well-known/openid-configuration",
       "hosted": "external",
       "jwks": "$ROEBEL_ID_JWKS",
-      "authMethods": ["wallet-siwe", "google", "apple", "facebook", "email"],
-      "scopes": ["openid", "email", "profile", "roebel"],
-      "claims": ["sub", "email", "name", "picture", "groups", "roebel:citizen", "roebel:attester", "roebel:tier", "roebel:actor_type"]
+      "authMethods": [
+        "wallet-siwe",
+        "google",
+        "apple",
+        "facebook",
+        "email"
+      ],
+      "scopes": [
+        "openid",
+        "email",
+        "profile",
+        "roebel"
+      ],
+      "claims": [
+        "sub",
+        "email",
+        "name",
+        "picture",
+        "groups",
+        "roebel:citizen",
+        "roebel:attester",
+        "roebel:tier",
+        "roebel:actor_type"
+      ]
     },
-    "authBridge": { "provider": "thirdweb", "chain": 100, "accountType": "erc4337-smart", "bundlerRpc": "$GNOSIS_BUNDLER_RPC" },
+    "authBridge": {
+      "provider": "thirdweb",
+      "chain": 100,
+      "accountType": "erc4337-smart",
+      "bundlerRpc": "$GNOSIS_BUNDLER_RPC"
+    },
     "relyingParties": [
-      { "id": "nextcloud", "redirectUris": ["https://cloud.roebel.app/apps/user_oidc/code"], "scopes": ["openid", "email", "profile", "roebel"] },
-      { "id": "matrix", "redirectUris": ["https://auth.roebel.app/upstream/callback/01ROEBELIDPROVIDERULID000000"], "scopes": ["openid", "email", "profile", "roebel"] },
-      { "id": "web", "redirectUris": ["https://www.roebel.app/api/auth/callback"] },
-      { "id": "expo", "redirectUris": ["roebelapp://auth"] }
+      {
+        "id": "nextcloud",
+        "redirectUris": [
+          "https://cloud.roebel.app/apps/user_oidc/code"
+        ],
+        "scopes": [
+          "openid",
+          "email",
+          "profile",
+          "roebel"
+        ]
+      },
+      {
+        "id": "matrix",
+        "redirectUris": [
+          "https://auth.roebel.app/upstream/callback/01ROEBELIDPROVIDERULID000000"
+        ],
+        "scopes": [
+          "openid",
+          "email",
+          "profile",
+          "roebel"
+        ]
+      },
+      {
+        "id": "web",
+        "redirectUris": [
+          "https://www.roebel.app/api/auth/callback"
+        ]
+      },
+      {
+        "id": "expo",
+        "redirectUris": [
+          "roebelapp://auth"
+        ]
+      }
     ],
     "membership": {
       "credential": "CitizenNFTv2",
-      "admission": { "attesterBand": "30%/floor2/cap7", "sybilTier": "in-person" },
+      "admission": {
+        "attesterBand": "30%/floor2/cap7",
+        "sybilTier": "in-person"
+      },
       "portable": true,
       "exitable": true
     },
-    "agentIdentity": { "grant": "client_credentials", "delegation": "rfc8693-act", "killSwitch": true },
-    "federation": { "trustedIssuers": [], "registry": "CommunityRegistry@gnosis (deferred to node #2)" }
+    "agentIdentity": {
+      "grant": "client_credentials",
+      "delegation": "rfc8693-act",
+      "killSwitch": true
+    },
+    "federation": {
+      "trustedIssuers": [],
+      "registry": "CommunityRegistry@gnosis (deferred to node #2)"
+    }
   },
-
   "governance": {
     "engine": "maci",
-    "coordinator": { "type": "shamir", "threshold": "3-of-5", "pubkey": "$COORDINATOR_PUBKEY" }
+    "coordinator": {
+      "type": "shamir",
+      "threshold": "3-of-5",
+      "pubkey": "$COORDINATOR_PUBKEY"
+    }
   },
-
   "treasury": {
     "safe": "0x3A08c86Efc5ff38CC35d850F1D4d564e497bFDEa",
-    "splits": { "reserve": 50, "ops": 30, "dividend": 20 },
-    "agentBudgets": [{ "role": "newsroom", "cap": "50/mo", "token": "EURe" }]
+    "splits": {
+      "reserve": 50,
+      "ops": 30,
+      "dividend": 20
+    },
+    "agentBudgets": [
+      {
+        "role": "newsroom",
+        "cap": "50/mo",
+        "token": "EURe"
+      }
+    ]
   },
-
   "services": {
-    "host": { "provider": "hetzner", "region": "eu-central" },
+    "host": {
+      "provider": "hetzner",
+      "region": "eu-central"
+    },
     "workspace": {
       "nextcloud": "https://cloud.roebel.app",
       "collabora": true,
-      "groupFolders": true,
-      "wiki": "https://wiki.roebel.app",
-      "video": "https://meet.roebel.app",
-      "project": "https://project.roebel.app",
-      "portal": "https://agents.roebel.app"
+      "groupFolders": true
     },
     "chat": {
-      "matrix": { "homeserver": "https://matrix.roebel.app", "mas": "https://auth.roebel.app", "element": "https://chat.roebel.app" },
-      "nostr": { "relay": "wss://relay.roebel.app", "groupsRelay": true }
+      "nostr": {
+        "relay": "wss://relay.roebel.app",
+        "groupsRelay": true
+      }
     },
     "secrets": {
       "nextcloudClientSecret": "$NEXTCLOUD_CLIENT_SECRET",
       "matrixClientSecret": "$MATRIX_CLIENT_SECRET"
     },
-    "backend": { "provider": "supabase", "url": "$SUPABASE_URL", "realtime": true, "edgeFunctions": true }
+    "backend": {
+      "provider": "supabase",
+      "url": "$SUPABASE_URL",
+      "realtime": true,
+      "edgeFunctions": true
+    }
   },
-
   "ai": {
     "gateway": "litellm",
     "selfHosted": false,
-    "models": { "reason": "claude-opus-4-8", "chat": "claude-sonnet-5", "classify": "claude-haiku-4-5", "image": "gpt-image-1" },
-    "sovereignty": { "tier": "eu-gpu", "model": "EuroLLM", "dataEgressPolicy": "governance-gated" },
-    "mcp": { "toolBus": "https://www.roebel.app/api/roebel/mcp" },
+    "models": {
+      "reason": "claude-opus-4-8",
+      "chat": "claude-sonnet-5",
+      "classify": "claude-haiku-4-5",
+      "image": "gpt-image-1"
+    },
+    "sovereignty": {
+      "tier": "eu-gpu",
+      "model": "EuroLLM",
+      "dataEgressPolicy": "governance-gated"
+    },
+    "mcp": {
+      "toolBus": "https://www.roebel.app/api/roebel/mcp"
+    },
     "contextGraph": true
   },
-
   "agents": {
-    "charter": { "scopes": ["read:feed", "write:story", "spend:foerder"], "killSwitch": true, "auditSink": "supabase:mecky_outreach_log" },
-    "a2a": { "transport": "xmtp", "nostrKey": "NIP-06 derived from the agent smart account" }
+    "charter": {
+      "scopes": [
+        "read:feed",
+        "write:story",
+        "spend:foerder"
+      ],
+      "killSwitch": true,
+      "auditSink": "supabase:mecky_outreach_log"
+    },
+    "a2a": {
+      "transport": "xmtp",
+      "nostrKey": "NIP-06 derived from the agent smart account"
+    }
   },
-
-  "branding": { "primary": "#00498B", "logo": "/favicon.svg", "fonts": ["Inter", "Plus Jakarta Sans"] },
-  "modules": { "feed": true, "events": true, "news": true, "proposals": true, "miniApps": true, "circles": true }
+  "branding": {
+    "primary": "#00498B",
+    "logo": "/favicon.svg",
+    "fonts": [
+      "Inter",
+      "Plus Jakarta Sans"
+    ]
+  },
+  "modules": {
+    "feed": true,
+    "events": true,
+    "news": true,
+    "proposals": true,
+    "miniApps": true,
+    "circles": true
+  }
 }
