@@ -399,7 +399,7 @@ credential. The browser around it is disposable.**
 
 **The pattern in the dead column is one thing, and it is the whole argument for Netizen.** Disco
 and Sismo built excellent credential infrastructure and then went looking for communities that
-needed credentials. Netizen has the inverse: **a real town with real memberships (20 citizens,
+needed credentials. Netizen has the inverse: **a real town with real memberships (50 citizens,
 5 attesters, org roles) that already gate real things (voting, currency, workspace).** The
 credential is not speculative. It is already load-bearing. That is exactly the asset the dead
 projects lacked and could not manufacture.
@@ -456,16 +456,30 @@ Three layers, three distinct jobs. They are not competitors.
 |---|---|---|---|
 | **Anchor** | CitizenNFTv2 / AttesterNFTv2 (soulbound, Gnosis) | Public, revocable, censorship-resistant source of truth. Gates onchain actions (MACI signup, Circles group, treasury) | Live |
 | **Portable presentation** | SD-JWT VC issued over OpenID4VCI, signed by the node | Off-chain, selectively disclosable, EU-standard, works with institutions and with wallets that have never heard of Ethereum | To build |
-| **Anonymity** | Semaphore v4 group over the NFT holder set | "I am a member of node X" without revealing which member. Anonymous signalling, anonymous voting | Adjacent to the MACI work |
+| **Anonymity** | Semaphore v4 group over the NFT holder set | "I am a member of node X" without revealing which member. **Scope: reads, mini-app joins, receiving payments only.** Not votes (MACI is strictly better), not attesting or proposing (accountability is the feature) | Not started; needs a side registry, see below |
 
-**The adversarial point you should not skip.** An onchain soulbound membership NFT is a *public
-membership roster*. ZK does not fix that. Semaphore only hides *which* member is signalling, and
-only to the extent the anonymity set is large. **Röbel has 20 citizens.** A Semaphore proof over a
-20-person set, combined with any timing or side-channel correlation, is close to no anonymity at
-all. This is a genuine limitation of the current design and it does not improve until the node has
-hundreds of members, or until proofs are aggregated across *multiple* nodes into a shared
-anonymity set. That cross-node anonymity set is, incidentally, a real reason for Netizen to want
-many nodes, and a real product argument for the protocol layer over any client.
+**The adversarial point you should not skip, corrected 2026-07-27 after review.** An onchain
+soulbound membership NFT is a *public membership roster*, and ZK does not fix that. Three things
+that first draft got wrong:
+
+- **The anonymity-set problem is real but is not the main leak.** `citizenCount()` = 50 on Gnosis
+  today (not 20, which was the June migration mint). But the binding constraint is not set size,
+  it is that addresses are cross-linkable off the NFT entirely: **Circles v2 trust edges are a
+  public social graph**, RCRC BaseGroup membership is public, XMTP inbox IDs map to addresses.
+  Closing that leak means not using Circles, because the trust graph *is* Circles. **Membership
+  unlinkability is not achievable in the current architecture.**
+- **Semaphore is not a general answer, and for votes it is a downgrade.** MACI's key-change gives
+  receipt-freeness and collusion resistance; Semaphore gives neither. Attesting, proposing and
+  revoking should stay accountable, because the sybil model is "known locals vouch for known
+  locals" and an anonymous attester is an unauditable one.
+- **The cross-node anonymity set is withdrawn as an argument.** It is circular (it cannot motivate
+  building for many nodes when there is one), and an aggregate set is only worth the weakest node's
+  admission standard, so set size trades directly against semantic value. It is an NSP-1 governance
+  problem, and "who publishes the combined root" would be a new chokepoint, contradicting §10 and
+  the anti-chokepoint argument in the companion data doc.
+
+Full treatment, including the verified contract surface and the missing threat model, in
+[§1.3 of the data sovereignty doc](2026-07-27_DATA_SOVEREIGNTY_AND_MARKETPLACE.md).
 
 The SD-JWT layer partly sidesteps this: an off-chain credential presented selectively to one
 verifier leaks nothing to the chain at all. For privacy-sensitive claims, the VC path is
@@ -570,7 +584,7 @@ Stated properly, because the brief demanded it.
 
 1. **"Identity wallet" is a category littered with corpses.** Disco, Sismo, and a dozen others
    built exactly this and died. The counter-argument (Netizen has a real community that already
-   depends on the credential) is *true today at a scale of 20 citizens*. It is not proven at 200
+   depends on the credential) is *true today at a scale of 50 citizens*. It is not proven at 200
    or 2,000, and the moment Netizen sells to a second town, it inherits the same
    infrastructure-looking-for-users problem the dead projects had. **The wallet is only defensible
    as long as node count grows. If Netizen cannot land node #2 and #3, the wallet is a
@@ -606,8 +620,8 @@ Stated properly, because the brief demanded it.
 | EUDI/EBW timelines slip past 2028 | Medium | Build SD-JWT VC + OpenID4VP because they are useful standalone, not because of the deadline |
 | Extension fails gate 1 (25k WAU) and the sovereign-client thesis is falsified | Medium | That is the point of the experiment. Budget it as a test, not a product |
 | MV3 churn breaks the extension (service-worker semantics, DNR limits) | Medium | Keep the extension thin. Keys live in the mobile client or a companion app, never only in the extension |
-| Anonymity set too small for Semaphore to mean anything at 20 citizens | **High for the privacy claim** | Do not market anonymity until sets are large. Prefer off-chain selective disclosure for sensitive claims. Design toward a cross-node anonymity set |
-| Onchain soulbound roster is a public membership list, which is a GDPR-adjacent exposure for a German municipality | **High** | Legal review. Consider commitment-only onchain anchors with the credential body off-chain |
+| Membership is unlinkable in marketing but linkable in fact (Circles trust graph, public `hasCitizenNFT`, ERC721Votes delegation) | **High for the privacy claim** | **Do not claim membership anonymity at all.** It is not achievable while Circles is in the stack. Prefer off-chain selective disclosure via SD-JWT for sensitive claims |
+| Onchain soulbound roster is a public membership list, and `hasEverHeldCitizenNFT` makes it permanent even after revocation, which is a GDPR-adjacent exposure for a German municipality | **High** | Legal review, with a named threat model. Note CitizenNFTv2 is **not upgradeable**, so any commitment-based fix is a side registry or a v3 |
 | Chromium fork attempted anyway, under-resourced, ships a browser with an unpatched in-the-wild 0-day | **Critical if it happens** | The four-gate rule in 5.2. Treat gate 4 (funded on-call) as non-negotiable |
 | ICANN `.ens` round outcome changes the naming picture | Low | Watch the 30 Apr to 12 Aug 2026 window and the 2028 delegation horizon. It does not change the recommendation either way |
 | A major wallet (MetaMask, Rabby) ships node-style membership credentials first | Medium | Their incentive is finance, not community memberships. Netizen's moat is issuance, so ship the issuer even if the client is theirs |

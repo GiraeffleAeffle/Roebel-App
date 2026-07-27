@@ -63,25 +63,92 @@ the check that proves it." For a German municipality, and later for a Land agenc
 worth money and the first is worth nothing. It also satisfies the standing rule that anything
 true of a node must live in the manifest rather than in a hand-configured box.
 
-### 1.3 The objection that must be resolved first
+### 1.3 The membership roster, and why the first draft of this section was wrong
 
-**The membership roster is the hole in the rule.** CitizenNFTv2 holders are a public list. For a
-town of 5,000 where citizenship is voluntary and visible, that is a *public register of who
-joined a political platform*, permanently, immutably, in a jurisdiction with a specific history
-around registers of who belongs to what.
+> **Revised 2026-07-27 after review.** The first draft named the public roster as a blocker and
+> offered three mitigations. Two of them do not address the actual leak, one of them was
+> circular, and the premise underneath all three was factually wrong about this codebase.
+> Verified below.
 
-This is flagged as high severity in the client research risk list and it is worth restating here,
-because it directly contradicts the principle this document is about. Options, roughly in
-increasing order of cost:
+**Start with the missing prerequisite: there is no threat model, and without one this is
+aesthetics.** Anonymity design without a named adversary cannot be evaluated. The candidate
+adversaries in Röbel have wildly different capabilities and most have offline knowledge no ZK
+construction defeats:
 
-1. Onchain commitment only (hash), credential body off-chain. Membership becomes provable but not
-   enumerable.
-2. Semaphore group over the holder set for all member-facing actions. Note the honest limit: at
-   20 to 100 members the anonymity set is too small to mean much on its own.
-3. Cross-node anonymity sets, so a proof is "member of some Netizen node" over thousands. This is
-   a genuine product reason to want many nodes, and it does not work at n=1.
+| Adversary | Capability | Does cryptography help? |
+|---|---|---|
+| A neighbour | Knows most of the town by sight | **No.** In a town of 5,000 with 50 citizens, the content of an act often names the actor. Who else proposes a Boxclub budget line? |
+| An employer | Can correlate absence, gossip, social media | Barely |
+| The Bürgermeister / Gemeinde | Institutional records, plus everything above | Partly, for specific acts |
+| A Landesamt or a future political shift in MV | Subpoena, full chain history, retroactive analysis | **This is the only adversary the crypto is really for**, and it is a retroactive one, which is why permanence matters more than live privacy |
 
-Nothing else in this document should be built before this is decided.
+Write the threat model first. It will shrink the rest of this section considerably, and the
+fourth row is probably the only one that justifies engineering.
+
+**What is actually onchain (verified 2026-07-27 against
+[`CitizenNFTv2.sol`](../../contracts/governor-contract/contracts/verification-system/CitizenNFTv2.sol)
+and Gnosis mainnet):**
+
+| Surface | Detail |
+|---|---|
+| Poseidon commitment | **Does not exist.** No `poseidon` or `commitment` anywhere in `contracts/verification-system/` |
+| `hasCitizenNFT` | `mapping(address => bool) public` — directly queryable per address, no event scraping needed |
+| `hasEverHeldCitizenNFT` | `mapping(address => bool) public` — **a permanent public record that survives revocation.** Leaving does not remove you |
+| Events | `CitizenNFTMinted(address indexed citizen, …)`, `MigrationMinted(address indexed citizen, …)`, plus ERC721 `Transfer` |
+| Vote weight | `contract CitizenNFTv2 is ERC721, ERC721Votes, Ownable` — checkpointed voting power and public `delegates()` |
+| Upgradeability | **None.** No proxy, no `Initializable`. A commitment field cannot be added to this contract |
+| Live size | `citizenCount()` = **50** on Gnosis (was 20 at the June 2026 migration mint) |
+
+**And the addresses are cross-linkable off the NFT entirely:** Circles v2 trust edges are a public
+social graph, RCRC BaseGroup membership is public, XMTP inbox IDs map to addresses, Safe signers
+are visible.
+
+**The honest conclusion, sharper than the first draft's menu:**
+
+> Membership unlinkability is **not achievable in the current architecture**. The leak that
+> matters is Circles, and Circles trust edges are not incidental leakage, they are the mechanism.
+> Closing that leak means not using Circles. So the threat model must accept linkable membership,
+> or the architecture changes. An onchain commitment protects *attributes*; it does nothing for
+> the membership *graph*.
+
+**What anonymity is actually worth building, split by action rather than applied wholesale:**
+
+| Action | Verdict |
+|---|---|
+| **Voting** | **Already solved, better, by MACI.** MACI's key-change gives receipt-freeness and collusion resistance. Semaphore gives neither. Substituting Semaphore here would be a **downgrade** |
+| **Proposing, attesting, revoking** | **Accountability is the feature.** The whole sybil model is "known locals vouch for known locals". An anonymous attester is an unauditable attester. Do not anonymize these |
+| **Reading, joining a mini-app, receiving a payment** | Anonymity is cheap and probably right here. This is the real scope |
+
+Note the composition cost of getting this wrong: the MACI signup gatekeeper
+(`0xc4B9E45F…`) is CitizenNFTv2-bound. Making Semaphore the member-facing identity layer means
+either two parallel registries or reworking gatekeeping, and the MACI v3 per-poll gatekeeping
+that would help is itself unverified in these notes.
+
+**On cross-node anonymity sets: withdrawn as an argument.** Two defects:
+
+1. **It is circular.** "Many nodes give anonymity" cannot motivate building for many nodes when
+   there is one node.
+2. **An aggregate set is only worth the weakest node's admission standard.** If Röbel verifies
+   with two in-person attesters and node #14 verifies with an email address, "member of some
+   Netizen node" means whatever node #14 means. **Set size trades directly against semantic
+   value.** That makes it an NSP-1 governance question (what does membership mean, who may join
+   the aggregate, who publishes the combined root) far more than a cryptography question. And
+   **"who publishes the combined root" is a new centralisation point**, which contradicts the
+   anti-chokepoint argument in §3 of this same document.
+
+**Replacing the blocking line.** The first draft said "nothing else should be built before this is
+decided." That was over-broad. The narrow decision is:
+
+> **If a Semaphore-compatible identity commitment is ever wanted, it must be a side registry
+> (an append-only commitment tree in its own contract), because CitizenNFTv2 is not upgradeable
+> and cannot hold the field.** A side registry is purely additive and requires no re-mint, but it
+> also means there is nothing to retrofit: every citizen registers a commitment for the first time
+> whenever it ships, at any population size. The cost is therefore **operational, not
+> cryptographic** — folding one signature into the onboarding flow is far cheaper than running a
+> re-registration campaign at 500 citizens.
+
+So: **decide the commitment-registry question before the next onboarding wave for operational
+reasons. Everything else in this section is deferred pending a threat model.**
 
 ---
 
@@ -281,19 +348,24 @@ mission is real rather than marketing.
 
 Ordered, and every item is independent of the client question:
 
-1. **Resolve the public-roster problem** (§1.3). Nothing else here is coherent until it is decided.
-2. **Add visibility classes to the Node Manifest** and a `netizen doctor` check that verifies them.
-   Turns the principle into an audit artifact.
-3. **Scope a self-run x402 facilitator on Gnosis**, and verify onchain whether EURe implements
-   EIP-3009. Both are blockers for the payment rail and both are cheap to check.
-4. **Evaluate a Dataspace Protocol connector** for the node. This is the institutional interface,
+1. **Write the threat model** (§1.3). One page, named adversaries, stated capabilities. Everything
+   privacy-shaped below is unevaluable without it, and it will probably shrink the work.
+2. **Decide the commitment-registry question** before the next onboarding wave: side registry with
+   Semaphore-compatible identity commitments, or not at all. Operational deadline, not a
+   cryptographic one, and it does not block the rest of this list.
+3. **Add visibility classes to the Node Manifest** and a `netizen doctor` check that verifies them.
+   Turns the principle into an audit artifact. Note the check must report honestly: on today's
+   contracts, `membership` is `public` and cannot be declared otherwise (§1.3).
+4. **Scope a self-run x402 facilitator on Gnosis** and the Permit2 path for EURe (EIP-3009 is
+   confirmed absent, see §2.3).
+5. **Evaluate a Dataspace Protocol connector** for the node. This is the institutional interface,
    and it is the same category of bet as the EUDI relying-party work: unglamorous, standards-shaped,
    and the actual reason an institution can buy.
-5. **Adopt compute-to-data as the pattern**, borrowing the architecture from Ocean without taking
+6. **Adopt compute-to-data as the pattern**, borrowing the architecture from Ocean without taking
    the token dependency.
-6. **Start with non-personal municipal data** (energy, mobility, environment). It is where the Data
+7. **Start with non-personal municipal data** (energy, mobility, environment). It is where the Data
    Act bites, it is legally clean, and Röbel plausibly already generates some of it.
-7. **Publish the concentration ratio** once node #2 exists.
+8. **Publish the concentration ratio** once node #2 exists.
 
 ---
 
