@@ -870,6 +870,57 @@ consume for free." Take Steel as the runtime, Kohaku as the privacy layer, ERC-8
 registry, and spend the whole team on the layer none of them will build: verified community
 membership as the thing an agent acts on behalf of.
 
+### 11.5 Precision on Kohaku, and the blocker nobody mentions
+
+**The Ethereum Foundation is not building a browser.** The roadmap says building one "is the
+logical path to pursue". That is a stated future direction in a notes document. There is no team,
+no timeline, and no repository. Do not plan around it, and do not describe it to anyone as a
+product in flight.
+
+What actually exists, today:
+
+| | Status |
+|---|---|
+| Kohaku SDK | v0.0.1-alpha.21, released 2026-05-25, GPL-3.0. Integrates Railgun / Privacy Pools / Tornado at the wallet layer; EIP-4337 mempool relaying via the Railgun integration |
+| Kohaku wallet | A reference **browser extension**, forked from Ambire. **Sepolia testnet only.** "Work in progress and currently under active development" |
+| Native Ethereum browser | A sentence in a roadmap |
+
+**And the blocker that decides whether Netizen can consume any of it:**
+
+- **Railgun is live on Ethereum, BSC, Polygon and Arbitrum.** Announced 2026 expansions name
+  Solana, NEAR, Arbitrum and Metis. **Gnosis is not supported and is not announced.**
+- Kohaku's own approach is "mainnet first", then progressively L2s "at stage 1 committed to stage
+  2 with fast withdrawals". **Gnosis is an independent L1 sidechain, not an L2**, so it does not
+  sit on that roadmap path either.
+
+**Netizen's entire stack (identity, governance, MACI, Safe, Circles/Münzen, EURe) is on the one
+chain the EF privacy layer does not reach.** Any plan that says "we get privacy from Kohaku" is
+currently false for this deployment.
+
+Three responses, in order of cost:
+
+1. **Consume the chain-agnostic half now.** Per-dapp addresses, IP protection, social recovery,
+   spending policies and key management are useful independent of shielded transfers. Take those,
+   skip the shielded-pool integration.
+2. **Build the seam, not the integration.** A `PrivacyProvider` interface in the client, with a
+   no-op implementation on Gnosis, so Kohaku drops in the day Gnosis is supported. Costs days.
+3. **Be the reason Gnosis gets supported.** Netizen is a real deployment, with real users, a
+   MiCA-compliant e-money token (EURe) and a live community currency, on Gnosis. Kohaku's stated
+   goals explicitly include "collaborations with other wallet teams". That door is open and
+   nobody has walked through it with a civic use case. This is the highest-leverage option and
+   it costs a conversation.
+
+**On offering an Ethereum-native client as a UX option:** supporting one costs nothing and
+building one costs everything. Support **EIP-6963 multi-injected provider discovery** so any
+client (Kohaku, Ambire, Rabby, MetaMask, Frame) can be brought by the user, ship the Netizen
+extension so any browser becomes Netizen-aware, and recommend clients in the docs. That is "the
+option", delivered.
+
+One honesty note on the UX claim itself: for the median Röbel citizen, an Ethereum-native browser
+is not better UX. The best UX is that they never learn there is a chain, which is what the
+smart-account and gasless work already buys. Ethereum-nativeness is better UX for the crypto-
+native minority and for agents. Both are worth serving. Neither is the median user.
+
 ---
 
 ## 12. Sources
