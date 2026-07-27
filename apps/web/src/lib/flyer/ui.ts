@@ -30,6 +30,16 @@ export function slugForFile(s: string): string {
   return cleaned || "flyer";
 }
 
+/**
+ * Download filename for a flyer: the image extension comes from the stored URL
+ * (kie.ai may return jpg/webp), so the file isn't mislabelled as .png.
+ */
+export function flyerFileName(title: string, imageUrl: string): string {
+  const match = /\.(png|jpe?g|webp)(?:\?|$)/i.exec(imageUrl);
+  const ext = match ? match[1].toLowerCase().replace("jpeg", "jpg") : "png";
+  return `${slugForFile(title)}.${ext}`;
+}
+
 /** Open a print-ready A4 view — the browser's "Save as PDF" gives a true A4 file. */
 export function printFlyer(url: string): void {
   const w = window.open("", "_blank");

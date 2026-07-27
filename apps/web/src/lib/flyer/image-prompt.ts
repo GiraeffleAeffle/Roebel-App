@@ -57,30 +57,18 @@ export function buildFlyerImagePrompt(
  * Build the prompt for editing an EXISTING flyer: the current flyer is passed
  * as the reference image and the model applies one requested change while
  * preserving everything else.
+ *
+ * NOTE: deliberately does NOT restate the stored copy as "must-keep" strings.
+ * The stored `copy` reflects the ORIGINAL text, so after one edit it can be
+ * stale — replaying it would tell the model to undo the previous change. The
+ * reference image itself is the source of truth for what must stay.
  */
-export function buildFlyerEditPrompt(instruction: string, copy?: FlyerCopy): string {
-  const keepText = copy
-    ? [
-        textLine("Headline", copy.headline),
-        textLine("Date", copy.date_line),
-        textLine("Time", copy.time_line),
-        textLine("Place", copy.place_line),
-        textLine("Call to action", copy.cta),
-      ]
-        .filter(Boolean)
-        .join("\n")
-    : "";
-
+export function buildFlyerEditPrompt(instruction: string): string {
   return [
     "Edit the provided A4 portrait flyer image.",
     `Apply exactly this change: ${instruction.trim()}`,
     "",
-    "Keep everything else identical — the overall layout, style, colours, imagery and all remaining text must stay as they are. Do not re-invent the design, do not translate anything, and do not add extra text.",
-    keepText
-      ? `These German strings must remain present and correctly spelled unless the requested change explicitly alters them:\n${keepText}`
-      : "",
+    "Keep everything else identical — the overall layout, style, colours, imagery and all remaining text must stay exactly as they appear in the provided image. Do not re-invent the design, do not translate anything, and do not add extra text.",
     "All text must stay crisp, correctly spelled and fully legible; keep comfortable print margins for A4.",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  ].join("\n");
 }

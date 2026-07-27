@@ -28,7 +28,10 @@ export {
 
 const KIE_BASE = "https://api.kie.ai/api/v1/jobs";
 const POLL_INTERVAL_MS = 2000;
-const DEFAULT_BUDGET_MS = 90_000;
+// Nano Banana 2 Lite typically returns in a few seconds. Keep the budget well
+// under a serverless function timeout so the caller gets a real error instead
+// of a hung request.
+const DEFAULT_BUDGET_MS = 55_000;
 
 export class KieImageError extends Error {}
 
@@ -101,10 +104,17 @@ export async function generateKieImage(
   const budget = input.budgetMs ?? DEFAULT_BUDGET_MS;
   const started = Date.now();
   while (Date.now() - started < budget) {
-    await sleep(POLL_INTERVAL_MS);
+    // Poll first, then wait — a fast job shouldn't pay a full interval.
     const task = await pollKieImageTask(taskId);
     if (task.state === "success") return task.url;
-    if (task.state === "fail") throw new KieImageError(task.error);
+    if (task.state === "fail") {
+      // The provider's failMsg is English/vendor-specific — log it, show German.
+      console.error("[images/kie] job failed:", taskId, task.error);
+      throw new KieImageError(
+        "Die Bildgenerierung ist fehlgeschlagen. Bitte formuliert die Beschreibung etwas anders.",
+      );
+    }
+    await sleep(POLL_INTERVAL_MS);
   }
   throw new KieImageError("Die Bildgenerierung hat zu lange gedauert. Bitte erneut versuchen.");
 }

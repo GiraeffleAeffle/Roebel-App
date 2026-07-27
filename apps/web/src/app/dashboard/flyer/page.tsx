@@ -25,7 +25,7 @@ import {
   attachFlyerToEvent,
 } from "@/app/actions/flyer";
 import { FLYER_STYLES } from "@/lib/flyer/styles";
-import { downloadImage, slugForFile, printFlyer, COPY_FIELDS } from "@/lib/flyer/ui";
+import { downloadImage, flyerFileName, printFlyer, COPY_FIELDS } from "@/lib/flyer/ui";
 import type { FlyerCopy } from "@/lib/flyer/copy";
 import type { Flyer, FlyerEventOption } from "@/types/flyer";
 import { Button } from "@/components/ui/button";
@@ -103,41 +103,53 @@ export default function FlyerPage() {
   const handleDraft = useCallback(async () => {
     if (!activeAccount || !walletAddress) return;
     setDrafting(true);
-    const res = await draftFlyerCopyAction(
-      activeAccount.id,
-      walletAddress,
-      brief,
-      styleId,
-      eventId === NO_EVENT ? null : eventId,
-    );
-    setDrafting(false);
-    if (!res.success || !res.copy) {
-      toast.error(res.error ?? "Text konnte nicht entworfen werden");
-      return;
+    try {
+      const res = await draftFlyerCopyAction(
+        activeAccount.id,
+        walletAddress,
+        brief,
+        styleId,
+        eventId === NO_EVENT ? null : eventId,
+      );
+      if (!res.success || !res.copy) {
+        toast.error(res.error ?? "Text konnte nicht entworfen werden");
+        return;
+      }
+      setCopy(res.copy);
+      toast.success("Textentwurf fertig — passt ihn an und erstellt den Flyer.");
+    } catch (error) {
+      console.error("draftFlyerCopyAction threw", error);
+      toast.error("Text konnte nicht entworfen werden. Bitte erneut versuchen.");
+    } finally {
+      setDrafting(false);
     }
-    setCopy(res.copy);
-    toast.success("Textentwurf fertig — passt ihn an und erstellt den Flyer.");
   }, [activeAccount, walletAddress, brief, styleId, eventId]);
 
   const handleGenerate = useCallback(async () => {
     if (!activeAccount || !walletAddress || !copy) return;
     setGenerating(true);
-    const res = await generateFlyerAction(activeAccount.id, walletAddress, {
-      title: copy.headline,
-      brief,
-      copy,
-      style: styleId,
-      eventId: eventId === NO_EVENT ? null : eventId,
-      referenceUrl: referenceUrl || null,
-    });
-    setGenerating(false);
-    if (!res.success || !res.flyer) {
-      toast.error(res.error ?? "Flyer konnte nicht erstellt werden");
-      return;
+    try {
+      const res = await generateFlyerAction(activeAccount.id, walletAddress, {
+        title: copy.headline,
+        brief,
+        copy,
+        style: styleId,
+        eventId: eventId === NO_EVENT ? null : eventId,
+        referenceUrl: referenceUrl || null,
+      });
+      if (!res.success || !res.flyer) {
+        toast.error(res.error ?? "Flyer konnte nicht erstellt werden");
+        return;
+      }
+      setPreview(res.flyer);
+      setFlyers((prev) => [res.flyer as Flyer, ...prev]);
+      toast.success("Flyer erstellt!");
+    } catch (error) {
+      console.error("generateFlyerAction threw", error);
+      toast.error("Flyer konnte nicht erstellt werden. Bitte erneut versuchen.");
+    } finally {
+      setGenerating(false);
     }
-    setPreview(res.flyer);
-    setFlyers((prev) => [res.flyer as Flyer, ...prev]);
-    toast.success("Flyer erstellt!");
   }, [activeAccount, walletAddress, copy, brief, styleId, eventId, referenceUrl]);
 
   const handleDelete = useCallback(
@@ -328,7 +340,7 @@ export default function FlyerPage() {
                 <div className="space-y-2 min-w-0">
                   <div className="flex flex-wrap gap-2">
                     <Button
-                      onClick={() => downloadImage(preview.image_url, `${slugForFile(preview.title)}.png`)}
+                      onClick={() => downloadImage(preview.image_url, flyerFileName(preview.title, preview.image_url))}
                       variant="outline"
                       size="sm"
                     >
@@ -393,7 +405,7 @@ export default function FlyerPage() {
                       <p className="text-sm font-medium truncate">{f.title || "Flyer"}</p>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <Button
-                          onClick={() => downloadImage(f.image_url, `${slugForFile(f.title)}.png`)}
+                          onClick={() => downloadImage(f.image_url, flyerFileName(f.title, f.image_url))}
                           variant="outline"
                           size="sm"
                           title="Als PNG herunterladen"
@@ -417,13 +429,6 @@ export default function FlyerPage() {
                         >
                           <Share2 className="h-4 w-4" />
                         </Button>
-                        <FlyerEditControl
-                          compact
-                          accountId={activeAccount.id}
-                          walletAddress={walletAddress}
-                          flyer={f}
-                          onEdited={(nf) => setFlyers((prev) => [nf, ...prev])}
-                        />
                         <div className="flex-1" />
                         <Button
                           onClick={() => handleDelete(f.id)}
@@ -434,6 +439,12 @@ export default function FlyerPage() {
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
+                      <FlyerEditControl
+                        accountId={activeAccount.id}
+                        walletAddress={walletAddress}
+                        flyer={f}
+                        onEdited={(nf) => setFlyers((prev) => [nf, ...prev])}
+                      />
                     </div>
                   </div>
                 ))}

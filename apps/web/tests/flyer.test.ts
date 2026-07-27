@@ -89,16 +89,21 @@ test("buildFlyerImagePrompt adds reference guidance only when hasReference", () 
 });
 
 test("buildFlyerEditPrompt carries the instruction and a preserve-everything-else rule", () => {
-  const prompt = buildFlyerEditPrompt("Datum auf 19. Juli ändern", sampleCopy);
+  const prompt = buildFlyerEditPrompt("Datum auf 19. Juli ändern");
   assert.ok(prompt.includes("Datum auf 19. Juli ändern"));
   assert.ok(/Keep everything else identical/i.test(prompt));
-  assert.ok(prompt.includes(sampleCopy.headline)); // key strings must survive
 });
 
-test("buildFlyerEditPrompt works without copy and trims the instruction", () => {
+test("buildFlyerEditPrompt trims the instruction", () => {
   const prompt = buildFlyerEditPrompt("  mehr Kontrast  ");
   assert.ok(prompt.includes("Apply exactly this change: mehr Kontrast"));
-  assert.ok(!prompt.includes("must remain present"));
+});
+
+test("buildFlyerEditPrompt never replays stored copy (a 2nd edit must not revert the 1st)", () => {
+  const prompt = buildFlyerEditPrompt("Hintergrund dunkler");
+  // The stored copy reflects the ORIGINAL text; restating it would undo prior edits.
+  assert.ok(!prompt.includes(sampleCopy.date_line));
+  assert.ok(!prompt.includes(sampleCopy.headline));
 });
 
 test("buildCopyPrompt includes enriched event facts (category, price, website, organizer)", () => {

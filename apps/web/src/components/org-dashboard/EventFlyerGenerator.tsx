@@ -16,7 +16,7 @@ import {
   postFlyerToFeed,
 } from "@/app/actions/flyer";
 import { FLYER_STYLES } from "@/lib/flyer/styles";
-import { downloadImage, slugForFile, printFlyer, COPY_FIELDS } from "@/lib/flyer/ui";
+import { downloadImage, flyerFileName, printFlyer, COPY_FIELDS } from "@/lib/flyer/ui";
 import { FlyerEditControl } from "@/components/flyer/FlyerEditControl";
 import type { FlyerCopy } from "@/lib/flyer/copy";
 import type { Flyer } from "@/types/flyer";
@@ -70,34 +70,46 @@ export function EventFlyerGenerator({ accountId, eventId, eventTitle, eventImage
   const handleDraft = useCallback(async () => {
     if (!walletAddress) return;
     setDrafting(true);
-    const res = await draftFlyerCopyAction(accountId, walletAddress, note, styleId, eventId);
-    setDrafting(false);
-    if (!res.success || !res.copy) {
-      toast.error(res.error ?? "Text konnte nicht entworfen werden");
-      return;
+    try {
+      const res = await draftFlyerCopyAction(accountId, walletAddress, note, styleId, eventId);
+      if (!res.success || !res.copy) {
+        toast.error(res.error ?? "Text konnte nicht entworfen werden");
+        return;
+      }
+      setCopy(res.copy);
+      toast.success("Textentwurf fertig — passt ihn an und erstellt den Flyer.");
+    } catch (error) {
+      console.error("draftFlyerCopyAction threw", error);
+      toast.error("Text konnte nicht entworfen werden. Bitte erneut versuchen.");
+    } finally {
+      setDrafting(false);
     }
-    setCopy(res.copy);
-    toast.success("Textentwurf fertig — passt ihn an und erstellt den Flyer.");
   }, [walletAddress, accountId, note, styleId, eventId]);
 
   const handleGenerate = useCallback(async () => {
     if (!walletAddress || !copy) return;
     setGenerating(true);
-    const res = await generateFlyerAction(accountId, walletAddress, {
-      title: copy.headline || eventTitle,
-      brief: note,
-      copy,
-      style: styleId,
-      eventId,
-      referenceUrl: useEventImage ? eventImageUrl ?? null : null,
-    });
-    setGenerating(false);
-    if (!res.success || !res.flyer) {
-      toast.error(res.error ?? "Flyer konnte nicht erstellt werden");
-      return;
+    try {
+      const res = await generateFlyerAction(accountId, walletAddress, {
+        title: copy.headline || eventTitle,
+        brief: note,
+        copy,
+        style: styleId,
+        eventId,
+        referenceUrl: useEventImage ? eventImageUrl ?? null : null,
+      });
+      if (!res.success || !res.flyer) {
+        toast.error(res.error ?? "Flyer konnte nicht erstellt werden");
+        return;
+      }
+      setPreview(res.flyer);
+      toast.success("Flyer erstellt!");
+    } catch (error) {
+      console.error("generateFlyerAction threw", error);
+      toast.error("Flyer konnte nicht erstellt werden. Bitte erneut versuchen.");
+    } finally {
+      setGenerating(false);
     }
-    setPreview(res.flyer);
-    toast.success("Flyer erstellt!");
   }, [walletAddress, accountId, copy, note, styleId, eventId, useEventImage, eventImageUrl, eventTitle]);
 
   const handleSetCover = useCallback(async () => {
@@ -230,7 +242,7 @@ export function EventFlyerGenerator({ accountId, eventId, eventTitle, eventImage
                 <ImageIcon className="h-4 w-4 mr-2" /> Als Event-Bild setzen
               </Button>
               <Button
-                onClick={() => downloadImage(preview.image_url, `${slugForFile(preview.title)}.png`)}
+                onClick={() => downloadImage(preview.image_url, flyerFileName(preview.title, preview.image_url))}
                 variant="outline"
                 size="sm"
               >

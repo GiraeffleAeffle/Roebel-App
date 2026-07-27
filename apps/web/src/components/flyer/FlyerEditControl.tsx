@@ -38,16 +38,24 @@ export function FlyerEditControl({
   const submit = async () => {
     if (!instruction.trim() || busy) return;
     setBusy(true);
-    const res = await editFlyerAction(accountId, walletAddress, flyer.id, instruction);
-    setBusy(false);
-    if (!res.success || !res.flyer) {
-      toast.error(res.error ?? "Änderung fehlgeschlagen");
-      return;
+    try {
+      const res = await editFlyerAction(accountId, walletAddress, flyer.id, instruction);
+      if (!res.success || !res.flyer) {
+        toast.error(res.error ?? "Änderung fehlgeschlagen");
+        return;
+      }
+      toast.success("Geänderte Version erstellt");
+      setInstruction("");
+      setOpen(false);
+      onEdited(res.flyer);
+    } catch (error) {
+      // A network drop / function timeout rejects the action — never leave the
+      // spinner hanging with no feedback.
+      console.error("editFlyerAction threw", error);
+      toast.error("Änderung fehlgeschlagen. Bitte erneut versuchen.");
+    } finally {
+      setBusy(false);
     }
-    toast.success("Geänderte Version erstellt");
-    setInstruction("");
-    setOpen(false);
-    onEdited(res.flyer);
   };
 
   if (!open) {

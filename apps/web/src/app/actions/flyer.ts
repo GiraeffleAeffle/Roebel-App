@@ -327,7 +327,7 @@ export async function editFlyerAction(
     }
 
     const copy = normalizeCopy(original.copy ?? {});
-    const prompt = buildFlyerEditPrompt(instruction, copy);
+    const prompt = buildFlyerEditPrompt(instruction);
     const image = await renderFlyerImage(prompt, referenceUrls);
 
     const imageUrl = await uploadFlyerImage(admin, accountId, image);
