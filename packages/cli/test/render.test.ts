@@ -10,6 +10,9 @@ import {
   renderCaddyfile,
   renderComposeYml,
   renderBootstrap,
+  renderSynapseConfig,
+  renderMasConfig,
+  renderMatrixSecretsScript,
   collectSecretRefs,
   plan,
 } from "../src/render.js";
@@ -172,6 +175,39 @@ test("a node that hosts its own keystone still provisions it", () => {
   assert.ok(b.files["docker-compose.yml"].includes("roebel-id:"));
   assert.ok(b.files["Caddyfile"].includes("id.roebel.app"));
   assert.ok(Object.keys(b.files).includes("roebel-id.env"));
+});
+
+test("Synapse delegates ALL auth to MAS and trusts the proxy", () => {
+  const c = renderSynapseConfig(fullNode);
+  assert.match(c, /server_name: "roebel\.app"/);          // not matrix.roebel.app
+  assert.match(c, /msc3861:\n\s+enabled: true/);           // auth delegated
+  assert.match(c, /x_forwarded: true/);                    // real client IPs behind Caddy
+  assert.match(c, /enable_registration: false/);
+  assert.match(c, /password_config:\n\s+enabled: false/);  // no shadow password accounts
+});
+
+test("MAS uses the node's own keystone as the only identity source", () => {
+  const c = renderMasConfig(fullNode);
+  assert.ok(c.includes(`issuer: ${fullNode.identity.idp.issuer}`), "upstream = our keystone");
+  assert.match(c, /passwords:\n\s+enabled: false/);
+  assert.match(c, /password_registration_enabled: false/);
+  // signing keys referenced by PATH — never inlined into a rendered bundle
+  assert.match(c, /key_file: \/keys\/rsa\.pem/);
+  assert.ok(!/BEGIN (RSA )?PRIVATE KEY/.test(c), "no key material in the bundle");
+});
+
+test("Matrix secrets are generated on the box, idempotently, never rendered", () => {
+  const b = renderBundle(fullNode);
+  const gen = b.files["matrix/generate-secrets.sh"];
+  assert.ok(gen, "generator must ship");
+  assert.match(gen, /openssl rand -hex 32/);
+  assert.match(gen, /grep -q "\^\$1="/);   // only adds what is missing
+  assert.match(gen, /openssl genpkey/);    // MAS signing keys
+  // the rendered configs carry placeholders, not values
+  assert.match(b.files["mas/config.yaml"], /\$\{MAS_ENCRYPTION_SECRET\}/);
+  assert.match(b.files["synapse/homeserver.yaml"], /\$\{POSTGRES_PASSWORD\}/);
+  // and the bootstrap substitutes them on the box
+  assert.match(b.files["bootstrap.sh"], /envsubst < mas\/config\.yaml/);
 });
 
 test("bootstrap.sh is an idempotent apply script (docker + .env gate + compose up)", () => {

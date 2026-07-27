@@ -104,25 +104,199 @@ export function renderElementConfig(m: NetizenManifest): string {
   );
 }
 
+/**
+ * Matrix Authentication Service — the FULL config, not a fragment.
+ *
+ * MAS owns all authentication; Synapse delegates to it via MSC3861. Local
+ * passwords and registration are disabled on purpose: the node's own keystone is
+ * the only way in, so identity stays sovereign and there is no password shadow
+ * account to compromise.
+ *
+ * Secrets are ${PLACEHOLDERS} substituted on the box at apply time, and signing
+ * keys are referenced by path (never inlined) so no key material is ever written
+ * into a rendered bundle.
+ */
 export function renderMasConfig(m: NetizenManifest): string {
   const mx = rp(m, "matrix");
-  const secret = m.services.secrets?.matrixClientSecret ?? "$MATRIX_CLIENT_SECRET";
+  const matrix = m.services.chat?.matrix;
   const callback = mx?.redirectUris[0] ?? "";
   const ulid = callback.split("/").pop() || "01ROEBELIDPROVIDERULID000000";
-  return `${header(m, "MAS upstream OIDC = the node's Röbel ID")}upstream_oauth2:
+  const serverName = hostname(matrix?.homeserver ?? m.identity.idp.issuer).replace(/^matrix\./, "");
+  return `${header(m, "Matrix Authentication Service (MSC3861 upstream auth)")}http:
+  public_base: ${matrix?.mas ?? ""}/
+  issuer: ${matrix?.mas ?? ""}/
+  listeners:
+    - name: web
+      resources:
+        - name: discovery
+        - name: human
+        - name: oauth
+        - name: compat
+        - name: graphql
+        - name: assets
+      binds:
+        - address: "[::]:8080"
+      proxy_protocol: false
+    - name: internal
+      resources:
+        - name: health
+      binds:
+        - host: localhost
+          port: 8081
+
+database:
+  uri: postgresql://mas:\${POSTGRES_PASSWORD}@postgres/mas
+
+secrets:
+  encryption: \${MAS_ENCRYPTION_SECRET}
+  keys:
+    - kid: rsa
+      key_file: /keys/rsa.pem
+    - kid: ec
+      key_file: /keys/ec.pem
+
+matrix:
+  homeserver: ${serverName}
+  secret: \${MAS_SYNAPSE_SHARED_SECRET}
+  endpoint: http://synapse:8008
+
+# Synapse authenticates to MAS as this client (MSC3861).
+clients:
+  - client_id: 0000000000000000000SYNAPSE
+    client_auth_method: client_secret_basic
+    client_secret: \${MAS_SYNAPSE_SHARED_SECRET}
+
+# The node's own keystone is the ONLY identity source.
+passwords:
+  enabled: false
+
+account:
+  password_registration_enabled: false
+
+upstream_oauth2:
   providers:
     - id: ${ulid}
       issuer: ${m.identity.idp.issuer}
       human_name: "${m.name} ID"
       client_id: "${mx?.id ?? "matrix"}"
-      client_secret: "${secret}"
-      scope: "${m.identity.idp.scopes.join(" ")}"
+      client_secret: "\${MATRIX_CLIENT_SECRET}"
       token_endpoint_auth_method: client_secret_basic
+      scope: "${m.identity.idp.scopes.join(" ")}"
       claims_imports:
-        subject: { template: "{{ user.sub }}" }
-        localpart: { template: "{{ user.sub }}" }
-        displayname: { template: "{{ user.name }}" }
-        email: { template: "{{ user.email }}" }
+        subject:
+          template: "{{ user.sub }}"
+        localpart:
+          action: require
+          template: "{{ user.sub }}"
+        displayname:
+          action: suggest
+          template: "{{ user.name }}"
+        email:
+          action: suggest
+          template: "{{ user.email }}"
+`;
+}
+
+/**
+ * Synapse homeserver.yaml.
+ *
+ * Authentication is fully delegated to MAS (MSC3861) — Synapse itself issues no
+ * passwords and no registration. `x_forwarded: true` because Caddy terminates TLS
+ * in front; without it every client appears to come from the proxy's IP and rate
+ * limiting/abuse controls become meaningless.
+ */
+export function renderSynapseConfig(m: NetizenManifest): string {
+  const matrix = m.services.chat?.matrix;
+  const serverName = hostname(matrix?.homeserver ?? "").replace(/^matrix\./, "");
+  return `${header(m, "Synapse homeserver")}server_name: "${serverName}"
+public_baseurl: "${matrix?.homeserver ?? ""}/"
+pid_file: /data/homeserver.pid
+report_stats: false
+signing_key_path: "/data/signing.key"
+media_store_path: /data/media_store
+
+listeners:
+  - port: 8008
+    tls: false
+    type: http
+    x_forwarded: true          # Caddy terminates TLS in front of us
+    bind_addresses: ['0.0.0.0']
+    resources:
+      - names: [client, federation]
+        compress: false
+
+database:
+  name: psycopg2
+  args:
+    user: synapse
+    password: \${POSTGRES_PASSWORD}
+    database: synapse
+    host: postgres
+    cp_min: 5
+    cp_max: 10
+
+# MSC3861: MAS is the authoritative auth service. Synapse must not mint its own
+# sessions, or you get two sources of truth for identity.
+experimental_features:
+  msc3861:
+    enabled: true
+    issuer: ${matrix?.mas ?? ""}/
+    client_id: 0000000000000000000SYNAPSE
+    client_auth_method: client_secret_basic
+    client_secret: "\${MAS_SYNAPSE_SHARED_SECRET}"
+    admin_token: "\${SYNAPSE_ADMIN_TOKEN}"
+    account_management_url: "${matrix?.mas ?? ""}/account"
+
+password_config:
+  enabled: false
+enable_registration: false
+
+macaroon_secret_key: "\${SYNAPSE_MACAROON_SECRET}"
+form_secret: "\${SYNAPSE_FORM_SECRET}"
+
+trusted_key_servers:
+  - server_name: "matrix.org"
+suppress_key_server_warning: true
+`;
+}
+
+/**
+ * Generate Matrix secrets + MAS signing keys ON THE BOX, once, appending to .env.
+ *
+ * Same rule as every other secret on this node: created where they live, never
+ * rendered into the bundle, never passed through the CLI. Idempotent — existing
+ * values are left untouched so re-running the installer never rotates a key out
+ * from under a running homeserver (which would invalidate every session).
+ */
+export function renderMatrixSecretsScript(): string {
+  return `#!/usr/bin/env bash
+# Generated by netizen render. Idempotent: only creates what is missing.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+ENV_FILE=./.env
+KEYS=./matrix/keys
+mkdir -p "$KEYS"
+
+add_secret() {   # add_secret NAME VALUE  — only if NAME is absent
+  if ! grep -q "^$1=" "$ENV_FILE" 2>/dev/null; then
+    printf '%s=%s\\n' "$1" "$2" >> "$ENV_FILE"
+    echo "generated $1"
+  fi
+}
+
+add_secret MAS_ENCRYPTION_SECRET      "$(openssl rand -hex 32)"
+add_secret MAS_SYNAPSE_SHARED_SECRET  "$(openssl rand -hex 32)"
+add_secret SYNAPSE_MACAROON_SECRET    "$(openssl rand -hex 32)"
+add_secret SYNAPSE_FORM_SECRET        "$(openssl rand -hex 32)"
+add_secret SYNAPSE_ADMIN_TOKEN        "$(openssl rand -hex 32)"
+chmod 600 "$ENV_FILE"
+
+# MAS signing keys — referenced by path from its config so no key material is
+# ever inlined into YAML or into a rendered bundle.
+[ -f "$KEYS/rsa.pem" ] || openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$KEYS/rsa.pem" 2>/dev/null
+[ -f "$KEYS/ec.pem" ]  || openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:prime256v1 -out "$KEYS/ec.pem" 2>/dev/null
+chmod 600 "$KEYS"/*.pem
+echo "matrix secrets ready"
 `;
 }
 
@@ -244,14 +418,20 @@ export function renderComposeYml(m: NetizenManifest): string {
       `  synapse:
     image: matrixdotorg/synapse:latest
     restart: unless-stopped
-    volumes: ["./synapse:/data"]
+    environment:
+      SYNAPSE_CONFIG_PATH: /data/homeserver.yaml
+    volumes:
+      - "synapse_data:/data"
+      - "./synapse/homeserver.rendered.yaml:/data/homeserver.yaml:ro"
     depends_on: [postgres, mas]
     expose: ["8008"]`,
       `  mas:
     image: ghcr.io/element-hq/matrix-authentication-service:latest
     restart: unless-stopped
-    command: server
-    volumes: ["./mas/config.yaml:/config.yaml"]
+    command: ["server", "--config", "/config.yaml"]
+    volumes:
+      - "./mas/config.rendered.yaml:/config.yaml:ro"
+      - "./matrix/keys:/keys:ro"
     depends_on: [postgres]
     expose: ["8080"]`,
       `  element:
@@ -393,6 +573,7 @@ export function renderComposeYml(m: NetizenManifest): string {
   const vols = ["caddy_data:"];
   if (needsPostgres) vols.push("pg_data:");
   if (hasNostr) vols.push("strfry_db:");
+  if (hasMatrix) vols.push("synapse_data:");
   if (ws?.nextcloud) vols.push("nextcloud_data:");
   if (ws?.wiki) vols.push("xwiki_data:");
   if (ws?.project) vols.push("openproject_data:");
@@ -580,6 +761,19 @@ if [ ! -f .env ]; then
 fi
 set -a; . ./.env; set +a
 
+# 2b. Matrix: generate secrets/keys on the box, then substitute them into the
+# rendered configs. Synapse and MAS need real values in their YAML (neither reads
+# env vars), so the bundle ships \${PLACEHOLDER} templates and we fill them here —
+# secrets therefore never exist in the bundle or in git.
+if [ -f matrix/generate-secrets.sh ]; then
+  bash matrix/generate-secrets.sh
+  set -a; . ./.env; set +a
+  command -v envsubst >/dev/null 2>&1 || apt-get update -qq && apt-get -y install gettext-base >/dev/null 2>&1 || true
+  envsubst < mas/config.yaml            > mas/config.rendered.yaml
+  envsubst < synapse/homeserver.yaml    > synapse/homeserver.rendered.yaml
+  chmod 600 mas/config.rendered.yaml synapse/homeserver.rendered.yaml
+fi
+
 # 3. Bring up the stack (idempotent).
 docker compose up -d
 
@@ -668,6 +862,8 @@ export function renderBundle(m: NetizenManifest): Bundle {
   };
   if (m.services.chat?.matrix) {
     files["mas/config.yaml"] = renderMasConfig(m);
+    files["synapse/homeserver.yaml"] = renderSynapseConfig(m);
+    files["matrix/generate-secrets.sh"] = renderMatrixSecretsScript();
     files["element/config.json"] = renderElementConfig(m);
   }
   if (m.services.chat?.nostr) {
