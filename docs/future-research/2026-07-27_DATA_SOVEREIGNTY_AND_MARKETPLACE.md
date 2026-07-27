@@ -92,10 +92,10 @@ and Gnosis mainnet):**
 | Surface | Detail |
 |---|---|
 | Poseidon commitment | **Does not exist.** No `poseidon` or `commitment` anywhere in `contracts/verification-system/` |
-| `hasCitizenNFT` | `mapping(address => bool) public` — directly queryable per address, no event scraping needed |
-| `hasEverHeldCitizenNFT` | `mapping(address => bool) public` — **a permanent public record that survives revocation.** Leaving does not remove you |
+| `hasCitizenNFT` | `mapping(address => bool) public`. Directly queryable per address, no event scraping needed |
+| `hasEverHeldCitizenNFT` | `mapping(address => bool) public`. **A permanent public record that survives revocation.** Leaving does not remove you |
 | Events | `CitizenNFTMinted(address indexed citizen, …)`, `MigrationMinted(address indexed citizen, …)`, plus ERC721 `Transfer` |
-| Vote weight | `contract CitizenNFTv2 is ERC721, ERC721Votes, Ownable` — checkpointed voting power and public `delegates()` |
+| Vote weight | `contract CitizenNFTv2 is ERC721, ERC721Votes, Ownable`. Checkpointed voting power and public `delegates()` |
 | Upgradeability | **None.** No proxy, no `Initializable`. A commitment field cannot be added to this contract |
 | Live size | `citizenCount()` = **50** on Gnosis (was 20 at the June 2026 migration mint) |
 
@@ -144,7 +144,7 @@ decided." That was over-broad. The narrow decision is:
 > and cannot hold the field.** A side registry is purely additive and requires no re-mint, but it
 > also means there is nothing to retrofit: every citizen registers a commitment for the first time
 > whenever it ships, at any population size. The cost is therefore **operational, not
-> cryptographic** — folding one signature into the onboarding flow is far cheaper than running a
+> cryptographic**. Folding one signature into the onboarding flow is far cheaper than running a
 > re-registration campaign at 500 citizens.
 
 So: **decide the commitment-registry question before the next onboarding wave for operational
