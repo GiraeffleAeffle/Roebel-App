@@ -324,11 +324,15 @@ export default function NostrIdentityScreen() {
               {busy ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.primaryButtonText}>Identität erstellen</Text>
+                <Text style={styles.primaryButtonText}>
+                  {identity ? 'Registrierung wiederholen' : 'Identität erstellen'}
+                </Text>
               )}
             </Pressable>
             <Text style={[styles.buttonNote, { color: colors.textSecondary }]}>
-              Kostenlos, kein zusätzliches Passwort. Du kannst sie jederzeit wieder entfernen.
+              {identity
+                ? 'Dein Ausweis liegt bereits auf diesem Gerät. Es fehlt nur noch die Anmeldung beim Relay.'
+                : 'Kostenlos, kein zusätzliches Passwort. Du kannst sie jederzeit wieder entfernen.'}
             </Text>
           </>
         )}

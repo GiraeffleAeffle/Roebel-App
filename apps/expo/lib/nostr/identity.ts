@@ -80,6 +80,46 @@ export interface RegistrationResult {
   ok: boolean;
   /** German, safe to surface directly. */
   message: string;
+  /** Machine-readable cause, for logs and for deciding whether retrying can help. */
+  reason?: 'not-deployed' | 'verification-failed' | 'chain-unavailable' | 'network' | 'unknown';
+}
+
+/**
+ * Turn a failed Edge Function call into an honest message.
+ *
+ * "Bitte später erneut versuchen" is only true for transient faults. Telling
+ * someone to wait for a condition that will never resolve on its own — a function
+ * that is not deployed — sends them into a retry loop instead of to the fix.
+ */
+function describeFailure(status: number | undefined): RegistrationResult {
+  if (status === 404) {
+    return {
+      ok: false,
+      reason: 'not-deployed',
+      message:
+        'Die Nostr-Registrierung ist auf dem Server noch nicht freigeschaltet. Deine Identität liegt bereits sicher auf diesem Gerät — sobald der Dienst bereitsteht, genügt ein Tipp.',
+    };
+  }
+  if (status === 503) {
+    return {
+      ok: false,
+      reason: 'chain-unavailable',
+      message:
+        'Deine Wallet-Signatur konnte gerade nicht geprüft werden. Das liegt meist am Netzwerk — bitte in ein paar Minuten noch einmal versuchen.',
+    };
+  }
+  if (status === 400 || status === 409) {
+    return {
+      ok: false,
+      reason: 'verification-failed',
+      message: 'Die Signaturprüfung ist fehlgeschlagen. Bitte melde dich bei uns, wenn das erneut passiert.',
+    };
+  }
+  return {
+    ok: false,
+    reason: status ? 'unknown' : 'network',
+    message: 'Die Registrierung hat nicht geklappt. Bitte später erneut versuchen.',
+  };
 }
 
 /**
@@ -109,10 +149,18 @@ export async function registerIdentity(
     });
 
     if (error) {
-      return { ok: false, message: 'Registrierung fehlgeschlagen. Bitte später erneut versuchen.' };
+      // supabase-js wraps the HTTP response on FunctionsHttpError; the status is
+      // what distinguishes "not deployed" from "your signature is wrong".
+      const status: number | undefined =
+        (error as { context?: { status?: number } })?.context?.status;
+      const failure = describeFailure(status);
+      console.warn('[nostr] registration failed', status ?? 'no-status', error.message);
+      return failure;
     }
     if ((data as { error?: string } | null)?.error) {
-      return { ok: false, message: 'Die Signaturprüfung ist fehlgeschlagen.' };
+      const detail = (data as { error: string }).error;
+      console.warn('[nostr] registration rejected', detail);
+      return describeFailure(400);
     }
 
     await SecureStore.setItemAsync(REGISTRATION_STORE, new Date().toISOString());
@@ -120,8 +168,9 @@ export async function registerIdentity(
       ok: true,
       message: 'Registriert. Der Schreibzugriff wird innerhalb weniger Minuten freigeschaltet.',
     };
-  } catch {
-    return { ok: false, message: 'Registrierung fehlgeschlagen. Bitte später erneut versuchen.' };
+  } catch (err) {
+    console.warn('[nostr] registration threw', (err as Error)?.message);
+    return describeFailure(undefined);
   }
 }
 
