@@ -198,8 +198,17 @@ Set these in **Vercel → roebel-web → Environment** (Production) and in
 `apps/web/.env.local` for local dev. Both are `NEXT_PUBLIC_` (the tiles link from
 the browser):
 ```
-NEXT_PUBLIC_WORKSPACE_BASE_URL=https://cloud.roebel.app
-NEXT_PUBLIC_CHAT_BASE_URL=https://chat.roebel.app
+NEXT_PUBLIC_WORKSPACE_BASE_URL=https://cloud.roebel.app   # Nextcloud + Collabora (files/docs)
+NEXT_PUBLIC_CHAT_BASE_URL=https://chat.roebel.app         # Element/Matrix (human chat)
+# The rest of the openDesk-equivalent suite — each tile appears ONLY when its var is set,
+# so you can roll them out one at a time:
+NEXT_PUBLIC_MAIL_BASE_URL=https://mail.roebel.app         # Open-Xchange (mail/calendar/contacts)
+NEXT_PUBLIC_WIKI_BASE_URL=https://wiki.roebel.app         # XWiki (knowledge)
+NEXT_PUBLIC_VIDEO_BASE_URL=https://meet.roebel.app        # Jitsi (video)
+NEXT_PUBLIC_PROJECT_BASE_URL=https://project.roebel.app   # OpenProject (projects/tasks)
+NEXT_PUBLIC_AGENTS_BASE_URL=https://agents.roebel.app     # KI-Arbeitsbereich: humans + AI agents
+                                                          # as peers (Nostr/Buzz-style; see
+                                                          # docs/NOSTR_AGENT_ECOSYSTEM_PLAN.md)
 ```
 Redeploy the web app. The "Dateien & Dokumente" and "Team-Chat" tiles now light up
 on both the citizen dashboard (`/app/dashboard`) and the org Arbeitsbereich

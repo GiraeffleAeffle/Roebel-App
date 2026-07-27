@@ -9,7 +9,7 @@ test("no org context yields no tiles", () => {
   assert.deepEqual(buildOrgWorkspaceTiles({ org: null }), []);
 });
 
-test("builds files + chat tiles for an org, in order", () => {
+test("builds the full openDesk-equivalent suite for an org, in order", () => {
   const tiles = buildOrgWorkspaceTiles({
     workspaceBaseUrl: "https://cloud.roebel.app",
     chatBaseUrl: "https://chat.roebel.app",
@@ -17,11 +17,34 @@ test("builds files + chat tiles for an org, in order", () => {
   });
   assert.deepEqual(
     tiles.map((t) => t.id),
-    ["org-nextcloud", "org-chat"]
+    ["org-nextcloud", "org-chat", "org-mail", "org-wiki", "org-video", "org-project", "org-agents"]
   );
   assert.equal(tiles[0].label, "Dateien & Dokumente");
   assert.equal(tiles[1].label, "Team-Chat");
   assert.equal(tiles[1].icon, "messages");
+});
+
+test("only configured suite members are visible (each tile is independently gated)", () => {
+  const visible = filterAvailableTiles(
+    buildOrgWorkspaceTiles({
+      workspaceBaseUrl: "https://cloud.roebel.app",
+      mailBaseUrl: "https://mail.roebel.app",
+      org: ORG,
+    })
+  );
+  assert.deepEqual(visible.map((t) => t.id), ["org-nextcloud", "org-mail"]);
+  assert.equal(visible[1].href, "https://mail.roebel.app");
+});
+
+test("agent workspace tile lights up when configured (humans + AI agents, one space)", () => {
+  const agents = buildOrgWorkspaceTiles({
+    agentsBaseUrl: "https://agents.roebel.app/",
+    org: ORG,
+  }).find((t) => t.id === "org-agents");
+  assert.ok(agents);
+  assert.equal(agents.configured, true);
+  assert.equal(agents.href, "https://agents.roebel.app");
+  assert.equal(agents.icon, "agents");
 });
 
 test("files tile is unconfigured without a workspace base url", () => {

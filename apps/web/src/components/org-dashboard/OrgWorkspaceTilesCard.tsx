@@ -1,6 +1,16 @@
 "use client";
 
-import { Cloud, MessagesSquare, LayoutGrid, type LucideIcon } from "lucide-react";
+import {
+  Cloud,
+  MessagesSquare,
+  Mail,
+  BookOpen,
+  Video,
+  KanbanSquare,
+  Bot,
+  LayoutGrid,
+  type LucideIcon,
+} from "lucide-react";
 import { useAccount } from "@/lib/context/AccountContext";
 import { buildOrgWorkspaceTiles } from "@/lib/dashboard/org-workspace-tiles";
 import { filterAvailableTiles } from "@/lib/dashboard/workspace-tiles";
@@ -8,6 +18,11 @@ import { filterAvailableTiles } from "@/lib/dashboard/workspace-tiles";
 const ICONS: Record<string, LucideIcon> = {
   cloud: Cloud,
   messages: MessagesSquare,
+  mail: Mail,
+  wiki: BookOpen,
+  video: Video,
+  project: KanbanSquare,
+  agents: Bot,
 };
 
 export function OrgWorkspaceTilesCard() {
@@ -17,6 +32,11 @@ export function OrgWorkspaceTilesCard() {
     buildOrgWorkspaceTiles({
       workspaceBaseUrl: process.env.NEXT_PUBLIC_WORKSPACE_BASE_URL,
       chatBaseUrl: process.env.NEXT_PUBLIC_CHAT_BASE_URL,
+      mailBaseUrl: process.env.NEXT_PUBLIC_MAIL_BASE_URL,
+      wikiBaseUrl: process.env.NEXT_PUBLIC_WIKI_BASE_URL,
+      videoBaseUrl: process.env.NEXT_PUBLIC_VIDEO_BASE_URL,
+      projectBaseUrl: process.env.NEXT_PUBLIC_PROJECT_BASE_URL,
+      agentsBaseUrl: process.env.NEXT_PUBLIC_AGENTS_BASE_URL,
       org: activeAccount
         ? { id: activeAccount.id, slug: activeAccount.slug }
         : null,

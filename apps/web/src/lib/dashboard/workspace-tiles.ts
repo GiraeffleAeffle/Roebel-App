@@ -11,8 +11,24 @@
  */
 
 export interface WorkspaceTileConfig {
-  /** Base URL of the self-hosted workspace. Empty/undefined = not configured. */
+  /** Base URL of the self-hosted workspace (Nextcloud/Collabora). Empty/undefined = not configured. */
   workspaceBaseUrl?: string | null;
+  /** Element/Matrix chat. Humans talk here (openDesk-native). */
+  chatBaseUrl?: string | null;
+  /** Open-Xchange mail/calendar/contacts. */
+  mailBaseUrl?: string | null;
+  /** XWiki knowledge base. */
+  wikiBaseUrl?: string | null;
+  /** Jitsi video meetings. */
+  videoBaseUrl?: string | null;
+  /** OpenProject project management. */
+  projectBaseUrl?: string | null;
+  /**
+   * Agent workspace (Nostr/Buzz-style): the space where the citizen's AI agents
+   * are members alongside humans. Same identity (smart account → derived npub),
+   * same relay. See docs/NOSTR_AGENT_ECOSYSTEM_PLAN.md.
+   */
+  agentsBaseUrl?: string | null;
 }
 
 export interface WorkspaceTile {
@@ -28,21 +44,36 @@ export interface WorkspaceTile {
   configured: boolean;
 }
 
-/** Build the v1 tile list, resolving hrefs from the supplied config. */
-export function buildWorkspaceTiles(config: WorkspaceTileConfig): WorkspaceTile[] {
-  const base = (config.workspaceBaseUrl ?? "").trim().replace(/\/+$/, "");
-  const workspaceConfigured = base.length > 0;
+/** Normalise a configured base URL (trim + strip trailing slashes). */
+function normalise(url: string | null | undefined): string {
+  return (url ?? "").trim().replace(/\/+$/, "");
+}
 
-  return [
-    {
-      id: "nextcloud",
-      label: "Dokumente & Dateien",
-      icon: "cloud",
-      href: workspaceConfigured ? base : "",
-      requiresConfig: true,
-      configured: workspaceConfigured,
-    },
+/**
+ * Build the citizen's workspace tiles — the openDesk-equivalent suite, each
+ * entry lit only when its base URL is configured (so the dashboard ships before
+ * the services exist). Every target authenticates via Röbel ID (OIDC), so this
+ * is one identity across files, chat, mail, wiki, video, project and agents.
+ */
+export function buildWorkspaceTiles(config: WorkspaceTileConfig): WorkspaceTile[] {
+  const entries: Array<{ id: string; label: string; icon: string; url: string }> = [
+    { id: "nextcloud", label: "Dokumente & Dateien", icon: "cloud", url: normalise(config.workspaceBaseUrl) },
+    { id: "chat", label: "Chat", icon: "messages", url: normalise(config.chatBaseUrl) },
+    { id: "mail", label: "E-Mail & Kalender", icon: "mail", url: normalise(config.mailBaseUrl) },
+    { id: "wiki", label: "Wissen & Wiki", icon: "wiki", url: normalise(config.wikiBaseUrl) },
+    { id: "video", label: "Videokonferenz", icon: "video", url: normalise(config.videoBaseUrl) },
+    { id: "project", label: "Projekte & Aufgaben", icon: "project", url: normalise(config.projectBaseUrl) },
+    { id: "agents", label: "KI-Arbeitsbereich", icon: "agents", url: normalise(config.agentsBaseUrl) },
   ];
+
+  return entries.map(({ id, label, icon, url }) => ({
+    id,
+    label,
+    icon,
+    href: url.length > 0 ? url : "",
+    requiresConfig: true,
+    configured: url.length > 0,
+  }));
 }
 
 /** Keep only tiles that are usable: no config needed, or config present. */

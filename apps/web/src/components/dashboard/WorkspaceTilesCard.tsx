@@ -1,6 +1,16 @@
 "use client";
 
-import { Cloud, LayoutGrid, type LucideIcon } from "lucide-react";
+import {
+  Cloud,
+  MessagesSquare,
+  Mail,
+  BookOpen,
+  Video,
+  KanbanSquare,
+  Bot,
+  LayoutGrid,
+  type LucideIcon,
+} from "lucide-react";
 import {
   buildWorkspaceTiles,
   filterAvailableTiles,
@@ -8,12 +18,24 @@ import {
 
 const ICONS: Record<string, LucideIcon> = {
   cloud: Cloud,
+  messages: MessagesSquare,
+  mail: Mail,
+  wiki: BookOpen,
+  video: Video,
+  project: KanbanSquare,
+  agents: Bot,
 };
 
 export function WorkspaceTilesCard() {
   const tiles = filterAvailableTiles(
     buildWorkspaceTiles({
       workspaceBaseUrl: process.env.NEXT_PUBLIC_WORKSPACE_BASE_URL,
+      chatBaseUrl: process.env.NEXT_PUBLIC_CHAT_BASE_URL,
+      mailBaseUrl: process.env.NEXT_PUBLIC_MAIL_BASE_URL,
+      wikiBaseUrl: process.env.NEXT_PUBLIC_WIKI_BASE_URL,
+      videoBaseUrl: process.env.NEXT_PUBLIC_VIDEO_BASE_URL,
+      projectBaseUrl: process.env.NEXT_PUBLIC_PROJECT_BASE_URL,
+      agentsBaseUrl: process.env.NEXT_PUBLIC_AGENTS_BASE_URL,
     })
   );
 

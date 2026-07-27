@@ -43,3 +43,22 @@ test("configured workspace yields the nextcloud tile", () => {
   assert.equal(visible.length, 1);
   assert.equal(visible[0].id, "nextcloud");
 });
+
+test("the citizen suite covers the openDesk equivalents + the agent workspace", () => {
+  assert.deepEqual(
+    buildWorkspaceTiles({}).map((t) => t.id),
+    ["nextcloud", "chat", "mail", "wiki", "video", "project", "agents"]
+  );
+});
+
+test("each suite member is independently config-gated", () => {
+  const visible = filterAvailableTiles(
+    buildWorkspaceTiles({
+      videoBaseUrl: "https://meet.roebel.app",
+      agentsBaseUrl: "https://agents.roebel.app/",
+    })
+  );
+  assert.deepEqual(visible.map((t) => t.id), ["video", "agents"]);
+  // trailing slash trimmed on every member, not just nextcloud
+  assert.equal(visible[1].href, "https://agents.roebel.app");
+});

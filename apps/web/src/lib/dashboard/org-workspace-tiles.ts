@@ -21,6 +21,21 @@ export interface OrgWorkspaceTileConfig {
   workspaceBaseUrl?: string | null;
   /** Base URL of the org Element/Matrix chat. Empty/undefined = not configured. */
   chatBaseUrl?: string | null;
+  /** Open-Xchange mail/calendar/contacts (openDesk suite). */
+  mailBaseUrl?: string | null;
+  /** XWiki knowledge base (openDesk suite). */
+  wikiBaseUrl?: string | null;
+  /** Jitsi video meetings (openDesk suite). */
+  videoBaseUrl?: string | null;
+  /** OpenProject project management (openDesk suite). */
+  projectBaseUrl?: string | null;
+  /**
+   * Agent workspace (Nostr/Buzz-style): the org's AI agents work here as members
+   * alongside staff — same identity (agent smart account → derived npub), same
+   * relay, budgets + kill-switch from the agent charter.
+   * See docs/NOSTR_AGENT_ECOSYSTEM_PLAN.md.
+   */
+  agentsBaseUrl?: string | null;
   /** The active org whose shared space these tiles target. Null = no org context. */
   org: Pick<Account, "id" | "slug"> | null;
 }
@@ -33,27 +48,25 @@ export function buildOrgWorkspaceTiles(
   // is nothing to link to (the group claim, not a URL path, does the scoping).
   if (!config.org) return [];
 
-  const filesBase = (config.workspaceBaseUrl ?? "").trim().replace(/\/+$/, "");
-  const chatBase = (config.chatBaseUrl ?? "").trim().replace(/\/+$/, "");
-  const filesConfigured = filesBase.length > 0;
-  const chatConfigured = chatBase.length > 0;
+  const normalise = (url: string | null | undefined) =>
+    (url ?? "").trim().replace(/\/+$/, "");
 
-  return [
-    {
-      id: "org-nextcloud",
-      label: "Dateien & Dokumente",
-      icon: "cloud",
-      href: filesConfigured ? filesBase : "",
-      requiresConfig: true,
-      configured: filesConfigured,
-    },
-    {
-      id: "org-chat",
-      label: "Team-Chat",
-      icon: "messages",
-      href: chatConfigured ? chatBase : "",
-      requiresConfig: true,
-      configured: chatConfigured,
-    },
+  const entries: Array<{ id: string; label: string; icon: string; url: string }> = [
+    { id: "org-nextcloud", label: "Dateien & Dokumente", icon: "cloud", url: normalise(config.workspaceBaseUrl) },
+    { id: "org-chat", label: "Team-Chat", icon: "messages", url: normalise(config.chatBaseUrl) },
+    { id: "org-mail", label: "E-Mail & Kalender", icon: "mail", url: normalise(config.mailBaseUrl) },
+    { id: "org-wiki", label: "Wissen & Wiki", icon: "wiki", url: normalise(config.wikiBaseUrl) },
+    { id: "org-video", label: "Videokonferenz", icon: "video", url: normalise(config.videoBaseUrl) },
+    { id: "org-project", label: "Projekte & Aufgaben", icon: "project", url: normalise(config.projectBaseUrl) },
+    { id: "org-agents", label: "KI-Arbeitsbereich", icon: "agents", url: normalise(config.agentsBaseUrl) },
   ];
+
+  return entries.map(({ id, label, icon, url }) => ({
+    id,
+    label,
+    icon,
+    href: url.length > 0 ? url : "",
+    requiresConfig: true,
+    configured: url.length > 0,
+  }));
 }
