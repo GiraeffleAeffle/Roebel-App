@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildNoteEvent } from "../src/events.js";
-import { deriveNostrSecretKey } from "../src/keys.js";
-import { RelayClient } from "../src/relay.js";
+import { buildNoteEvent } from "../src/events";
+import { deriveNostrSecretKey } from "../src/keys";
+import { RelayClient } from "../src/relay";
 
 const SECRET_KEY = deriveNostrSecretKey(
   "0x" +

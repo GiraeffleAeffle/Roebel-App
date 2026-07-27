@@ -1,5 +1,5 @@
-import { KIND, type NostrEvent, buildEvent, verifyEvent } from "./events.js";
-import { getPublicKeyHex, npubEncode } from "./keys.js";
+import { KIND, type NostrEvent, buildEvent, verifyEvent } from "./events";
+import { getPublicKeyHex, npubEncode } from "./keys";
 
 /**
  * The wallet ↔ npub binding.

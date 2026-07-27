@@ -10,7 +10,7 @@ import {
   isNostrPubkey,
   npubDecode,
   npubEncode,
-} from "../src/keys.js";
+} from "../src/keys";
 
 /** A realistic 65-byte ECDSA signature, as a wallet's personal_sign returns. */
 const SIGNATURE =

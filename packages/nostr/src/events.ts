@@ -1,7 +1,7 @@
 import { schnorr } from "@noble/curves/secp256k1";
 import { sha256 } from "@noble/hashes/sha256";
 import { bytesToHex, hexToBytes, utf8ToBytes } from "@noble/hashes/utils";
-import { getPublicKeyHex } from "./keys.js";
+import { getPublicKeyHex } from "./keys";
 
 /** NIP-01 event kinds this package builds. */
 export const KIND = {

@@ -9,8 +9,8 @@ import {
   eventId,
   signEvent,
   verifyEvent,
-} from "../src/events.js";
-import { deriveNostrSecretKey, getPublicKeyHex } from "../src/keys.js";
+} from "../src/events";
+import { deriveNostrSecretKey, getPublicKeyHex } from "../src/keys";
 
 const SIGNATURE =
   "0x" +

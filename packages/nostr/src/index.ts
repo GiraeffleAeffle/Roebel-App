@@ -15,7 +15,7 @@ export {
   isNostrPubkey,
   npubDecode,
   npubEncode,
-} from "./keys.js";
+} from "./keys";
 
 export {
   KIND,
@@ -26,8 +26,8 @@ export {
   eventId,
   signEvent,
   verifyEvent,
-} from "./events.js";
-export type { NostrEvent, NostrTag, ProfileMetadata, UnsignedEvent } from "./events.js";
+} from "./events";
+export type { NostrEvent, NostrTag, ProfileMetadata, UnsignedEvent } from "./events";
 
 export {
   BINDING_ACCOUNT_TAG,
@@ -35,8 +35,8 @@ export {
   bindingStatement,
   buildBindingEvent,
   verifyBindingEvent,
-} from "./binding.js";
-export type { BindingFailure, BindingResult, BindingSubject } from "./binding.js";
+} from "./binding";
+export type { BindingFailure, BindingResult, BindingSubject } from "./binding";
 
-export { RelayClient } from "./relay.js";
-export type { Filter, PublishResult, RelayOptions } from "./relay.js";
+export { RelayClient } from "./relay";
+export type { Filter, PublishResult, RelayOptions } from "./relay";

@@ -1,5 +1,5 @@
 import { bytesToHex } from "@noble/hashes/utils";
-import type { NostrEvent } from "./events.js";
+import type { NostrEvent } from "./events";
 
 /**
  * A deliberately small NIP-01 relay client.

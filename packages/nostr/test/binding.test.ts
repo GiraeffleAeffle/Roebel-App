@@ -6,8 +6,8 @@ import {
   bindingStatement,
   buildBindingEvent,
   verifyBindingEvent,
-} from "../src/binding.js";
-import { deriveNostrIdentity, deriveNostrSecretKey } from "../src/keys.js";
+} from "../src/binding";
+import { deriveNostrIdentity, deriveNostrSecretKey } from "../src/keys";
 
 const SIGNATURE =
   "0x" +
