@@ -155,6 +155,30 @@ export async function publishedEventIds(): Promise<string[]> {
 }
 
 /**
+ * Publish a note to the relay ONLY — no Supabase post, no feed entry, no push.
+ *
+ * Posting to the main feed fires a notification to every user, which makes it a
+ * terrible way to check whether the relay works. This writes a real signed kind 1
+ * to the relay and nothing else, so the loop can be verified without disturbing
+ * the town.
+ */
+export async function publishTestNote(
+  content: string,
+): Promise<{ ok: boolean; eventId?: string; message: string }> {
+  const identity = await loadStoredIdentity();
+  if (!identity) return { ok: false, message: 'Keine Nostr-Identität auf diesem Gerät.' };
+  try {
+    const event = buildNoteEvent(identity.secretKey, content);
+    const result = await relay().publish(event);
+    return result.ok
+      ? { ok: true, eventId: event.id, message: 'Auf dem Relay veröffentlicht.' }
+      : { ok: false, message: result.message || 'Vom Relay abgelehnt.' };
+  } catch {
+    return { ok: false, message: 'Relay nicht erreichbar.' };
+  }
+}
+
+/**
  * Read events straight off the relay.
  *
  * No indexer: a chronological feed filtered by kind + author + time is exactly

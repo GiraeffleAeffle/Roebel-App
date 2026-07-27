@@ -1367,6 +1367,16 @@ if [ -f matrix/generate-secrets.sh ]; then
   chmod 644 matrix/keys/*.pem 2>/dev/null || true
 fi
 
+# 2b-bis. The relay write-policy plugin must be EXECUTABLE.
+# strfry runs it as a program, and a bundle copied by rsync/scp can easily arrive
+# without the exec bit. When the plugin cannot start, strfry fails CLOSED and
+# rejects every event with "internal error" — the relay looks alive, the
+# allow-list looks correct, and nobody can publish. Cost a full debugging cycle
+# on node #1; it is one chmod, so it belongs here rather than in a runbook.
+if [ -d strfry-policy ]; then
+  chmod +x strfry-policy/*.sh 2>/dev/null || true
+fi
+
 # 2c. Ensure every declared service has its Postgres role + database. The
 # initdb.d hook only fires on an EMPTY data directory, so services added after
 # first boot need this explicit pass against the running cluster.

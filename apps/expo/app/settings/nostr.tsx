@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   UIManager,
   View,
 } from 'react-native';
@@ -29,7 +30,7 @@ import {
   loadStoredIdentity,
   registerIdentity,
 } from '@/lib/nostr/identity';
-import { publishProfile, readFromRelay } from '@/lib/nostr/publish';
+import { publishProfile, publishTestNote, readFromRelay } from '@/lib/nostr/publish';
 
 /**
  * Nostr-Identität — onboarding for the identity bridge.
@@ -101,6 +102,9 @@ export default function NostrIdentityScreen() {
   const [showDetails, setShowDetails] = useState(false);
   /** null = not looked up yet. Read straight off Gnosis, so it resolves in a second. */
   const [hasCitizenNft, setHasCitizenNft] = useState<boolean | null>(null);
+  const [testText, setTestText] = useState('');
+  const [sendingTest, setSendingTest] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string; eventId?: string } | null>(null);
 
   const profileMetadata = useCallback(
     () => ({
@@ -213,6 +217,17 @@ export default function NostrIdentityScreen() {
       setBusy(false);
     }
   }, [account, busy, probeAccess]);
+
+  const onSendTest = useCallback(async () => {
+    const content = testText.trim();
+    if (!content || sendingTest) return;
+    setSendingTest(true);
+    setTestResult(null);
+    const result = await publishTestNote(content);
+    setSendingTest(false);
+    setTestResult(result);
+    if (result.ok) setTestText('');
+  }, [testText, sendingTest]);
 
   const copy = useCallback(async (value: string, which: 'npub' | 'hex') => {
     await Clipboard.setStringAsync(value);
@@ -409,6 +424,54 @@ export default function NostrIdentityScreen() {
           </View>
         )}
 
+        {stage === 'active' && (
+          <View style={[styles.card, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>TESTBEITRAG</Text>
+            <Text style={[styles.body, { color: colors.textSecondary, marginBottom: 12 }]}>
+              Geht nur auf das Relay — erscheint nicht im Feed und löst keine Benachrichtigungen aus.
+            </Text>
+            <TextInput
+              style={[
+                styles.testInput,
+                { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.background },
+              ]}
+              value={testText}
+              onChangeText={setTestText}
+              placeholder="Kurzer Testtext …"
+              placeholderTextColor={colors.textTertiary}
+              multiline
+              editable={!sendingTest}
+            />
+            <Pressable
+              style={[
+                styles.secondaryButton,
+                { borderColor: colors.border, marginTop: 12, opacity: testText.trim() && !sendingTest ? 1 : 0.5 },
+              ]}
+              disabled={!testText.trim() || sendingTest}
+              onPress={onSendTest}
+            >
+              {sendingTest ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : (
+                <Text style={[styles.secondaryButtonText, { color: colors.textPrimary }]}>
+                  Testbeitrag senden
+                </Text>
+              )}
+            </Pressable>
+            {testResult && (
+              <Text
+                style={[
+                  styles.hint,
+                  { color: testResult.ok ? colors.success : colors.error, marginTop: 10 },
+                ]}
+              >
+                {testResult.message}
+                {testResult.eventId ? `\nEvent: ${testResult.eventId.slice(0, 16)}…` : ''}
+              </Text>
+            )}
+          </View>
+        )}
+
         <Text style={[styles.sectionHeading, { color: colors.textSecondary }]}>GUT ZU WISSEN</Text>
         <View style={[styles.card, styles.explainerCard, { backgroundColor: colors.surface }]}>
           {EXPLAINERS.map((item, index) => {
@@ -530,6 +593,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   secondaryButtonText: { fontFamily: fontFamily.semiBold, fontSize: 15 },
+  testInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 72,
+    fontFamily: fontFamily.regular,
+    fontSize: 14,
+    textAlignVertical: 'top',
+  },
   removeButton: { paddingVertical: 14, alignItems: 'center', marginTop: 4 },
   removeButtonText: { fontFamily: fontFamily.medium, fontSize: 14 },
 });
