@@ -781,7 +781,98 @@ Two things in the agent framing are true and are not fully answered by the above
 
 ---
 
-## 11. Sources
+## 11. Addendum 2: is anyone building the Ethereum-native, agent-optimized browser?
+
+**Short answer: no one has shipped it, the gap is real, and it is being closed from three
+directions at once by parties Netizen should build on rather than race.**
+
+### 11.1 The scan
+
+| Who | What they shipped | Date | Read |
+|---|---|---|---|
+| **Steel** | **Stealth Browser**, described in their own words as "Steel's custom Chromium fork for agent workloads: stable browser-level signals from startup and a lighter runtime." Shipped in Launch Week v3 with dedicated IPs, Rust/Go SDKs, Atlas | ~June 2026 | **Someone is already paying for the Chromium fork Netizen would need, and it is open source and self-hostable.** Note *what* they forked for: headless agent workloads, not consumer browsing. This is a commercial validation of stage 0b, not of a browser product |
+| **Ethereum Foundation, Kohaku** | Privacy SDK integrating Railgun, Privacy Pools and Tornado at the **wallet layer**; reference browser-extension wallet (a fork of Ambire, Sepolia only); EIP-4337 mempool relaying. Vitalik endorsed it 2026-05-26 | SDK **2026-05-25** | See 11.2. The EF has claimed this lane |
+| **MetaMask Agent Wallet** | Fully user-controlled wallet built for AI agents. Framework-agnostic (Claude Code, Codex, Cursor, Hermes, OpenClaw). Every tx gets simulation + Blockaid threat scanning + MEV protection, with up to $10k/month protection coverage. 200-spot early access, GA "this summer" | **2026-06-08** | **The incumbent built a wallet and a CLI for agents, not a browser.** The strongest available signal about where the value actually sits |
+| **Opera Neon** | The agentic browser that actually exists. Public access Dec 2025; **MCP Connector** March 2026 lets external AI clients drive the browser | 2025-12 / 2026-03 | Agent-optimized, not Ethereum-native. Opera's crypto (MiniPay, on Celo) is a separate product. Nobody has joined the two |
+| **ERC-8004** | Identity, Reputation and Validation registries for agents; mainnet 2026-01-29 | 2026-01 | Identity is specified. **Reputation and validation are deliberately left open.** That is the hole |
+
+### 11.2 The Kohaku problem, and it is the most important finding in this addendum
+
+The Ethereum Foundation's Kohaku roadmap
+([notes.ethereum.org/@niard/KohakuRoadmap](https://notes.ethereum.org/@niard/KohakuRoadmap), verified directly) states:
+
+> "creating a native ethereum browser is the logical path to pursue"
+
+to give stronger security to dApp interfaces and IPFS UIs. It also commits to
+"transaction security scoring through **local AI** to help identify low-risk vs high-risk
+transactions without leaking private information", and to working toward native account
+abstraction "over 2026", with privacy-preserving AA requiring client-side ZK-EVM proving.
+
+**The Ethereum Foundation is roadmapping, almost item for item, the browser described in this
+thread: Ethereum-native, privacy-preserving, local-AI-assisted.**
+
+That is validation of the idea and a strategic red light on building it. The EF has more
+legitimacy, more ecosystem pull, and no need to monetize the client. Kohaku is GPL-3.0, its
+stated goals explicitly include "collaborations with other wallet teams", and the extension is
+a reference implementation meant to be consumed.
+
+**The correct move is to build on Kohaku, not next to it.** Netizen's differentiator was never
+privacy primitives, and it should not try to become that. It is community memberships, node
+identity, and the attester graph, which Kohaku does not do and shows no sign of doing.
+
+### 11.3 Two different things are both called "stealth", and conflating them is a real risk
+
+| | Steel's Stealth Browser | Railgun / stealth addresses (ERC-5564) |
+|---|---|---|
+| What it hides | The agent, from **the website's bot defenses**. Fingerprint management, stable browser signals, dedicated IPs, `puppeteer-extra-plugin-stealth` | The user's **funds and counterparties**, from onchain observers. Shielded balances, private DeFi |
+| Who it defends against | Cloudflare, rate limits, anti-automation | Chain analytics |
+| Legitimacy for a civic platform | **Poor.** It is evasion of other parties' access controls | **Good.** Financial privacy is a normal civic expectation |
+
+Railgun's own state is healthy: ~$4B cumulative private volume since its 2021 launch, a record
+$1.6B shielded in 2025, `railgun_connect` (private wallets interacting directly with DeFi apps)
+launched 2026-01-23, and the US Treasury softened its stance on mixers on 2026-03-09,
+acknowledging legitimate privacy uses. Kohaku integrates it at the wallet layer, which is the
+right place. *(Whether Railgun supports Gnosis, and therefore whether it can touch Röbel Münzen
+or EURe, is unverified and must be checked before any design work.)*
+
+**The warning specific to Netizen:** Röbel is a public civic platform with a town's name on it
+and a Gemeinschaftskasse behind it. A client that both evades bot detection and shields funds is
+a regulatory and reputational profile no German Gemeinde will adopt. Anti-detection stealth
+belongs, if anywhere, in the node's agent runtime for well-defined tasks, never in the citizen-
+facing product. Financial privacy belongs in the wallet, via Kohaku, and should be described in
+those terms.
+
+### 11.4 The gap that is genuinely still open
+
+Line the four up and the hole is obvious:
+
+- **Steel**: the agent has hands. No identity.
+- **MetaMask Agent Wallet**: the agent has funds and transaction-level safety. No notion of *on
+  whose behalf*, beyond the key owner.
+- **Kohaku**: the user has privacy. No memberships.
+- **ERC-8004**: the agent has an identity and a place to put reputation. **Reputation and
+  validation are left as an exercise for the ecosystem.**
+
+Nobody has shipped: **"this agent is acting on behalf of this verified member of this community,
+under this mandate, and here is the proof."**
+
+That is the intersection of agent identity (ERC-8004), community membership (soulbound NFT +
+SD-JWT VC), and human consent (AP2-shaped signed mandates + Zodiac Roles allowances). It is
+exactly the sum of what Netizen already has and what section 10 recommends building. It is not a
+browser, and it is the one thing in this landscape that a browser would actively make harder,
+because its whole security argument is that the consent surface never renders attacker-controlled
+content.
+
+**Revised position on the market question:** there is no Ethereum-native agent browser, the two
+parties best placed to build one are the Ethereum Foundation and MetaMask, and the correct read
+of that is not "the gap is open" but "the gap is being filled by people whose work Netizen can
+consume for free." Take Steel as the runtime, Kohaku as the privacy layer, ERC-8004 as the agent
+registry, and spend the whole team on the layer none of them will build: verified community
+membership as the thing an agent acts on behalf of.
+
+---
+
+## 12. Sources
 
 Browser economics and post-mortems: [Brave, Building and releasing Brave](https://brave.com/blog/building-brave/) (2021-06-25) · [Brave, 100M MAU](https://brave.com/blog/100m-mau/) (2025-10-01) · [Brave Chromium rebases wiki](https://github.com/brave/brave-browser/wiki/Chromium-rebases) · [Vivaldi, How we work with Chromium code](https://vivaldi.com/blog/vivaldi-code-integration/) (2018-09-12) · [Browserbase, Why we forked Chromium](https://www.browserbase.com/blog/chromium-fork-for-ai-automation) (2025-11-19) · [TechCrunch, Atlassian to buy The Browser Company for $610M](https://techcrunch.com/2025/09/04/atlassian-to-buy-arc-developer-the-browser-company-for-610m) (2025-09-04) · [Atlassian announcement](https://www.atlassian.com/blog/announcements/atlassian-acquires-the-browser-company) · [Opera delists the Crypto Browser](https://blogs.opera.com/desktop/2024/02/opera-delists-the-experimental-crypto-browser/) (2024-02) · [Beaker archive notice](https://github.com/beakerbrowser/beaker/blob/master/archive-notice.md) (2021/2022)
 
@@ -796,5 +887,7 @@ Extensions: [Igalia, Protocol handler registration via browser extensions](https
 Identity and EU: [EUDI ARF](https://eudi.dev/2.2.0/architecture-and-reference-framework-main/) · [EUDI relying-party registration](https://eudi.dev/latest/discussion-topics/x-relying-party-registration/) · [TS6, relying-party information](https://github.com/eu-digital-identity-wallet/eudi-doc-standards-and-technical-specifications/blob/main/docs/technical-specifications/ts6-common-set-of-rp-information-to-be-registered.md) · [EUDI reference implementation](https://github.com/eu-digital-identity-wallet) · [OpenID4VP 1.0](https://openid.net/specs/openid-4-verifiable-presentations-1_0.html) · [walt.id, eIDAS2 wallet provider requirements](https://walt.id/eidas2/wallet-provider) · [Council of the EU, European business wallets negotiating position](https://www.consilium.europa.eu/en/press/press-releases/2026/06/09/european-business-wallets-council-adopts-negotiating-position/) (2026-06-09) · [European Parliament legislative train, European business wallets](https://www.europarl.europa.eu/legislative-train/theme-a-new-plan-for-europe-s-sustainable-prosperity-and-competitiveness/file-european-business-wallet) · [EDPS opinion on EBW](https://www.edps.europa.eu/system/files/2026-01/26-01-20_opinion_establishment_of_european_business_wallets_en.pdf) (2026-01-20) · [CoinDesk, Holonym acquires Gitcoin Passport](https://www.coindesk.com/business/2025/02/10/digital-identity-startup-holonym-acquires-gitcoin-passport) (2025-02-10) · [Human Passport rebrand](https://passport.human.tech/blog/from-gitcoin-passport-to-human-passport-we-re-now-part-of-human-tech) · [Semaphore docs](https://docs.semaphore.pse.dev/) · [EAS docs](https://docs.attest.org/) · [SpruceID](https://spruceid.com/)
 
 Agents (section 10): [Brave, Agentic browser security: indirect prompt injection in Comet](https://brave.com/blog/comet-prompt-injection/) (2025-08-20) · [Brave, Unseeable prompt injections in screenshots](https://brave.com/blog/unseeable-prompt-injections/) · [Chrome for Developers, WebMCP](https://developer.chrome.com/docs/ai/webmcp) · [VentureBeat, Chrome ships WebMCP in early preview](https://venturebeat.com/infrastructure/google-chrome-ships-webmcp-in-early-preview-turning-every-website-into-a) · [Chrome at I/O 2026](https://developer.chrome.com/blog/chrome-at-io26) · [ERC-8004: Trustless Agents](https://eips.ethereum.org/EIPS/eip-8004) · [erc-8004-contracts](https://github.com/erc-8004/erc-8004-contracts) · [Steel Browser](https://github.com/steel-dev/steel-browser) · [AP2 explainer](https://eco.com/support/en/articles/14845479-ap2-agent-payments-protocol-explained)
+
+Market scan (section 11): [Kohaku roadmap, notes.ethereum.org](https://notes.ethereum.org/@niard/KohakuRoadmap) · [ethereum/kohaku-extension](https://github.com/ethereum/kohaku-extension) · [Cryptopolitan on the Kohaku roadmap](https://www.cryptopolitan.com/ethereum-foundation-roadmap-for-kohaku/) · [Steel blog, Launch Week v3 and Stealth Browser](https://steel.dev/blog) · [MetaMask, Agent Wallet launch](https://metamask.io/news/metamask-launches-agent-wallet-giving-ai-agents-full-defi-access-with-default-security-on-every-transaction) (2026-06-08) · [CoinDesk on MetaMask Agent Wallet](https://www.coindesk.com/tech/2026/06/08/metamask-launches-ai-agent-wallet-with-built-in-security-for-crypto-trades) · [Opera Neon public access](https://investor.opera.com/news-releases/news-release-details/opera-opens-public-access-opera-neon-its-experimental-agentic-ai/) · [RAILGUN v3 architecture](https://medium.com/@Railgun_Project/the-new-architecture-for-ethereum-privacy-introducing-railgun-v3-21e111fa297e) · [Railgun on DefiLlama](https://defillama.com/protocol/railgun)
 
 Distribution and search: [a16z, State of Crypto 2025](https://a16zcrypto.com/posts/article/state-of-crypto-report-2025/) · [growthepie, daily active addresses](https://www.growthepie.com/fundamentals/daily-active-addresses) · [Ecosia, teaming up with Qwant on a European search index](https://blog.ecosia.org/eusp/) · [European Search Perspective](https://www.eu-searchperspective.com/) · [ZenDiS](https://www.zendis.de/en) · [openProject, the rise of the Sovereign Workplace](https://www.openproject.org/blog/sovereign-workplace/)
