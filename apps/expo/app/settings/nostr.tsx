@@ -1,10 +1,23 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  LayoutAnimation,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  UIManager,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import { useActiveAccount } from 'thirdweb/react';
 import { useTheme } from '@/context/ThemeContext';
+import { useUser } from '@/context/UserContext';
+import { fontFamily } from '@/constants/theme';
 import ChevronLeftIcon from '@/assets/icons/chevron-left.svg';
 import {
   type NostrIdentity,
@@ -12,72 +25,195 @@ import {
   deriveAndStoreIdentity,
   getRegisteredAt,
   loadStoredIdentity,
+  registerIdentity,
 } from '@/lib/nostr/identity';
-import { registerIdentity } from '@/lib/nostr/identity';
 import { publishProfile, readFromRelay } from '@/lib/nostr/publish';
 
 /**
- * Nostr-Identität — the Citizen-facing half of the identity bridge.
+ * Nostr-Identität — onboarding for the identity bridge.
  *
- * Opt-in on purpose. Publishing to a public, append-only relay is effectively
- * irreversible, so nothing is published until the Citizen asks for it here, and
- * the copy says plainly what that means.
+ * Opt-in by design. Publishing to a public, append-only relay is effectively
+ * irreversible, so nothing leaves the device until the Citizen asks for it here
+ * and has been told, in plain German, what that actually means.
+ *
+ * The screen is built around the real three-step progression (create → unlock →
+ * active) because that sequence is genuine: each step has a distinct state the
+ * Citizen is actually waiting on. Everything else stays quiet.
  */
 
-type Status = 'loading' | 'none' | 'registered' | 'active';
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+type Stage = 'loading' | 'new' | 'waiting' | 'active';
+
+/** How long to keep re-checking for write access before telling the user to come back later. */
+const POLL_INTERVAL_MS = 15_000;
+const POLL_ATTEMPTS = 12;
+
+const EXPLAINERS: { question: string; answer: string }[] = [
+  {
+    question: 'Was ist das überhaupt?',
+    answer:
+      'Röbel betreibt einen eigenen kleinen Server für öffentliche Beiträge — ein sogenanntes Relay. Deine Nostr-Identität ist dein Ausweis darauf. Beiträge, die du damit unterschreibst, kann jede andere App lesen und überprüfen: Sie stammen nachweisbar von dir und wurden nicht verändert.',
+  },
+  {
+    question: 'Was habe ich davon?',
+    answer:
+      'Deine Beiträge hängen nicht mehr allein an der Röbel-App. Andere Städte, andere Programme und KI-Assistenten können sie lesen, ohne dass jemand dazwischen sitzt. Wenn du die App irgendwann nicht mehr nutzt, bleiben deine Beiträge trotzdem deine — unterschrieben mit deinem Schlüssel.',
+  },
+  {
+    question: 'Wo liegt mein Schlüssel?',
+    answer:
+      'Nur auf diesem Gerät, geschützt im sicheren Speicher deines Handys. Er wird aus deinem Wallet berechnet, also bekommst du auf jedem Gerät denselben Ausweis. Röbel speichert ihn nicht und kann deshalb nicht in deinem Namen schreiben.',
+  },
+  {
+    question: 'Wer darf dort schreiben?',
+    answer:
+      'Nur Bürgerinnen und Bürger mit Bürger-NFT. Lesen darf jeder. Deine Freischaltung wird automatisch geprüft — wenn du deine Mitgliedschaft verlierst, endet auch der Schreibzugriff.',
+  },
+  {
+    question: 'Kann ich Beiträge wieder löschen?',
+    answer:
+      'Nur eingeschränkt — und das ist der wichtigste Punkt auf dieser Seite. Die App kann eine Löschung anfragen, aber nicht erzwingen: Andere Relays und Apps, die den Beitrag schon geladen haben, dürfen ihn behalten. Veröffentliche hier also nur, was dauerhaft öffentlich bleiben darf.',
+  },
+];
 
 export default function NostrIdentityScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const account = useActiveAccount();
+  const { user } = useUser();
 
-  const [status, setStatus] = useState<Status>('loading');
+  const [stage, setStage] = useState<Stage>('loading');
   const [identity, setIdentity] = useState<NostrIdentity | null>(null);
   const [busy, setBusy] = useState(false);
-  const [relayCount, setRelayCount] = useState<number | null>(null);
+  const [copied, setCopied] = useState<'npub' | 'hex' | null>(null);
+  const [openExplainer, setOpenExplainer] = useState<number | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
+  const pollsLeft = useRef(0);
 
-  const refresh = useCallback(async () => {
+  const profileMetadata = useCallback(
+    () => ({
+      name: user?.username || undefined,
+      about: user?.bio || undefined,
+      picture: user?.profile_picture_url || undefined,
+    }),
+    [user],
+  );
+
+  /**
+   * Ask the relay whether we may write. Publishing the kind 0 profile is the
+   * authoritative probe — and it is idempotent, since a profile event is
+   * replaceable, so re-checking never leaves clutter behind.
+   */
+  const probeAccess = useCallback(
+    async (current: NostrIdentity) => {
+      const result = await publishProfile(profileMetadata(), current);
+      return result === 'published';
+    },
+    [profileMetadata],
+  );
+
+  /**
+   * Read before writing. If our own events are already on the relay, access is
+   * proven without sending anything — so simply opening this screen does not
+   * publish. The write probe is only the fallback for the gap right after being
+   * allow-listed, when there is nothing to read yet.
+   */
+  const detectStage = useCallback(
+    async (current: NostrIdentity): Promise<Stage> => {
+      const existing = await readFromRelay([current.publicKey], [0, 1], 1);
+      if (existing.length > 0) return 'active';
+      return (await probeAccess(current)) ? 'active' : 'waiting';
+    },
+    [probeAccess],
+  );
+
+  const load = useCallback(async () => {
     const stored = await loadStoredIdentity();
     setIdentity(stored);
     if (!stored) {
-      setStatus('none');
+      setStage('new');
       return;
     }
-    const registeredAt = await getRegisteredAt();
-    setStatus(registeredAt ? 'registered' : 'none');
-
-    // The relay is the authority on whether writing works — if our own events
-    // are readable back off it, access is genuinely active.
-    const events = await readFromRelay([stored.publicKey]);
-    setRelayCount(events.length);
-    if (events.length > 0) setStatus('active');
-  }, []);
+    if (!(await getRegisteredAt())) {
+      setStage('new');
+      return;
+    }
+    setStage(await detectStage(stored));
+  }, [detectStage]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void load();
+  }, [load]);
+
+  // While waiting for the allow-list to catch up, keep checking quietly instead of
+  // making the Citizen come back and tap something.
+  useEffect(() => {
+    if (stage !== 'waiting' || !identity) return;
+    pollsLeft.current = POLL_ATTEMPTS;
+    const timer = setInterval(async () => {
+      if (pollsLeft.current <= 0) {
+        clearInterval(timer);
+        return;
+      }
+      pollsLeft.current -= 1;
+      if (await probeAccess(identity)) {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setStage('active');
+        clearInterval(timer);
+      }
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [stage, identity, probeAccess]);
 
   const onCreate = useCallback(async () => {
-    if (!account) return;
+    if (!account || busy) return;
     setBusy(true);
     try {
       const derived = await deriveAndStoreIdentity(account);
       setIdentity(derived);
       const result = await registerIdentity(account, derived);
-      Alert.alert(result.ok ? 'Nostr-Identität erstellt' : 'Registrierung fehlgeschlagen', result.message);
-      if (result.ok) await publishProfile({}, derived);
-      await refresh();
+      if (!result.ok) {
+        Alert.alert('Das hat nicht geklappt', result.message);
+        return;
+      }
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setStage((await probeAccess(derived)) ? 'active' : 'waiting');
     } catch {
-      Alert.alert('Fehler', 'Die Nostr-Identität konnte nicht erstellt werden.');
+      Alert.alert('Das hat nicht geklappt', 'Die Identität konnte nicht erstellt werden. Bitte versuche es später noch einmal.');
     } finally {
       setBusy(false);
     }
-  }, [account, refresh]);
+  }, [account, busy, probeAccess]);
+
+  const onCheckNow = useCallback(async () => {
+    if (!identity || busy) return;
+    setBusy(true);
+    const granted = await probeAccess(identity);
+    setBusy(false);
+    if (granted) {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setStage('active');
+    } else {
+      Alert.alert(
+        'Noch nicht freigeschaltet',
+        'Deine Mitgliedschaft wird noch geprüft. Das dauert in der Regel wenige Minuten — du musst nichts weiter tun.',
+      );
+    }
+  }, [identity, busy, probeAccess]);
+
+  const copy = useCallback(async (value: string, which: 'npub' | 'hex') => {
+    await Clipboard.setStringAsync(value);
+    setCopied(which);
+    setTimeout(() => setCopied(null), 1800);
+  }, []);
 
   const onRemove = useCallback(() => {
     Alert.alert(
-      'Nostr-Identität entfernen?',
-      'Der Schlüssel wird von diesem Gerät gelöscht. Bereits veröffentlichte Beiträge bleiben auf dem Relay — eine Löschung kann nur angefragt, nicht erzwungen werden.',
+      'Identität entfernen?',
+      'Der Schlüssel wird von diesem Gerät gelöscht und die App veröffentlicht nichts mehr für dich. Bereits veröffentlichte Beiträge bleiben auf dem Relay.',
       [
         { text: 'Abbrechen', style: 'cancel' },
         {
@@ -85,21 +221,31 @@ export default function NostrIdentityScreen() {
           style: 'destructive',
           onPress: async () => {
             await clearIdentity();
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
             setIdentity(null);
-            setRelayCount(null);
-            setStatus('none');
+            setStage('new');
           },
         },
       ],
     );
   }, []);
 
-  const statusLabel = {
-    loading: 'Wird geladen …',
-    none: 'Nicht eingerichtet',
-    registered: 'Registriert — wartet auf Relay-Zugang',
-    active: 'Aktiv',
-  }[status];
+  const steps: { title: string; detail: string }[] = [
+    {
+      title: 'Identität erstellen',
+      detail: 'Dein Wallet erzeugt deinen Ausweis. Ein Tipp genügt.',
+    },
+    {
+      title: 'Mitgliedschaft prüfen',
+      detail: 'Röbel bestätigt dein Bürger-NFT. Dauert wenige Minuten.',
+    },
+    {
+      title: 'Beiträge veröffentlichen',
+      detail: 'Neue Beiträge erscheinen automatisch auch auf dem Relay.',
+    },
+  ];
+  const currentStep = stage === 'active' ? 2 : stage === 'waiting' ? 1 : 0;
+  const completedThrough = stage === 'active' ? 3 : stage === 'waiting' ? 1 : 0;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
@@ -111,68 +257,179 @@ export default function NostrIdentityScreen() {
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <Text style={[styles.lede, { color: colors.textPrimary }]}>
+          Ein eigener Ausweis für Röbels eigenen Server.
+        </Text>
+        <Text style={[styles.subLede, { color: colors.textSecondary }]}>
+          Damit gehören deine öffentlichen Beiträge dir — nachweisbar, und lesbar auch außerhalb
+          dieser App.
+        </Text>
+
+        {/* The progression. Genuinely sequential, so it earns the vertical rail. */}
         <View style={[styles.card, { backgroundColor: colors.surface }]}>
-          <Text style={[styles.label, { color: colors.textSecondary }]}>STATUS</Text>
-          <Text style={[styles.value, { color: colors.textPrimary }]}>{statusLabel}</Text>
-          {relayCount !== null && (
-            <Text style={[styles.hint, { color: colors.textSecondary }]}>
-              {relayCount} {relayCount === 1 ? 'Beitrag' : 'Beiträge'} auf dem Röbel-Relay.
-            </Text>
-          )}
+          {steps.map((step, index) => {
+            const done = index < completedThrough;
+            const active = index === currentStep && stage !== 'loading' && !done;
+            const dotColor = done ? colors.success : active ? colors.primary : colors.borderSecondary;
+            return (
+              <View key={step.title} style={styles.step}>
+                <View style={styles.stepRail}>
+                  <View style={[styles.stepDot, { backgroundColor: dotColor }]}>
+                    {done && <Text style={styles.stepDotMark}>✓</Text>}
+                  </View>
+                  {index < steps.length - 1 && (
+                    <View
+                      style={[
+                        styles.stepLine,
+                        { backgroundColor: index < completedThrough - 1 ? colors.success : colors.borderSecondary },
+                      ]}
+                    />
+                  )}
+                </View>
+                <View style={styles.stepBody}>
+                  <Text
+                    style={[
+                      styles.stepTitle,
+                      { color: done || active ? colors.textPrimary : colors.textTertiary },
+                    ]}
+                  >
+                    {step.title}
+                  </Text>
+                  <Text style={[styles.stepDetail, { color: colors.textSecondary }]}>{step.detail}</Text>
+                  {active && stage === 'waiting' && (
+                    <View style={styles.inlineStatus}>
+                      <ActivityIndicator size="small" color={colors.primary} />
+                      <Text style={[styles.inlineStatusText, { color: colors.primary }]}>
+                        Wird geprüft …
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            );
+          })}
         </View>
 
-        {identity && (
-          <Pressable
-            style={[styles.card, { backgroundColor: colors.surface }]}
-            onPress={async () => {
-              await Clipboard.setStringAsync(identity.npub);
-              Alert.alert('Kopiert', 'Deine öffentliche Nostr-Adresse wurde kopiert.');
-            }}
-          >
-            <Text style={[styles.label, { color: colors.textSecondary }]}>ÖFFENTLICHE ADRESSE</Text>
-            <Text style={[styles.npub, { color: colors.textPrimary }]} numberOfLines={2}>
-              {identity.npub}
+        {stage === 'new' && (
+          <>
+            <Pressable
+              style={[
+                styles.primaryButton,
+                { backgroundColor: colors.primary, opacity: account && !busy ? 1 : 0.5 },
+              ]}
+              disabled={!account || busy}
+              onPress={onCreate}
+            >
+              {busy ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.primaryButtonText}>Identität erstellen</Text>
+              )}
+            </Pressable>
+            <Text style={[styles.buttonNote, { color: colors.textSecondary }]}>
+              Kostenlos, kein zusätzliches Passwort. Du kannst sie jederzeit wieder entfernen.
             </Text>
-            <Text style={[styles.hint, { color: colors.textSecondary }]}>Zum Kopieren tippen.</Text>
-          </Pressable>
+          </>
         )}
 
-        <View style={[styles.card, { backgroundColor: colors.surface }]}>
-          <Text style={[styles.label, { color: colors.textSecondary }]}>WAS DAS BEDEUTET</Text>
-          <Text style={[styles.body, { color: colors.textPrimary }]}>
-            Deine Nostr-Identität gehört dir. Der private Schlüssel wird aus deinem Wallet
-            abgeleitet und bleibt auf diesem Gerät — Röbel speichert ihn nicht und kann nicht in
-            deinem Namen schreiben.
-          </Text>
-          <Text style={[styles.body, { color: colors.textPrimary, marginTop: 12 }]}>
-            Beiträge, die du veröffentlichst, liegen öffentlich und dauerhaft auf dem Röbel-Relay.
-            Jede App und jeder Agent kann sie lesen. Eine Löschung lässt sich anfragen, aber nicht
-            erzwingen — veröffentliche hier nur, was öffentlich bleiben darf.
-          </Text>
-          <Text style={[styles.body, { color: colors.textPrimary, marginTop: 12 }]}>
-            Schreibrechte haben ausschließlich Bürger mit Bürger-NFT. Nach der Registrierung dauert
-            die Freischaltung wenige Minuten.
-          </Text>
-        </View>
-
-        {status === 'none' && (
+        {stage === 'waiting' && (
           <Pressable
-            style={[styles.primaryButton, { backgroundColor: colors.primary, opacity: account && !busy ? 1 : 0.5 }]}
-            disabled={!account || busy}
-            onPress={onCreate}
+            style={[styles.secondaryButton, { borderColor: colors.border, opacity: busy ? 0.5 : 1 }]}
+            disabled={busy}
+            onPress={onCheckNow}
           >
             {busy ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={colors.primary} />
             ) : (
-              <Text style={styles.primaryButtonText}>Nostr-Identität erstellen</Text>
+              <Text style={[styles.secondaryButtonText, { color: colors.textPrimary }]}>
+                Jetzt prüfen
+              </Text>
             )}
           </Pressable>
         )}
 
         {identity && (
-          <Pressable style={styles.secondaryButton} onPress={onRemove}>
-            <Text style={[styles.secondaryButtonText, { color: colors.error ?? '#D14343' }]}>
+          <View style={[styles.card, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>Deine Adresse</Text>
+            <Pressable onPress={() => copy(identity.npub, 'npub')}>
+              <Text style={[styles.npub, { color: colors.textPrimary }]} numberOfLines={2}>
+                {identity.npub}
+              </Text>
+              <Text style={[styles.copyHint, { color: copied === 'npub' ? colors.success : colors.textSecondary }]}>
+                {copied === 'npub' ? 'Kopiert' : 'Zum Kopieren tippen'}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setShowDetails((v) => !v);
+              }}
+              style={styles.detailsToggle}
+            >
+              <Text style={[styles.detailsToggleText, { color: colors.textSecondary }]}>
+                Technische Details {showDetails ? '−' : '+'}
+              </Text>
+            </Pressable>
+            {showDetails && (
+              <Pressable onPress={() => copy(identity.publicKey, 'hex')}>
+                <Text style={[styles.cardLabel, { color: colors.textSecondary, marginTop: 4 }]}>
+                  Öffentlicher Schlüssel (hex)
+                </Text>
+                <Text style={[styles.hex, { color: colors.textSecondary }]} numberOfLines={2}>
+                  {identity.publicKey}
+                </Text>
+                <Text style={[styles.copyHint, { color: copied === 'hex' ? colors.success : colors.textSecondary }]}>
+                  {copied === 'hex' ? 'Kopiert' : 'Zum Kopieren tippen'}
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        <Text style={[styles.sectionHeading, { color: colors.textSecondary }]}>GUT ZU WISSEN</Text>
+        <View style={[styles.card, styles.explainerCard, { backgroundColor: colors.surface }]}>
+          {EXPLAINERS.map((item, index) => {
+            const open = openExplainer === index;
+            return (
+              <View
+                key={item.question}
+                style={
+                  index < EXPLAINERS.length - 1
+                    ? { borderBottomWidth: 1, borderBottomColor: colors.borderSecondary }
+                    : undefined
+                }
+              >
+                <Pressable
+                  style={styles.explainerRow}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: open }}
+                  onPress={() => {
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    setOpenExplainer(open ? null : index);
+                  }}
+                >
+                  <Text style={[styles.explainerQuestion, { color: colors.textPrimary }]}>
+                    {item.question}
+                  </Text>
+                  <Text style={[styles.explainerSign, { color: colors.textTertiary }]}>
+                    {open ? '−' : '+'}
+                  </Text>
+                </Pressable>
+                {open && (
+                  <Text style={[styles.explainerAnswer, { color: colors.textSecondary }]}>
+                    {item.answer}
+                  </Text>
+                )}
+              </View>
+            );
+          })}
+        </View>
+
+        {identity && (
+          <Pressable style={styles.removeButton} onPress={onRemove}>
+            <Text style={[styles.removeButtonText, { color: colors.error }]}>
               Identität von diesem Gerät entfernen
             </Text>
           </Pressable>
@@ -191,16 +448,67 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  headerTitle: { fontFamily: 'Inter-SemiBold', fontSize: 17 },
-  content: { padding: 16, gap: 16, paddingBottom: 48 },
+  headerTitle: { fontFamily: fontFamily.semiBold, fontSize: 17 },
+  content: { padding: 16, paddingBottom: 56, gap: 14 },
+
+  lede: { fontFamily: fontFamily.heading, fontSize: 26, lineHeight: 31 },
+  subLede: { fontFamily: fontFamily.regular, fontSize: 15, lineHeight: 22, marginTop: -6 },
+
   card: { borderRadius: 16, padding: 16 },
-  label: { fontFamily: 'Inter-Medium', fontSize: 11, letterSpacing: 0.5, marginBottom: 6 },
-  value: { fontFamily: 'Inter-SemiBold', fontSize: 16 },
-  npub: { fontFamily: 'GeistMono-Regular', fontSize: 13, lineHeight: 19 },
-  body: { fontFamily: 'Inter-Regular', fontSize: 14, lineHeight: 21 },
-  hint: { fontFamily: 'Inter-Regular', fontSize: 12, marginTop: 8 },
-  primaryButton: { borderRadius: 999, paddingVertical: 15, alignItems: 'center' },
-  primaryButtonText: { fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#fff' },
-  secondaryButton: { paddingVertical: 12, alignItems: 'center' },
-  secondaryButtonText: { fontFamily: 'Inter-Medium', fontSize: 14 },
+  cardLabel: { fontFamily: fontFamily.medium, fontSize: 11, letterSpacing: 0.6, marginBottom: 6 },
+  sectionHeading: {
+    fontFamily: fontFamily.medium,
+    fontSize: 11,
+    letterSpacing: 0.6,
+    marginTop: 6,
+    marginLeft: 4,
+  },
+
+  step: { flexDirection: 'row', gap: 14 },
+  stepRail: { alignItems: 'center', width: 22 },
+  stepDot: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  stepDotMark: { color: '#fff', fontSize: 12, fontFamily: fontFamily.bold },
+  stepLine: { width: 2, flex: 1, marginVertical: 4, borderRadius: 1 },
+  stepBody: { flex: 1, paddingBottom: 18 },
+  stepTitle: { fontFamily: fontFamily.semiBold, fontSize: 15 },
+  stepDetail: { fontFamily: fontFamily.regular, fontSize: 13, lineHeight: 19, marginTop: 2 },
+  inlineStatus: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  inlineStatusText: { fontFamily: fontFamily.medium, fontSize: 13 },
+
+  npub: { fontFamily: fontFamily.mono, fontSize: 13, lineHeight: 19 },
+  hex: { fontFamily: fontFamily.mono, fontSize: 12, lineHeight: 18 },
+  copyHint: { fontFamily: fontFamily.regular, fontSize: 12, marginTop: 6 },
+  detailsToggle: { marginTop: 14 },
+  detailsToggleText: { fontFamily: fontFamily.medium, fontSize: 13 },
+
+  explainerCard: { paddingVertical: 0 },
+  explainerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 15,
+    gap: 12,
+  },
+  explainerQuestion: { fontFamily: fontFamily.medium, fontSize: 15, flex: 1 },
+  explainerSign: { fontFamily: fontFamily.regular, fontSize: 18 },
+  explainerAnswer: {
+    fontFamily: fontFamily.regular,
+    fontSize: 14,
+    lineHeight: 21,
+    paddingBottom: 16,
+    paddingRight: 24,
+  },
+
+  primaryButton: { borderRadius: 999, paddingVertical: 16, alignItems: 'center' },
+  primaryButtonText: { fontFamily: fontFamily.semiBold, fontSize: 15, color: '#fff' },
+  buttonNote: { fontFamily: fontFamily.regular, fontSize: 12, textAlign: 'center', marginTop: -6 },
+  secondaryButton: {
+    borderRadius: 999,
+    paddingVertical: 15,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  secondaryButtonText: { fontFamily: fontFamily.semiBold, fontSize: 15 },
+  removeButton: { paddingVertical: 14, alignItems: 'center', marginTop: 4 },
+  removeButtonText: { fontFamily: fontFamily.medium, fontSize: 14 },
 });

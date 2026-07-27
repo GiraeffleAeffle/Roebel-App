@@ -191,7 +191,7 @@ export default function SettingsScreen() {
                 Nostr-Identität
               </Text>
               <Text style={[styles.themeOptionDescription, { color: colors.textSecondary }]}>
-                Eigene Identität auf dem Röbel-Relay — offen lesbar für andere Apps und Agenten.
+                Deine öffentlichen Beiträge gehören dir — auch außerhalb dieser App.
               </Text>
             </View>
             <Text style={[styles.chevron, { color: colors.textTertiary }]}>›</Text>
