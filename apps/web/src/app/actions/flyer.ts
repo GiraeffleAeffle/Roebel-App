@@ -16,12 +16,13 @@ import {
 import { resolveStyle } from "@/lib/flyer/styles";
 import {
   buildFlyerImagePrompt,
+  buildFlyerEditPrompt,
   renderFlyerImage,
-  renderFlyerImageWithReference,
 } from "@/lib/flyer/render";
+import { KieImageError } from "@/lib/images/kie";
 import type { Flyer, FlyerEventOption } from "@/types/flyer";
 
-// Bounds gpt-image-1 cost. Counts flyers created by the account since UTC midnight.
+// Bounds image-generation cost. Counts flyers created by the account since UTC midnight.
 const DAILY_CAP = 15;
 const STORAGE_BUCKET = "images";
 
@@ -137,12 +138,10 @@ export async function draftFlyerCopyAction(
   }
 }
 
-const MAX_REFERENCE_BYTES = 10 * 1024 * 1024; // 10 MB
-
 /**
- * Only fetch references from our own Supabase storage host (where uploaded
- * references + event images live). Blocks SSRF to arbitrary/internal URLs — the
- * referenceUrl is client-supplied and fetched server-side.
+ * Only our own Supabase storage host is accepted as a reference. The
+ * referenceUrl is client-supplied and handed to kie.ai, so this keeps us from
+ * pointing a third party at arbitrary/internal URLs.
  */
 function isAllowedReferenceUrl(url: string): boolean {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -155,27 +154,59 @@ function isAllowedReferenceUrl(url: string): boolean {
   }
 }
 
-/** Fetch a reference image (logo / event photo) for the gpt-image-1 edit path. Null on any problem. */
-async function fetchReferenceImage(
-  url: string,
-): Promise<{ bytes: Uint8Array; contentType: string } | null> {
-  if (!isAllowedReferenceUrl(url)) return null;
-  try {
-    // redirect:"manual" fails closed — a redirect off the allowed host can't be followed.
-    const res = await fetch(url, { redirect: "manual" });
-    if (!res.ok) return null;
-    const contentType = res.headers.get("content-type") ?? "image/png";
-    if (!contentType.startsWith("image/")) return null;
-    const buf = new Uint8Array(await res.arrayBuffer());
-    if (buf.byteLength === 0 || buf.byteLength > MAX_REFERENCE_BYTES) return null;
-    return { bytes: buf, contentType };
-  } catch (error) {
-    console.error("fetchReferenceImage failed", error);
-    return null;
-  }
+/** Reference images kie.ai may load, or [] when the URL isn't ours / absent. */
+function allowedReferenceUrls(url?: string | null): string[] {
+  const trimmed = url?.trim();
+  if (!trimmed || !isAllowedReferenceUrl(trimmed)) return [];
+  return [trimmed];
 }
 
-/** Render the flyer (gpt-image-1), upload it, and save the row. Owner-gated + daily-capped. */
+/** Enforce the per-org daily cap. Returns an error message when exceeded. */
+async function checkDailyCap(
+  admin: ReturnType<typeof createAdminClient>,
+  accountId: string,
+): Promise<string | null> {
+  const startOfDay = new Date();
+  startOfDay.setUTCHours(0, 0, 0, 0);
+  const { count, error } = await admin
+    .from("flyers")
+    .select("id", { count: "exact", head: true })
+    .eq("account_id", accountId)
+    .gte("created_at", startOfDay.toISOString());
+  if (error) console.error("flyer cap-count failed", error);
+  if ((count ?? 0) >= DAILY_CAP) {
+    return `Tageslimit erreicht (${DAILY_CAP} Flyer). Bitte morgen weitermachen.`;
+  }
+  return null;
+}
+
+/** Persist a rendered flyer image in our storage and return its public URL. */
+async function uploadFlyerImage(
+  admin: ReturnType<typeof createAdminClient>,
+  accountId: string,
+  image: { bytes: Uint8Array; contentType: string },
+): Promise<string | null> {
+  const ext = image.contentType.includes("jpeg") || image.contentType.includes("jpg")
+    ? "jpg"
+    : image.contentType.includes("webp")
+      ? "webp"
+      : "png";
+  const filePath = `flyers/${accountId}/${crypto.randomUUID()}.${ext}`;
+  const { error } = await admin.storage
+    .from(STORAGE_BUCKET)
+    .upload(filePath, Buffer.from(image.bytes), {
+      contentType: image.contentType,
+      upsert: false,
+    });
+  if (error) {
+    console.error("uploadFlyerImage failed", error);
+    return null;
+  }
+  const { data } = admin.storage.from(STORAGE_BUCKET).getPublicUrl(filePath);
+  return data.publicUrl;
+}
+
+/** Render the flyer (Nano Banana 2 Lite), upload it, and save the row. Owner-gated + daily-capped. */
 export async function generateFlyerAction(
   accountId: string,
   walletAddress: string,
@@ -193,21 +224,8 @@ export async function generateFlyerAction(
   try {
     const admin = createAdminClient();
 
-    // Daily cap — count this account's flyers since UTC midnight.
-    const startOfDay = new Date();
-    startOfDay.setUTCHours(0, 0, 0, 0);
-    const { count, error: countErr } = await admin
-      .from("flyers")
-      .select("id", { count: "exact", head: true })
-      .eq("account_id", accountId)
-      .gte("created_at", startOfDay.toISOString());
-    if (countErr) console.error("generateFlyerAction cap-count failed", countErr);
-    if ((count ?? 0) >= DAILY_CAP) {
-      return {
-        success: false,
-        error: `Tageslimit erreicht (${DAILY_CAP} Flyer). Bitte morgen weitermachen.`,
-      };
-    }
+    const capError = await checkDailyCap(admin, accountId);
+    if (capError) return { success: false, error: capError };
 
     // Validate the event linkage against THIS account (mirror the draft path) so
     // a caller can't link a flyer to another org's event, and drop empty strings
@@ -219,28 +237,22 @@ export async function generateFlyerAction(
       validEventId = owned ? rawEventId : null;
     }
 
-    // Optional reference image (org logo / event photo) → gpt-image-1 edit path.
-    // Best-effort: an unfetchable reference falls back to plain text-to-image.
-    const reference = input.referenceUrl ? await fetchReferenceImage(input.referenceUrl) : null;
+    // Optional reference image (org logo / event photo). kie.ai loads it by URL,
+    // so a non-allowed URL simply degrades to plain text-to-image.
+    const referenceUrls = allowedReferenceUrls(input.referenceUrl);
 
     const copy = normalizeCopy(input.copy);
     const resolvedStyle = resolveStyle(input.style);
-    const prompt = buildFlyerImagePrompt(copy, resolvedStyle, { hasReference: !!reference });
+    const prompt = buildFlyerImagePrompt(copy, resolvedStyle, {
+      hasReference: referenceUrls.length > 0,
+    });
 
-    const bytes = reference
-      ? await renderFlyerImageWithReference(prompt, reference)
-      : await renderFlyerImage(prompt);
+    const image = await renderFlyerImage(prompt, referenceUrls);
 
-    const filePath = `flyers/${accountId}/${crypto.randomUUID()}.png`;
-    const { error: uploadErr } = await admin.storage
-      .from(STORAGE_BUCKET)
-      .upload(filePath, Buffer.from(bytes), { contentType: "image/png", upsert: false });
-    if (uploadErr) {
-      console.error("generateFlyerAction upload failed", uploadErr);
+    const imageUrl = await uploadFlyerImage(admin, accountId, image);
+    if (!imageUrl) {
       return { success: false, error: "Der Flyer konnte nicht gespeichert werden." };
     }
-    const { data: urlData } = admin.storage.from(STORAGE_BUCKET).getPublicUrl(filePath);
-    const imageUrl = urlData.publicUrl;
 
     const { data, error: insertErr } = await admin
       .from("flyers")
@@ -267,11 +279,88 @@ export async function generateFlyerAction(
     return { success: true, flyer: data as Flyer };
   } catch (error) {
     console.error("generateFlyerAction failed", error);
-    const msg =
-      error instanceof Error && error.message.includes("OPENAI_API_KEY")
-        ? "Bildgenerierung ist nicht konfiguriert (OPENAI_API_KEY fehlt)."
-        : "Der Flyer konnte nicht erstellt werden.";
-    return { success: false, error: msg };
+    return { success: false, error: flyerErrorMessage(error) };
+  }
+}
+
+/** Surface the underlying (German) generation error when we have one. */
+function flyerErrorMessage(error: unknown): string {
+  if (error instanceof KieImageError && error.message) return error.message;
+  return "Der Flyer konnte nicht erstellt werden.";
+}
+
+/**
+ * Edit an EXISTING flyer: the saved image is passed back to the model as the
+ * reference and one requested change is applied. Saves the result as a NEW
+ * flyer (non-destructive — the original stays in the library).
+ * Owner-gated, account-scoped, and counted against the daily cap.
+ */
+export async function editFlyerAction(
+  accountId: string,
+  walletAddress: string,
+  flyerId: string,
+  instruction: string,
+): Promise<{ success: boolean; error?: string; flyer?: Flyer }> {
+  const guard = await assertOwner(accountId, walletAddress);
+  if (!guard.ok) return { success: false, error: guard.error };
+  if (!instruction.trim()) {
+    return { success: false, error: "Bitte beschreibt kurz, was geändert werden soll." };
+  }
+  try {
+    const admin = createAdminClient();
+
+    const capError = await checkDailyCap(admin, accountId);
+    if (capError) return { success: false, error: capError };
+
+    const { data: source } = await admin
+      .from("flyers")
+      .select("*")
+      .eq("id", flyerId)
+      .eq("account_id", accountId)
+      .maybeSingle();
+    if (!source) return { success: false, error: "Flyer nicht gefunden" };
+    const original = source as Flyer;
+
+    const referenceUrls = allowedReferenceUrls(original.image_url);
+    if (referenceUrls.length === 0) {
+      return { success: false, error: "Dieser Flyer kann nicht bearbeitet werden." };
+    }
+
+    const copy = normalizeCopy(original.copy ?? {});
+    const prompt = buildFlyerEditPrompt(instruction);
+    const image = await renderFlyerImage(prompt, referenceUrls);
+
+    const imageUrl = await uploadFlyerImage(admin, accountId, image);
+    if (!imageUrl) {
+      return { success: false, error: "Der Flyer konnte nicht gespeichert werden." };
+    }
+
+    const { data, error: insertErr } = await admin
+      .from("flyers")
+      .insert({
+        account_id: accountId,
+        created_by_wallet: walletAddress.toLowerCase(),
+        title: original.title || copy.headline || "Flyer",
+        brief: instruction.trim(),
+        copy,
+        style: original.style,
+        image_url: imageUrl,
+        event_id: original.event_id,
+        source: original.source,
+        status: "saved",
+      })
+      .select("*")
+      .single();
+    if (insertErr || !data) {
+      console.error("editFlyerAction insert failed", insertErr);
+      return { success: false, error: "Der Flyer konnte nicht gespeichert werden." };
+    }
+
+    revalidatePath("/dashboard/flyer");
+    return { success: true, flyer: data as Flyer };
+  } catch (error) {
+    console.error("editFlyerAction failed", error);
+    return { success: false, error: flyerErrorMessage(error) };
   }
 }
 

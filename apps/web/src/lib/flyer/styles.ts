@@ -1,4 +1,4 @@
-// Curated flyer style presets. Each is a gpt-image-1 style direction + palette.
+// Curated flyer style presets. Each is an image-model style direction + palette.
 // Röbel navy is the default brand colour (#00498B, per the 2026-06-27 rebrand).
 // Kept pure/data-only so the render prompt builder stays unit-testable.
 
