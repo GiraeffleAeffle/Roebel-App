@@ -84,22 +84,42 @@ only the set difference, so cost stays proportional to what changed, not to hist
 Pull-based, like the allow-list syncer: **outbound connections only**, no new inbound surface on
 the node.
 
-## 5. The load-bearing risk, and its fallback
+## 5. RESOLVED — sync enforces the write policy, so peers land in a separate mirror
 
-**Does `strfry sync` bypass the relay's write policy?**
+**Verified on the box 2026-07-28. The assumption in the first draft was wrong.**
 
-Röbel's policy admits only CitizenNFT holders listed in `members.txt`. A peer's events are
-authored by *their* citizens, who are not in that list. If sync writes are subject to the
-policy, **every federated event is rejected and this slice does not work at all**.
+`strfry sync` **does** enforce the destination's write policy. Negentropy transported the event
+correctly (`Have 0 need 1` → `DOWN: 1 events`), and the writer then rejected it:
 
-The expectation is that `sync` writes directly to the LMDB store and bypasses the plugin, which
-governs the relay's WebSocket ingress. **This is unverified.** It is therefore step one of
-implementation, before anything else is built — this session has twice paid for an assumption
-that looked obviously true.
+```
+write policy blocked event 33a34b4b…: blocked: only Röbel / Müritz members may publish
+Writer: added: 0
+```
 
-**Fallback if the policy does apply:** extend `policy.awk` to accept an author present in
-`members.txt` **or** in a rendered `federated.txt` of peer member pubkeys. Tractable, but it
-changes the shape of the work, which is precisely why it is tested first.
+Worse for the original fallback: the plugin cannot tell a peer from a stranger. A synced event
+arrives as `{"sourceType":"IP4","sourceInfo":"<peer ip>","type":"new"}` — from the receiving
+relay's view a syncing peer is just another WebSocket client. Author allow-lists would need a
+roster-exchange mechanism that does not exist, and would still dilute the members-only guarantee.
+
+**The design instead: each node runs a second, separate relay — the federation mirror.**
+
+| | authoring relay | federation mirror |
+|---|---|---|
+| holds | what this node's own members wrote | peers' public events |
+| writes | members only (CitizenNFT gate, unchanged) | rejected — read-only to the world |
+| filled by | citizens publishing | the local syncer only |
+
+The two share nothing. The authoring relay's guarantee — *only Röbel members publish here* —
+stays absolutely true, because federation never writes to it.
+
+**The mechanism that makes a read-only-but-writable store possible:** one LMDB, two configs.
+The mirror's relay config installs a reject-everything write policy; the syncer uses a second
+config over the same store with no policy at all. A policy that blocks strangers would otherwise
+block the syncer too, since both arrive as ordinary IP4 writes.
+
+**Federation is pull-only.** A node reads a peer's public record into its own mirror and never
+writes into a peer's database. Each node decides what it ingests, and both ends still converge on
+the same set — so `direction` disappears from the schema entirely.
 
 ## 6. Loops and provenance
 
@@ -113,8 +133,11 @@ Transitive relaying is out of scope (§1) and must stay explicitly out until dec
 - **Unit** — manifest schema accepts a valid `peers` block and rejects a malformed one; render
   emits one sync invocation per peer with the right direction and kind filter; a node with no
   `peers` gets no federation service at all.
-- **Integration**, on the box — publish on node #2, assert it appears on Röbel's relay; assert a
-  kind **not** declared on the link does **not** cross; assert re-running sync is a no-op.
+- **Integration**, on the box — VERIFIED 2026-07-28, four properties:
+  1. a peer event by an author Röbel has never heard of lands in the mirror (`added: 3`)
+  2. the authoring relay is untouched — that author is still absent from it
+  3. a direct push at the mirror socket is refused (`write policy blocked … read-only`)
+  4. an unreachable peer logs and the sweep continues
 - **Manual** — read a federated event with `nak` against the receiving relay and verify its
   signature, exactly as the identity bridge was verified.
 

@@ -196,6 +196,12 @@ const Ai = z.object({
  * agent keys: an operator putting it in the manifest is the decision, and it is
  * auditable in a git diff. A future `peerRegistry` can populate this same shape
  * from an on-chain contract without changing anything downstream.
+ *
+ * Federation is PULL-ONLY, so there is no direction to configure. A node reaches
+ * out, reads a peer's public record, and stores it in its own federation mirror.
+ * No node ever writes into another node's database — each decides what it
+ * ingests, and both ends still converge on the same set. That is a sovereignty
+ * property, not an implementation detail.
  */
 const Peer = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/, "peer id must be a lowercase slug"),
@@ -207,8 +213,6 @@ const Peer = z.object({
    * a visible edit.
    */
   kinds: z.array(z.number().int().nonnegative()).min(1),
-  /** `both` mirrors, `down` pulls only, `up` pushes only. */
-  direction: z.enum(["both", "down", "up"]).default("both"),
   /**
    * Why this peer is trusted, in plain language. Required: a trust decision with
    * no stated reason is one nobody can review later, and this is the file a

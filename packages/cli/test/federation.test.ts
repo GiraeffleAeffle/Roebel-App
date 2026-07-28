@@ -8,6 +8,8 @@ import {
   renderComposeYml,
   renderFederationPeers,
   renderFederationSync,
+  renderMirrorConf,
+  renderMirrorSyncConf,
   plan,
 } from "../src/render.js";
 
@@ -23,18 +25,14 @@ const PEER = {
   name: "Netizen Test Node",
   relay: "wss://relay2.roebel.app",
   kinds: [0, 1],
-  direction: "both",
   why: "Federation test fixture — second node on the same host",
 };
 
 const withPeers = { ...base, peers: [PEER] };
 
-test("the schema accepts a declared peer and defaults direction to both", () => {
-  const parsed = NetizenManifestSchema.parse({
-    ...base,
-    peers: [{ ...PEER, direction: undefined }],
-  });
-  assert.equal(parsed.peers?.[0].direction, "both");
+test("the schema accepts a declared peer", () => {
+  const parsed = NetizenManifestSchema.parse({ ...base, peers: [PEER] });
+  assert.equal(parsed.peers?.[0].relay, PEER.relay);
 });
 
 test("a peer must state why it is trusted", () => {
@@ -52,10 +50,34 @@ test("a peer relay must be wss:// — never plaintext", () => {
   );
 });
 
-test("sync script emits one strfry sync per peer, with its direction and kind filter", () => {
+test("sync is PULL-ONLY and writes into the mirror, never the authoring relay", () => {
   const sh = renderFederationSync(withPeers as never);
-  assert.match(sh, /strfry sync "wss:\/\/relay2\.roebel\.app" --dir both/);
+  // --dir down: this node never writes into a peer's database.
+  assert.match(sh, /sync "wss:\/\/relay2\.roebel\.app"/);
+  assert.match(sh, /--dir down/);
+  assert.ok(!/--dir (up|both)/.test(sh), "federation must never push into a peer");
   assert.match(sh, /--filter '\{"kinds":\[0,1\]\}'/);
+  // The mirror's config, not the authoring relay's — a synced event is subject to
+  // the destination's write policy, so it must land in the separate store.
+  assert.match(sh, /--config=\/etc\/strfry-mirror-sync\.conf/);
+  // The binary is not on PATH in the strfry image.
+  assert.match(sh, /\/app\/strfry /);
+});
+
+test("the mirror serves reads but rejects every write", () => {
+  const conf = renderMirrorConf(withPeers as never);
+  assert.match(conf, /reject-all\.sh/);
+  assert.match(conf, /mirror-db/);
+});
+
+test("the syncer's config shares the store but installs no write policy", () => {
+  // Same DB, different config: that is what lets the mirror be publicly readable
+  // without being publicly writable, since strfry cannot tell a syncing peer from
+  // a stranger (both arrive as IP4).
+  const sync = renderMirrorSyncConf(withPeers as never);
+  assert.match(sync, /mirror-db/);
+  assert.match(sync, /writePolicy \{ plugin = "" \}/);
+  assert.notEqual(renderMirrorConf(withPeers as never), sync);
 });
 
 test("an unreachable peer does not abort the sweep", () => {
@@ -74,22 +96,39 @@ test("the peer table records who and why, for review", () => {
 
 test("a node with no peers ships no federation machinery at all", () => {
   const bundle = renderBundle(base);
-  assert.equal(bundle.files["federation/sync-peers.sh"], undefined);
-  assert.equal(bundle.files["federation/PEERS.md"], undefined);
+  assert.equal(bundle.files["strfry-mirror/sync-peers.sh"], undefined);
+  assert.equal(bundle.files["strfry-mirror/mirror.conf"], undefined);
   assert.ok(!renderComposeYml(base).includes("federation:"));
+  assert.ok(!renderComposeYml(base).includes("mirror:"));
   assert.ok(!plan(base).some((s) => s.id === "federation"));
 });
 
-test("declaring peers adds the service, the files and a plan step", () => {
+test("declaring peers adds the services, the files and a plan step", () => {
   const bundle = renderBundle(withPeers as never);
-  assert.ok(bundle.files["federation/sync-peers.sh"]);
-  assert.ok(bundle.files["federation/PEERS.md"]);
+  assert.ok(bundle.files["strfry-mirror/sync-peers.sh"]);
+  assert.ok(bundle.files["strfry-mirror/mirror.conf"]);
+  assert.ok(bundle.files["strfry-mirror/mirror-sync.conf"]);
+  assert.ok(bundle.files["strfry-mirror/reject-all.sh"]);
+  assert.ok(bundle.files["strfry-mirror/PEERS.md"]);
 
   const compose = renderComposeYml(withPeers as never);
   assert.match(compose, /^ {2}federation:/m);
+  assert.match(compose, /^ {2}mirror:/m);
+  // Peers' events get their own store — never mingled with what this node's own
+  // members authored.
+  assert.match(compose, /mirror_db:/);
   // Pull-based: it must add no inbound surface to the node.
   const service = compose.slice(compose.indexOf("  federation:"));
   assert.ok(!/ports:/.test(service.split("\n").slice(0, 12).join("\n")));
 
   assert.ok(plan(withPeers as never).some((s) => s.id === "federation"));
+});
+
+test("mirror configs use strfry's multi-line info form", () => {
+  // strfry's parser REJECTS the compact `info { a = "x"; b = "y"; }` form that
+  // appears in some docs — it cost a deploy cycle. Keys go on their own lines.
+  for (const conf of [renderMirrorConf(withPeers as never), renderMirrorSyncConf(withPeers as never)]) {
+    assert.ok(!/info \{[^\n}]*;/.test(conf), "compact info block will not parse");
+    assert.match(conf, /info \{\n\s+name = /);
+  }
 });
