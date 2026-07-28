@@ -105,9 +105,14 @@ keep it. That is why data which must be erasable never goes on the relay at all.
 
 ## 5. Federation (NSP-9) — live 2026-07-28
 
-Peers are **declared in the manifest** (`peers`: id, name, wss relay, kinds, why) and
-rendered by the installer, so a contributor gets federation by editing a file. Declaring a
-peer *is* the authorisation, and it is auditable in a git diff.
+Peers are **declared in the manifest** (`peers`: id, name, relay, kinds, why) and rendered by
+the installer, so a contributor gets federation by editing a file. Declaring a peer *is* the
+authorisation, and it is auditable in a git diff.
+
+Relay URLs must be `wss://`, except that plaintext `ws://` is allowed for a host with no dot
+— a container name or `localhost` — which cannot route off the machine. The rule is "never
+plaintext across a network you do not control", not "always TLS": requiring public DNS and a
+certificate for a same-host fixture would only push people toward disabling the check.
 
 **Federated events land in a separate relay, never the authoring one.**
 

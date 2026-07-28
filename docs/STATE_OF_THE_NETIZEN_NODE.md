@@ -34,8 +34,6 @@ Verified live 2026-07-28:
 |---|---|---|
 | `roebel-caddy-1` | `caddy:2` | TLS + reverse proxy for every subdomain |
 | `roebel-strfry-1` | `strfry` | the **authoring** Nostr relay, members-only writes |
-| `roebel-mirror` | `strfry` | the **federation mirror**, read-only |
-| `roebel-federation` | `strfry` | pulls declared peers into the mirror |
 | `roebel-relay-sync-1` | `node:22-alpine` | onchain membership → relay write access |
 | `roebel-synapse-1` | Synapse | Matrix homeserver |
 | `roebel-mas-1` | MAS | Matrix auth, OIDC upstream to Röbel ID |
@@ -43,6 +41,8 @@ Verified live 2026-07-28:
 | `roebel-nextcloud-1` | Nextcloud | files |
 | `roebel-collabora-1` | Collabora | collaborative documents |
 | `roebel-postgres-1` | `postgres:16` | shared database for the above |
+| `roebel-mirror-1` | `strfry` | the **federation mirror**, read-only |
+| `roebel-federation-1` | `strfry` | pulls declared peers into the mirror |
 | `testnode-strfry` | `strfry` | **node #2** — the federation test fixture |
 
 ## 3. Public endpoints
@@ -99,8 +99,8 @@ why parts of it look the way they do.
 
 ## 7. Known gaps
 
-- The **mirror and federation containers were started with `docker run`** while proving the
-  design, so the compose stack does not yet own them. Reconciling that is worth doing before
-  an outside contributor copies this layout.
-- **Node #2 is on the same box.** It proves the protocol, not independence.
+- **Node #2 is on the same box.** It proves the protocol, not independence. The
+  concentration ratio stays 1 until an outside operator runs one.
+- **Node #2 itself is not yet manifest-declared.** Röbel declares it as a *peer*, but the
+  test node's own containers were hand-started; it has no manifest of its own.
 - Synapse and MAS have needed attention; check them before relying on Matrix.
