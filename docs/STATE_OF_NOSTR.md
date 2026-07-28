@@ -22,7 +22,7 @@ workspace**. Parts 1 and 3 are built. Parts 2 and 4 are not.
 | Federation mirror | `roebel-mirror` container (peers' events, read-only) |
 | Write access | CitizenNFTv2 holders only, synced from chain every 5 min |
 | Supported NIPs | 1, 2, 4, 9, 11, 28, 40, 45, 70, **77** |
-| Node #2 | `testnode-strfry` — federation test fixture |
+| Node #2 | `testnode-strfry` + its own mirror — a full second node, rendered from `testnode.netizen.json` |
 
 **NIP-77 (negentropy) is the load-bearing one**: it makes cross-node sync set-reconciliation
 rather than log-shipping, so a pass costs the difference rather than the history, and a
@@ -139,6 +139,11 @@ is no `direction` to configure.
 Verified on the node, four properties: a peer event by an author Röbel has never heard of
 lands in the mirror; the authoring relay still lacks that author; a direct push at the mirror
 socket is refused; an unreachable peer does not abort the sweep.
+
+**Bidirectional as of 2026-07-28.** Both nodes run from rendered manifests and each declares
+the other as a peer, so each pulls the other into its own mirror. Neither writes into the
+other. What is deliberately still missing is listed in
+[Roadmap and deferred work](ROADMAP_AND_DEFERRED.md).
 
 ## 6. Not built
 

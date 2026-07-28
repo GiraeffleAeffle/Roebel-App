@@ -13,6 +13,7 @@ the right one.
 | Work on Nostr, relays, or federation | [State of Nostr](STATE_OF_NOSTR.md) |
 | Run my own node | [Netizen Node manifest](superpowers/specs/2026-07-26-netizen-node-manifest.md) → [installer](superpowers/specs/2026-07-26-netizen-node-installer.md) |
 | Contribute code | [Contributor onboarding](CONTRIBUTOR_ONBOARDING.md), [Forking guide](FORKING_GUIDE.md) |
+| Know what we deliberately have NOT built, and why | [Roadmap and deferred work](ROADMAP_AND_DEFERRED.md) |
 | Understand the mission | [Mission and goals](MISSION_AND_GOALS.md) |
 
 ## How these documents relate
@@ -25,7 +26,14 @@ learned, including what turned out false), or a **runbook** (how to operate a th
 STATE_OF_THE_NETIZEN_STACK.md      what the whole system is, and what is live
   ├── STATE_OF_THE_NETIZEN_NODE.md what runs on the box, and how to reproduce it
   └── STATE_OF_NOSTR.md            identity bridge, relay, allow-list, federation
+
+ROADMAP_AND_DEFERRED.md            what is deliberately NOT built, and its trigger
 ```
+
+The roadmap is the counterpart to the State docs: they say what is true, it says what was
+consciously left undone. Every entry carries a **trigger** — the condition that makes it worth
+doing — because an item without one is a wish, and an item without a stated reason is an
+oversight.
 
 A **State of…** doc that disagrees with reality is a bug. If you find one, fix it in the same
 change as the code — the reason these exist is that a contributor cannot read a running

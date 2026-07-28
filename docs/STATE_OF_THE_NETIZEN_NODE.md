@@ -43,7 +43,9 @@ Verified live 2026-07-28:
 | `roebel-postgres-1` | `postgres:16` | shared database for the above |
 | `roebel-mirror-1` | `strfry` | the **federation mirror**, read-only |
 | `roebel-federation-1` | `strfry` | pulls declared peers into the mirror |
-| `testnode-strfry` | `strfry` | **node #2** — the federation test fixture |
+| `testnode-strfry` | `strfry` | **node #2** — its own members-only relay |
+| `testnode-mirror` | `strfry` | node #2's federation mirror |
+| `testnode-federation` | `strfry` | node #2 pulling Röbel |
 
 ## 3. Public endpoints
 
@@ -101,6 +103,7 @@ why parts of it look the way they do.
 
 - **Node #2 is on the same box.** It proves the protocol, not independence. The
   concentration ratio stays 1 until an outside operator runs one.
-- **Node #2 itself is not yet manifest-declared.** Röbel declares it as a *peer*, but the
-  test node's own containers were hand-started; it has no manifest of its own.
+- **Node #2's containers are not compose-managed.** It now runs from its own rendered
+  manifest (`packages/protocol/examples/testnode.netizen.json`) with its own members-only
+  relay and federation mirror, but the containers were started with `docker run`.
 - Synapse and MAS have needed attention; check them before relying on Matrix.
