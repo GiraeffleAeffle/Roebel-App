@@ -51,3 +51,37 @@ export function formatSize(bytes: number): string {
   }
   return `${value.toFixed(1).replace(".", ",")} ${UNITS[unit]}`;
 }
+
+/**
+ * Where the OIDC hop returns to. Shared by every place `FileBrowser` starts
+ * it (the initial load, and re-opening a document after the session expired
+ * mid-browse) so the two call sites cannot drift on the query param name.
+ */
+export function loginRedirect(pathname: string): string {
+  return `/api/workspace/auth/login?returnTo=${encodeURIComponent(pathname)}`;
+}
+
+/**
+ * German, citizen-facing text for a write or open that failed after the 401
+ * (start-the-OIDC-hop) and 415 (fall back to download) cases have already
+ * been handled by the caller. Kept here rather than inline in the component
+ * so the status-to-copy mapping is unit-tested, and so it stays in lockstep
+ * with the statuses `errorResponse` in lib/workspace/request.ts actually
+ * produces: 403 (org ACL denial — reported, never decided, here), 423
+ * (WebDAV lock), 507 (quota), and everything else folded into one generic
+ * retry message rather than leaking a raw status or server string.
+ */
+export function describeWorkspaceError(status: number): string {
+  switch (status) {
+    case 401:
+      return "Deine Sitzung ist abgelaufen. Bitte lade die Seite neu und melde dich erneut an.";
+    case 403:
+      return "Du hast keinen Zugriff auf diesen Bereich.";
+    case 423:
+      return "Die Datei ist gerade gesperrt. Versuche es in Kürze erneut.";
+    case 507:
+      return "Kein Speicherplatz mehr verfügbar.";
+    default:
+      return "Das hat leider nicht geklappt. Bitte versuche es erneut.";
+  }
+}

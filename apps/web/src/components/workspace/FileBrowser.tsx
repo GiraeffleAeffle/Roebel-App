@@ -6,7 +6,9 @@ import type { DirEntry } from "@netizen-labs/workspace";
 import {
   breadcrumbs,
   buildFilesQuery,
+  describeWorkspaceError,
   formatSize,
+  loginRedirect,
   parentPath,
   type FileScopeParams,
 } from "@/lib/workspace/client-api";
@@ -30,9 +32,7 @@ export function FileBrowser({ scope }: { scope: FileScopeParams }) {
     const res = await fetch(`/api/workspace/files?${buildFilesQuery({ ...scope, path })}`);
     if (res.status === 401) {
       // The one visible hop: not signed in to the workspace yet.
-      window.location.href = `/api/workspace/auth/login?returnTo=${encodeURIComponent(
-        window.location.pathname,
-      )}`;
+      window.location.href = loginRedirect(window.location.pathname);
       return;
     }
     if (!res.ok) {
@@ -56,6 +56,14 @@ export function FileBrowser({ scope }: { scope: FileScopeParams }) {
     const res = await fetch(
       `/api/workspace/editor?${buildFilesQuery({ ...scope, path: entry.path })}`,
     );
+    if (res.status === 401) {
+      // Same hop as load(): the session can expire mid-browse, after the
+      // file list already rendered — a 403 (wrong org) must NOT take this
+      // branch, since that is an access decision the server already made,
+      // not an invitation to re-authenticate.
+      window.location.href = loginRedirect(window.location.pathname);
+      return;
+    }
     if (res.status === 415) {
       window.location.href = `/api/workspace/files/download?${buildFilesQuery({
         ...scope,
@@ -72,21 +80,35 @@ export function FileBrowser({ scope }: { scope: FileScopeParams }) {
   }
 
   async function upload(file: File) {
+    setError(null);
     const target = path ? `${path}/${file.name}` : file.name;
-    await fetch(`/api/workspace/files/upload?${buildFilesQuery({ ...scope, path: target })}`, {
-      method: "PUT",
-      body: await file.arrayBuffer(),
-    });
+    const res = await fetch(
+      `/api/workspace/files/upload?${buildFilesQuery({ ...scope, path: target })}`,
+      { method: "PUT", body: await file.arrayBuffer() },
+    );
+    // A failed write must surface, not vanish: with no error shown and load()
+    // never called, "the file didn't appear" is indistinguishable from
+    // "the list is just stale" — the citizen's only lead is to try again.
+    if (!res.ok) {
+      setError(describeWorkspaceError(res.status));
+      return;
+    }
     await load();
   }
 
   async function createFolder() {
     const name = window.prompt("Name des neuen Ordners");
     if (!name) return;
+    setError(null);
     const target = path ? `${path}/${name}` : name;
-    await fetch(`/api/workspace/files/folder?${buildFilesQuery({ ...scope, path: target })}`, {
-      method: "POST",
-    });
+    const res = await fetch(
+      `/api/workspace/files/folder?${buildFilesQuery({ ...scope, path: target })}`,
+      { method: "POST" },
+    );
+    if (!res.ok) {
+      setError(describeWorkspaceError(res.status));
+      return;
+    }
     await load();
   }
 
