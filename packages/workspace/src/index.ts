@@ -9,4 +9,4 @@ export { createProvisioner } from "./provisioning";
 export type { WorkspaceActionKind, WorkspaceAction, ProvenanceSink } from "./provenance";
 export { buildAction, createRecorder } from "./provenance";
 export type { WopiClaims, WopiFileInfo } from "./wopi";
-export { encodeFileId, decodeFileId, mintWopiToken, verifyWopiToken, checkFileInfo, parseDiscovery, buildEditorUrl } from "./wopi";
+export { WopiFileIdError, encodeFileId, decodeFileId, mintWopiToken, verifyWopiToken, checkFileInfo, parseDiscovery, buildEditorUrl } from "./wopi";
