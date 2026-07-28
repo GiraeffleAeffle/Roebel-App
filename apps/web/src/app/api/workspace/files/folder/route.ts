@@ -10,7 +10,7 @@ export async function POST(request: Request) {
   try {
     const { session, client } = await requireWorkspace();
     const parsed = parseScopeRequest(new URL(request.url));
-    const scope = resolveScope({ session, ...parsed });
+    const scope = await resolveScope({ session, ...parsed });
     await client.createFolder(scope, parsed.path);
     await recordWorkspaceAction(
       buildAction({

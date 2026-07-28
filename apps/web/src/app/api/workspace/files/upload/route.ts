@@ -10,7 +10,7 @@ export async function PUT(request: Request) {
   try {
     const { session, client } = await requireWorkspace();
     const parsed = parseScopeRequest(new URL(request.url));
-    const scope = resolveScope({ session, ...parsed });
+    const scope = await resolveScope({ session, ...parsed });
     await client.upload(scope, parsed.path, await request.arrayBuffer());
     await recordWorkspaceAction(
       buildAction({

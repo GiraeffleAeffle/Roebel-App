@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     const { session, client } = await requireWorkspace();
     const cfg = workspaceConfig();
     const parsed = parseScopeRequest(new URL(request.url));
-    const scope = resolveScope({ session, ...parsed });
+    const scope = await resolveScope({ session, ...parsed });
 
     const discovery = await loadDiscovery(cfg.collaboraBaseUrl);
     const urlsrc = discovery.get(extensionOf(parsed.path));

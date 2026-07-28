@@ -7,7 +7,7 @@ export async function GET(request: Request) {
   try {
     const { session, client } = await requireWorkspace();
     const parsed = parseScopeRequest(new URL(request.url));
-    const scope = resolveScope({ session, ...parsed });
+    const scope = await resolveScope({ session, ...parsed });
     const body = await client.download(scope, parsed.path);
     return new Response(body, {
       headers: {
