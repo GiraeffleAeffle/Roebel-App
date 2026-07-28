@@ -70,7 +70,15 @@ export function createSessionStore(): SessionStore {
     },
 
     async destroy(id) {
-      await serviceClient().from("workspace_sessions").delete().eq("id", id);
+      // Consistent with create/get/update: a query error is a failure, not a
+      // silent no-op. Left unchecked, a failed delete here reports as a
+      // successful logout while the row — a live Nextcloud access token —
+      // survives.
+      const { error } = await serviceClient()
+        .from("workspace_sessions")
+        .delete()
+        .eq("id", id);
+      if (error) throw new Error(error.message);
     },
   };
 }
