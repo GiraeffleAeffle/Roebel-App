@@ -1,11 +1,18 @@
 /**
  * Workspace SSO tiles. Each tile links out to an office app that authenticates
  * the citizen via Röbel ID (OIDC against roebel-id.fly.dev) — the tile itself
- * only carries the link; SSO is handled by the target app. Files are native
- * now (/arbeitsbereich/dateien, mounted via `FileBrowser`), so this only
- * covers the office surfaces that still link out: chat, mail, wiki, video,
- * project and the agent workspace. Add Buzz / openDesk / Netizen tiles here
- * later by extending `buildWorkspaceTiles`.
+ * only carries the link; SSO is handled by the target app. Add Buzz /
+ * openDesk / Netizen tiles here later by extending `buildWorkspaceTiles`.
+ *
+ * The `nextcloud` files tile is CONDITIONAL, and its default is to be present.
+ * Files became a native surface (/arbeitsbereich/dateien, mounted via
+ * `FileBrowser`), and this builder briefly dropped the tile outright — which
+ * removed the one working route to the citizen's documents at the same moment
+ * the native surface shipped, in a deployment where the native surface's env
+ * vars are not set yet. A link-out that duplicates a working native page is a
+ * cosmetic wart; a link-out removed before its replacement works is an outage.
+ * So: the tile disappears only once `nativeFilesEnabled` says the native
+ * surface is really live.
  *
  * Pure + React-free on purpose so it is unit-testable under node:test. The UI
  * layer maps the string `icon` key to a lucide component and reads the base URL
@@ -15,6 +22,14 @@
 export interface WorkspaceTileConfig {
   /** Base URL of the self-hosted workspace (Nextcloud/Collabora). Empty/undefined = not configured. */
   workspaceBaseUrl?: string | null;
+  /**
+   * Whether the NATIVE files surface is live in this deployment. Absent or
+   * false keeps the `nextcloud` link-out tile, which is the fail-safe default:
+   * a deployment that has not been told otherwise still offers the route that
+   * has always worked. Set it only once the server-side workspace env vars
+   * are in place — see `nativeFilesEnabled`.
+   */
+  nativeFilesEnabled?: boolean;
   /** Element/Matrix chat. Humans talk here (openDesk-native). */
   chatBaseUrl?: string | null;
   /** Open-Xchange mail/calendar/contacts. */
@@ -47,8 +62,29 @@ export interface WorkspaceTile {
 }
 
 /** Normalise a configured base URL (trim + strip trailing slashes). */
-function normalise(url: string | null | undefined): string {
+export function normalise(url: string | null | undefined): string {
   return (url ?? "").trim().replace(/\/+$/, "");
+}
+
+/**
+ * Read the public "the native files surface is live" flag
+ * (`NEXT_PUBLIC_WORKSPACE_NATIVE_FILES`).
+ *
+ * A separate, public flag rather than `isWorkspaceEnabled()` because these
+ * tiles render in a client component: the nine vars that gate the native
+ * surface are server-side secrets and are simply not present in the browser
+ * bundle, so the browser cannot read the real answer. The flag is the
+ * operator's declaration of it.
+ *
+ * Anything other than "1"/"true" — including unset, which is the state on
+ * merge day — means NOT live, and therefore keeps the link-out tile. The
+ * default has to fail in that direction: a stale flag that says "not live"
+ * costs a duplicate tile, one that says "live" costs the citizen every route
+ * to their files.
+ */
+export function nativeFilesEnabled(raw: string | null | undefined): boolean {
+  const value = (raw ?? "").trim().toLowerCase();
+  return value === "1" || value === "true";
 }
 
 /**
@@ -59,6 +95,16 @@ function normalise(url: string | null | undefined): string {
  */
 export function buildWorkspaceTiles(config: WorkspaceTileConfig): WorkspaceTile[] {
   const entries: Array<{ id: string; label: string; icon: string; url: string }> = [
+    ...(config.nativeFilesEnabled
+      ? []
+      : [
+          {
+            id: "nextcloud",
+            label: "Dokumente & Dateien",
+            icon: "cloud",
+            url: normalise(config.workspaceBaseUrl),
+          },
+        ]),
     { id: "chat", label: "Chat", icon: "messages", url: normalise(config.chatBaseUrl) },
     { id: "mail", label: "E-Mail & Kalender", icon: "mail", url: normalise(config.mailBaseUrl) },
     { id: "wiki", label: "Wissen & Wiki", icon: "wiki", url: normalise(config.wikiBaseUrl) },

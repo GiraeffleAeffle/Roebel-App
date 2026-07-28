@@ -351,3 +351,109 @@ describe("download", () => {
     assert.equal(Buffer.from(bytes).toString("utf8"), "hello");
   });
 });
+
+// A filename containing "%" used to be unusable through this client: the
+// double decode inside resolvePath either threw ScopeViolationError before any
+// request left the process ("Bericht 100%.odt") or, when the sequence happened
+// to be valid percent-encoding, addressed a DIFFERENT file ("a%417b.txt" ->
+// ".../aA7b.txt"). For DELETE that is the wrong file removed. Each verb the
+// Dateien surface uses is pinned here against the real request URL.
+describe("filenames containing a percent sign reach the right resource", () => {
+  const PERCENT_LISTING = `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response><d:href>/remote.php/dav/files/0xabc/</d:href>
+    <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop>
+    <d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
+  <d:response><d:href>/remote.php/dav/files/0xabc/Bericht%20100%25.odt</d:href>
+    <d:propstat><d:prop><d:resourcetype/><d:getcontentlength>9</d:getcontentlength></d:prop>
+    <d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
+  <d:response><d:href>/remote.php/dav/files/0xabc/a%25417b.txt</d:href>
+    <d:propstat><d:prop><d:resourcetype/><d:getcontentlength>3</d:getcontentlength></d:prop>
+    <d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
+</d:multistatus>`;
+
+  function clientWith(replies: Array<{ status: number; body?: string }>) {
+    const { calls, fetchImpl } = stubFetch(replies);
+    return {
+      calls,
+      client: createNextcloudClient({
+        baseUrl: "https://cloud.example",
+        auth: bearerAuth(async () => "tok"),
+        fetch: fetchImpl,
+      }),
+    };
+  }
+
+  it("lists them, decoded, rather than failing the whole listing", async () => {
+    const { client } = clientWith([{ status: 207, body: PERCENT_LISTING }]);
+    const entries = await client.listDirectory(scope, "");
+    assert.deepEqual(
+      entries.map((e) => e.name),
+      ["Bericht 100%.odt", "a%417b.txt"],
+    );
+  });
+
+  it("stats one (what opening a document does first) at its own href", async () => {
+    const STAT = `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response><d:href>/remote.php/dav/files/0xabc/Bericht%20100%25.odt</d:href>
+    <d:propstat><d:prop><d:resourcetype/><d:getcontentlength>9</d:getcontentlength></d:prop>
+    <d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
+</d:multistatus>`;
+    const { calls, client } = clientWith([{ status: 207, body: STAT }]);
+    const entry = await client.stat(scope, "Bericht 100%.odt");
+    assert.equal(
+      calls[0].url,
+      "https://cloud.example/remote.php/dav/files/0xabc/Bericht%20100%25.odt",
+    );
+    assert.equal(entry.name, "Bericht 100%.odt");
+  });
+
+  it("downloads one at its own href", async () => {
+    const { calls, client } = clientWith([{ status: 200, body: "inhalt" }]);
+    const bytes = await client.download(scope, "Bericht 100%.odt");
+    assert.equal(calls[0].method, "GET");
+    assert.equal(
+      calls[0].url,
+      "https://cloud.example/remote.php/dav/files/0xabc/Bericht%20100%25.odt",
+    );
+    assert.equal(Buffer.from(bytes).toString("utf8"), "inhalt");
+  });
+
+  it("deletes the file the citizen named, not a different one", async () => {
+    const { calls, client } = clientWith([{ status: 204 }, { status: 204 }]);
+    await client.remove(scope, "Bericht 100%.odt");
+    await client.remove(scope, "a%417b.txt");
+    assert.deepEqual(
+      calls.map((c) => c.url),
+      [
+        "https://cloud.example/remote.php/dav/files/0xabc/Bericht%20100%25.odt",
+        "https://cloud.example/remote.php/dav/files/0xabc/a%25417b.txt",
+      ],
+    );
+    // The pre-fix bug: "%41" decoded to "A", so DELETE hit ".../aA7b.txt".
+    assert.ok(!calls[1].url.includes("aA7b"));
+  });
+
+  it("uploads and creates a folder under a percent name", async () => {
+    const { calls, client } = clientWith([{ status: 201 }, { status: 201 }]);
+    await client.upload(scope, "Rabatt %%.odt", new Uint8Array([1]));
+    await client.createFolder(scope, "Aktion 50%");
+    assert.deepEqual(
+      calls.map((c) => `${c.method} ${c.url}`),
+      [
+        "PUT https://cloud.example/remote.php/dav/files/0xabc/Rabatt%20%25%25.odt",
+        "MKCOL https://cloud.example/remote.php/dav/files/0xabc/Aktion%2050%25",
+      ],
+    );
+  });
+
+  it("still refuses a pre-encoded traversal hiding beside a percent name", async () => {
+    const { calls, client } = clientWith([]);
+    await assert.rejects(
+      () => client.remove(scope, "%2e%2e/100%.odt"),
+      ScopeViolationError,
+    );
+    assert.equal(calls.length, 0, "no request may leave the process");
+  });
+});

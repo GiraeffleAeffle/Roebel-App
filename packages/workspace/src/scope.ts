@@ -52,6 +52,20 @@ function assertSafePathComponent(value: string, label: string): void {
  * Reject anything that could escape the scope root. Deliberately a denylist of
  * shapes plus a positive containment check afterwards: normalising a traversal
  * away and continuing would turn an attack into a silent success elsewhere.
+ *
+ * `relPath` arrives ALREADY DECODED — see `resolvePath`'s contract note. The
+ * literal checks below are therefore the real ones. The extra decoded pass is
+ * pure defence in depth against a caller that pre-encoded anyway ("%2e%2e" is
+ * ".."), and it is deliberately TOLERANT of input that is not valid
+ * percent-encoding: under the contract, a lone "%" is an ordinary character in
+ * an ordinary filename ("Bericht 100%.odt", "Rabatt %%.odt"), not a malformed
+ * escape. Throwing on it — which this used to do — made every such file
+ * permanently unreachable: unlistable, unopenable, undeletable.
+ *
+ * The residual cost of keeping the decoded pass is that a file literally named
+ * "%2e%2e" (or one whose decoded form starts with "/" or holds a NUL) is
+ * refused. That is an over-rejection of a name no human types, and it is the
+ * side of the trade that fails safe.
  */
 function assertSafeRelativePath(relPath: string): void {
   if (relPath.includes("\0")) {
@@ -63,13 +77,34 @@ function assertSafeRelativePath(relPath: string): void {
   if (relPath.includes("\\")) {
     throw new ScopeViolationError("backslashes are not valid path separators");
   }
-  // Decode first: "%2e%2e" is "..", and a caller that pre-encoded is either
-  // confused or hostile. Either way the raw form is what we validate.
+
+  // The whole string, then each segment on its own. Both passes are needed
+  // because the decode is tolerant: a single malformed escape anywhere would
+  // otherwise blind the whole-string pass to a pre-encoded traversal sitting
+  // in a different segment ("%2e%2e/100%.odt").
+  assertDecodedSafe(relPath);
+  for (const segment of relPath.split("/")) {
+    if (segment === "..") {
+      throw new ScopeViolationError("path traverses above the scope root");
+    }
+    assertDecodedSafe(segment);
+  }
+}
+
+/**
+ * Defence in depth against a caller that pre-encoded: "%2e%2e" is "..", and
+ * "%2F" is a separator that the literal checks above cannot see.
+ *
+ * TOLERANT of input that is not valid percent-encoding. Under the encoding
+ * contract a lone "%" is just a character in a filename, so a decode failure
+ * means "there is no second reading of this string", not "reject it".
+ */
+function assertDecodedSafe(value: string): void {
   let decoded: string;
   try {
-    decoded = decodeURIComponent(relPath);
+    decoded = decodeURIComponent(value);
   } catch {
-    throw new ScopeViolationError("path is not valid percent-encoding");
+    return;
   }
   if (decoded.includes("\0") || decoded.includes("\\") || decoded.startsWith("/")) {
     throw new ScopeViolationError("path is unsafe once decoded");
@@ -97,6 +132,23 @@ export function scopeRoot(scope: WorkspaceScope): string {
  * Resolve a caller-supplied relative path to an absolute WebDAV path, or throw.
  * The containment assertion at the end is the real guard — the shape checks
  * above only make its failure mode legible.
+ *
+ * ENCODING CONTRACT (the counterpart to the one `parsePropfind` states): every
+ * `relPath` reaching this function is ALREADY FULLY DECODED. It is either a
+ * `DirEntry.path` handed back verbatim — `parsePropfind` decodes each segment
+ * itself and promises "a caller never percent-decodes them again" — or a query
+ * parameter, which `URLSearchParams` has already decoded once. So this
+ * function's job is to ENCODE, never to decode.
+ *
+ * It used to decode here as well, which was a second decode of an
+ * already-decoded string, and it corrupted three real cases:
+ *   - "Bericht 100%.odt" and "Rabatt %%.odt" threw ScopeViolationError,
+ *     because "%.o" / "%%" is not valid percent-encoding — so a file whose
+ *     name merely contains a percent sign could not be listed, opened,
+ *     downloaded or deleted at all.
+ *   - "a%417b.txt" silently resolved to ".../aA7b.txt" — a DIFFERENT file
+ *     ("%41" decodes to "A"). For DELETE that is the wrong file removed.
+ * Do not reintroduce a decode here.
  */
 export function resolvePath(scope: WorkspaceScope, relPath: string): string {
   const root = scopeRoot(scope);
@@ -104,8 +156,7 @@ export function resolvePath(scope: WorkspaceScope, relPath: string): string {
   if (trimmed === "") return root;
   assertSafeRelativePath(relPath);
 
-  const decoded = decodeURIComponent(trimmed);
-  const encoded = decoded
+  const encoded = trimmed
     .split("/")
     .filter((segment) => segment.length > 0 && segment !== ".")
     .map(encodeSegment)

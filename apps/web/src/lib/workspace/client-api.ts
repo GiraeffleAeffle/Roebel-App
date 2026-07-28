@@ -88,3 +88,109 @@ export function describeWorkspaceError(status: number): string {
       return "Das hat leider nicht geklappt. Bitte versuche es erneut.";
   }
 }
+
+/**
+ * What `FileBrowser` does with a response from /api/workspace/files.
+ *
+ * Extracted from the component so the branch table is unit-tested — the two
+ * branches that matter most cannot be exercised through the component at all
+ * under `tsx --test`, and both are ones the branch got wrong:
+ *
+ *   "unconfigured" (503): the deployment has no workspace env vars. Render the
+ *   old link-out card. Emphatically NOT a hop: /api/workspace/auth/login is
+ *   equally unconfigured, so hopping is a guaranteed dead end.
+ *
+ *   "auth-error": a 401 that has already been answered with one hop. A
+ *   misconfigured bearer chain (user_oidc rejecting the token, rather than a
+ *   stale session) produces a 401 that re-authenticating cannot fix, so the
+ *   naive "any 401 means hop" rule loops forever — and every lap INSERTs
+ *   another `workspace_sessions` row holding a live refresh token.
+ */
+export type FilesResponseAction =
+  | "ok"
+  | "unconfigured"
+  | "hop"
+  | "auth-error"
+  | "error";
+
+export function classifyFilesResponse(
+  status: number,
+  hopAlreadyTried: boolean,
+): FilesResponseAction {
+  if (status === 503) return "unconfigured";
+  if (status === 401) return hopAlreadyTried ? "auth-error" : "hop";
+  if (status >= 200 && status < 300) return "ok";
+  return "error";
+}
+
+/** The marker that makes the OIDC hop one-shot. Survives the redirect round trip. */
+export const WORKSPACE_HOP_KEY = "roebel_ws_hop_attempted";
+
+/** The slice of the Storage interface the hop guard uses. */
+export interface HopMarkerStore {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+/**
+ * Whether a hop has already been started since the last successful load. This
+ * is what `classifyFilesResponse`'s `hopAlreadyTried` argument is fed.
+ *
+ * `sessionStorage` rather than a URL marker so the answer survives the hop
+ * itself (the browser leaves for the keystone and comes back) without leaving
+ * a `?ws_retry=1` on a URL the citizen might bookmark or share.
+ */
+export function hasTriedLoginHop(store: HopMarkerStore): boolean {
+  return store.getItem(WORKSPACE_HOP_KEY) !== null;
+}
+
+/** Record that a hop is being started, so the next 401 is not answered with another. */
+export function markLoginHop(store: HopMarkerStore): void {
+  store.setItem(WORKSPACE_HOP_KEY, "1");
+}
+
+/**
+ * Release the marker. Called after a listing actually succeeds: that proves
+ * the whole chain works, so a later 401 is a genuinely expired session and
+ * deserves its own hop rather than inheriting a stale refusal.
+ */
+export function releaseLoginHop(store: HopMarkerStore): void {
+  store.removeItem(WORKSPACE_HOP_KEY);
+}
+
+/**
+ * `sessionStorage`, or an in-memory stand-in. Safari in private mode (and any
+ * browser with storage blocked) throws on access rather than returning null,
+ * and a file browser must not fail to render over a storage-permission
+ * question. The fallback is per-tab-lifetime rather than per-page, so it stops
+ * a loop within one page load but not one that survives a redirect — degraded,
+ * not absent.
+ */
+const memoryHopStore = new Map<string, string>();
+
+export function hopMarkerStore(): HopMarkerStore {
+  try {
+    if (typeof window !== "undefined" && window.sessionStorage) {
+      // Touch it: the throw happens on access, not on use.
+      window.sessionStorage.getItem(WORKSPACE_HOP_KEY);
+      return window.sessionStorage;
+    }
+  } catch {
+    // fall through
+  }
+  return {
+    getItem: (key) => memoryHopStore.get(key) ?? null,
+    setItem: (key, value) => void memoryHopStore.set(key, value),
+    removeItem: (key) => void memoryHopStore.delete(key),
+  };
+}
+
+/**
+ * Normalise the public workspace base URL — the link-out target `FileBrowser`
+ * falls back to while the native surface is unconfigured, and the same value
+ * the `nextcloud` / `org-nextcloud` tiles carry. Empty string = not set.
+ */
+export function workspaceLinkOut(baseUrl: string | null | undefined): string {
+  return (baseUrl ?? "").trim().replace(/\/+$/, "");
+}

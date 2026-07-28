@@ -7,8 +7,15 @@ import { AuthGuard } from "@/components/app/AuthGuard";
 import { AccountProvider } from "@/lib/context/AccountContext";
 import { AppModeProvider } from "@/lib/context/AppModeContext";
 import { WorkspaceSidebar } from "@/components/workspace/WorkspaceSidebar";
-import { WorkspaceSessionGuard } from "@/components/workspace/WorkspaceSessionGuard";
 
+/**
+ * `WorkspaceSessionGuard` used to be mounted here. It now lives inside
+ * `FileBrowser`, so it also covers the org surface (/dashboard/arbeitsbereich)
+ * whose layout never had it. Mounting it in both places would put two copies
+ * on /arbeitsbereich/dateien, each racing the other to POST the logout — so
+ * this one is deliberately gone, not merely moved. Nothing else under this
+ * layout reads the workspace session.
+ */
 export default function ArbeitsbereichLayout({
   children,
 }: {
@@ -18,7 +25,6 @@ export default function ArbeitsbereichLayout({
     <AuthGuard>
       <AppModeProvider>
         <AccountProvider>
-          <WorkspaceSessionGuard />
           <div className="min-h-screen bg-background flex flex-col">
             <header className="h-14 border-b border-border bg-card flex items-center justify-between px-4 md:px-6 sticky top-0 z-30">
               <Link href="/app" className="flex items-center gap-2 hover:opacity-80 transition-opacity">

@@ -6,6 +6,7 @@ import { newSessionId } from "@/lib/workspace/session";
 import { createSessionStore } from "@/lib/workspace/session-store";
 import { safeReturnTo } from "@/lib/workspace/return-to";
 import { SESSION_COOKIE } from "@/lib/workspace/context";
+import { withWorkspaceRoute } from "@/lib/workspace/request";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ function loginFailed(cfg: WorkspaceConfig): NextResponse {
   return response;
 }
 
-export async function GET(request: Request) {
+export const GET = withWorkspaceRoute(async (request: Request) => {
   const cfg = workspaceConfig();
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
@@ -96,4 +97,4 @@ export async function GET(request: Request) {
     console.error("workspace auth callback failed", err);
     return loginFailed(cfg);
   }
-}
+});

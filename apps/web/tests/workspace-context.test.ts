@@ -188,3 +188,89 @@ describe("ensureOrgFolder", () => {
     assert.equal(ensureGroupFolderCalls.length, 3);
   });
 });
+
+// THE CITIZEN GATE. The Dateien surface replaced a dashboard gated on
+// "verifizierte Bürger", but that gate only ever lived in the page's JSX — a
+// client-side card hiding a link. Nothing on the server checked, so the
+// personal Nextcloud home was reachable by anyone holding a workspace session.
+describe("resolveScope — the citizen gate on the personal scope", () => {
+  const notCitizen: WorkspaceSession = {
+    ...session,
+    groups: ["org:acc-7:member"],
+  };
+
+  it("refuses a personal scope for a session with no citizen claim", async () => {
+    await assert.rejects(
+      () => resolveScope({ session: notCitizen, scopeKind: null, accountId: null }),
+      (err: unknown) => err instanceof WorkspaceAuthError && err.reason === "forbidden",
+    );
+  });
+
+  it("refuses it for an empty groups claim too", async () => {
+    await assert.rejects(
+      () =>
+        resolveScope({
+          session: { ...session, groups: [] },
+          scopeKind: null,
+          accountId: null,
+        }),
+      (err: unknown) => err instanceof WorkspaceAuthError && err.reason === "forbidden",
+    );
+  });
+
+  // Every non-"org" scopeKind falls into the personal branch, so a client
+  // cannot dodge the gate by inventing one.
+  it("refuses every non-org scopeKind, not just the null default", async () => {
+    for (const kind of ["personal", "", "ORG", "Org", "personal ", "other"]) {
+      await assert.rejects(
+        () => resolveScope({ session: notCitizen, scopeKind: kind, accountId: null }),
+        (err: unknown) => err instanceof WorkspaceAuthError && err.reason === "forbidden",
+        `for scopeKind ${JSON.stringify(kind)}`,
+      );
+    }
+  });
+
+  // "forbidden" (403), not "no-session" (401): this person IS signed in, and
+  // 401 is the signal FileBrowser answers with an OIDC hop. Round-tripping
+  // them through login would never make them a citizen — it would just loop.
+  it("reports forbidden, never no-session, so the client does not start a login hop", async () => {
+    await assert.rejects(
+      () => resolveScope({ session: notCitizen, scopeKind: null, accountId: null }),
+      (err: unknown) =>
+        err instanceof WorkspaceAuthError &&
+        err.reason !== "no-session" &&
+        err.reason !== "expired",
+    );
+  });
+
+  it("allows it for a session that does carry the claim", async () => {
+    assert.deepEqual(
+      await resolveScope({ session, scopeKind: null, accountId: null }),
+      { kind: "personal", sub: "0xabc" },
+    );
+  });
+
+  // The gate belongs to the PERSONAL branch alone. An org's staff are not all
+  // verified citizens, and /dashboard/arbeitsbereich is gated by the
+  // org:<id>:<role> claim instead — gating requireWorkspace() wholesale would
+  // have locked those people out of their own org's shared folder.
+  it("does NOT gate the org scope on citizenship — the org claim is that gate", async () => {
+    assert.deepEqual(
+      await resolveScope({ session: notCitizen, scopeKind: "org", accountId: "acc-7" }),
+      { kind: "org", sub: "0xabc", accountId: "acc-7", folderName: "org-acc-7" },
+    );
+  });
+
+  // A claim that merely CONTAINS "citizen" is not the citizen claim. The
+  // keystone emits the exact string.
+  it("is not fooled by a group that only looks like the citizen claim", async () => {
+    for (const groups of [["citizens"], ["citizen:x"], ["Citizen"], ["not-citizen"], ["org:citizen:member"]]) {
+      await assert.rejects(
+        () =>
+          resolveScope({ session: { ...session, groups }, scopeKind: null, accountId: null }),
+        (err: unknown) => err instanceof WorkspaceAuthError && err.reason === "forbidden",
+        `for ${JSON.stringify(groups)}`,
+      );
+    }
+  });
+});

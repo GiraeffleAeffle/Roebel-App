@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { buildAction, GroupFolderConflictError } from "@netizen-labs/workspace";
 import { ensureOrgFolder, requireWorkspace, resolveScope } from "@/lib/workspace/context";
-import { errorResponse, parseScopeRequest } from "@/lib/workspace/request";
+import { errorResponse, parseScopeRequest, withWorkspaceRoute } from "@/lib/workspace/request";
 import { recordWorkspaceAction } from "@/lib/workspace/provenance-sink";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+export const GET = withWorkspaceRoute(async (request: Request) => {
   try {
     const { session, client, provisioner } = await requireWorkspace();
     const parsed = parseScopeRequest(new URL(request.url));
@@ -43,9 +43,9 @@ export async function GET(request: Request) {
   } catch (error) {
     return errorResponse(error);
   }
-}
+});
 
-export async function DELETE(request: Request) {
+export const DELETE = withWorkspaceRoute(async (request: Request) => {
   try {
     const { session, client } = await requireWorkspace();
     const parsed = parseScopeRequest(new URL(request.url));
@@ -63,4 +63,4 @@ export async function DELETE(request: Request) {
   } catch (error) {
     return errorResponse(error);
   }
-}
+});

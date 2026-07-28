@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  WORKSPACE_UNCONFIGURED_STATUS,
   errorResponse,
   parseScopeRequest,
   sanitizeDownloadFilename,
+  unconfiguredResponse,
+  withWorkspaceRoute,
 } from "../src/lib/workspace/request";
 import { WorkspaceAuthError } from "../src/lib/workspace/context";
 import { NextcloudError, ScopeViolationError } from "@netizen-labs/workspace";
@@ -181,5 +184,125 @@ describe("sanitizeDownloadFilename", () => {
       sanitizeDownloadFilename("Ordner/evil.pdf\r\nX-Injected: 1"),
       "evil.pdfX-Injected: 1",
     );
+  });
+});
+
+// THE merge-day blocker. With no workspace env vars set:
+//   no cookie -> requireWorkspace() throws WorkspaceAuthError("no-session")
+//   -> 401 -> FileBrowser hard-navigates to /api/workspace/auth/login
+//   -> workspaceConfig() throws on that route's first line, uncaught
+//   -> Next 500. Every visit to /dashboard/arbeitsbereich, a page that WORKED
+// before this branch. withWorkspaceRoute is the one place that stops it, for
+// every route at once.
+describe("withWorkspaceRoute — the config gate", () => {
+  // isWorkspaceEnabled() reads process.env at call time, so the gate can be
+  // exercised directly rather than mocked.
+  const REQUIRED = [
+    "ROEBEL_ID_ISSUER",
+    "WORKSPACE_CLIENT_ID",
+    "WORKSPACE_CLIENT_SECRET",
+    "WOPI_TOKEN_SECRET",
+    "NEXTCLOUD_BASE_URL",
+    "NEXTCLOUD_ADMIN_USER",
+    "NEXTCLOUD_ADMIN_PASSWORD",
+    "COLLABORA_BASE_URL",
+    "NEXT_PUBLIC_APP_ORIGIN",
+  ];
+
+  function withEnv<T>(values: Record<string, string | undefined>, run: () => T): T {
+    const saved = new Map<string, string | undefined>();
+    for (const [key, value] of Object.entries(values)) {
+      saved.set(key, process.env[key]);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    try {
+      return run();
+    } finally {
+      for (const [key, value] of saved) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  }
+
+  const allUnset = Object.fromEntries(REQUIRED.map((k) => [k, undefined]));
+  const allSet = Object.fromEntries(REQUIRED.map((k) => [k, "x"]));
+
+  it("answers 503 {reason:'unconfigured'} instead of running the handler", async () => {
+    let ran = false;
+    const handler = withWorkspaceRoute(async () => {
+      ran = true;
+      return new Response("should not happen");
+    });
+    const res = await withEnv(allUnset, () => handler());
+    assert.equal(res.status, 503);
+    assert.deepEqual(await res.json(), { reason: "unconfigured" });
+    assert.equal(ran, false, "the handler must never run unconfigured");
+  });
+
+  // The specific shape that produced the 500: a route whose FIRST statement is
+  // workspaceConfig(), which throws when a single var is missing. That is
+  // /api/workspace/auth/login, and it is where the 401 sent the browser.
+  it("does not let a workspaceConfig() throw escape as a 500", async () => {
+    const loginish = withWorkspaceRoute(async () => {
+      const { workspaceConfig } = await import("../src/lib/workspace/config");
+      workspaceConfig();
+      return new Response("unreachable");
+    });
+    const res = await withEnv(allUnset, () => loginish());
+    assert.equal(res.status, 503);
+    assert.notEqual(res.status, 500);
+  });
+
+  // Every one of the nine is load-bearing: a partially-configured deployment
+  // is unconfigured, not half-working.
+  for (const missing of REQUIRED) {
+    it(`treats a deployment missing only ${missing} as unconfigured`, async () => {
+      const handler = withWorkspaceRoute(async () => new Response("ran"));
+      const res = await withEnv({ ...allSet, [missing]: undefined }, () => handler());
+      assert.equal(res.status, 503);
+    });
+  }
+
+  it("runs the handler, with its arguments, once everything is configured", async () => {
+    const seen: unknown[] = [];
+    const handler = withWorkspaceRoute(async (a: string, b: number) => {
+      seen.push(a, b);
+      return new Response("ok", { status: 200 });
+    });
+    const res = await withEnv(allSet, () => handler("scope", 7));
+    assert.equal(res.status, 200);
+    assert.deepEqual(seen, ["scope", 7]);
+  });
+
+  // The second job of the wrapper: several routes (login, callback, session,
+  // logout, both WOPI handlers) had no try/catch of their own, so an
+  // unexpected throw surfaced as a framework 500 carrying its message.
+  it("catches a throw from a configured handler and maps it through errorResponse", async () => {
+    const handler = withWorkspaceRoute(async () => {
+      throw new WorkspaceAuthError("no-session", "nope");
+    });
+    const res = await withEnv(allSet, () => handler());
+    assert.equal(res.status, 401);
+    assert.equal((await res.json()).reason, "no-session");
+  });
+
+  it("does not leak an unexpected error's message", async () => {
+    const handler = withWorkspaceRoute(async () => {
+      throw new Error("postgres://user:pw@host down");
+    });
+    const res = await withEnv(allSet, () => handler());
+    assert.equal(res.status, 500);
+    assert.doesNotMatch(JSON.stringify(await res.json()), /postgres/);
+  });
+});
+
+describe("unconfiguredResponse", () => {
+  it("is the 503 shape FileBrowser keys its link-out fallback on", async () => {
+    const res = unconfiguredResponse();
+    assert.equal(res.status, WORKSPACE_UNCONFIGURED_STATUS);
+    assert.equal(res.status, 503);
+    assert.deepEqual(await res.json(), { reason: "unconfigured" });
   });
 });

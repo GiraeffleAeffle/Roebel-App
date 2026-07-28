@@ -69,6 +69,26 @@ export function orgGroupId(accountId: string, role: OrgRole = "member"): string 
   return `org:${accountId}:${role}`;
 }
 
+/**
+ * The keystone's claim for a verified citizen. Emitted verbatim from the chain
+ * read in apps/roebel-id/src/claims/resolver.ts:
+ * `if (status.citizen) groups.push('citizen')`. Exact string, no prefix — an
+ * org claim is `org:<id>:<role>` and can never collide with it.
+ */
+export const CITIZEN_GROUP = "citizen";
+
+/**
+ * Whether this session belongs to a verified citizen.
+ *
+ * The `groups` claim is the source of truth, not the app's own
+ * `users.is_verified_citizen` column (which is documented to lag on-chain
+ * reality) and not anything the browser sends. The claim was minted by the
+ * keystone from a live contract read at login, and it is signed.
+ */
+export function isCitizenSession(session: WorkspaceSession): boolean {
+  return session.groups.includes(CITIZEN_GROUP);
+}
+
 /** Any role in the org grants workspace access; the folder ACL narrows it. */
 export function hasOrgAccess(
   session: WorkspaceSession,

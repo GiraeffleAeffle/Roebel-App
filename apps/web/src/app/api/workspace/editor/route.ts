@@ -6,7 +6,7 @@ import {
   resolveScope,
 } from "@/lib/workspace/context";
 import { workspaceConfig } from "@/lib/workspace/config";
-import { errorResponse, parseScopeRequest } from "@/lib/workspace/request";
+import { errorResponse, parseScopeRequest, withWorkspaceRoute } from "@/lib/workspace/request";
 import { extensionOf, loadDiscovery } from "@/lib/workspace/editor";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,7 @@ const WOPI_TTL_SECONDS = 8 * 60 * 60;
  * Mint an editing session: returns the iframe url plus the token the client
  * POSTs into the frame. The token is never put in the url — see wopi.ts.
  */
-export async function GET(request: Request) {
+export const GET = withWorkspaceRoute(async (request: Request) => {
   try {
     const { session, client } = await requireWorkspace();
     const cfg = workspaceConfig();
@@ -69,4 +69,4 @@ export async function GET(request: Request) {
   } catch (error) {
     return errorResponse(error);
   }
-}
+});

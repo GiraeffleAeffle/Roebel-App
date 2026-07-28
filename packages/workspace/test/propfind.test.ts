@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parsePropfind } from "../src/propfind";
+import { resolvePath, type WorkspaceScope } from "../src/scope";
 
 const ROOT = "/remote.php/dav/files/0xabc/";
 
@@ -217,5 +218,77 @@ describe("parsePropfind", () => {
     <d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
 </d:multistatus>`;
     assert.equal(parsePropfind(umlaut, ROOT)[0].name, "Prüfbericht Müritz.odt");
+  });
+});
+
+// The contract parsePropfind states in its own doc comment — "every name and
+// path this function returns is always fully decoded — a caller never
+// percent-decodes them again" — only holds if resolvePath actually honours it.
+// It did not: it decoded a second time, so a name containing "%" either threw
+// or resolved to a different file. These pin the round trip end to end.
+describe("propfind -> resolvePath round trip (the encoding contract)", () => {
+  const scope: WorkspaceScope = { kind: "personal", sub: "0xabc" };
+
+  function listingOf(...encodedNames: string[]): string {
+    const rows = encodedNames
+      .map(
+        (n) => `  <d:response><d:href>${ROOT}${n}</d:href>
+    <d:propstat><d:prop><d:resourcetype/><d:getcontentlength>3</d:getcontentlength></d:prop>
+    <d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>`,
+      )
+      .join("\n");
+    return `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response><d:href>${ROOT}</d:href>
+    <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop>
+    <d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
+${rows}
+</d:multistatus>`;
+  }
+
+  it("a listed name containing '%' decodes once and re-encodes back to the same href", () => {
+    const entries = parsePropfind(
+      listingOf("Bericht%20100%25.odt", "Rabatt%20%25%25.odt", "a%25417b.txt"),
+      ROOT,
+    );
+    assert.deepEqual(
+      entries.map((e) => e.name),
+      ["Bericht 100%.odt", "Rabatt %%.odt", "a%417b.txt"],
+    );
+    // Feeding each decoded path straight back — which is exactly what
+    // FileBrowser does on open/download/delete — must land on the same href
+    // the server just sent.
+    assert.deepEqual(
+      entries.map((e) => resolvePath(scope, e.path)),
+      [
+        `${ROOT}Bericht%20100%25.odt`,
+        `${ROOT}Rabatt%20%25%25.odt`,
+        `${ROOT}a%25417b.txt`,
+      ],
+    );
+  });
+
+  it("round-trips a percent name nested under a folder", () => {
+    const entries = parsePropfind(
+      listingOf("Berichte/Auslastung%2080%25.ods"),
+      ROOT,
+    );
+    assert.equal(entries[0].path, "Berichte/Auslastung 80%.ods");
+    assert.equal(
+      resolvePath(scope, entries[0].path),
+      `${ROOT}Berichte/Auslastung%2080%25.ods`,
+    );
+  });
+
+  it("round-trips umlauts and percent signs together", () => {
+    const entries = parsePropfind(
+      listingOf("Pr%C3%BCfbericht%20100%25.odt"),
+      ROOT,
+    );
+    assert.equal(entries[0].name, "Prüfbericht 100%.odt");
+    assert.equal(
+      resolvePath(scope, entries[0].path),
+      `${ROOT}Pr%C3%BCfbericht%20100%25.odt`,
+    );
   });
 });

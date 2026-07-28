@@ -8,6 +8,7 @@ import {
 } from "@netizen-labs/workspace";
 import { workspaceConfig } from "@/lib/workspace/config";
 import { loadSession } from "@/lib/workspace/context";
+import { withWorkspaceRoute } from "@/lib/workspace/request";
 
 export const dynamic = "force-dynamic";
 
@@ -17,10 +18,10 @@ export const dynamic = "force-dynamic";
  * authority, and the citizen's Nextcloud tokens are reached through the
  * session id it carries.
  */
-export async function GET(
+export const GET = withWorkspaceRoute(async (
   request: Request,
   { params }: { params: Promise<{ fileId: string }> },
-) {
+) => {
   const cfg = workspaceConfig();
   const token = new URL(request.url).searchParams.get("access_token");
   if (!token) return NextResponse.json({}, { status: 401 });
@@ -56,4 +57,4 @@ export async function GET(
   // Never a raw 0x in what Collabora renders as the collaborator's name.
   const friendly = "Bürger:in";
   return NextResponse.json(checkFileInfo(entry, claims, friendly));
-}
+});

@@ -11,7 +11,14 @@ import {
 import { workspaceConfig } from "./config";
 import { refreshTokens } from "./oidc";
 import { createSessionStore } from "./session-store";
-import { ORG_ROLES, hasOrgAccess, isExpired, orgGroupId, type WorkspaceSession } from "./session";
+import {
+  ORG_ROLES,
+  hasOrgAccess,
+  isCitizenSession,
+  isExpired,
+  orgGroupId,
+  type WorkspaceSession,
+} from "./session";
 
 export const SESSION_COOKIE = "roebel_ws";
 
@@ -83,6 +90,31 @@ export async function resolveScope(params: {
   orgName?: string | null;
 }): Promise<WorkspaceScope> {
   if (params.scopeKind !== "org") {
+    // THE CITIZEN GATE, and the only place it is enforced for real storage.
+    // The Dateien surface replaced a dashboard that was gated on "verifizierte
+    // Bürger", but the gate only ever existed in the page's own JSX — a
+    // client-side card that hid a link. `requireWorkspace` and this function
+    // both accepted any authenticated session, so the personal Nextcloud home
+    // was reachable by anyone with a workspace session and a fetch.
+    //
+    // Enforced HERE rather than in `requireWorkspace` on purpose: the org
+    // surface (/dashboard/arbeitsbereich) is gated by the
+    // `org:<accountId>:<role>` claim instead, and an org's staff are not all
+    // verified citizens. Gating `requireWorkspace` would have locked those
+    // people out of their own org's shared folder — a different, equally real
+    // bug. Every route reaches storage through `resolveScope`, and a WOPI
+    // token can only be minted by /api/workspace/editor, which calls this
+    // first, so the gate holds transitively for Collabora's own callbacks too.
+    //
+    // "forbidden" (403), not "no-session" (401): this citizen IS signed in,
+    // and 401 is the signal `FileBrowser` answers with an OIDC hop. Sending
+    // them round the login loop would never make them a citizen.
+    if (!isCitizenSession(params.session)) {
+      throw new WorkspaceAuthError(
+        "forbidden",
+        "the personal workspace is for verified citizens",
+      );
+    }
     return { kind: "personal", sub: params.session.sub };
   }
   if (!params.accountId) {
@@ -139,6 +171,21 @@ export async function loadSession(
   } catch {
     // A refusal to refresh means the session is over. Re-authenticating is the
     // correct answer, not an error page.
+    //
+    // Delete the row on the way out. It holds a refresh token the IdP has just
+    // told us it will not honour, so keeping it buys nothing and costs a live
+    // credential sitting in Postgres indefinitely — `workspace_sessions` has
+    // no TTL of its own beyond the reaper in
+    // supabase/migrations/20260728_workspace_sessions_gc.sql, and the caller
+    // is about to mint a NEW row for the same citizen anyway. Best-effort: a
+    // failed delete must still report "not signed in" rather than turning a
+    // dead session into a 500.
+    await store.destroy(sessionId).catch((err) => {
+        console.error(
+          "[workspace] could not delete a session whose refresh failed",
+          err,
+        );
+      });
     return null;
   }
 }

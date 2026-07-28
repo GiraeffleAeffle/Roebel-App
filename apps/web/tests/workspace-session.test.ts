@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildAuthorizationUrl, createPkcePair } from "../src/lib/workspace/oidc";
 import {
+  CITIZEN_GROUP,
   ORG_ROLES,
   hasOrgAccess,
+  isCitizenSession,
   isExpired,
   newSessionId,
   orgGroupId,
@@ -158,5 +160,54 @@ describe("pkce + authorization url", () => {
     assert.equal(url.searchParams.get("code_challenge"), "ch");
     assert.equal(url.searchParams.get("state"), "st");
     assert.equal(url.searchParams.get("scope"), "openid profile email roebel");
+  });
+});
+
+describe("isCitizenSession", () => {
+  function withGroups(groups: string[]): WorkspaceSession {
+    return {
+      sub: "0xabc",
+      groups,
+      accessToken: "at",
+      refreshToken: null,
+      expiresAt: 0,
+    };
+  }
+
+  it("recognises the keystone's exact citizen claim", () => {
+    assert.equal(isCitizenSession(withGroups([CITIZEN_GROUP])), true);
+    assert.equal(CITIZEN_GROUP, "citizen");
+  });
+
+  it("finds it anywhere in the claim list, not only first", () => {
+    assert.equal(
+      isCitizenSession(withGroups(["attester", "org:acc-7:owner", "citizen"])),
+      true,
+    );
+  });
+
+  it("is false for an empty claim list", () => {
+    assert.equal(isCitizenSession(withGroups([])), false);
+  });
+
+  // Exact match, no prefix or substring. An org claim is org:<id>:<role> and
+  // must never be mistaken for citizenship, in either direction.
+  it("refuses look-alike claims", () => {
+    for (const group of [
+      "citizens",
+      "Citizen",
+      "CITIZEN",
+      " citizen",
+      "citizen ",
+      "citizen:verified",
+      "not-citizen",
+      "org:citizen:member",
+    ]) {
+      assert.equal(isCitizenSession(withGroups([group])), false, `for ${JSON.stringify(group)}`);
+    }
+  });
+
+  it("an attester who is not also a citizen does not pass the citizen gate", () => {
+    assert.equal(isCitizenSession(withGroups(["attester"])), false);
   });
 });

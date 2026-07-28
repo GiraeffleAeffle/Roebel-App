@@ -14,6 +14,7 @@ import {
 import {
   buildWorkspaceTiles,
   filterAvailableTiles,
+  nativeFilesEnabled,
 } from "@/lib/dashboard/workspace-tiles";
 
 const ICONS: Record<string, LucideIcon> = {
@@ -29,6 +30,11 @@ const ICONS: Record<string, LucideIcon> = {
 export function WorkspaceTilesCard() {
   const tiles = filterAvailableTiles(
     buildWorkspaceTiles({
+      // Written as a literal `process.env.X` so Next inlines it into the
+      // client bundle. Unset (merge day) => the files tile stays.
+      nativeFilesEnabled: nativeFilesEnabled(
+        process.env.NEXT_PUBLIC_WORKSPACE_NATIVE_FILES,
+      ),
       workspaceBaseUrl: process.env.NEXT_PUBLIC_WORKSPACE_BASE_URL,
       chatBaseUrl: process.env.NEXT_PUBLIC_CHAT_BASE_URL,
       mailBaseUrl: process.env.NEXT_PUBLIC_MAIL_BASE_URL,

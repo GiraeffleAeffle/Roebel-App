@@ -1,13 +1,16 @@
 /**
  * Org workspace SSO tiles. The org analog of `buildWorkspaceTiles`
  * (@/lib/dashboard/workspace-tiles): tiles link out to the org's SHARED
- * office apps, each authenticating the user via Röbel ID (OIDC). Files are
- * native now (mounted via `FileBrowser` with an org scope on the org
- * Arbeitsbereich page), so this only covers the surfaces that still link
- * out: chat, mail, wiki, video, project and the agent workspace. Scoping to
- * the org's own chat room is enforced downstream by the
- * `org:<accountId>:<role>` group claim in Matrix — not here — so v1
+ * office apps, each authenticating the user via Röbel ID (OIDC). Scoping to
+ * the org's own group folder / chat room is enforced downstream by the
+ * `org:<accountId>:<role>` group claim in Nextcloud/Matrix — not here — so v1
  * simply links to the configured base URL.
+ *
+ * The `org-nextcloud` files tile is CONDITIONAL on `nativeFilesEnabled`, and
+ * present by default — the same fail-safe as the citizen builder, for the same
+ * reason: /dashboard/arbeitsbereich is a page that WORKED before this branch,
+ * and dropping its files tile while the native surface is unconfigured would
+ * take away the only route to the org's documents. See `buildWorkspaceTiles`.
  *
  * Pure + React-free so it is unit-testable under node:test. The UI layer maps
  * the string `icon` key to a lucide component and reads the two base URLs from
@@ -16,12 +19,21 @@
  * shape + `filterAvailableTiles`.
  */
 
-import type { WorkspaceTile } from "@/lib/dashboard/workspace-tiles";
+// Relative, not "@/lib/...": this is a VALUE import, and the tsx --test
+// harness the workspace suites run under does not resolve the "@/" alias
+// (a type-only import is erased before it ever has to).
+import { normalise, type WorkspaceTile } from "./workspace-tiles";
 import type { Account } from "@/types/account";
 
 export interface OrgWorkspaceTileConfig {
   /** Base URL of the shared Nextcloud/Collabora workspace. Empty/undefined = not configured. */
   workspaceBaseUrl?: string | null;
+  /**
+   * Whether the NATIVE org files surface is live. Absent or false keeps the
+   * `org-nextcloud` link-out tile — the fail-safe default. See
+   * `nativeFilesEnabled` in @/lib/dashboard/workspace-tiles.
+   */
+  nativeFilesEnabled?: boolean;
   /** Base URL of the org Element/Matrix chat. Empty/undefined = not configured. */
   chatBaseUrl?: string | null;
   /** Open-Xchange mail/calendar/contacts (openDesk suite). */
@@ -51,10 +63,17 @@ export function buildOrgWorkspaceTiles(
   // is nothing to link to (the group claim, not a URL path, does the scoping).
   if (!config.org) return [];
 
-  const normalise = (url: string | null | undefined) =>
-    (url ?? "").trim().replace(/\/+$/, "");
-
   const entries: Array<{ id: string; label: string; icon: string; url: string }> = [
+    ...(config.nativeFilesEnabled
+      ? []
+      : [
+          {
+            id: "org-nextcloud",
+            label: "Dateien & Dokumente",
+            icon: "cloud",
+            url: normalise(config.workspaceBaseUrl),
+          },
+        ]),
     { id: "org-chat", label: "Team-Chat", icon: "messages", url: normalise(config.chatBaseUrl) },
     { id: "org-mail", label: "E-Mail & Kalender", icon: "mail", url: normalise(config.mailBaseUrl) },
     { id: "org-wiki", label: "Wissen & Wiki", icon: "wiki", url: normalise(config.wikiBaseUrl) },

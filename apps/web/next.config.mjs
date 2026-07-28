@@ -19,9 +19,12 @@ const nextConfig = {
   // time for materially lower webpack memory — the documented next step after
   // the 4096MB heap cap (see package.json build script).
   experimental: { webpackMemoryOptimizations: true },
-  // The Netizen mini-app SDK ships untranspiled TS source (main: src/index.ts),
-  // so it must be transpiled by the app that consumes it.
-  transpilePackages: ["@netizen-labs/miniapp-sdk"],
+  // The Netizen packages ship untranspiled TS source (main: src/index.ts), so
+  // they must be transpiled by the app that consumes them.
+  // @netizen-labs/workspace happens to be transpiled today even without being
+  // listed — but only as a side effect of this array being non-empty for an
+  // unrelated package. Naming it removes that dependency on a coincidence.
+  transpilePackages: ["@netizen-labs/miniapp-sdk", "@netizen-labs/workspace"],
   // Keep heavy server-only packages OUT of the webpack bundle (loaded from
   // node_modules at runtime instead). @safe-global/protocol-kit pulls in
   // @safe-global/safe-deployments — multi-MB of all-chain Safe contract JSON —

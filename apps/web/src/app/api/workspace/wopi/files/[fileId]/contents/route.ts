@@ -10,6 +10,7 @@ import {
 import { workspaceConfig } from "@/lib/workspace/config";
 import { loadSession } from "@/lib/workspace/context";
 import { recordWorkspaceAction } from "@/lib/workspace/provenance-sink";
+import { withWorkspaceRoute } from "@/lib/workspace/request";
 
 export const dynamic = "force-dynamic";
 
@@ -47,10 +48,10 @@ async function nextcloud(claims: WopiClaims) {
 }
 
 /** GetFile — Collabora loading the document. */
-export async function GET(
+export const GET = withWorkspaceRoute(async (
   request: Request,
   { params }: { params: Promise<{ fileId: string }> },
-) {
+) => {
   const claims = await authorise(request, (await params).fileId);
   if (!claims) return NextResponse.json({}, { status: 401 });
   const client = await nextcloud(claims);
@@ -60,13 +61,13 @@ export async function GET(
   return new Response(body, {
     headers: { "Content-Type": "application/octet-stream" },
   });
-}
+});
 
 /** PutFile — Collabora saving the document. */
-export async function POST(
+export const POST = withWorkspaceRoute(async (
   request: Request,
   { params }: { params: Promise<{ fileId: string }> },
-) {
+) => {
   const claims = await authorise(request, (await params).fileId);
   if (!claims) return NextResponse.json({}, { status: 401 });
   if (!claims.canWrite) return NextResponse.json({}, { status: 403 });
@@ -83,4 +84,4 @@ export async function POST(
     }),
   );
   return NextResponse.json({});
-}
+});

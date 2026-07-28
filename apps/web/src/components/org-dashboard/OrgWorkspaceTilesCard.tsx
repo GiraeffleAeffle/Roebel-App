@@ -13,7 +13,10 @@ import {
 } from "lucide-react";
 import { useAccount } from "@/lib/context/AccountContext";
 import { buildOrgWorkspaceTiles } from "@/lib/dashboard/org-workspace-tiles";
-import { filterAvailableTiles } from "@/lib/dashboard/workspace-tiles";
+import {
+  filterAvailableTiles,
+  nativeFilesEnabled,
+} from "@/lib/dashboard/workspace-tiles";
 
 const ICONS: Record<string, LucideIcon> = {
   cloud: Cloud,
@@ -30,6 +33,12 @@ export function OrgWorkspaceTilesCard() {
 
   const tiles = filterAvailableTiles(
     buildOrgWorkspaceTiles({
+      // Literal `process.env.X` so Next inlines it. Unset => the files tile
+      // stays, which is what keeps /dashboard/arbeitsbereich usable on a
+      // deployment with no workspace env vars.
+      nativeFilesEnabled: nativeFilesEnabled(
+        process.env.NEXT_PUBLIC_WORKSPACE_NATIVE_FILES,
+      ),
       workspaceBaseUrl: process.env.NEXT_PUBLIC_WORKSPACE_BASE_URL,
       chatBaseUrl: process.env.NEXT_PUBLIC_CHAT_BASE_URL,
       mailBaseUrl: process.env.NEXT_PUBLIC_MAIL_BASE_URL,

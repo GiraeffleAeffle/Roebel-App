@@ -1,6 +1,56 @@
 import { NextResponse } from "next/server";
 import { NextcloudError, ScopeViolationError } from "@netizen-labs/workspace";
 import { WorkspaceAuthError } from "./context";
+import { isWorkspaceEnabled } from "./config";
+
+/**
+ * The status every workspace route answers with while the deployment has no
+ * workspace configured. 503 rather than 404 or 500: the route exists and the
+ * code is fine, the SERVICE is not available here — and a client can tell that
+ * apart from "you are signed out" (401) or "we broke" (500), which is exactly
+ * the distinction `FileBrowser` needs to fall back to the link-out card
+ * instead of starting an OIDC hop that cannot possibly complete.
+ */
+export const WORKSPACE_UNCONFIGURED_STATUS = 503;
+
+/** The one body shape for "this deployment has no Arbeitsbereich". */
+export function unconfiguredResponse(): Response {
+  return NextResponse.json(
+    { reason: "unconfigured" },
+    { status: WORKSPACE_UNCONFIGURED_STATUS },
+  );
+}
+
+/**
+ * THE config gate for every route under /api/workspace. One place, not one
+ * check per route — a route added later that forgets the check is the failure
+ * mode this exists to remove, so wrapping the handler is the only way to
+ * export one.
+ *
+ * Without it, the merge-day state (no workspace env vars set) played out like
+ * this: no cookie -> requireWorkspace() throws WorkspaceAuthError("no-session")
+ * -> 401 -> FileBrowser hard-navigates to /api/workspace/auth/login ->
+ * workspaceConfig() throws, uncaught -> Next 500. Every visit to a page that
+ * mounts FileBrowser, including /dashboard/arbeitsbereich, which worked before
+ * this branch existed.
+ *
+ * The trailing catch is a second safety net: several routes (login, callback,
+ * session, logout, the two WOPI handlers) had no try/catch of their own, so an
+ * unexpected throw surfaced as a framework 500 with whatever the message
+ * happened to be. `errorResponse` never forwards an error message.
+ */
+export function withWorkspaceRoute<A extends unknown[]>(
+  handler: (...args: A) => Promise<Response>,
+): (...args: A) => Promise<Response> {
+  return async (...args: A): Promise<Response> => {
+    if (!isWorkspaceEnabled()) return unconfiguredResponse();
+    try {
+      return await handler(...args);
+    } catch (error) {
+      return errorResponse(error);
+    }
+  };
+}
 
 /**
  * Query parameters -> the arguments resolveScope expects.

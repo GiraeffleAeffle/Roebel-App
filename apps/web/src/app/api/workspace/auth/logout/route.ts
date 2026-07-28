@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/workspace/context";
 import { createSessionStore } from "@/lib/workspace/session-store";
+import { withWorkspaceRoute } from "@/lib/workspace/request";
 
 export const dynamic = "force-dynamic";
 
-export async function POST() {
+export const POST = withWorkspaceRoute(async () => {
   const sessionId = (await cookies()).get(SESSION_COOKIE)?.value;
 
   if (sessionId) {
@@ -28,4 +29,4 @@ export async function POST() {
   const response = NextResponse.json({ ok: true });
   response.cookies.delete(SESSION_COOKIE);
   return response;
-}
+});
