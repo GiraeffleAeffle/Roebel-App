@@ -87,6 +87,90 @@ describe("resolvePath", () => {
   });
 });
 
+describe("scopeRoot — component validation", () => {
+  // scope.sub and scope.folderName are each meant to be ONE opaque path
+  // component. encodeURIComponent does not escape "." — a sub or folderName
+  // that IS ".." (or contains a raw "/" or "\") can corrupt the root itself,
+  // before resolvePath's containment check ever runs.
+  const badComponents = ["..", ".", "foo/bar", "foo\\bar", "foo\0bar"];
+
+  for (const badSub of badComponents) {
+    it(`rejects a sub of ${JSON.stringify(badSub)}`, () => {
+      assert.throws(
+        () => scopeRoot({ kind: "personal", sub: badSub }),
+        ScopeViolationError,
+      );
+    });
+  }
+
+  const badFolderNames = [
+    "..",
+    ".",
+    "../../other-citizen/Privat",
+    "foo/bar",
+    "foo\\bar",
+    "foo\0bar",
+  ];
+
+  for (const badFolderName of badFolderNames) {
+    it(`rejects a folderName of ${JSON.stringify(badFolderName)}`, () => {
+      assert.throws(
+        () =>
+          scopeRoot({
+            kind: "org",
+            sub: SUB,
+            accountId: "acc-7",
+            folderName: badFolderName,
+          }),
+        ScopeViolationError,
+      );
+    });
+  }
+});
+
+describe("resolvePath — component validation", () => {
+  // Same attack, exercised through resolvePath (which calls scopeRoot
+  // internally) rather than directly, since resolvePath is the entry point
+  // real callers use.
+  const badComponents = ["..", ".", "foo/bar", "foo\\bar", "foo\0bar"];
+
+  for (const badSub of badComponents) {
+    it(`rejects a sub of ${JSON.stringify(badSub)} before resolving any path`, () => {
+      assert.throws(
+        () => resolvePath({ kind: "personal", sub: badSub }, "Dokumente/Antrag.odt"),
+        ScopeViolationError,
+      );
+    });
+  }
+
+  it("rejects a folderName of '..' before resolving any path", () => {
+    assert.throws(
+      () =>
+        resolvePath(
+          { kind: "org", sub: SUB, accountId: "acc-7", folderName: ".." },
+          "Protokolle/2026.odt",
+        ),
+      ScopeViolationError,
+    );
+  });
+
+  it("rejects a folderName containing a raw slash before resolving any path", () => {
+    assert.throws(
+      () =>
+        resolvePath(
+          {
+            kind: "org",
+            sub: SUB,
+            accountId: "acc-7",
+            folderName: "../../other-citizen/Privat",
+          },
+          "steuer.odt",
+        ),
+      ScopeViolationError,
+    );
+  });
+});
+
 describe("orgFolderName", () => {
   it("prefixes the org name so group folders are recognisable in the file list", () => {
     assert.equal(orgFolderName("Feuerwehr"), "Org Feuerwehr");

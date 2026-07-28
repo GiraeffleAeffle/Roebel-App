@@ -22,6 +22,33 @@ function encodeSegment(segment: string): string {
 }
 
 /**
+ * Validate `scope.sub` and `scope.folderName` — each is meant to be ONE
+ * opaque path component (a smart-account address; an `orgFolderName()`
+ * output), never a path in its own right. This matters because
+ * `encodeSegment` (`encodeURIComponent`) leaves "." unescaped: a component
+ * that is exactly ".." passes straight through into the template literal in
+ * `scopeRoot`, producing a literal `/../` with no decoding required from a
+ * downstream client. That corrupts the root itself, before `resolvePath`'s
+ * containment check ever runs — by then `root` is already wrong, and the
+ * check trivially "passes". A raw "/" or "\" is rejected for the same
+ * reason a relative path rejects them: a component is not supposed to carry
+ * its own separators. "." is rejected alongside ".." even though it does not
+ * escape anywhere, because neither a real `sub` nor a real `folderName` (it
+ * always starts with "Org ") is ever legitimately just ".".
+ */
+function assertSafePathComponent(value: string, label: string): void {
+  if (value.includes("\0")) {
+    throw new ScopeViolationError(`${label} contains a null byte`);
+  }
+  if (value.includes("/") || value.includes("\\")) {
+    throw new ScopeViolationError(`${label} must not contain a path separator`);
+  }
+  if (value === "." || value === "..") {
+    throw new ScopeViolationError(`${label} must not be a navigation segment`);
+  }
+}
+
+/**
  * Reject anything that could escape the scope root. Deliberately a denylist of
  * shapes plus a positive containment check afterwards: normalising a traversal
  * away and continuing would turn an attack into a silent success elsewhere.
@@ -56,11 +83,13 @@ function assertSafeRelativePath(relPath: string): void {
 
 /** The absolute WebDAV prefix every path in this scope must sit under. */
 export function scopeRoot(scope: WorkspaceScope): string {
+  assertSafePathComponent(scope.sub, "sub");
   const home = `/remote.php/dav/files/${encodeSegment(scope.sub)}/`;
   if (scope.kind === "personal") return home;
   if (!scope.folderName) {
     throw new ScopeViolationError("an org scope needs a folder name");
   }
+  assertSafePathComponent(scope.folderName, "folderName");
   return `${home}${encodeSegment(scope.folderName)}/`;
 }
 
@@ -93,6 +122,15 @@ export function resolvePath(scope: WorkspaceScope, relPath: string): string {
  * The group folder name for an org. Prefixed so a citizen who belongs to three
  * orgs can tell the folders apart in one list, and stripped of the characters
  * that would otherwise need escaping at every layer.
+ *
+ * Deliberately does NOT strip or reject ".": the "Org " prefix means its
+ * output can never equal exactly "." or ".." (the only values
+ * `assertSafePathComponent` treats as navigation segments), so an org named
+ * e.g. "St. Georgs Kirche e.V." keeps its dots. That guard runs on
+ * `scope.folderName` in `scopeRoot` regardless of whether the value passed
+ * through this function at all, so this function does not need to duplicate
+ * it — a caller who builds a `WorkspaceScope` by hand, skipping
+ * `orgFolderName` entirely, is still checked at the one place that matters.
  */
 export function orgFolderName(orgName: string): string {
   const cleaned = orgName
