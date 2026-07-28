@@ -1,7 +1,7 @@
 # NSP-9 Federation — slice 1: two nodes, mirrored public record
 
 **Date:** 2026-07-27
-**Status:** approved design, implementation in progress
+**Status:** IMPLEMENTED and verified on the node, 2026-07-28
 **Follows:** [Nostr Citizen identity bridge](2026-07-27-nostr-citizen-identity-bridge-design.md) (slice 1 of 4)
 **Constrained by:** [`docs/future-research/2026-07-27_DATA_SOVEREIGNTY_AND_MARKETPLACE.md`](../../future-research/2026-07-27_DATA_SOVEREIGNTY_AND_MARKETPLACE.md)
 
@@ -34,8 +34,8 @@ the manifest and rendered by the installer.
 | Transitive relaying | Whether a node re-exports what it mirrored is a real policy decision, not something to let emerge by accident. |
 | Anything private, personal or paid | Under GDPR a citizen's consent is revocable at any time, so "permanent access sold" is undeliverable. Public civic signal only. |
 
-**Success condition.** An event published by a member of node #2 appears on Röbel's relay, and
-vice versa — verified with an unrelated client (`nak`) against both relays independently.
+**Success condition.** An event published by a member of node #2 appears in Röbel's federation
+mirror while Röbel's own authoring relay stays untouched — verified on the box, §7.
 
 ## 2. Node #2
 
@@ -57,7 +57,6 @@ hand-wired. Nothing here may require copying commands out of a chat log.
     "name": "Netizen Test Node",
     "relay": "wss://relay.example.app",
     "kinds": [0, 1],
-    "direction": "both",
     "why": "Federation test fixture"
   }
 ]
@@ -68,7 +67,7 @@ OIDC trusted issuers — *who may log in*. Which nodes exchange data is a differ
 two things called "federation" in one manifest is a trap for the next reader.
 
 - `kinds` — the event kinds this link carries. Absent means none; there is no implicit "all".
-- `direction` — `both` | `down` (pull only) | `up` (push only).
+- There is no `direction`: federation is pull-only (§5).
 - `why` — **required**, human-readable. A trust decision with no stated reason is one nobody can
   review later, and this is the file a contributor reads to understand who Röbel talks to.
 
@@ -77,12 +76,13 @@ on-chain discovery later is additive.
 
 ## 4. The sync service
 
-`netizen render` emits a `federation` compose service that loops over declared peers, running
-`strfry sync <relay> --dir <direction>` with a kind filter, on an interval. Negentropy transfers
-only the set difference, so cost stays proportional to what changed, not to history.
+`netizen render` emits two compose services: the **mirror** (serves reads of peers' events) and
+the **federation** syncer, which loops over declared peers running
+`/app/strfry --config=…mirror-sync.conf sync <relay> --dir down` with a kind filter. Negentropy
+transfers only the set difference, so cost tracks what changed rather than how much history exists.
 
-Pull-based, like the allow-list syncer: **outbound connections only**, no new inbound surface on
-the node.
+Outbound connections only — no new inbound surface on the node. The binary is addressed
+absolutely: it is not on `PATH` in the strfry image.
 
 ## 5. RESOLVED — sync enforces the write policy, so peers land in a separate mirror
 
@@ -131,8 +131,9 @@ Transitive relaying is out of scope (§1) and must stay explicitly out until dec
 ## 7. Testing
 
 - **Unit** — manifest schema accepts a valid `peers` block and rejects a malformed one; render
-  emits one sync invocation per peer with the right direction and kind filter; a node with no
-  `peers` gets no federation service at all.
+  emits one pull-only sync invocation per peer with the right kind filter; a node with no
+  `peers` gets no federation machinery at all; both mirror configs use strfry's multi-line
+  `info` form (the compact `a = "x"; b = "y";` form in the setup doc does not parse).
 - **Integration**, on the box — VERIFIED 2026-07-28, four properties:
   1. a peer event by an author Röbel has never heard of lands in the mirror (`added: 3`)
   2. the authoring relay is untouched — that author is still absent from it
