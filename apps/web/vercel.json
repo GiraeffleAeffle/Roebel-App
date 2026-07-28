@@ -27,6 +27,10 @@
     {
       "path": "/api/cron/newsletter-draft",
       "schedule": "0 6 * * 5"
+    },
+    {
+      "path": "/api/cron/workspace-sessions-gc",
+      "schedule": "0 3 * * *"
     }
   ]
 }
