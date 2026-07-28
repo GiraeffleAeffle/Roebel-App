@@ -1,0 +1,130 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { buildAgentNoteEvent, buildNoteEvent, deriveAgentIdentity, deriveNostrSecretKey, type NostrEvent } from "@netizen-labs/nostr";
+import { emptyHistory } from "../src/bounds";
+import { watchOnce } from "../src/watcher";
+
+const MECKY = deriveAgentIdentity("a-node-secret-with-plenty-of-entropy-0123456789", "roebel", "mecky");
+const CITIZEN = deriveNostrSecretKey("0x" + "9c".repeat(65));
+const NOW = 1_785_000_000;
+
+function harness(mentions: NostrEvent[], think: (q: string) => Promise<string | null> = async () => "Antwort") {
+  const published: NostrEvent[] = [];
+  const filters: Record<string, unknown>[] = [];
+  return {
+    published,
+    filters,
+    deps: {
+      agent: MECKY,
+      history: emptyHistory(),
+      relayUrl: "ws://relay",
+      now: () => NOW,
+      think,
+      makeClient: () => ({
+        query: async (f: unknown[]) => {
+          filters.push(f[0] as Record<string, unknown>);
+          return mentions;
+        },
+        publish: async (e: NostrEvent) => {
+          published.push(e);
+          return { ok: true, message: "" };
+        },
+        close: () => {},
+      }),
+    } as never,
+  };
+}
+
+describe("answering a mention", () => {
+  it("asks the relay for events tagging the agent", async () => {
+    const h = harness([]);
+    await watchOnce(h.deps);
+    assert.deepEqual(h.filters[0]["#p"], [MECKY.publicKey]);
+    assert.deepEqual(h.filters[0].kinds, [1]);
+  });
+
+  it("replies as a threaded, agent-labelled note", async () => {
+    const question = buildNoteEvent(CITIZEN, "Wann tagt der Stadtrat?", { createdAt: NOW - 5 });
+    const h = harness([question], async () => "Am Dienstag um 18 Uhr.");
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.answered, 1);
+    const reply = h.published[0];
+    assert.equal(reply.content, "Am Dienstag um 18 Uhr.");
+    // threaded onto the question, and addressed back to the asker
+    assert.ok(reply.tags.some((t) => t[0] === "e" && t[1] === question.id));
+    assert.ok(reply.tags.some((t) => t[0] === "p" && t[1] === question.pubkey));
+    // and unmistakably machine-authored
+    assert.ok(reply.tags.some((t) => t[0] === "netizen_agent"));
+  });
+
+  it("answers a burst oldest-first, in the order asked", async () => {
+    const first = buildNoteEvent(CITIZEN, "erste", { createdAt: NOW - 50 });
+    const second = buildNoteEvent(CITIZEN, "zweite", { createdAt: NOW - 10 });
+    const h = harness([second, first], async (q) => `re: ${q}`);
+    await watchOnce(h.deps);
+    assert.deepEqual(h.published.map((e) => e.content), ["re: erste", "re: zweite"]);
+  });
+
+  it("does not answer the same question twice across passes", async () => {
+    const question = buildNoteEvent(CITIZEN, "einmal", { createdAt: NOW - 5 });
+    const h = harness([question]);
+    await watchOnce(h.deps);
+    await watchOnce(h.deps);
+    assert.equal(h.published.length, 1);
+  });
+
+  it("skips another agent's post without spending a thought", async () => {
+    let thought = 0;
+    const other = deriveAgentIdentity("a-node-secret-with-plenty-of-entropy-0123456789", "roebel", "newsroom");
+    const h = harness([buildAgentNoteEvent(other, "hallo", { createdAt: NOW })], async () => {
+      thought += 1;
+      return "x";
+    });
+    const result = await watchOnce(h.deps);
+    assert.equal(result.answered, 0);
+    assert.equal(thought, 0, "must refuse before calling the model");
+    assert.equal(result.refused["other-agent"], 1);
+  });
+
+  it("marks a declined question answered, so it is not retried forever", async () => {
+    const question = buildNoteEvent(CITIZEN, "unbeantwortbar", { createdAt: NOW - 5 });
+    const h = harness([question], async () => null);
+    await watchOnce(h.deps);
+    await watchOnce(h.deps);
+    assert.equal(h.published.length, 0);
+  });
+
+  it("retries when the RELAY refused the reply — that is not the asker's fault", async () => {
+    const question = buildNoteEvent(CITIZEN, "frage", { createdAt: NOW - 5 });
+    const published: NostrEvent[] = [];
+    const deps = {
+      agent: MECKY, history: emptyHistory(), relayUrl: "ws://relay", now: () => NOW,
+      think: async () => "Antwort",
+      makeClient: () => ({
+        query: async () => [question],
+        publish: async (e: NostrEvent) => {
+          published.push(e);
+          return { ok: false, message: "blocked" };
+        },
+        close: () => {},
+      }),
+    } as never;
+    await watchOnce(deps);
+    await watchOnce(deps);
+    assert.equal(published.length, 2, "a rejected reply must be retried");
+  });
+
+  it("a thinking failure does not abort the pass", async () => {
+    const bad = buildNoteEvent(CITIZEN, "explodiert", { createdAt: NOW - 50 });
+    const good = buildNoteEvent(CITIZEN, "geht", { createdAt: NOW - 10 });
+    let call = 0;
+    const h = harness([bad, good], async () => {
+      call += 1;
+      if (call === 1) throw new Error("model down");
+      return "Antwort";
+    });
+    const result = await watchOnce(h.deps);
+    assert.equal(result.answered, 1);
+  });
+});

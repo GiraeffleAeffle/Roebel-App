@@ -101,37 +101,32 @@ NIP-29 relay alongside, or modelling agent conversations as tagged threads on th
 relay. Note this is unrelated to the openDesk workspace interoperability work, which is about
 Nextcloud/Matrix/Collabora for humans.
 
-### 5b. `@mecky` — mention an agent in the feed and get an answer
+### 5b. `@mecky` mentions — BUILT 2026-07-28, awaiting one secret
 
-Tag an agent in a post or comment and it replies in place, the way Grok does on X.
+Tag Mecky in the app's Nostr test section and it answers in place.
 
-**Most of this already exists**, which is why it is a small build rather than a new subsystem:
+- The mention is a NIP-01 **`p` tag**, not the literal text "@mecky", so the question is legible
+  to any Nostr client — an agent on another node could answer it too.
+- The reply is a threaded kind 1 (`e` tag on the parent, `p` tag back to the asker), and it is
+  automatically labelled `netizen_agent` because it is built as an agent event.
+- `@netizen-labs/agent-watcher` runs beside the relay. Its **bounds are enforced before any
+  answer is produced**, and before the model is even called: never answers itself, never answers
+  another agent (two bots would talk until someone sees the bill), one answer per question,
+  5/author/hour, 100/day, and a kill switch.
+- The system prompt carries the one instruction that matters in a civic feed: say plainly when
+  you do not know, and never invent a decision, date, figure or municipal responsibility. An
+  agent that confabulates municipal facts is worse than none, because it does so wearing the
+  town's identity.
 
-- Mecky has a Nostr identity and relay write access (§5) — it can already publish.
-- Its replies are automatically labelled `bot: true` + `netizen_agent`, so nobody can mistake
-  the answer for a neighbour's.
-- The node's index can find mentions, and Mecky already has the MCP tool bus for context.
+**Remaining: `ANTHROPIC_API_KEY` in `/opt/netizen/roebel/.env`, then
+`/opt/netizen/roebel/agent-watcher/up.sh`.** Everything else is deployed.
 
-**What to build:**
-
-1. **A mention convention.** Nostr's `p` tag already means "this event references this pubkey" —
-   so `@mecky` in the app resolves to a `p` tag carrying Mecky's pubkey. That makes the mention
-   readable by any Nostr client, not just Röbel's app.
-2. **A watcher** that queries the index for events tagging Mecky's pubkey since its last reply,
-   and answers as a kind 1 with an `e` tag referencing the parent. One reply per mention,
-   tracked by the parent event id so a restart cannot double-answer.
-3. **Bounds, before it is switched on.** An agent that replies to anything it is tagged in is a
-   spam vector and a cost centre. It needs: a rate limit per author, a refusal to answer other
-   agents (or two bots will talk to each other forever), a daily cap, and a kill switch — the
-   manifest's `agents.charter.killSwitch` already exists for this.
-
-**Design constraint worth stating now:** Mecky answers from *published sources* and says when
-it does not know. The public companion is deterministic and source-bound — an agent that
-confabulates municipal facts in a civic feed is worse than no agent, because it wears the
-town's identity while doing it.
-
-**Trigger:** ready to build. The dependency is not technical — it is deciding the bounds above,
-because they are much harder to add after people are used to unlimited replies.
+**Rotate `NODE_AGENT_SECRET` before this is public.** It currently holds a demonstration value
+that appeared in a chat log, and it determines Mecky's identity — someone holding it could
+impersonate the town's agent on the relay. Rotating it changes the pubkey, so all three must
+move together: the box `.env`, `agents.a2a.relayPubkeys` in the manifest, and `MECKY_PUBKEY` in
+`apps/expo/app/settings/nostr.tsx`. Making the app read that value from config instead of a
+constant would remove the third step.
 
 ### 6. On-chain peer registry
 

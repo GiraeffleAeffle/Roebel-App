@@ -179,6 +179,53 @@ export async function publishTestNote(
 }
 
 /**
+ * Ask an agent a question by mentioning it.
+ *
+ * The mention is a NIP-01 `p` tag carrying the agent's pubkey — the standard way
+ * one Nostr event references an identity. That matters: the mention is legible to
+ * ANY Nostr client, not just this app, so an agent on another node could answer it
+ * too. Writing "@mecky" as plain text would only work inside Röbel.
+ */
+export async function publishAgentMention(
+  content: string,
+  agentPubkey: string,
+): Promise<{ ok: boolean; eventId?: string; message: string }> {
+  const identity = await loadStoredIdentity();
+  if (!identity) return { ok: false, message: 'Keine Nostr-Identität auf diesem Gerät.' };
+  try {
+    const event = buildNoteEvent(identity.secretKey, content, {
+      tags: [['p', agentPubkey.toLowerCase()]],
+    });
+    const result = await relay().publish(event);
+    return result.ok
+      ? { ok: true, eventId: event.id, message: 'Frage gestellt. Mecky antwortet gleich …' }
+      : { ok: false, message: result.message || 'Vom Relay abgelehnt.' };
+  } catch {
+    return { ok: false, message: 'Relay nicht erreichbar.' };
+  }
+}
+
+/**
+ * Look for an agent's reply to a specific event.
+ *
+ * A reply is a kind 1 carrying an `e` tag pointing at the parent. Filtering by
+ * `#e` server-side means the relay does the work rather than the phone.
+ */
+export async function fetchAgentReply(
+  parentEventId: string,
+  agentPubkey: string,
+): Promise<NostrEvent | null> {
+  try {
+    const events = await relay().query([
+      { kinds: [1], authors: [agentPubkey.toLowerCase()], "#e": [parentEventId], limit: 5 },
+    ]);
+    return events.sort((a, b) => b.created_at - a.created_at)[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Read events straight off the relay.
  *
  * No indexer: a chronological feed filtered by kind + author + time is exactly
