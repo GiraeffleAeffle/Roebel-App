@@ -38,5 +38,15 @@ export {
 } from "./binding";
 export type { BindingFailure, BindingResult, BindingSubject } from "./binding";
 
+export {
+  AGENT_TAG,
+  agentOf,
+  buildAgentNoteEvent,
+  buildAgentProfileEvent,
+  deriveAgentIdentity,
+  isAgentEvent,
+} from "./agent";
+export type { AgentIdentity } from "./agent";
+
 export { RelayClient } from "./relay";
 export type { Filter, PublishResult, RelayOptions } from "./relay";

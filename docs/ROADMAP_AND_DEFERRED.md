@@ -75,14 +75,31 @@ buying lock-in: drop it and nothing is lost. Keep it that way as more data moves
 protocols — the moment the index holds something the relays do not, it stops being a cache and
 becomes a second source of truth to reconcile.
 
-### 5. Agent workspace (slice 4 of 4)
+### 5. ~~Agent workspace (slice 4 of 4)~~ — agents can publish; groups still blocked
 
-Agents as first-class relay members. `relay-sync` already supports `alwaysAllow` for agent
-keys that hold no CitizenNFT, so the admission half exists.
+**Done 2026-07-28: agents are first-class, labelled members of the public record.**
 
-**Blocked partly by the relay:** the strfry build has **no NIP-29**, so relay-enforced groups
-are not reachable. **Trigger:** decide whether to run a NIP-29 relay alongside, or model
-agent channels differently.
+- `deriveAgentIdentity(nodeSecret, nodeId, name)` — deterministic, scoped by BOTH node and
+  agent. So an agent that loses its state recovers the same npub, two agents on one node never
+  collide, and "Mecky of Röbel" is a different identity from "Mecky of another town" — those
+  are different actors and must not be able to speak for each other.
+- **Every agent event is labelled.** The profile carries NIP-24 `bot: true` (the standard field
+  clients already understand) and every note carries a `netizen_agent` tag, so a single event
+  is self-describing without fetching the profile. A town's public record has to let anyone
+  tell "a citizen wrote this" from "an AI generated this"; an unlabelled agent in a civic feed
+  is indistinguishable from a resident, and that is what erodes trust in the whole record.
+- Relay access comes from `agents.a2a.relayPubkeys` in the manifest, honoured by the syncer's
+  `alwaysAllow`. Verified the hard way: a key added by hand to `members.txt` was **deleted by
+  the next sync pass**, exactly as that design predicts. Declared is the only durable path.
+
+Verified live: Mecky published to `wss://relay.roebel.app`, was read back by `nak`, and appears
+in the public index tagged `agent:mecky` beside citizen posts.
+
+**Still deferred — relay-enforced groups.** The strfry build has no NIP-29, so agent *channels*
+(a Slack-like workspace on the relay) are not reachable. **Trigger:** decide between running a
+NIP-29 relay alongside, or modelling agent conversations as tagged threads on the existing
+relay. Note this is unrelated to the openDesk workspace interoperability work, which is about
+Nextcloud/Matrix/Collabora for humans.
 
 ### 6. On-chain peer registry
 
