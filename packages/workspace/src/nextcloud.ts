@@ -88,7 +88,9 @@ export function createNextcloudClient(
       headers: { ...authHeaders, ...(init.headers ?? {}) },
       body: init.body,
     });
-    if (!res.ok && res.status !== 207) {
+    // 207 Multi-Status is itself in the 200-299 range, so `res.ok` already
+    // covers it — no separate carve-out is needed here.
+    if (!res.ok) {
       throw new NextcloudError(
         res.status,
         `${method} ${absolutePath} failed with ${res.status}`,
@@ -116,15 +118,37 @@ export function createNextcloudClient(
         headers: { Depth: "0", "Content-Type": "application/xml" },
         body: PROPFIND_BODY,
       });
-      // Depth 0 describes the resource itself, so parse it as the sole child of
-      // its parent rather than of itself.
-      const parent = path.slice(0, path.lastIndexOf("/") + 1);
-      const entries = parsePropfind(await res.text(), parent);
+      const text = await res.text();
+      const root = scopeRoot(scope);
+      // Depth 0 describes the resource itself, so it has to be parsed as the
+      // sole child of SOME ancestor rather than of itself — parsePropfind
+      // always drops an entry whose href exactly matches its rootHref (that
+      // is what makes an ordinary directory listing exclude itself), so
+      // parsing with rootHref === path would silently discard the only
+      // entry the server sent back. For any relPath below the root, the
+      // resource's real parent directory works fine as that ancestor.
+      //
+      // But when `path` IS the scope root (relPath === "", or anything else
+      // that resolves to it), the resource's "parent" collapses onto the
+      // resource itself, reintroducing exactly the self-entry problem this
+      // is meant to avoid — turning "the root exists" into an unconditional
+      // 404 regardless of what the server actually said. There is no real
+      // directory above a scope's root to borrow as an ancestor, so instead
+      // parse with an empty rootHref: no href can ever equal "", so nothing
+      // is ever dropped as a self entry, and the root's own describing
+      // response surfaces as the (only) result.
+      const parent = path === root ? "" : path.slice(0, path.lastIndexOf("/") + 1);
+      const entries = parsePropfind(text, parent);
       const entry = entries[0];
       if (!entry) {
-        throw new NextcloudError(404, `${relPath} not found`);
+        throw new NextcloudError(404, `${relPath || "(scope root)"} not found`);
       }
-      return entry;
+      // The empty-rootHref trick above yields the root's raw last path
+      // segment (its sub, or its org folder name) as `entry.path` — correct
+      // for `name`, but wrong for `path`: a caller who stats the root asked
+      // about "", and "" is what they must be able to pass back into
+      // resolvePath to refer to it again.
+      return path === root ? { ...entry, path: "" } : entry;
     },
 
     async download(scope, relPath) {
@@ -158,6 +182,3 @@ export function createNextcloudClient(
     },
   };
 }
-
-/** Re-exported so callers can build a listing URL without importing scope.ts. */
-export { scopeRoot };

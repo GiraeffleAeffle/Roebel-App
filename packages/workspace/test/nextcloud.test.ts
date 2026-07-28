@@ -134,10 +134,22 @@ describe("mutations", () => {
     });
     await client.move(scope, "a.odt", "Archiv/a.odt");
     assert.equal(calls[0].method, "MOVE");
+    // The request itself must target the SOURCE — a regression that swapped
+    // the request target to the destination while still computing the
+    // Destination header from `to` would pass every assertion below it if
+    // this one weren't here too.
+    assert.equal(
+      calls[0].url,
+      "https://cloud.example/remote.php/dav/files/0xabc/a.odt",
+    );
     assert.equal(
       calls[0].headers.Destination,
       "https://cloud.example/remote.php/dav/files/0xabc/Archiv/a.odt",
     );
+    // RFC 4918 defaults Overwrite to T when the header is absent, so a
+    // dropped header silently enables clobbering whatever already sits at
+    // the destination — this must be sent explicitly.
+    assert.equal(calls[0].headers.Overwrite, "F");
   });
 
   it("validates BOTH ends of a move before issuing it", async () => {
@@ -269,6 +281,54 @@ describe("stat", () => {
       ScopeViolationError,
     );
     assert.equal(calls.length, 0);
+  });
+
+  it("stats the scope root itself as an existing directory, not a false 404", async () => {
+    // Regression test: a Depth-0 PROPFIND of the root's own href was being
+    // re-parsed with that same href as rootHref, which parsePropfind treats
+    // as the "self entry" and drops — so stat(scope, "") threw a 404 even
+    // when the stub correctly described the root as an existing collection.
+    // A caller checking "has this org folder been provisioned yet" (as a
+    // later task does) would misread that false 404 as "does not exist".
+    const ROOT_XML = `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response><d:href>/remote.php/dav/files/0xabc/</d:href>
+    <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop>
+    <d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
+</d:multistatus>`;
+    const { calls, fetchImpl } = stubFetch([{ status: 207, body: ROOT_XML }]);
+    const client = createNextcloudClient({
+      baseUrl: "https://cloud.example",
+      auth: bearerAuth(async () => "tok"),
+      fetch: fetchImpl,
+    });
+
+    const entry = await client.stat(scope, "");
+
+    assert.equal(calls[0].headers.Depth, "0");
+    assert.equal(
+      calls[0].url,
+      "https://cloud.example/remote.php/dav/files/0xabc/",
+    );
+    assert.equal(entry.isDirectory, true);
+    assert.equal(entry.path, "");
+  });
+
+  it("still raises a typed 404 for the scope root when the server describes nothing", async () => {
+    // Guards against over-correcting the fix above into "stat('') always
+    // succeeds" — a root that genuinely doesn't exist yet must still 404.
+    const EMPTY = `<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"></d:multistatus>`;
+    const { fetchImpl } = stubFetch([{ status: 207, body: EMPTY }]);
+    const client = createNextcloudClient({
+      baseUrl: "https://cloud.example",
+      auth: bearerAuth(async () => "tok"),
+      fetch: fetchImpl,
+    });
+
+    await assert.rejects(
+      () => client.stat(scope, ""),
+      (err: unknown) => err instanceof NextcloudError && err.status === 404,
+    );
   });
 });
 
