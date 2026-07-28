@@ -164,6 +164,14 @@
       "url": "$SUPABASE_URL",
       "realtime": true,
       "edgeFunctions": true
+    },
+    "indexer": {
+      "publicRead": "https://index.roebel.app",
+      "kinds": [
+        0,
+        1
+      ],
+      "ingestIntervalSeconds": 120
     }
   },
   "ai": {
@@ -222,7 +230,10 @@
       "id": "testnode",
       "name": "Netizen Test Node",
       "relay": "ws://testnode-strfry:7777",
-      "kinds": [0, 1],
+      "kinds": [
+        0,
+        1
+      ],
       "why": "Federation test fixture on the same host: proves NSP-9 sync and is the regression fixture for every federation change. Plaintext is safe here because the name resolves only on this machine's docker network."
     }
   ],

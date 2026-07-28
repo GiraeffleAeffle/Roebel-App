@@ -392,6 +392,10 @@ export function renderCaddyfile(m: NetizenManifest): string {
   add(m.services.chat?.matrix?.element, "element:80");
   const relay = m.services.chat?.nostr?.relay;
   if (relay) blocks.push(`${hostname(relay)} {\n  reverse_proxy strfry:7777\n}`);
+  // The index is public by design: it is how a PEER's agent asks this node a
+  // question, and everything in it came off world-readable relays.
+  const indexUrl = m.services.indexer?.publicRead;
+  if (indexUrl) blocks.push(`${hostname(indexUrl)} {\n  reverse_proxy indexer:8080\n}`);
   return header(m, "Caddy reverse proxy (auto TLS)") + "\n" + blocks.join("\n\n") + "\n";
 }
 
@@ -494,6 +498,33 @@ export function renderComposeYml(m: NetizenManifest): string {
       # them every pass and no agent could publish to its own community's relay.
       AGENT_PUBKEYS: "${agentKeys.join(",")}"
     depends_on: [strfry]`,
+      );
+    }
+
+    // NSP-10: the cross-node query layer. Indexes this node's OWN relay and its
+    // federation mirror, so a question can span both. Needs Postgres, which the
+    // stack already runs.
+    if (m.services.indexer && m.services.backend) {
+      const idx = m.services.indexer;
+      const sources = [
+        { nodeId: m.id, relay: "ws://strfry:7777", kinds: idx.kinds },
+        ...(m.peers?.length ? [{ nodeId: "peers", relay: "ws://mirror:7777", kinds: idx.kinds }] : []),
+      ];
+      svc.push(
+        `  indexer:
+    image: node:22-alpine
+    restart: unless-stopped
+    command: ["node", "/app/indexer.cjs"]
+    volumes:
+      - "./indexer/indexer.cjs:/app/indexer.cjs:ro"
+    environment:
+      NODE_ID: "${m.id}"
+      DATABASE_URL: "postgres://indexer:\${POSTGRES_PASSWORD}@postgres:5432/indexer"
+      SOURCES: '${JSON.stringify(sources)}'
+      INGEST_INTERVAL_SECONDS: "${idx.ingestIntervalSeconds ?? 120}"
+      PORT: "8080"
+    expose: ["8080"]
+    depends_on: [postgres, strfry]`,
       );
     }
 
@@ -855,6 +886,36 @@ ${rows || "| _none_ | | | | |"}
 `;
 }
 
+/** How to place the indexer bundle, and what it answers once it is running. */
+export function renderIndexerReadme(m: NetizenManifest): string {
+  const idx = m.services.indexer!;
+  const at = idx.publicRead ?? "http://indexer:8080 (internal)";
+  return `# Indexer — node "${m.id}"
+
+Cross-node query layer. Indexes this node's own relay and, when peers are declared,
+its federation mirror, then answers questions spanning both.
+
+Place the bundled binary here before \`docker compose up\`:
+
+    pnpm --filter @netizen-labs/indexer build
+    scp packages/indexer/dist/indexer.cjs <node>:/opt/netizen/${m.id}/indexer/indexer.cjs
+
+Indexed kinds: ${idx.kinds.join(", ")}. Reachable at ${at}.
+
+    GET /events?q=&kinds=&authors=&since=&until=&node=&limit=
+    GET /stats     what this node knows, by source node and kind
+    GET /health
+
+\`node\` filters by PROVENANCE — which node an event came from. Without it a
+federated answer is an undifferentiated soup, and nobody can tell this town's own
+record from a peer's.
+
+Read-only and unauthenticated on purpose: everything here came off world-readable
+relays, so publishing leaks nothing new, and it is what lets a peer's agent ask
+this node a question.
+`;
+}
+
 export function renderPostgresInit(m: NetizenManifest): string {
   const dbs = postgresDatabases(m);
   const lines = dbs
@@ -908,6 +969,9 @@ export function postgresDatabases(m: NetizenManifest): string[] {
   if (m.services.chat?.matrix) dbs.push("synapse", "mas");
   if (ws?.wiki) dbs.push("xwiki");
   if (ws?.project) dbs.push("openproject");
+  // The indexer gets its own role and database like every other service, so it is
+  // created by the installer rather than by hand on the box.
+  if (m.services.indexer) dbs.push("indexer");
   return dbs;
 }
 
@@ -1632,6 +1696,12 @@ export function plan(m: NetizenManifest): Step[] {
   if (ws?.project) steps.push({ id: "project-oidc", phase: "workspace", title: "Enable the OpenProject OIDC provider against the keystone" });
   if (m.services.chat?.matrix) steps.push({ id: "mas-oidc", phase: "chat", title: "Apply mas/config.yaml (upstream = the keystone) and restart MAS" });
   if (m.services.chat?.nostr) steps.push({ id: "nostr-relay", phase: "chat", title: "Nostr relay up behind Caddy, members-only writes (strfry-policy/)" });
+  if (m.services.indexer && m.services.backend)
+    steps.push({
+      id: "indexer",
+      phase: "chat",
+      title: `Indexer up — cross-node queries over ${m.services.indexer.kinds.length} kind(s)${m.services.indexer.publicRead ? ` at ${m.services.indexer.publicRead}` : " (internal)"}`,
+    });
   if (m.peers?.length)
     steps.push({
       id: "federation",
@@ -1688,6 +1758,7 @@ export function renderBundle(m: NetizenManifest): Bundle {
     files["strfry-policy/add-member.sh"] = renderNostrAddMember();
     // NSP-9: only emitted when peers are declared, so a node that federates with
     // nobody ships no federation machinery at all.
+    if (m.services.indexer) files["indexer/README.md"] = renderIndexerReadme(m);
     if (m.peers?.length) {
       files["strfry-mirror/mirror.conf"] = renderMirrorConf(m);
       files["strfry-mirror/mirror-sync.conf"] = renderMirrorSyncConf(m);

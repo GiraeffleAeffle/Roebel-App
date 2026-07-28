@@ -55,13 +55,25 @@ recommends.
 
 ## Nostr and federation
 
-### 4. Indexer (slice 2 of 4)
+### 4. ~~Indexer (slice 2 of 4)~~ — DONE 2026-07-28
 
-Queries today are relay filters, which covers chronological feeds by kind + author + time.
-Search, threading, aggregation and cross-node queries need an indexer.
+`@netizen-labs/indexer`. Its trigger fired the moment federation shipped: a node now has
+**two stores** (its own relay and its peers' mirror) and relay filters cannot ask a question
+across them.
 
-**Deliberately deferred** so it gets specced against real events rather than guesses.
-**Trigger:** a query the relay's filters genuinely cannot serve.
+Indexes both into Postgres and serves `/events` (search, kinds, authors, time range,
+provenance), `/stats` and `/health`. Public read by design — everything in it came off
+world-readable relays, so publishing leaks nothing new, and it is what lets a **peer's** agent
+query this node. Verified live: a cross-node query returning Röbel's own record alongside node
+#2's, full-text search, and a provenance filter.
+
+**Design rule worth keeping: the protocol is the source of truth, the database is a derived
+index.** The index holds nothing authoritative — every row is a signed event that came off a
+relay, its signature is re-verified on ingest rather than trusted from a peer, and the whole
+store is rebuildable by re-reading the relays. So the database buys query efficiency without
+buying lock-in: drop it and nothing is lost. Keep it that way as more data moves onto
+protocols — the moment the index holds something the relays do not, it stops being a cache and
+becomes a second source of truth to reconcile.
 
 ### 5. Agent workspace (slice 4 of 4)
 

@@ -1,0 +1,89 @@
+#!/usr/bin/env node
+import pg from "pg";
+import { createApi } from "./api.js";
+import { ingestAll, type Source } from "./ingest.js";
+import { SCHEMA_SQL } from "./schema.js";
+
+/**
+ * `netizen-indexer` — the node's cross-node query layer.
+ *
+ * Ingests this node's own relay and its federation mirror into Postgres, and
+ * serves questions that span both. Runs on the node beside them.
+ *
+ * SOURCES is a JSON array so the installer can render it straight from the
+ * manifest: [{ "nodeId": "roebel", "relay": "ws://strfry:7777", "kinds": [0,1] }]
+ */
+
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    console.error(`missing required env var: ${name}`);
+    process.exit(2);
+  }
+  return value;
+}
+
+function parseSources(raw: string): Source[] {
+  const parsed = JSON.parse(raw) as Source[];
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error("SOURCES must be a non-empty JSON array");
+  }
+  for (const s of parsed) {
+    if (!s.nodeId || !s.relay || !Array.isArray(s.kinds) || s.kinds.length === 0) {
+      throw new Error(`each source needs nodeId, relay and a non-empty kinds array: ${JSON.stringify(s)}`);
+    }
+  }
+  return parsed;
+}
+
+async function main(): Promise<void> {
+  const nodeId = required("NODE_ID");
+  const sources = parseSources(required("SOURCES"));
+  const intervalSeconds = Number(process.env.INGEST_INTERVAL_SECONDS ?? 120);
+  const port = Number(process.env.PORT ?? 8080);
+
+  const pool = new pg.Pool({ connectionString: required("DATABASE_URL"), max: 8 });
+  await pool.query(SCHEMA_SQL);
+
+  const query = async (sql: string, values: unknown[]) => (await pool.query(sql, values)).rows;
+
+  const pass = async () => {
+    const at = new Date().toISOString();
+    try {
+      const results = await ingestAll(sources, {
+        insert: async (sql, values) => {
+          await pool.query(sql, values);
+        },
+        // Resume from what is already indexed for this exact source, so a restart
+        // costs one small overlap rather than a full re-read.
+        watermark: async (id, relay) => {
+          const rows = await query(
+            "SELECT MAX(created_at)::bigint AS newest FROM nostr_events WHERE node_id = $1 AND source = $2",
+            [id, relay],
+          );
+          const newest = rows[0]?.newest;
+          return newest == null ? null : Number(newest);
+        },
+        log: (m) => console.log(`[${at}] ${m}`),
+      });
+      const stored = results.reduce((n, r) => n + r.stored, 0);
+      if (stored) console.log(`[${at}] indexed ${stored} new event(s)`);
+    } catch (error) {
+      // A failed pass leaves the index stale, never wrong — the next tick retries.
+      console.error(`[${at}] ingest pass failed:`, (error as Error).message);
+    }
+  };
+
+  await pass();
+  setInterval(() => void pass(), intervalSeconds * 1000);
+
+  createApi({ query, nodeId }).listen(port, () => {
+    console.log(`indexer for "${nodeId}" listening on :${port}; ingesting every ${intervalSeconds}s`);
+    for (const s of sources) console.log(`  source ${s.nodeId} <- ${s.relay} kinds[${s.kinds}]`);
+  });
+}
+
+void main().catch((error) => {
+  console.error("indexer failed to start:", error);
+  process.exit(1);
+});

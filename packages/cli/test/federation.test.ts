@@ -10,6 +10,9 @@ import {
   renderFederationSync,
   renderMirrorConf,
   renderMirrorSyncConf,
+  renderCaddyfile,
+  renderPostgresInit,
+  postgresDatabases,
   plan,
 } from "../src/render.js";
 import { sovereigntyReport } from "../src/doctor.js";
@@ -207,4 +210,56 @@ test("sovereignty omits layers a node never declared, rather than scoring them f
   assert.ok(layers.includes("hosting"));
   // Durability is different: absence there IS the finding, so it stays reported.
   assert.ok(layers.includes("durability"));
+});
+
+/** NSP-10 — the cross-node query layer. */
+const baseServices = (base as { services: Record<string, unknown> }).services;
+const WITH_INDEXER = {
+  ...base,
+  peers: [PEER],
+  services: { ...baseServices, indexer: { publicRead: "https://index.roebel.app", kinds: [0, 1] } },
+} as never;
+
+/** Röbel's manifest now declares an indexer, so the "declares none" case is explicit. */
+const { indexer: _idx, ...servicesNoIndexer } = baseServices;
+const WITHOUT_INDEXER = { ...base, peers: [PEER], services: servicesNoIndexer } as never;
+
+test("the indexer reads BOTH the node's own relay and the federation mirror", () => {
+  // The whole reason it exists: federation created two stores and no way to ask a
+  // question across them.
+  const compose = renderComposeYml(WITH_INDEXER);
+  assert.match(compose, /^ {2}indexer:/m);
+  const sources = compose.match(/SOURCES: '(.+?)'/)?.[1];
+  assert.ok(sources, "sources must be rendered from the manifest");
+  const parsed = JSON.parse(sources!);
+  assert.deepEqual(parsed.map((s: { relay: string }) => s.relay), [
+    "ws://strfry:7777",
+    "ws://mirror:7777",
+  ]);
+});
+
+test("a node with no peers indexes only its own relay", () => {
+  const { peers: _p, ...noPeers } = WITH_INDEXER as Record<string, unknown>;
+  const sources = JSON.parse(renderComposeYml(noPeers as never).match(/SOURCES: '(.+?)'/)![1]);
+  assert.equal(sources.length, 1);
+});
+
+test("declaring publicRead routes the index through Caddy", () => {
+  assert.match(renderCaddyfile(WITH_INDEXER), /index\.roebel\.app \{\n\s+reverse_proxy indexer:8080/);
+});
+
+test("a node that declares no indexer ships none of it", () => {
+  const compose = renderComposeYml(WITHOUT_INDEXER);
+  assert.ok(!compose.includes("indexer:"));
+  assert.ok(!plan(WITHOUT_INDEXER).some((s) => s.id === "indexer"));
+});
+
+test("the indexer's database is created by the installer, not by hand", () => {
+  // Matrix once failed with 'password authentication failed for user "mas"'
+  // because a service was added after the cluster was initialised. Every service
+  // that needs Postgres declares it here so the idempotent init creates it.
+  assert.ok(postgresDatabases(WITH_INDEXER).includes("indexer"));
+  assert.match(renderPostgresInit(WITH_INDEXER), /ensure_role indexer/);
+  // ...and the connection string must name exactly that role and database.
+  assert.match(renderComposeYml(WITH_INDEXER), /postgres:\/\/indexer:\$\{POSTGRES_PASSWORD\}@postgres:5432\/indexer/);
 });

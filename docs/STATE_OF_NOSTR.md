@@ -145,10 +145,23 @@ the other as a peer, so each pulls the other into its own mirror. Neither writes
 other. What is deliberately still missing is listed in
 [Roadmap and deferred work](ROADMAP_AND_DEFERRED.md).
 
-## 6. Not built
+## 6. The index (slice 2) — live 2026-07-28
 
-- **Indexer (slice 2).** Queries are relay filters today, which covers chronological feeds
-  by kind + author + time. Search, threading and aggregation need an indexer.
+`@netizen-labs/indexer` reads this node's own relay **and** its federation mirror into
+Postgres, and answers what relay filters cannot: full-text search, time ranges, per-author
+history, and **provenance** — which node an event came from.
+
+`GET /events?q=&kinds=&authors=&since=&until=&node=&limit=` · `GET /stats` · `GET /health`
+
+Public read by design. Everything in it came off world-readable relays, so publishing leaks
+nothing new, and it is what lets a **peer's** agent query this node.
+
+**The protocol is the source of truth; the index is a derived view.** Every row is a signed
+event whose signature is re-verified on ingest rather than trusted from a peer, and the whole
+store is rebuildable by re-reading the relays. Drop the database and nothing is lost — that is
+what keeps query efficiency from turning into lock-in.
+
+## 7. Not built
 - **Agent workspace (slice 4).** Agents as first-class relay members. Blocked in part by the
   missing NIP-29.
 - **Metered access (x402).** Needs a self-run facilitator on Gnosis — see

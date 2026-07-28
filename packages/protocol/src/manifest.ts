@@ -159,6 +159,25 @@ const Services = z.object({
         .optional(),
     })
     .optional(),
+  /**
+   * NSP-10 — the cross-node query layer.
+   *
+   * Federation gives a node two stores (its own relay and its peers' mirror) and
+   * no way to ask a question across them. The indexer is that: search, time
+   * ranges, per-author history, and provenance — which node did this come from.
+   *
+   * `publicRead` exposes it at a hostname. Everything it serves already came off
+   * world-readable relays, so publishing leaks nothing new, and it is what lets a
+   * PEER's agent query this node. A community that wants it internal-only omits it.
+   */
+  indexer: z
+    .object({
+      publicRead: z.string().url().optional(),
+      /** Event kinds to index. No implicit "all" — widening is a visible edit. */
+      kinds: z.array(z.number().int().nonnegative()).min(1),
+      ingestIntervalSeconds: z.number().int().positive().optional(),
+    })
+    .optional(),
   // Secret references only (guards the "secrets by reference" rule).
   secrets: z.record(secretRef).optional(),
 });

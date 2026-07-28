@@ -94,7 +94,8 @@ test("the plan is ordered and covers every declared surface", () => {
     "nextcloud-oidc", "mail-oidc", "wiki-oidc", "video-auth", "project-oidc",
     // Federation follows the relay: peers are mirrored into a store that only
     // exists once the node's own Nostr surface is up.
-    "mas-oidc", "nostr-relay", "federation", "web-env",
+    // The indexer follows the relay: it indexes stores that must exist first.
+    "mas-oidc", "nostr-relay", "indexer", "federation", "web-env",
     // Operations come after the services exist but before "verify" — a node is
     // not verified until it is also survivable.
     "backup", "backup-offsite", "backup-restore-test", "harden", "firewall",

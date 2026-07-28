@@ -1,0 +1,33 @@
+{
+  "name": "@netizen-labs/indexer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Netizen cross-node query layer — indexes a node's own relay and its federation mirror into Postgres, and answers questions spanning both.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "bin": {
+    "netizen-indexer": "src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": ["src"],
+  "scripts": {
+    "start": "tsx src/cli.ts",
+    "build": "esbuild src/cli.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/indexer.cjs",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@netizen-labs/nostr": "workspace:*",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "@types/pg": "^8.11.10",
+    "esbuild": "^0.27.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
