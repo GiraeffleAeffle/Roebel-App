@@ -12,8 +12,13 @@ export function buildProvider(deps: {
   const jwks = loadJwks()
 
   // Every first-party Röbel-run relying party. Nextcloud is always present;
-  // Matrix (MAS) is added when configured. Adding a new service is config-only.
-  const relyingParties = [config.nextcloud, ...(config.matrix ? [config.matrix] : [])]
+  // Matrix (MAS) and the web app are added when configured. Adding a new
+  // service is config-only.
+  const relyingParties = [
+    config.nextcloud,
+    ...(config.matrix ? [config.matrix] : []),
+    ...(config.web ? [config.web] : []),
+  ]
 
   const configuration: Configuration = {
     adapter: adapterFactory,

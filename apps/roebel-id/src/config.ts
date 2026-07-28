@@ -24,6 +24,8 @@ export interface Config {
   nextcloud: RelyingPartyConfig
   /** Matrix Authentication Service (MAS) upstream OIDC. Registered only when MATRIX_CLIENT_ID is set. */
   matrix?: RelyingPartyConfig
+  /** The Röbel web app's own workspace session. Registered only when WEB_CLIENT_ID is set. */
+  web?: RelyingPartyConfig
 }
 
 function required(name: string): string {
@@ -59,6 +61,18 @@ export function loadConfig(): Config {
             clientSecret: required('MATRIX_CLIENT_SECRET'),
             redirectUris: required('MATRIX_REDIRECT_URIS').split(','),
             postLogoutRedirectUris: (process.env.MATRIX_POST_LOGOUT_URIS ?? '').split(',').filter(Boolean),
+          },
+        }
+      : {}),
+    // The web app is optional for the same reason Matrix is: the keystone must
+    // boot unchanged on a node that has not stood up the workspace yet.
+    ...(process.env.WEB_CLIENT_ID
+      ? {
+          web: {
+            clientId: required('WEB_CLIENT_ID'),
+            clientSecret: required('WEB_CLIENT_SECRET'),
+            redirectUris: required('WEB_REDIRECT_URIS').split(','),
+            postLogoutRedirectUris: (process.env.WEB_POST_LOGOUT_URIS ?? '').split(',').filter(Boolean),
           },
         }
       : {}),

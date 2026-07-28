@@ -45,6 +45,7 @@ export function wireApp(config: Config = loadConfig(), overrides: WireOverrides 
     firstPartyClientIds: [
       config.nextcloud.clientId,
       ...(config.matrix ? [config.matrix.clientId] : []),
+      ...(config.web ? [config.web.clientId] : []),
     ],
   })
 
