@@ -57,26 +57,33 @@ export function sovereigntyReport(m: NetizenManifest): SovereigntyLayer[] {
     note: `own box, ${m.services.host.region}; the installer can rebuild it elsewhere`,
   });
 
-  const idpExternal = m.identity.idp.hosted === "external";
-  out.push({
-    layer: "identity-issuer",
-    provider: idpExternal ? "external keystone" : "self",
-    sovereign: true,
-    note: `${m.identity.idp.issuer} — the node owns its own OIDC issuer`,
-  });
+  // Identity is optional: a relay-only node has no issuer and no account minter.
+  // Such layers are OMITTED rather than scored false — the score is "layers under
+  // own control", so counting a layer the node never claimed to run would penalise
+  // it for a choice it made deliberately. Contrast `durability` below, where
+  // absence IS the finding.
+  if (m.identity) {
+    const idpExternal = m.identity.idp.hosted === "external";
+    out.push({
+      layer: "identity-issuer",
+      provider: idpExternal ? "external keystone" : "self",
+      sovereign: true,
+      note: `${m.identity.idp.issuer} — the node owns its own OIDC issuer`,
+    });
 
-  // The account minter is the deepest lock-in: it determines every citizen's
-  // ADDRESS, and an address change orphans soulbound memberships and balances.
-  const bridge = m.identity.authBridge.provider;
-  out.push({
-    layer: "identity-keys",
-    provider: bridge,
-    sovereign: bridge !== "thirdweb",
-    note:
-      bridge === "thirdweb"
-        ? "a third party mints citizen accounts; changing it changes addresses (soulbound NFTs, Circles balances, MACI signups)"
-        : "the node mints its own accounts",
-  });
+    // The account minter is the deepest lock-in: it determines every citizen's
+    // ADDRESS, and an address change orphans soulbound memberships and balances.
+    const bridge = m.identity.authBridge.provider;
+    out.push({
+      layer: "identity-keys",
+      provider: bridge,
+      sovereign: bridge !== "thirdweb",
+      note:
+        bridge === "thirdweb"
+          ? "a third party mints citizen accounts; changing it changes addresses (soulbound NFTs, Circles balances, MACI signups)"
+          : "the node mints its own accounts",
+    });
+  }
 
   const backend = m.services.backend?.provider;
   out.push({
@@ -139,7 +146,7 @@ export function doctor(m: NetizenManifest): DoctorReport {
   const add = (name: string, url?: string) => {
     if (url) endpoints.push({ name, url });
   };
-  add("idp discovery", m.identity.idp.discovery);
+  add("idp discovery", m.identity?.idp.discovery);
   add("nextcloud", m.services.workspace?.nextcloud);
   add("matrix homeserver", m.services.chat?.matrix?.homeserver);
   add("mas", m.services.chat?.matrix?.mas);
@@ -149,7 +156,7 @@ export function doctor(m: NetizenManifest): DoctorReport {
   if (!m.services.backend) warnings.push("no data backend declared (services.backend) — the community data layer is unmanaged");
   if (m.ai && m.ai.selfHosted === false)
     warnings.push("AI is not self-hosted — model calls egress off-node; confirm ai.sovereignty.dataEgressPolicy");
-  if (m.identity.authBridge.provider === "thirdweb")
+  if (m.identity?.authBridge.provider === "thirdweb")
     warnings.push("authBridge.provider is 'thirdweb' — a third-party mints accounts; flip to 'netizen' for full wallet sovereignty");
   if (m.services.chat?.matrix && !m.services.chat?.nostr)
     warnings.push("Matrix present but no Nostr relay — agents-as-members transport unavailable");
@@ -212,6 +219,8 @@ export interface LiveDiscovery {
  * here in one request.
  */
 export function detectIdpDrift(m: NetizenManifest, live: LiveDiscovery | null): DriftFinding[] {
+  // A node without an IdP cannot drift from one. Nothing declared, nothing to check.
+  if (!m.identity) return [];
   if (!live) return [{ field: "discovery", expected: m.identity.idp.discovery, actual: "unreachable" }];
   const findings: DriftFinding[] = [];
 
@@ -252,6 +261,7 @@ function safeHost(u: string): string {
 export async function checkIdpDrift(m: NetizenManifest): Promise<DriftFinding[]> {
   let live: LiveDiscovery | null = null;
   try {
+    if (!m.identity) throw new Error("no idp declared");
     const res = await fetch(m.identity.idp.discovery, { signal: AbortSignal.timeout(15_000) });
     if (res.ok) live = (await res.json()) as LiveDiscovery;
   } catch {

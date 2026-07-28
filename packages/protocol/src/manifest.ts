@@ -321,10 +321,23 @@ export const NetizenManifestSchema = z.object({
     .enum(["community", "town", "individual", "business", "club", "institution", "agent"])
     .optional(),
 
-  chain: z.object({
-    chainId: z.number().int().positive(),
-    rpc: urlOrSecret,
-  }),
+  /**
+   * Everything from here to `services` is OPTIONAL — the civic stack.
+   *
+   * The minimum viable Netizen node is an id, a name and some services: a relay
+   * that federates is a legitimate node. Requiring a Safe, a MACI deployment, an
+   * OIDC issuer and six contract addresses before anyone can run one turns "fork
+   * this" into "reproduce a whole town first", which is the opposite of the point.
+   *
+   * Röbel declares all of it. A contributor's relay-only node declares none of it,
+   * and the installer simply emits nothing for what is absent.
+   */
+  chain: z
+    .object({
+      chainId: z.number().int().positive(),
+      rpc: urlOrSecret,
+    })
+    .optional(),
   contracts: z.object({
     citizenNft: address,
     attesterNft: address,
@@ -334,11 +347,11 @@ export const NetizenManifestSchema = z.object({
     safe: address,
     circlesGroup: address.optional(),
     gatekeeper: address.optional(),
-  }),
+  }).optional(),
 
-  identity: Identity,
-  governance: Governance,
-  treasury: Treasury,
+  identity: Identity.optional(),
+  governance: Governance.optional(),
+  treasury: Treasury.optional(),
   services: Services,
   ai: Ai.optional(),
   agents: Agents.optional(),
@@ -353,7 +366,8 @@ export const NetizenManifestSchema = z.object({
       fonts: z.array(z.string()).optional(),
     })
     .optional(),
-  modules: z.record(z.boolean()),
+  /** Feature switches. A node that declares none simply runs none. */
+  modules: z.record(z.boolean()).optional(),
 
   signature: z
     .object({

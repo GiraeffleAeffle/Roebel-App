@@ -11,9 +11,12 @@ const roebel = JSON.parse(
 test("the Röbel dogfood manifest validates against the schema", () => {
   const m = parseManifest(roebel);
   assert.equal(m.id, "roebel");
-  assert.equal(m.chain.chainId, 100);
-  assert.equal(m.identity.relyingParties.length, 4);
-  assert.equal(m.identity.federation.trustedIssuers.length, 0);
+  // Röbel declares the full civic stack; the non-null assertions are the point —
+  // these sections are optional in the schema (see the minimal-node tests) but a
+  // town manifest must have them.
+  assert.equal(m.chain!.chainId, 100);
+  assert.equal(m.identity!.relyingParties.length, 4);
+  assert.equal(m.identity!.federation.trustedIssuers.length, 0);
 });
 
 test("rejects an inline secret where a reference is required", () => {
@@ -22,9 +25,48 @@ test("rejects an inline secret where a reference is required", () => {
 });
 
 test("rejects a missing required section", () => {
+  // `services` is required: a node with no services is not a node.
   const bad = { ...roebel };
-  delete (bad as Record<string, unknown>).identity;
+  delete (bad as Record<string, unknown>).services;
   assert.equal(safeParseManifest(bad).success, false);
+});
+
+test("a MINIMAL node validates — the civic stack is optional", () => {
+  // The contributor case. A relay that federates is a legitimate node, and must
+  // not have to invent a Safe, a MACI deployment and six contract addresses to
+  // be expressible. If this test ever fails, forking got harder.
+  const minimal = {
+    nsp: "0",
+    manifestVersion: "1.0.0",
+    id: "contributor-node",
+    name: "A Contributor's Node",
+    services: {
+      host: { provider: "hetzner", region: "eu-central" },
+      chat: { nostr: { relay: "wss://relay.example.org" } },
+    },
+  };
+  const parsed = safeParseManifest(minimal);
+  assert.equal(parsed.success, true, JSON.stringify(parsed.error?.issues ?? []));
+});
+
+test("a minimal node may still federate", () => {
+  const minimal = {
+    nsp: "0",
+    manifestVersion: "1.0.0",
+    id: "contributor-node",
+    name: "A Contributor's Node",
+    services: { host: { provider: "hetzner", region: "eu-central" } },
+    peers: [
+      {
+        id: "roebel",
+        name: "Röbel / Müritz",
+        relay: "wss://relay.roebel.app",
+        kinds: [0, 1],
+        why: "Genesis node — mirror its public civic record",
+      },
+    ],
+  };
+  assert.equal(safeParseManifest(minimal).success, true);
 });
 
 test("rejects an unknown nsp version", () => {
@@ -45,7 +87,7 @@ test("a node can be any sovereign entity type (town, individual, business, club,
 
 test("v2 coverage fields parse — AA infra, data backend, sovereign AI, openDesk suite", () => {
   const m = parseManifest(roebel);
-  assert.equal(m.identity.authBridge.bundlerRpc, "$GNOSIS_BUNDLER_RPC");
+  assert.equal(m.identity!.authBridge.bundlerRpc, "$GNOSIS_BUNDLER_RPC");
   assert.equal(m.services.backend?.provider, "supabase");
   assert.equal(m.ai?.selfHosted, false);
   // the full openDesk suite is expressible (optional) — a node declares its subset

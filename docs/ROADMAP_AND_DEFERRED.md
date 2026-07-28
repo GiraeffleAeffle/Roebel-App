@@ -12,24 +12,26 @@ An item without a trigger is a wish. An item without a reason is an oversight.
 
 ## Blocking the open-source goal
 
-### 1. A minimal node is not expressible
+### 1. ~~A minimal node is not expressible~~ — DONE 2026-07-28
 
-**Found 2026-07-28 while building node #2.** The manifest requires `contracts`, `identity`,
-`governance` and `treasury`. So a contributor who wants to run **a relay that federates** must
-first declare a Safe, a MACI deployment, an OIDC issuer and six contract addresses.
+The manifest used to require `contracts`, `identity`, `governance` and `treasury`, so a
+contributor wanting **a relay that federates** had to declare a Safe, a MACI deployment, an
+OIDC issuer and six contract addresses first. That turned "fork this" into "reproduce a whole
+town first".
 
-That turns "fork this" into "reproduce a whole town first", which is the opposite of the point.
-Node #2's manifest currently reuses Röbel's contract block for fields it does not operate,
-which is honest only because it is a same-box fixture. **A contributor should not have to do
-that.**
+**Fixed.** The civic stack is now optional. A minimal node is `nsp`, `manifestVersion`, `id`,
+`name` and `services` — anything else is what a *community* node adds. The installer emits
+nothing for what is absent: no keystone env, no keystone plan step, and no allow-list syncer
+(there is no onchain credential to sync from; such a node grants writes by hand with
+`add-member.sh`, or simply mirrors peers and authors nothing).
 
-**Fix:** make the civic-stack sections optional; `netizen render` already emits nothing for
-services a node does not declare. Attempted today and reverted: it changes what
-`netizen doctor`'s sovereignty report should say for a node with no identity layer, and
-`doctor.ts` was being actively developed in a parallel session. Worth doing deliberately, with
-that semantic decided rather than assumed.
+`netizen doctor` **omits** layers a node never declared rather than scoring them false. The
+score reads "N layers under own control", so counting an identity layer a relay-only node
+deliberately does not run would penalise it for a choice. Durability is deliberately different:
+absence there is the finding.
 
-**Trigger: before an outside contributor stands up a node.** This is the first thing they hit.
+Node #2 now runs on a genuinely minimal manifest — no chain, no contracts, no identity, no
+governance, no treasury — and it federates. It is the template a contributor copies.
 
 ### 2. Extract the `@netizen-labs/*` packages into their own repo
 

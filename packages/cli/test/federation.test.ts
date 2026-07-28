@@ -12,6 +12,7 @@ import {
   renderMirrorSyncConf,
   plan,
 } from "../src/render.js";
+import { sovereigntyReport } from "../src/doctor.js";
 
 const base = JSON.parse(
   readFileSync(
@@ -145,4 +146,65 @@ test("mirror configs use strfry's multi-line info form", () => {
     assert.ok(!/info \{[^\n}]*;/.test(conf), "compact info block will not parse");
     assert.match(conf, /info \{\n\s+name = /);
   }
+});
+
+/**
+ * The contributor case: a node that is JUST a relay that federates.
+ *
+ * If these fail, forking got harder — someone wanting to join the network would
+ * have to declare a Safe, a MACI deployment and six contract addresses first.
+ */
+const MINIMAL = {
+  nsp: "0",
+  manifestVersion: "1.0.0",
+  id: "contributor-node",
+  name: "A Contributor's Node",
+  services: {
+    host: { provider: "hetzner", region: "eu-central" },
+    chat: { nostr: { relay: "wss://relay.example.org" } },
+  },
+  peers: [
+    {
+      id: "roebel",
+      name: "Röbel / Müritz",
+      relay: "wss://relay.roebel.app",
+      kinds: [0, 1],
+      why: "Genesis node — mirror its public civic record",
+    },
+  ],
+} as never;
+
+test("a minimal node renders a working bundle with no civic stack", () => {
+  const bundle = renderBundle(MINIMAL);
+  // It gets a relay, a write policy and federation...
+  for (const f of ["strfry.conf", "docker-compose.yml", "Caddyfile", "bootstrap.sh"]) {
+    assert.ok(bundle.files[f], `missing ${f}`);
+  }
+  assert.ok(bundle.files["strfry-mirror/sync-peers.sh"]);
+  // ...and nothing that needs an identity provider it never declared.
+  assert.equal(bundle.files["roebel-id.env"], undefined);
+});
+
+test("a minimal node's plan has no keystone step", () => {
+  const ids = plan(MINIMAL).map((s) => s.id);
+  assert.ok(!ids.includes("roebel-id"), "nothing to stand up without an IdP");
+  assert.ok(!ids.includes("identity"), "nothing to verify without an IdP");
+  assert.ok(ids.includes("nostr-relay") && ids.includes("federation"));
+});
+
+test("a minimal node renders no allow-list syncer — there is no chain to sync from", () => {
+  // Membership-gated writes need an onchain credential. Without `contracts` the
+  // node still federates; its own members are granted by hand via add-member.sh.
+  assert.ok(!renderComposeYml(MINIMAL).includes("relay-sync:"));
+});
+
+test("sovereignty omits layers a node never declared, rather than scoring them false", () => {
+  // The score reads "N/M layers under own control". Counting an identity layer a
+  // relay-only node deliberately does not run would penalise it for a choice.
+  const layers = sovereigntyReport(MINIMAL).map((l) => l.layer);
+  assert.ok(!layers.includes("identity-issuer"));
+  assert.ok(!layers.includes("identity-keys"));
+  assert.ok(layers.includes("hosting"));
+  // Durability is different: absence there IS the finding, so it stays reported.
+  assert.ok(layers.includes("durability"));
 });
