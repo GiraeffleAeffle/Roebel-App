@@ -184,6 +184,39 @@ const Ai = z.object({
     .optional(),
 });
 
+/**
+ * NSP-9 — federation. Which OTHER nodes this one exchanges public data with.
+ *
+ * Deliberately top-level and NOT inside `identity.federation`: that block means
+ * OIDC trusted issuers — *who may log in here*. Which nodes mirror each other's
+ * public record is a different question, and two things called "federation" in
+ * one manifest is a trap for whoever reads it next.
+ *
+ * Declaring a peer IS the authorisation — the same principle as `alwaysAllow`
+ * agent keys: an operator putting it in the manifest is the decision, and it is
+ * auditable in a git diff. A future `peerRegistry` can populate this same shape
+ * from an on-chain contract without changing anything downstream.
+ */
+const Peer = z.object({
+  id: z.string().regex(/^[a-z0-9-]+$/, "peer id must be a lowercase slug"),
+  name: z.string().min(1),
+  relay: z.string().regex(/^wss:\/\//, "a peer relay must be a wss:// url"),
+  /**
+   * Event kinds this link carries. There is no implicit "all": a link that
+   * declares nothing carries nothing, so widening what leaves the node is always
+   * a visible edit.
+   */
+  kinds: z.array(z.number().int().nonnegative()).min(1),
+  /** `both` mirrors, `down` pulls only, `up` pushes only. */
+  direction: z.enum(["both", "down", "up"]).default("both"),
+  /**
+   * Why this peer is trusted, in plain language. Required: a trust decision with
+   * no stated reason is one nobody can review later, and this is the file a
+   * contributor reads to understand who this node talks to.
+   */
+  why: z.string().min(1, "state why this peer is trusted"),
+});
+
 /** NSP-6 — agent charter + agent-to-agent transport. */
 const Agents = z.object({
   charter: z.object({
@@ -290,6 +323,8 @@ export const NetizenManifestSchema = z.object({
   ai: Ai.optional(),
   agents: Agents.optional(),
   operations: Operations.optional(),
+  /** NSP-9 — nodes this one mirrors public events with. Absent means no federation. */
+  peers: z.array(Peer).optional(),
 
   branding: z
     .object({
