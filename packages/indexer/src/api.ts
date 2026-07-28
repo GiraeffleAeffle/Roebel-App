@@ -13,6 +13,15 @@ import { MAX_LIMIT, STATS_SQL, buildEventQuery, type EventQuery } from "./query.
 export interface ApiDeps {
   query: (sql: string, values: unknown[]) => Promise<Record<string, unknown>[]>;
   nodeId: string;
+  /**
+   * Fetch events straight from the relays when the index has not caught up.
+   *
+   * The index is a DERIVED view and ingests on a timer, so an event published
+   * seconds ago is legitimately absent. For a proof link — "show me exactly this
+   * event" — an empty page is the wrong answer: the protocol has it, so a cache
+   * miss must fall through to the source rather than deny it exists.
+   */
+  fetchFromRelay?: (ids: string[]) => Promise<Record<string, unknown>[]>;
 }
 
 function numbers(value: string | null): number[] | undefined {
@@ -76,9 +85,25 @@ export function createApi(deps: ApiDeps): Server {
       }
 
       if (url.pathname === "/events") {
-        const built = buildEventQuery(queryFromUrl(url));
-        const rows = await deps.query(built.text, built.values);
-        return send(200, { node: deps.nodeId, count: rows.length, maxLimit: MAX_LIMIT, events: rows });
+        const query = queryFromUrl(url);
+        const built = buildEventQuery(query);
+        let rows = await deps.query(built.text, built.values);
+        let source = "index";
+
+        // Exact-id lookup only: a miss on a SEARCH means "no results", but a miss
+        // on "show me this event" may just mean the index has not read it yet.
+        if (rows.length === 0 && query.ids?.length && deps.fetchFromRelay) {
+          rows = await deps.fetchFromRelay(query.ids);
+          if (rows.length) source = "relay (not yet indexed)";
+        }
+
+        return send(200, {
+          node: deps.nodeId,
+          count: rows.length,
+          maxLimit: MAX_LIMIT,
+          source,
+          events: rows,
+        });
       }
 
       send(404, { error: "not found", endpoints: ["/events", "/stats", "/health"] });

@@ -556,8 +556,7 @@ export default function NostrIdentityScreen() {
                   Signierten Beweis öffnen ↗
                 </Text>
                 <Text style={[styles.hint, { color: colors.textSecondary }]}>
-                  Event {testResult.eventId.slice(0, 16)}… — erscheint im Index, sobald der Node
-                  ihn gelesen hat (bis zu 2 Minuten).
+                  Event {testResult.eventId.slice(0, 16)}…
                 </Text>
               </Pressable>
             )}
