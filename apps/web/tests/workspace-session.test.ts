@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildAuthorizationUrl, createPkcePair } from "../src/lib/workspace/oidc";
 import {
+  ORG_ROLES,
   hasOrgAccess,
   isExpired,
   newSessionId,
@@ -66,8 +67,24 @@ describe("wallet binding", () => {
 });
 
 describe("org access", () => {
-  it("derives the group id the keystone emits", () => {
+  it("derives the group id the keystone emits, defaulting to member", () => {
     assert.equal(orgGroupId("acc-7"), "org:acc-7:member");
+  });
+
+  it("derives the group id for an explicit role", () => {
+    assert.equal(orgGroupId("acc-7", "owner"), "org:acc-7:owner");
+    assert.equal(orgGroupId("acc-7", "admin"), "org:acc-7:admin");
+    assert.equal(orgGroupId("acc-7", "member"), "org:acc-7:member");
+  });
+
+  // The keystone's claims resolver emits org:<accountId>:<role> verbatim
+  // from account_owners.role (owner | admin | member — the app-wide
+  // OrgRole vocabulary). ensureOrgFolder binds every group in this list so
+  // that whichever role a citizen actually holds, their group already
+  // reaches the shared folder — an org's creator (role "owner", the DB
+  // default) must not be the one role left locked out.
+  it("ORG_ROLES covers exactly the account_owners.role vocabulary", () => {
+    assert.deepEqual(ORG_ROLES, ["owner", "admin", "member"]);
   });
 
   it("grants access when the claim is present", () => {

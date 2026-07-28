@@ -25,12 +25,13 @@ export default function ArbeitsbereichPage() {
       {activeAccount ? (
         // The org's group folder. The server refuses the scope unless the
         // session carries a claim for this org, so an id in the URL is not
-        // enough — this only supplies the name the folder is mounted under.
+        // enough to reach it — and the server derives the folder's identity
+        // from that id alone, never from the org's (renameable) display
+        // name, so there is nothing else to pass here.
         <FileBrowser
           scope={{
             scope: "org",
             accountId: activeAccount.id,
-            orgName: activeAccount.name,
           }}
         />
       ) : (

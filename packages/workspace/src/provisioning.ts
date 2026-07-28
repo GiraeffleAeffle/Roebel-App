@@ -1,6 +1,21 @@
 import { NextcloudError } from "./nextcloud";
 
 /**
+ * `ensureGroupFolder` refused to bind because the matched folder already
+ * carries a DIFFERENT org's group. Defence in depth alongside the app
+ * layer's mount point (`orgFolderMount(accountId)`, unique by construction):
+ * two independent mechanisms — an unguessable, unique-by-construction mount
+ * point, AND this refusal — both have to fail before one org's group could
+ * ever land on another org's folder.
+ */
+export class GroupFolderConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GroupFolderConflictError";
+  }
+}
+
+/**
  * Nextcloud provisioning over OCS. Every operation is create-if-absent, because
  * it runs on the request path — a citizen's first entry into the workspace —
  * and must be safe to hit concurrently from two tabs.
@@ -66,6 +81,37 @@ function isGroupConfirmedBound(
 ): boolean {
   if (!groups || Array.isArray(groups)) return false;
   return Object.prototype.hasOwnProperty.call(groups, groupId);
+}
+
+/** Pull the accountId out of an `org:<accountId>:<role>` group id, or `null`
+ * if the string is not shaped that way (e.g. a future non-org groupId). */
+function orgIdFromGroupId(groupId: string): string | null {
+  const match = /^org:(.+):[^:]+$/.exec(groupId);
+  return match ? match[1] : null;
+}
+
+/**
+ * True only when the listing POSITIVELY shows a different org's group
+ * already bound to this folder. Mirrors `isGroupConfirmedBound`'s safe
+ * default: an ambiguous or absent `groups` value (the PHP `[]`-vs-`{}`
+ * quirk, or an older server that omits the field) proves nothing either way,
+ * so it is never treated as a conflict — only a confirmed `Record<string,
+ * number>` entry for a DIFFERENT org's `org:*` group counts. Same-org,
+ * different-role groups (binding `org:<id>:owner` when `org:<id>:member` is
+ * already bound) are explicitly not a conflict — that is the normal
+ * multi-role bind `ensureOrgFolder` performs.
+ */
+function boundToADifferentOrg(
+  groups: GroupFolderEntry["groups"],
+  groupId: string,
+): boolean {
+  if (!groups || Array.isArray(groups)) return false;
+  const ourOrgId = orgIdFromGroupId(groupId);
+  if (!ourOrgId) return false;
+  return Object.keys(groups).some((existing) => {
+    const existingOrgId = orgIdFromGroupId(existing);
+    return existingOrgId !== null && existingOrgId !== ourOrgId;
+  });
 }
 
 /** Deterministic choice so that every caller who observes the same set of
@@ -154,12 +200,25 @@ export function createProvisioner(opts: ProvisionerOptions): Provisioner {
    * tabs binding the same group to the same folder is the same harmless
    * race, and Nextcloud's own "add group to folder" call is a set-membership
    * write, safe to repeat.
+   *
+   * Refuses outright — before issuing any request — when the listing
+   * positively shows the folder already carries a DIFFERENT org's group.
+   * Defence in depth: the app layer is expected to hand this function a
+   * mount point that is already unique per org (`orgFolderMount(accountId)`),
+   * so this should never fire in practice, but if that guarantee is ever
+   * weakened by a future change, a real folder collision must be a hard
+   * failure here too, not a silent additive bind.
    */
   async function ensureGroupBound(
     folder: { id: number; groups?: GroupFolderEntry["groups"] },
     groupId: string,
   ): Promise<void> {
     if (isGroupConfirmedBound(folder.groups, groupId)) return;
+    if (boundToADifferentOrg(folder.groups, groupId)) {
+      throw new GroupFolderConflictError(
+        `refusing to bind ${groupId} onto folder ${folder.id}: already bound to a different org's group`,
+      );
+    }
     const bound = await ocs<unknown>(
       "POST",
       `/apps/groupfolders/folders/${folder.id}/groups?format=json`,

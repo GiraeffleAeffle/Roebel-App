@@ -1,3 +1,5 @@
+import type { OrgRole } from "../../types/account";
+
 /**
  * The citizen's workspace session. Stored server-side (see session-store.ts);
  * the cookie and the WOPI token carry only an opaque id.
@@ -47,9 +49,24 @@ export function sessionMatchesWallet(
   return session.sub.toLowerCase() === wallet.toLowerCase();
 }
 
-/** The claim the keystone emits for org membership. */
-export function orgGroupId(accountId: string): string {
-  return `org:${accountId}:member`;
+/**
+ * Every role `account_owners.role` can hold, and therefore every Nextcloud
+ * group the keystone's claims resolver can emit for a given org —
+ * `org:<accountId>:<role>`, built verbatim from that column
+ * (apps/roebel-id/src/claims/resolver.ts: groups.push(`org:${accountId}:${role}`)
+ * for every `account_owners` row). Nextcloud provisions a citizen's group
+ * memberships straight from this claim, so `ensureOrgFolder` must bind the
+ * shared folder to every group in this list, not just one — binding only
+ * `:member` left an org's owner (role "owner", the DB default for whoever
+ * created it) in a Nextcloud group the folder was never bound to, so their
+ * own org's files 404'd for them. `OrgRole` (../../types/account) is the
+ * app-wide source of truth for the vocabulary.
+ */
+export const ORG_ROLES: readonly OrgRole[] = ["owner", "admin", "member"];
+
+/** The claim the keystone emits for org membership at a given role. */
+export function orgGroupId(accountId: string, role: OrgRole = "member"): string {
+  return `org:${accountId}:${role}`;
 }
 
 /** Any role in the org grants workspace access; the folder ACL narrows it. */

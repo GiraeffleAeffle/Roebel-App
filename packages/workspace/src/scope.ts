@@ -23,7 +23,7 @@ function encodeSegment(segment: string): string {
 
 /**
  * Validate `scope.sub` and `scope.folderName` — each is meant to be ONE
- * opaque path component (a smart-account address; an `orgFolderName()`
+ * opaque path component (a smart-account address; an `orgFolderMount()`
  * output), never a path in its own right. This matters because
  * `encodeSegment` (`encodeURIComponent`) leaves "." unescaped: a component
  * that is exactly ".." passes straight through into the template literal in
@@ -34,7 +34,7 @@ function encodeSegment(segment: string): string {
  * reason a relative path rejects them: a component is not supposed to carry
  * its own separators. "." is rejected alongside ".." even though it does not
  * escape anywhere, because neither a real `sub` nor a real `folderName` (it
- * always starts with "Org ") is ever legitimately just ".".
+ * always starts with "org-") is ever legitimately just ".".
  */
 function assertSafePathComponent(value: string, label: string): void {
   if (value.includes("\0")) {
@@ -119,23 +119,41 @@ export function resolvePath(scope: WorkspaceScope, relPath: string): string {
 }
 
 /**
- * The group folder name for an org. Prefixed so a citizen who belongs to three
- * orgs can tell the folders apart in one list, and stripped of the characters
- * that would otherwise need escaping at every layer.
+ * The Nextcloud group-folder mount point for an org, derived from its
+ * accountId ALONE — never from any human-editable field.
  *
- * Deliberately does NOT strip or reject ".": the "Org " prefix means its
- * output can never equal exactly "." or ".." (the only values
- * `assertSafePathComponent` treats as navigation segments), so an org named
- * e.g. "St. Georgs Kirche e.V." keeps its dots. That guard runs on
- * `scope.folderName` in `scopeRoot` regardless of whether the value passed
- * through this function at all, so this function does not need to duplicate
- * it — a caller who builds a `WorkspaceScope` by hand, skipping
- * `orgFolderName` entirely, is still checked at the one place that matters.
+ * This function replaces an earlier `orgFolderName(orgName: string)` that
+ * built the mount point from an org's display name. Two rounds of review
+ * found the same folder-takeover reachable through two different trust
+ * anchors that both turned out to be attacker-controllable:
+ *   Round 1: a raw `orgName` client query parameter — fixed by looking the
+ *   name up from the account registry instead of trusting the request.
+ *   Round 2: `accounts.name` itself. It has no uniqueness constraint, and any
+ *   logged-in citizen can create (or rename) an org to another org's exact
+ *   display name through the product's own UI and becomes its real, honestly
+ *   claimed owner. `orgFolderName`'s own sanitisation was lossy on top of
+ *   that — `"Feuerwehr:"` and `"Feuerwehr"` both collapsed to `"Org
+ *   Feuerwehr"` — so even a unique-name constraint on the column would not
+ *   have closed it. Nextcloud group folders are matched by mount point with
+ *   no accountId dimension, so whichever citizen's request resolved to that
+ *   string got their group additively bound onto it.
+ *
+ * `accountId` is the one value a caller's ACL check has already authorised
+ * and that a citizen cannot forge or collide: it is `accounts.id`, the
+ * table's own primary key, unique by construction. Two different orgs can
+ * therefore never produce the same mount point — structurally, regardless of
+ * what any name column contains or who can write it. If a human-readable
+ * name needs to be visible inside Nextcloud, it belongs as a folder
+ * label/description, never as the folder's identity.
+ *
+ * Rejects the same unsafe shapes `assertSafePathComponent` rejects — a raw
+ * slash/backslash, a null byte, or a bare "." / ".." — even though a real
+ * `accounts.id` (a Postgres UUID) never contains them. `scopeRoot` re-checks
+ * `folderName` on every WebDAV call regardless, but the provisioning path
+ * (`Provisioner.ensureGroupFolder`) talks to Nextcloud directly and never
+ * passes through `scopeRoot` — this is that path's only guard.
  */
-export function orgFolderName(orgName: string): string {
-  const cleaned = orgName
-    .replace(/[\\/:*?"<>|]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return `Org ${cleaned}`;
+export function orgFolderMount(accountId: string): string {
+  assertSafePathComponent(accountId, "accountId");
+  return `org-${accountId}`;
 }

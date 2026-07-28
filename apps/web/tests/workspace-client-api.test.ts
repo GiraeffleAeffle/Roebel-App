@@ -19,14 +19,22 @@ describe("buildFilesQuery", () => {
       buildFilesQuery({
         scope: "org",
         accountId: "acc-7",
-        orgName: "Feuerwehr",
         path: "Protokolle",
       }),
     );
     assert.equal(q.get("scope"), "org");
     assert.equal(q.get("accountId"), "acc-7");
-    assert.equal(q.get("orgName"), "Feuerwehr");
     assert.equal(q.get("path"), "Protokolle");
+  });
+
+  // The server derives an org's folder identity from accountId alone (see
+  // resolveScope's incident writeup) — orgName has no FileScopeParams field
+  // to carry it, so there is no way to even construct a query that sends one.
+  it("never sends an orgName parameter — there is no field for it", () => {
+    const q = new URLSearchParams(
+      buildFilesQuery({ scope: "org", accountId: "acc-7", path: "" }),
+    );
+    assert.equal(q.has("orgName"), false);
   });
 
   it("encodes a path with spaces and a hash", () => {

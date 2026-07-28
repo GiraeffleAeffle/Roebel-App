@@ -1,11 +1,11 @@
 export type { Actor, WorkspaceScope } from "./types";
-export { ScopeViolationError, orgFolderName, resolvePath, scopeRoot } from "./scope";
+export { ScopeViolationError, orgFolderMount, resolvePath, scopeRoot } from "./scope";
 export type { DirEntry } from "./propfind";
 export { parsePropfind } from "./propfind";
 export type { NextcloudAuth, NextcloudClient, NextcloudClientOptions } from "./nextcloud";
 export { NextcloudError, basicAuth, bearerAuth, createNextcloudClient } from "./nextcloud";
 export type { Provisioner, ProvisionerOptions } from "./provisioning";
-export { createProvisioner } from "./provisioning";
+export { GroupFolderConflictError, createProvisioner } from "./provisioning";
 export type { WorkspaceActionKind, WorkspaceAction, ProvenanceSink } from "./provenance";
 export { buildAction, createRecorder } from "./provenance";
 export type { WopiClaims, WopiFileInfo } from "./wopi";

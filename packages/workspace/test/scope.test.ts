@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   ScopeViolationError,
-  orgFolderName,
+  orgFolderMount,
   resolvePath,
   scopeRoot,
   type WorkspaceScope,
@@ -171,12 +171,41 @@ describe("resolvePath — component validation", () => {
   });
 });
 
-describe("orgFolderName", () => {
-  it("prefixes the org name so group folders are recognisable in the file list", () => {
-    assert.equal(orgFolderName("Feuerwehr"), "Org Feuerwehr");
+describe("orgFolderMount", () => {
+  it("derives the mount point from accountId alone", () => {
+    assert.equal(orgFolderMount("acc-7"), "org-acc-7");
   });
 
-  it("strips characters that would break a WebDAV path", () => {
-    assert.equal(orgFolderName("Verein / Röbel\\Müritz"), "Org Verein Röbel Müritz");
+  it("is deterministic: the same accountId always yields the same mount point", () => {
+    assert.equal(orgFolderMount("acc-7"), orgFolderMount("acc-7"));
+  });
+
+  // The whole point of the fix this replaces: two different orgs must never
+  // be able to collide on the same mount point, because it is unique by
+  // construction (accountId is the accounts table's own primary key) rather
+  // than derived from anything a human can rename or duplicate.
+  it("gives different accountIds different mount points, even for near-identical ids", () => {
+    assert.notEqual(orgFolderMount("acc-7"), orgFolderMount("acc-70"));
+    assert.notEqual(orgFolderMount("acc-7"), orgFolderMount("acc-7x"));
+  });
+
+  it("does not depend on any org display name — there is no name parameter at all", () => {
+    // orgFolderMount takes only an accountId; there is no way to pass a
+    // "Feuerwehr" vs "Kleinverein e.V." style name into it, structurally.
+    assert.equal(orgFolderMount.length, 1);
+  });
+
+  it("rejects an accountId containing a path separator", () => {
+    assert.throws(() => orgFolderMount("acc/7"), ScopeViolationError);
+    assert.throws(() => orgFolderMount("acc\\7"), ScopeViolationError);
+  });
+
+  it("rejects an accountId that is a navigation segment", () => {
+    assert.throws(() => orgFolderMount(".."), ScopeViolationError);
+    assert.throws(() => orgFolderMount("."), ScopeViolationError);
+  });
+
+  it("rejects an accountId containing a null byte", () => {
+    assert.throws(() => orgFolderMount("acc\x007"), ScopeViolationError);
   });
 });

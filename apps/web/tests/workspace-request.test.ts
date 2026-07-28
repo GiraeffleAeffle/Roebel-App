@@ -12,7 +12,7 @@ describe("parseScopeRequest", () => {
   it("defaults to a personal scope at the root", () => {
     assert.deepEqual(
       parseScopeRequest(new URL("https://roebel.app/api/workspace/files")),
-      { scopeKind: null, accountId: null, orgName: null, path: "" },
+      { scopeKind: null, accountId: null, path: "" },
     );
   });
 
@@ -20,16 +20,27 @@ describe("parseScopeRequest", () => {
     assert.deepEqual(
       parseScopeRequest(
         new URL(
-          "https://roebel.app/api/workspace/files?scope=org&accountId=acc-7&orgName=Feuerwehr&path=Protokolle",
+          "https://roebel.app/api/workspace/files?scope=org&accountId=acc-7&path=Protokolle",
         ),
       ),
       {
         scopeKind: "org",
         accountId: "acc-7",
-        orgName: "Feuerwehr",
         path: "Protokolle",
       },
     );
+  });
+
+  // The folder's identity is derived server-side from accountId alone (see
+  // resolveScope's incident writeup) — an orgName in the query string, if
+  // one is even sent, must not survive into the parsed result at all.
+  it("does not surface an orgName even if the query string still carries one", () => {
+    const parsed = parseScopeRequest(
+      new URL(
+        "https://roebel.app/api/workspace/files?scope=org&accountId=acc-7&orgName=Kleinverein&path=",
+      ),
+    );
+    assert.equal("orgName" in parsed, false);
   });
 
   it("keeps a path with spaces and umlauts intact after url decoding", () => {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { NextcloudError } from "../src/nextcloud";
-import { createProvisioner } from "../src/provisioning";
+import { GroupFolderConflictError, createProvisioner } from "../src/provisioning";
 
 const SUB = "0xabc";
 
@@ -354,6 +354,80 @@ describe("ensureGroupFolder", () => {
       /\/apps\/groupfolders\/folders\/10\/groups/,
       "binds the canonical folder (10), never the one this call created and lost the race with (11)",
     );
+  });
+});
+
+// Defence in depth for the org-folder-takeover incident: the app layer now
+// derives an org's mount point from its accountId alone, which is unique by
+// construction, so two different orgs should never be able to collide on the
+// same folder name in the first place. These tests pin a SECOND, independent
+// mechanism that would also have to fail before one org's group could reach
+// another org's folder: even if a caller ever handed this function a
+// colliding name (a regression, a hand-built call, an admin mistake),
+// ensureGroupFolder refuses to bind onto a folder a DIFFERENT org's group
+// already occupies, rather than additively binding onto it.
+describe("ensureGroupFolder — cross-org conflict refusal (defence in depth)", () => {
+  it("refuses to bind when the matched folder already carries a different org's group", async () => {
+    const { calls, fetchImpl } = stubFetch([
+      {
+        body: ocs(100, {
+          "3": {
+            id: 3,
+            mount_point: "org-acc-4",
+            groups: { "org:acc-4:owner": 31 },
+          },
+        }),
+      },
+    ]);
+    await assert.rejects(
+      () =>
+        provisioner(fetchImpl).ensureGroupFolder({
+          name: "org-acc-4",
+          groupId: "org:acc-11:member",
+        }),
+      (err: unknown) => err instanceof GroupFolderConflictError,
+    );
+    assert.equal(calls.length, 1, "the listing only — no bind call ever issued");
+  });
+
+  it("does not refuse a second ROLE of the SAME org — that is the normal multi-role bind", async () => {
+    const { calls, fetchImpl } = stubFetch([
+      {
+        body: ocs(100, {
+          "3": {
+            id: 3,
+            mount_point: "org-acc-7",
+            groups: { "org:acc-7:owner": 31 },
+          },
+        }),
+      },
+      { body: ocs(100, {}) }, // bind succeeds
+    ]);
+    const result = await provisioner(fetchImpl).ensureGroupFolder({
+      name: "org-acc-7",
+      groupId: "org:acc-7:admin",
+    });
+    assert.deepEqual(result, { folderId: 3, created: false });
+    assert.equal(calls.length, 2, "listing plus the (same-org) bind — not refused");
+  });
+
+  it("does not treat an ambiguous/absent groups value as a conflict — only positive evidence refuses", async () => {
+    // Same shape as the existing "creates the folder and binds the group
+    // when none exists" happy path: nothing in `groups` proves a conflict,
+    // so this must still succeed exactly as before the defence-in-depth
+    // check was added.
+    const { calls, fetchImpl } = stubFetch([
+      { body: ocs(100, {}) },
+      { body: ocs(100, { id: 9 }) },
+      { body: ocs(100, { "9": { id: 9, mount_point: "org-acc-11" } }) },
+      { body: ocs(100, {}) },
+    ]);
+    const result = await provisioner(fetchImpl).ensureGroupFolder({
+      name: "org-acc-11",
+      groupId: "org:acc-11:member",
+    });
+    assert.deepEqual(result, { folderId: 9, created: true });
+    assert.equal(calls.length, 4);
   });
 });
 

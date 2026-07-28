@@ -2,18 +2,23 @@ import { NextResponse } from "next/server";
 import { NextcloudError, ScopeViolationError } from "@netizen-labs/workspace";
 import { WorkspaceAuthError } from "./context";
 
-/** Query parameters -> the arguments resolveScope expects. */
+/**
+ * Query parameters -> the arguments resolveScope expects.
+ *
+ * No `orgName` here on purpose: an org's folder name is derived server-side
+ * from `accountId` alone (see the incident writeup on `resolveScope`), so a
+ * client-supplied name carries no authority and the wire format should not
+ * invite anyone to re-trust it later by giving it a place to live.
+ */
 export function parseScopeRequest(url: URL): {
   scopeKind: string | null;
   accountId: string | null;
-  orgName: string | null;
   path: string;
 } {
   const q = url.searchParams;
   return {
     scopeKind: q.get("scope"),
     accountId: q.get("accountId"),
-    orgName: q.get("orgName"),
     path: q.get("path") ?? "",
   };
 }

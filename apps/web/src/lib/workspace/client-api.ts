@@ -6,9 +6,13 @@
 export interface FileScopeParams {
   scope: "personal" | "org";
   accountId?: string;
-  orgName?: string;
 }
 
+// No `orgName` field, and none sent on the wire: the server derives an org's
+// folder identity from `accountId` alone (see the incident writeup on
+// `resolveScope` in lib/workspace/context.ts) — a client-supplied name never
+// had any authority, and not sending it at all is the surest way to stop it
+// being re-trusted by some future call site.
 export function buildFilesQuery(
   params: FileScopeParams & { path: string },
 ): string {
@@ -16,7 +20,6 @@ export function buildFilesQuery(
   if (params.scope === "org") {
     q.set("scope", "org");
     if (params.accountId) q.set("accountId", params.accountId);
-    if (params.orgName) q.set("orgName", params.orgName);
   }
   q.set("path", params.path);
   return q.toString();

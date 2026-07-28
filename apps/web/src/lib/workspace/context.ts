@@ -3,7 +3,7 @@ import {
   bearerAuth,
   createNextcloudClient,
   createProvisioner,
-  orgFolderName,
+  orgFolderMount,
   type NextcloudClient,
   type Provisioner,
   type WorkspaceScope,
@@ -11,8 +11,7 @@ import {
 import { workspaceConfig } from "./config";
 import { refreshTokens } from "./oidc";
 import { createSessionStore } from "./session-store";
-import { hasOrgAccess, isExpired, orgGroupId, type WorkspaceSession } from "./session";
-import type { Account } from "../../types/account";
+import { ORG_ROLES, hasOrgAccess, isExpired, orgGroupId, type WorkspaceSession } from "./session";
 
 export const SESSION_COOKIE = "roebel_ws";
 
@@ -26,75 +25,42 @@ export class WorkspaceAuthError extends Error {
 }
 
 /**
- * Looks up the account `resolveScope` needs to trust an org folder name,
- * keyed by accountId. Production uses `defaultOrgAccountLookup` below; tests
- * inject a stub so the trust decision is exercised without Supabase.
- */
-export type OrgAccountLookup = (
-  accountId: string,
-) => Promise<Pick<Account, "name" | "account_type"> | null>;
-
-/**
- * The real, Supabase-backed lookup. Imported dynamically rather than at
- * module top level: `../supabase-accounts` pulls in `../supabase`, which
- * throws at *import time* when NEXT_PUBLIC_SUPABASE_URL/ANON_KEY are unset.
- * That never happens in the deployed app, but `pnpm test:web` loads every
- * test file's whole import graph in one process with no Supabase env at
- * all — a static import here would take the entire suite down. Every real
- * request uses this default (nobody overrides it in production); tests
- * always pass their own `lookupOrgAccount` stub, so this import is never
- * reached from `pnpm test:web`.
- */
-const defaultOrgAccountLookup: OrgAccountLookup = async (accountId) => {
-  const { fetchAccountById } = await import("../supabase-accounts");
-  return fetchAccountById(accountId);
-};
-
-/**
- * Decide the trusted folder name for an org scope from the account record
- * alone. Pure and synchronous on purpose — this is the seam a "the client
- * cannot redirect the folder" test exercises directly, with a plain object,
- * no network and no async lookup to fake.
- */
-export function resolveOrgFolderName(
-  account: Pick<Account, "name" | "account_type"> | null,
-): string {
-  if (!account || account.account_type !== "organisation") {
-    throw new WorkspaceAuthError(
-      "forbidden",
-      "account is not a provisionable organisation",
-    );
-  }
-  return orgFolderName(account.name);
-}
-
-/**
  * Turn the request's query parameters into a scope, refusing anything the
  * session's `groups` claim does not authorise. The claim is the ACL — a citizen
  * must not reach another org by editing a query string.
  *
- * `orgName`, if present on `params`, is the CLIENT'S claim about the org's
- * display name and is deliberately never read below. Trusting it was a real,
- * exploitable bug: `ensureOrgFolder` binds a Nextcloud group to whatever
- * folder name it is handed, and group folders are matched by name with no
- * accountId dimension — a citizen legitimately in org A could send org B's
- * real name as `orgName` and have `ensureOrgFolder` durably bind org A's
- * group onto org B's already-provisioned folder, a standing grant, not a
- * leaked response. The folder name now always comes from
- * `lookupOrgAccount(accountId)` — the account registry, keyed by the id the
- * ACL check below already authorised — never from anything client-supplied.
- * `orgName` stays in the parameter shape only because callers still spread
- * `parseScopeRequest`'s output into this call; it carries no authority.
+ * The org folder's identity — its Nextcloud group-folder mount point — is
+ * `orgFolderMount(accountId)`, derived from accountId alone. Two rounds of
+ * review found the SAME takeover reachable through two different trust
+ * anchors that both turned out to be attacker-controllable:
+ *   Round 1: `orgName`, a raw client query parameter. Fixed by looking the
+ *   name up from the account registry instead of trusting the request —
+ *   which turned out not to be enough.
+ *   Round 2: `accounts.name` itself, the thing round 1 substituted in.
+ *   `accounts.name` has no uniqueness constraint, and any logged-in citizen
+ *   can create — or rename — an org to another org's exact display name
+ *   through the product's own UI and becomes its real, honestly-claimed
+ *   owner, so the keystone mints them a genuine `org:<theirAccountId>:owner`
+ *   claim. `resolveScope` would then look up their own real account, get
+ *   their own real name back, and hand `ensureOrgFolder` a folder name that
+ *   collides with the target org's already-provisioned folder — no crafted
+ *   parameter required anywhere in the request.
+ * `accountId` is the one thing in this whole chain the ACL check below
+ * already authorises and that a citizen cannot forge, rename, or collide:
+ * it is `accounts.id`, the table's own primary key, unique by construction.
+ * `orgFolderMount` needs no lookup and no I/O — see its own doc comment in
+ * `@netizen-labs/workspace` for the full incident writeup.
+ *
+ * `orgName`, if present on `params`, carries no authority and is never
+ * read — kept only because callers still spread `parseScopeRequest`'s
+ * output into this call.
  */
-export async function resolveScope(
-  params: {
-    session: WorkspaceSession;
-    scopeKind: string | null;
-    accountId: string | null;
-    orgName?: string | null;
-  },
-  lookupOrgAccount: OrgAccountLookup = defaultOrgAccountLookup,
-): Promise<WorkspaceScope> {
+export async function resolveScope(params: {
+  session: WorkspaceSession;
+  scopeKind: string | null;
+  accountId: string | null;
+  orgName?: string | null;
+}): Promise<WorkspaceScope> {
   if (params.scopeKind !== "org") {
     return { kind: "personal", sub: params.session.sub };
   }
@@ -107,12 +73,11 @@ export async function resolveScope(
       `no group claim for org ${params.accountId}`,
     );
   }
-  const account = await lookupOrgAccount(params.accountId);
   return {
     kind: "org",
     sub: params.session.sub,
     accountId: params.accountId,
-    folderName: resolveOrgFolderName(account),
+    folderName: orgFolderMount(params.accountId),
   };
 }
 
@@ -208,17 +173,26 @@ export async function requireWorkspace(): Promise<WorkspaceContext> {
  * is to stop `FileBrowser`'s per-subfolder-click `GET` from re-hitting the
  * OCS admin API on every listing, which `provisioning.ts` itself documents as
  * a one-time bootstrap cost, not a per-request one.
+ *
+ * Keying this by `accountId` alone used to be a latent split-brain risk: if
+ * the folder's identity had depended on the org's (renameable) name, a warm
+ * instance could skip provisioning after a rename while a cold instance
+ * created a second, differently-named folder for the same org. It no longer
+ * can — `orgFolderMount(accountId)` does not read the org's name at all, so
+ * a rename cannot change which folder this cache (or reality) points at.
  */
 const orgFoldersEnsured = new Set<string>();
 
 /**
- * Ensure the org's shared folder exists and is bound to its group. Idempotent
- * and create-if-absent, so it is safe on the request path — this is what closes
- * the group-folder gap rather than leaving it to a runbook. Trusts
- * `scope.folderName` and `scope.accountId` as given — both already went
- * through `resolveScope`'s ACL + account-registry checks by the time a scope
- * reaches here, so this function does not re-validate them, only sequences
- * the (already idempotent) provisioner calls once per process per account.
+ * Ensure the org's shared folder exists and is bound to every group role
+ * `account_owners.role` can hold (`ORG_ROLES` — owner, admin, member; see its
+ * doc comment in `./session`). Idempotent and create-if-absent, so it is
+ * safe on the request path — this is what closes the group-folder gap
+ * rather than leaving it to a runbook. Trusts `scope.folderName` and
+ * `scope.accountId` as given — both already went through `resolveScope`'s
+ * ACL check and accountId-only derivation by the time a scope reaches here,
+ * so this function does not re-validate them, only sequences the (already
+ * idempotent) provisioner calls once per process per account.
  */
 export async function ensureOrgFolder(
   ctx: WorkspaceContext,
@@ -226,8 +200,10 @@ export async function ensureOrgFolder(
 ): Promise<void> {
   if (scope.kind !== "org" || !scope.accountId || !scope.folderName) return;
   if (orgFoldersEnsured.has(scope.accountId)) return;
-  const groupId = orgGroupId(scope.accountId);
-  await ctx.provisioner.ensureGroup(groupId);
-  await ctx.provisioner.ensureGroupFolder({ name: scope.folderName, groupId });
+  for (const role of ORG_ROLES) {
+    const groupId = orgGroupId(scope.accountId, role);
+    await ctx.provisioner.ensureGroup(groupId);
+    await ctx.provisioner.ensureGroupFolder({ name: scope.folderName, groupId });
+  }
   orgFoldersEnsured.add(scope.accountId);
 }
