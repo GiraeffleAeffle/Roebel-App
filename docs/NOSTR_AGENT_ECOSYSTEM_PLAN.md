@@ -1,5 +1,13 @@
 # Nostr + AI-Agent Open Ecosystem — State, Migration, and Buzz-like Workspace
 
+> **STATUS 2026-07-28 — this plan is PARTLY BUILT.** Slice 1 (identity bridge) and
+> slice 3 (federation) are live; the indexer and agent workspace are not. For what is
+> actually true today read **[State of Nostr](STATE_OF_NOSTR.md)**. This document is kept
+> as the original plan, including the parts that turned out wrong: it assumed an indexer
+> was required before anything could be read, and assumed federated events could be written
+> into the members-only relay. Both were corrected by building.
+
+
 **Date:** 2026-07-26
 **Audience:** a builder agent with zero prior context. This is a self-contained handoff
 to (a) understand what is live, (b) migrate Röbel's data toward Nostr + decentralized

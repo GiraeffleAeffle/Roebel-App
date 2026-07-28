@@ -1,9 +1,9 @@
 # Nostr Relay Setup
 
-**Date:** 2026-07-26
-**Status:** R&D runbook. Nostr/Buzz is the tracked research bet from the
-[chat-protocol decision](future-research/2026-07-26_CHAT_PROTOCOL_DECISION.md)
-(poly-protocol, unified by identity). Not a production dependency yet.
+**Date:** 2026-07-26, corrected 2026-07-28
+**Status:** PRODUCTION runbook. Nostr is live — citizens publish from the app and
+nodes federate. For current state read [State of Nostr](STATE_OF_NOSTR.md);
+this page is how to stand a relay up.
 
 > **LIVE (2026-07-26):** Röbel's relay runs on the sovereign Hetzner node —
 > **`wss://relay.roebel.app`** (strfry behind Caddy/Let's Encrypt) and raw
@@ -39,13 +39,19 @@ On a Hetzner box (Debian/Ubuntu) with Docker installed:
 ```bash
 mkdir -p /opt/strfry/strfry-db && cd /opt/strfry
 # minimal strfry.conf (db path + relay info)
+# NOTE: strfry's config parser REJECTS the compact `info { a = "x"; b = "y"; }`
+# form. Keys must be on their own lines — an earlier version of this file showed
+# the compact form and it cost a deploy cycle with a bare "parse error".
 cat > strfry.conf <<'CONF'
 db = "/app/strfry-db/"
 relay {
   bind = "0.0.0.0"
   port = 7777
-  info { name = "Röbel Relay"; description = "Sovereign community relay"; }
-  writePolicy { plugin = ""; }   # add an allow-list plugin later to gate writes
+  info {
+    name = "Röbel Relay"
+    description = "Sovereign community relay"
+  }
+  writePolicy { plugin = "" }   # add an allow-list plugin to gate writes
 }
 CONF
 docker run -d --name strfry -p 127.0.0.1:7777:7777 \
@@ -109,6 +115,17 @@ on Hetzner for full sovereignty.
   world.
 
 ---
+
+## Gotchas that cost deploy cycles
+
+- The binary is at **`/app/strfry`**, not on `$PATH` in the official image.
+- A write-policy script **without the exec bit makes strfry fail closed** — every event is
+  blocked while the relay looks healthy and the allow-list looks correct.
+- A **fresh docker volume is root-owned**; strfry runs as uid 1000, so a new store fails with
+  `mdb_env_open: Permission denied`. Chown the volume to `1000:1000`.
+- **`strfry sync` enforces the destination's write policy** and cannot tell a peer from a
+  stranger. This is why federated events go to a separate mirror — see
+  [State of Nostr](STATE_OF_NOSTR.md) §5.
 
 ## Honest caveats
 
