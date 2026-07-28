@@ -65,10 +65,10 @@ export function useXmtp(): XmtpContextValue {
  */
 export function XmtpProvider({ children }: { children: React.ReactNode }) {
   const { autoConnectFinished } = useWalletBoot();
-  // XMTP signs with the BASE smart account: identity associations from the
-  // old XMTP era are chain-bound to Base (8453) — see XMTP_SIGNER_CHAIN_ID.
-  // Same address as the Gnosis account, so peer addressing is unchanged.
-  const baseAccount = useActiveAccount();
+  // XMTP signs with the app's primary smart account, on Gnosis since the
+  // 2026-07-27 consolidation — see XMTP_SIGNER_CHAIN_ID. The address is
+  // unchanged (deterministic across chains), so peer addressing is unaffected.
+  const activeAccount = useActiveAccount();
 
   const [handle, setHandle] = useState<XmtpClientHandle | null>(() => getXmtpClient());
   const [ready, setReady] = useState(false);
@@ -83,7 +83,7 @@ export function XmtpProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     if (!autoConnectFinished) return; // still reconnecting — do nothing
-    if (!baseAccount) {
+    if (!activeAccount) {
       // Real logout: settle as ready-without-client and drop any old client.
       setReady(true);
       setActivationAvailable(false);
@@ -94,7 +94,7 @@ export function XmtpProvider({ children }: { children: React.ReactNode }) {
       }
       return;
     }
-    if (handle?.wallet === baseAccount.address.toLowerCase()) {
+    if (handle?.wallet === activeAccount.address.toLowerCase()) {
       setReady(true);
       return;
     }
@@ -102,7 +102,7 @@ export function XmtpProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       // Silent boot only resumes an existing registration (Client.build, no
       // signature). First-time registration is user-triggered via activate().
-      const booted = await bootXmtpClient(baseAccount, { allowRegister: false });
+      const booted = await bootXmtpClient(activeAccount, { allowRegister: false });
       if (cancelled) return;
       setHandle(booted);
       setReady(true);
@@ -118,15 +118,15 @@ export function XmtpProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoConnectFinished, baseAccount?.address]);
+  }, [autoConnectFinished, activeAccount?.address]);
 
   // ── Explicit activation ("Private Nachrichten aktivieren") ─────
   const activate = useCallback(async (): Promise<boolean> => {
-    if (!baseAccount || activating) return false;
+    if (!activeAccount || activating) return false;
     setActivating(true);
     setActivationError(null);
     try {
-      const booted = await bootXmtpClient(baseAccount, {
+      const booted = await bootXmtpClient(activeAccount, {
         allowRegister: true,
         rethrow: true,
       });
@@ -144,7 +144,7 @@ export function XmtpProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setActivating(false);
     }
-  }, [baseAccount, activating]);
+  }, [activeAccount, activating]);
 
   // ── Message stream (re-armed on foreground AND after mid-session drops) ──
   const startStream = useCallback(async (h: XmtpClientHandle) => {

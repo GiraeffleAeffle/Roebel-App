@@ -26,12 +26,21 @@ import type {
 } from './verification-types';
 
 /**
- * EIP-712 Domain for HomeTown DAO Evidence Encryption
+ * EIP-712 Domain for HomeTown DAO Evidence Encryption.
+ *
+ * DO NOT "migrate" this chainId to Gnosis. It is a DERIVATION CONSTANT, not a
+ * chain reference: the signature over this domain is hashed into the encryption
+ * key, and nothing ever verifies it on-chain. Changing 8453 changes every key
+ * derived from it, which would silently make all previously encrypted evidence
+ * undecryptable — with no error at the point of change.
+ *
+ * It reads like leftover Base config during a Base -> Gnosis sweep. It is not.
+ * The value is arbitrary; only its STABILITY matters.
  */
 const ENCRYPTION_DOMAIN = {
   name: 'HomeTown DAO Evidence Encryption',
   version: '1',
-  chainId: 8453, // Base mainnet
+  chainId: 8453, // frozen forever — see above, this is not a Base reference
 };
 
 /**

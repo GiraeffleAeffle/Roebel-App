@@ -17,13 +17,26 @@ export const client = createThirdwebClient({
 	clientId: clientId || "dummy-client-id", // Provide fallback to prevent crashes
 });
 
-export const chain = base;
+/**
+ * The app's PRIMARY chain — Gnosis since the 2026-07-27 consolidation.
+ *
+ * This is what `constants/wallets.ts` builds the smart account on, and it decides
+ * far more than which RPC gets called: a thirdweb smart account stamps its
+ * EIP-712 `AccountMessage` domain with THIS chain id. Any server that verifies a
+ * signature from this app via ERC-1271 must therefore use the same chain, or the
+ * domain separator differs and recovery yields a stranger.
+ *
+ * That mismatch is exactly what broke Nostr registration while this was `base`
+ * and accounts were verified on Gnosis. Identity, governance, Circles and the
+ * treasury all live on Gnosis, so the wallet now signs there too.
+ *
+ * The account ADDRESS is unchanged: it is CREATE2 from factory + admin + salt,
+ * identical on every EVM chain.
+ */
+export const chain = gnosis;
 
-// Read-only Base chain pinned to a reliable public RPC. The default thirdweb
-// hosted RPC (clientId-only) is intermittently rate-limited on preview builds,
-// which surfaced as "Blockchain RPC unavailable" and stalled the MACI SignUp
-// event scan. Use this for reads / event scans / eth_blockNumber; keep `base`
-// (+ client) for gasless tx submission, which needs the thirdweb bundler.
+// Read-only Base chain pinned to a reliable public RPC. Base is archived — kept
+// only for historical reads (the legacy public-vote governor below).
 const BASE_READ_RPC = process.env.EXPO_PUBLIC_BASE_RPC_URL || "https://mainnet.base.org";
 export const baseRead = defineChain({ ...base, rpc: BASE_READ_RPC });
 

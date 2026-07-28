@@ -1,10 +1,10 @@
 /**
  * XMTP client bootstrap.
  *
- * Identity = the user's smart account (same deterministic address on Base and
- * Gnosis; the app-wide user key in `users.wallet_address`). Registered as an
- * XMTP SCW identity verified via ERC-1271 on BASE (chainId 8453) — legacy
- * XMTP-era associations are chain-bound to Base, see XMTP_SIGNER_CHAIN_ID.
+ * Identity = the user's smart account (same deterministic address on every EVM
+ * chain; the app-wide user key in `users.wallet_address`). Registered as an XMTP
+ * SCW identity verified via ERC-1271 on GNOSIS (chainId 100) since the
+ * 2026-07-27 consolidation — see XMTP_SIGNER_CHAIN_ID for what that cost.
  *
  * Native modules (@xmtp/react-native-sdk, expo-secure-store) are only loaded
  * lazily inside functions: builds older than 2026-07-10 lack them, and this
@@ -21,7 +21,7 @@ import type {
   XMTPEnvironment,
 } from '@xmtp/react-native-sdk';
 
-import { client as thirdwebClient, chain as baseChain } from '@/constants/thirdweb';
+import { client as thirdwebClient, chain as signerChain } from '@/constants/thirdweb';
 import { supabase } from '@/lib/supabase';
 import { fetchXmtpDmsEnabled } from '@/lib/supabase-app-settings';
 import { markUserXmtpRegistered } from '@/lib/supabase-users';
@@ -90,39 +90,79 @@ async function getOrCreateDbKey(wallet: string): Promise<Uint8Array> {
 }
 
 /**
- * XMTP binds an SCW identity to the chain it was FIRST registered from and
- * rejects signatures from any other chain forever after ("Wrong chain id.
- * Initially added with 8453 but now signing from 100" — captured live
- * 2026-07-12). This app's wallets were first associated during the old
- * XMTP era on Base, so the signer chain is Base (8453) permanently — the
- * smart-account ADDRESS is identical on Base and Gnosis, so nothing else
- * changes. Do NOT switch this to Gnosis.
+ * The chain XMTP verifies this app's SCW signatures on. Gnosis since the
+ * 2026-07-27 consolidation.
+ *
+ * This MUST equal the chain the wallet signs with (`constants/thirdweb.ts`
+ * `chain`). A thirdweb smart account stamps its EIP-712 domain with its wallet's
+ * chain id; XMTP then calls `isValidSignature` on the chain returned here. If the
+ * two disagree, the account computes a different digest and rejects a perfectly
+ * valid signature. There is no coherent half-migration — these move together.
+ *
+ * KNOWN COST, accepted deliberately on 2026-07-27: XMTP binds an SCW identity to
+ * the chain it was FIRST registered from and rejects other chains forever after
+ * ("Wrong chain id. Initially added with 8453 but now signing from 100" —
+ * captured live 2026-07-12). Addresses that already registered on Base therefore
+ * lose their XMTP inbox and its history. This was a small, known set (three
+ * conversations), and direct messages keep working over the Supabase rail, which
+ * is why the trade was worth making rather than keeping every other subsystem on
+ * an archived chain. New registrations bind to Gnosis and are unaffected.
  */
-export const XMTP_SIGNER_CHAIN_ID = 8453;
+export const XMTP_SIGNER_CHAIN_ID = 100;
+
+/**
+ * Local XMTP state is keyed by the signer chain. When that changes, the identity
+ * on the network changes too, so any locally cached registration flag or DB
+ * belongs to an identity this app can no longer speak as — and reusing it makes
+ * the SDK fail in confusing ways instead of simply re-registering.
+ */
+const SIGNER_CHAIN_MARKER = 'xmtp_signer_chain_id';
 
 /**
  * ERC-1271 verification requires deployed code at the account address on the
- * verification chain (Base). Thirdweb smart accounts deploy on their first
- * transaction — brand-new users may still be counterfactual on Base (they
- * transact on Gnosis these days), so we deploy with a sponsored no-op
- * self-transfer before registering with XMTP.
+ * verification chain. Thirdweb smart accounts deploy on their first transaction,
+ * so an account that has only ever received (a migration-minted CitizenNFT, say)
+ * is still counterfactual — `isValidSignature` on an address with no code
+ * reverts. Deploy it with a sponsored no-op self-transfer first.
  */
-async function ensureDeployedOnBase(account: Account): Promise<void> {
+async function ensureDeployedForXmtp(account: Account): Promise<void> {
   const deployed = await isContractDeployed(
-    getContract({ client: thirdwebClient, chain: baseChain, address: account.address })
+    getContract({ client: thirdwebClient, chain: signerChain, address: account.address })
   );
   if (deployed) return;
 
-  console.log('[xmtp] deploying smart account on base before registration');
+  console.log('[xmtp] deploying smart account on the signer chain before registration');
   await sendTransaction({
     account,
     transaction: prepareTransaction({
       to: account.address,
       value: 0n,
-      chain: baseChain,
+      chain: signerChain,
       client: thirdwebClient,
     }),
   });
+}
+
+/**
+ * Wipe local XMTP state when the signer chain has changed since it was written.
+ *
+ * Without this, a device that registered on Base keeps a `registered` flag and an
+ * encrypted DB for an identity the app can no longer sign as, and boot fails in
+ * ways that read like corruption rather than a migration. Clearing lets the
+ * client register cleanly against the new chain — or fall through to the Supabase
+ * rail if the network refuses the re-binding.
+ */
+async function resetLocalStateIfChainChanged(wallet: string): Promise<void> {
+  const markerKey = `${SIGNER_CHAIN_MARKER}:${wallet}`;
+  const previous = await AsyncStorage.getItem(markerKey);
+  const current = String(XMTP_SIGNER_CHAIN_ID);
+  if (previous === current) return;
+
+  if (previous !== null) {
+    console.log(`[xmtp] signer chain ${previous} -> ${current}; clearing local state`);
+    await AsyncStorage.removeItem(`${REGISTERED_FLAG_PREFIX}${wallet}`);
+  }
+  await AsyncStorage.setItem(markerKey, current);
 }
 
 function makeScwSigner(sdk: XmtpSdk, account: Account): XmtpSigner {
@@ -132,8 +172,8 @@ function makeScwSigner(sdk: XmtpSdk, account: Account): XmtpSigner {
     getBlockNumber: () => undefined,
     signerType: () => 'SCW',
     signMessage: async (message: string) => ({
-      // inAppWallet smart accounts sign silently (no user prompt) and return
-      // a hex signature verifiable via isValidSignature on Base.
+      // inAppWallet smart accounts sign silently (no user prompt) and return a
+      // hex signature verifiable via isValidSignature on the signer chain.
       signature: await account.signMessage({ message }),
     }),
   };
@@ -187,6 +227,10 @@ export async function bootXmtpClient(
       const sdk = await loadXmtp();
       if (!sdk) return null;
 
+      // Must run BEFORE the registration flag is read: after a chain migration
+      // that flag refers to an identity this app can no longer sign as.
+      await resetLocalStateIfChainChanged(wallet);
+
       const dbEncryptionKey = await getOrCreateDbKey(wallet);
       const options = { env: XMTP_ENV, dbEncryptionKey, codecs: buildCodecs(sdk) };
       const flagKey = `${REGISTERED_FLAG_PREFIX}${wallet}`;
@@ -231,7 +275,7 @@ export async function bootXmtpClient(
       }
 
       if (!xmtpClient) {
-        await ensureDeployedOnBase(account);
+        await ensureDeployedForXmtp(account);
         xmtpClient = await sdk.Client.create(makeScwSigner(sdk, account), options);
         await AsyncStorage.setItem(flagKey, new Date().toISOString());
         // Rail-selection signal for peers; safe to fire-and-forget.
