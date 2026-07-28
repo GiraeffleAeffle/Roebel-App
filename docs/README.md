@@ -15,6 +15,7 @@ the right one.
 | Contribute code | [Contributor onboarding](CONTRIBUTOR_ONBOARDING.md), [Forking guide](FORKING_GUIDE.md) |
 | Know what we deliberately have NOT built, and why | [Roadmap and deferred work](ROADMAP_AND_DEFERRED.md) |
 | Decide where a new kind of data belongs | [Data placement and CRUD](DATA_PLACEMENT_AND_CRUD.md) |
+| Publish app data (events, cinema, orgs, marketplace) to Nostr | [Public data on Nostr](PUBLIC_DATA_ON_NOSTR.md) |
 | Work with the Stadtstack contributor | [Röbel × Netizen × Stadtstack alignment](STADTSTACK_ALIGNMENT.md) |
 | Understand the mission | [Mission and goals](MISSION_AND_GOALS.md) |
 

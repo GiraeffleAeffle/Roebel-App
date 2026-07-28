@@ -168,6 +168,47 @@ SecureStore). **Trigger:** Citizens asking to post from desktop.
 
 ---
 
+## For the Netizen project repo
+
+`~/Documents/privat/side_projects/netizen_labs` becomes the real Netizen repo (possibly private
+on GitHub). These belong there rather than in Röbel's monorepo.
+
+### E. Netizen Network States Explorer
+
+A public map of the network: which nodes exist, what each publishes, how they federate, and how
+alive they are. A globe with node locations is the obvious surface, and it is the first thing
+that makes "a network of sovereign nodes" legible to someone who is not running one.
+
+**Most of the data already exists and is public**, which makes this a front-end problem rather
+than a protocol one:
+
+- each node exposes `/stats` — what it knows, by source node and kind
+- each node's manifest declares its `peers`, so the federation graph is derivable
+- `services.host.region` gives a coarse location **already declared**, with no new tracking
+- relays answer NIP-11 with name, description and supported NIPs
+
+**Design constraint worth fixing now:** derive location from the **declared region**, never from
+IP geolocation. A sovereignty project that silently geolocates its own operators has undermined
+the thing it sells. Coarse and declared beats precise and inferred.
+
+**Trigger:** node #3, or the first node run by someone outside Röbel. With n=2 on one box a
+globe would be theatre.
+
+### F. A setup guide for contributors and builders
+
+There is `CONTRIBUTOR_ONBOARDING.md`, but it is about working on the Röbel app — not about
+standing up a node. A builder currently has to read the manifest spec, the installer spec and
+three State documents to get started.
+
+What it needs to cover, in this order: a minimal manifest (now possible — see item 1), what
+`render` / `doctor` / `up` each do, the DNS records the node needs, which secrets the box needs
+and why, and how to federate with an existing node.
+
+**Trigger: before inviting the first outside operator.** They are the test of whether the
+documentation works, and a failed first attempt is expensive goodwill.
+
+---
+
 ## Interoperability with Stadtstack
 
 ### C. A civic data contract (topics, proposals, cases, evidence, decisions)
