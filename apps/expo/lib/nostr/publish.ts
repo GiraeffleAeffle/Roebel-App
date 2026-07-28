@@ -1,4 +1,5 @@
 import {
+  buildCalendarEvent,
   type NostrEvent,
   type ProfileMetadata,
   RelayClient,
@@ -223,6 +224,46 @@ export async function fetchAgentReply(
   } catch {
     return null;
   }
+}
+
+/**
+ * Publish a cinema screening as a NIP-52 calendar event.
+ *
+ * The first app data type beyond profiles and feed posts to reach the protocol,
+ * chosen because it carries NO personal data: a screening time for a business.
+ * The worst case for a mistake here is a wrong film time.
+ *
+ * Replaceable by the movie's own id, so correcting or cancelling a screening is a
+ * re-publish rather than a deletion request a relay may ignore.
+ */
+export async function publishScreening(movie: {
+  id: string;
+  title: string;
+  description?: string | null;
+  date: string;
+  time?: string | null;
+  cover_image_url?: string | null;
+  fsk?: string | null;
+}): Promise<PublicationStatus> {
+  const identity = await loadStoredIdentity();
+  if (!identity) return 'pending';
+
+  // Local time: a screening is announced in the town's own timezone, and a date
+  // with no clock time is a legitimate all-day entry rather than midnight.
+  const start = Math.floor(new Date(`${movie.date}T${movie.time ?? '00:00:00'}`).getTime() / 1000);
+  if (!Number.isFinite(start)) return 'pending';
+
+  const event = buildCalendarEvent(identity.secretKey, {
+    id: movie.id,
+    title: movie.title,
+    summary: movie.description ?? null,
+    start,
+    image: movie.cover_image_url ?? null,
+    allDay: !movie.time,
+    labels: ['kino', ...(movie.fsk ? [movie.fsk.toLowerCase().replace(/\s+/g, '-')] : [])],
+  });
+
+  return publish(event, 'screening', movie.id);
 }
 
 /**
