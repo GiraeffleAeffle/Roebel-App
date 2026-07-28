@@ -124,6 +124,75 @@ SecureStore). **Trigger:** Citizens asking to post from desktop.
 
 ---
 
+## Making a node trivial to stand up
+
+These two are the difference between "a contributor *can* run a node" and "a contributor
+*does*". Both were raised 2026-07-28.
+
+### A. Node-hosted identity, generically
+
+Every node should be able to run its own OIDC provider without inheriting Röbel's. The
+machinery mostly exists and is closer than it looks:
+
+- the manifest already has `identity.idp.hosted: "node" | "external"`
+- `netizen render` already emits a keystone compose service and its env when `hosted: "node"`
+- Röbel itself runs `external` (on Fly), which is why the node-hosted path is under-exercised
+
+**What is actually missing** is the last mile, and it is mostly naming and bootstrap:
+
+1. The service, image and env file are called **`roebel-id`**. A contributor standing up
+   "Waren ID" should not be running something branded for another town. Rename to a generic
+   `netizen-id` (or take the name from `manifest.id`), keeping `roebel-id` as an alias so the
+   live node does not break.
+2. **JWKS has to be generated**, not pasted. `apps/roebel-id/scripts/generate-jwks.ts` exists;
+   the installer should call it and write the secret to the box's own `.env`, so a new
+   operator never handles key material by hand.
+3. The relying-party list is currently hand-written per node. It could be **derived** from the
+   services a manifest already declares — Nextcloud, Matrix and the web app each imply their
+   own redirect URI.
+
+**Trigger:** the first contributor who wants their own login rather than federating into
+Röbel's. Do it together with the package extraction (item 2) so the generic name lands once.
+
+### B. Domain registration and DNS as part of the installer
+
+Today `netizen render` tells you which A records to create, and a human goes to a registrar
+and types them. Vercel does this for its users; a sovereignty stack has less excuse not to.
+
+**Why this is small, and worth doing:** the installer **already knows every hostname the node
+needs** — it renders the Caddyfile and the plan's `dns` step lists them. So DNS reconciliation
+is a narrow function: *take the hostnames render already computed, ensure an A record for each
+points at the node's IP, report the diff.* No new source of truth, and it is the same
+declare-then-reconcile shape as the relay allow-list and federation.
+
+Sketch:
+
+```json
+"services": { "dns": { "provider": "ionos", "zone": "roebel.app", "apiKey": "$IONOS_API_KEY" } }
+```
+
+```
+netizen dns plan     # what records are missing or wrong — read-only
+netizen dns apply    # reconcile, idempotent
+```
+
+**Design constraints worth fixing now, before it is built:**
+
+- **Plan before apply, always.** DNS is the one layer where a bad write takes every service
+  down at once, including the way back in. `plan` must be the default and `apply` explicit.
+- **Never delete a record it did not create.** A zone usually has MX, TXT and records for
+  things the node knows nothing about. Reconcile *additively*; report strays rather than
+  removing them.
+- **The operator can always override by hand.** The agent sets things up; the human keeps the
+  final say and the manifest records intent, not exclusive ownership.
+- Registration (buying a domain) is a separate, rarer, money-spending action from DNS
+  configuration. Keep them separate commands even if one agent drives both.
+
+**Trigger:** the same first contributor. Standing up a node currently means editing DNS at a
+registrar by hand, which is the least sovereign-feeling step in an otherwise declarative flow.
+
+---
+
 ## Money and data economy
 
 ### 11. x402 facilitator on Gnosis
