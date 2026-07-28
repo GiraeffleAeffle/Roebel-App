@@ -56,5 +56,14 @@ export {
 } from "./calendar";
 export type { CalendarEventInput } from "./calendar";
 
+export {
+  AUTHORIZED_BY_TAG,
+  authorizedBy,
+  buildOrgProfileEvent,
+  deriveOrgIdentity,
+  withAuthorizedBy,
+} from "./org";
+export type { OrgIdentity } from "./org";
+
 export { RelayClient } from "./relay";
 export type { Filter, PublishResult, RelayOptions } from "./relay";
