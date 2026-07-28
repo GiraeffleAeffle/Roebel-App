@@ -80,7 +80,7 @@ test("secrets appear only as references, never resolved values", () => {
   // every secret the manifest names is surfaced as a ref in SECRETS.md
   assert.deepEqual(
     collectSecretRefs(roebel).sort(),
-    ["$COORDINATOR_PUBKEY", "$GNOSIS_BUNDLER_RPC", "$GNOSIS_RPC", "$MATRIX_CLIENT_SECRET", "$NEXTCLOUD_CLIENT_SECRET", "$ROEBEL_ID_JWKS", "$SUPABASE_URL"],
+    ["$COORDINATOR_PUBKEY", "$GNOSIS_BUNDLER_RPC", "$GNOSIS_RPC", "$MATRIX_CLIENT_SECRET", "$NEXTCLOUD_CLIENT_SECRET", "$ROEBEL_ID_JWKS", "$SUPABASE_URL", "$WEB_CLIENT_SECRET"],
   );
   // the keystone env references the secret, it does not inline a value
   assert.match(renderBundle(selfHosted).files["roebel-id.env"], /NEXTCLOUD_CLIENT_SECRET=\$NEXTCLOUD_CLIENT_SECRET/);
