@@ -43,6 +43,9 @@ A **State of…** doc that disagrees with reality is a bug. If you find one, fix
 change as the code — the reason these exist is that a contributor cannot read a running
 container.
 
+- [State of the Sovereign Arbeitsbereich](SOVEREIGN_ARBEITSBEREICH_STATE.md) — the native workspace: what shipped, honest limits, and the four gates to turn it on
+- [Security findings 2026-07-28](SECURITY_FINDINGS_2026-07-28.md) — two OPEN production RLS issues found while building it, plus the cross-org takeover that was fixed
+
 ## The rest, by category
 
 **Design specs** — `superpowers/specs/`. One per slice of work, written before the code and

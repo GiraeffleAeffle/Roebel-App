@@ -27,6 +27,7 @@ funds, real neutrality. Building the tool against a live town first is the forci
 | **Treasury** | Gnosis Safe multisig (Gemeinschaftskasse) | live |
 | **Value** | Circles v2 group currency ("Röbel Münzen") | live |
 | **Workspace** | Nextcloud + Collabora, Matrix/Synapse + MAS + Element | live on the node |
+| | **Sovereign Arbeitsbereich** — native file browser + in-app Collabora editing, citizen and org scope | **merged 2026-07-28, gated off** ([state](SOVEREIGN_ARBEITSBEREICH_STATE.md)) |
 | **Comms** | XMTP v3 DMs (dual-rail with Supabase), Nostr relay | live |
 | **Federation** | NSP-9 peer mirroring over NIP-77 negentropy | **live 2026-07-28** |
 | **Query** | NSP-10 cross-node index (search + provenance), public read | **live 2026-07-28** |

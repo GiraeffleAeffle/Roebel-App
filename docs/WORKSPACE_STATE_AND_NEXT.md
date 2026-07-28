@@ -121,7 +121,7 @@ hardening item the installer deliberately cannot do for you.
 *Already done:* SSH password auth off (verified via `sshd -T`), fail2ban active — it had
 already logged 53 failed SSH attempts, so the box is actively probed.
 
-### 4.4 Per-org group folders — **medium; the actual org feature**
+### 4.4 Per-org group folders — **DONE in code 2026-07-28, gated off**
 `groupfolders` is installed but no folder exists. One Nextcloud group folder per org,
 ACL'd to the `org:<accountId>:<role>` claim the keystone already emits, so joining an org
 grants the shared folder and leaving revokes it. Provision from the org registry
@@ -201,5 +201,5 @@ each has its own document:
 - [ ] **Backups leave the box** (§4.1) ← highest value
 - [ ] Citizens can publish to the relay (§4.2 — one secret)
 - [ ] Cloud firewall on (§4.3)
-- [ ] An org's members share a **group folder**, gated by the org claim (§4.4)
+- [x] An org's members share a **group folder**, gated by the org claim (§4.4) — built; see [SOVEREIGN_ARBEITSBEREICH_STATE.md](SOVEREIGN_ARBEITSBEREICH_STATE.md), not enabled until the RLS finding is fixed
 - [ ] Chat works (Matrix) **or** is honestly absent from the UI (§4.5)
