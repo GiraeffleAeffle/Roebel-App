@@ -127,6 +127,85 @@ describe("parsePropfind", () => {
     assert.equal(file.lastModified, "2026-07-27T12:00:00.000Z");
   });
 
+  it("matches a raw rootHref against percent-encoded server hrefs, instead of silently emptying the whole listing", () => {
+    // scope.ts's encodeSegment is encodeURIComponent, which leaves "! ' ( ) *"
+    // unescaped. A Sabre/PHP-style server can still choose to percent-encode
+    // those in the hrefs it returns. A German org name with a parenthetical
+    // qualifier ("Elternbeirat (Grundschule)") is an ordinary case, not an
+    // edge case — if root-vs-href comparison is a raw byte compare, this kind
+    // of name never prefix-matches and the entire org listing reads as empty,
+    // indistinguishably from "this folder really has no children".
+    const rawRoot = "/remote.php/dav/files/0xabc/Elternbeirat (Grundschule)/";
+    const encodedXml = `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
+  <d:response>
+    <d:href>/remote.php/dav/files/0xabc/Elternbeirat%20%28Grundschule%29/</d:href>
+    <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop>
+    <d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/remote.php/dav/files/0xabc/Elternbeirat%20%28Grundschule%29/Sitzungen/</d:href>
+    <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop>
+    <d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/remote.php/dav/files/0xabc/Elternbeirat%20%28Grundschule%29/Ann%27s%20Bericht%20%28Entwurf%29.odt</d:href>
+    <d:propstat><d:prop><d:resourcetype/><d:getcontentlength>10</d:getcontentlength></d:prop>
+    <d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+</d:multistatus>`;
+    const entries = parsePropfind(encodedXml, rawRoot);
+    assert.deepEqual(
+      entries.map((e) => e.name),
+      ["Sitzungen", "Ann's Bericht (Entwurf).odt"],
+    );
+  });
+
+  it("matches a percent-encoded rootHref against raw server hrefs (the reverse direction)", () => {
+    const encodedRoot =
+      "/remote.php/dav/files/0xabc/Elternbeirat%20%28Grundschule%29/";
+    const rawXml = `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response>
+    <d:href>/remote.php/dav/files/0xabc/Elternbeirat (Grundschule)/</d:href>
+    <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop>
+    <d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/remote.php/dav/files/0xabc/Elternbeirat (Grundschule)/Ann's Akte.txt</d:href>
+    <d:propstat><d:prop><d:resourcetype/><d:getcontentlength>3</d:getcontentlength></d:prop>
+    <d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+</d:multistatus>`;
+    const entries = parsePropfind(rawXml, encodedRoot);
+    assert.deepEqual(
+      entries.map((e) => e.name),
+      ["Ann's Akte.txt"],
+    );
+  });
+
+  it("matches an absolute-URL href against a path-only rootHref (RFC 4918 permits either)", () => {
+    const pathRoot = "/remote.php/dav/files/0xabc/";
+    const absoluteXml = `<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response>
+    <d:href>https://cloud.example.org/remote.php/dav/files/0xabc/</d:href>
+    <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop>
+    <d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>https://cloud.example.org/remote.php/dav/files/0xabc/Dokumente/</d:href>
+    <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop>
+    <d:status>HTTP/1.1 200 OK</d:status></d:propstat>
+  </d:response>
+</d:multistatus>`;
+    const entries = parsePropfind(absoluteXml, pathRoot);
+    assert.deepEqual(
+      entries.map((e) => e.name),
+      ["Dokumente"],
+    );
+  });
+
   it("handles non-ASCII names, which is the normal case in German", () => {
     const umlaut = `<?xml version="1.0"?>
 <d:multistatus xmlns:d="DAV:">
