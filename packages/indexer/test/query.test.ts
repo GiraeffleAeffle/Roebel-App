@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildNoteEvent, deriveNostrSecretKey } from "@netizen-labs/nostr";
 import { MAX_LIMIT, buildEventQuery, toRow } from "../src/query.js";
-import { queryFromUrl } from "../src/api.js";
+import { normaliseRow, queryFromUrl } from "../src/api.js";
 
 const SECRET = deriveNostrSecretKey("0x" + "5c".repeat(65));
 
@@ -55,6 +55,18 @@ describe("query building", () => {
   });
 });
 
+describe("proof lookup by id", () => {
+  it("fetches exact events, bound not interpolated", () => {
+    const built = buildEventQuery({ ids: ["AbC123"] });
+    assert.match(built.text, /id = ANY\(\$1::text\[\]\)/);
+    assert.deepEqual(built.values[0], ["abc123"]);
+  });
+
+  it("reads ids off the query string", () => {
+    assert.deepEqual(queryFromUrl(new URL("http://x/events?ids=aa,bb")).ids, ["aa", "bb"]);
+  });
+});
+
 describe("rows carry provenance", () => {
   it("stamps which node and which relay an event came from", () => {
     const event = buildNoteEvent(SECRET, "Straßenfest", { createdAt: 1_785_000_000 });
@@ -91,5 +103,31 @@ describe("url parsing", () => {
     const q = queryFromUrl(new URL("http://x/events?kinds=abc&since=xyz"));
     assert.equal(q.kinds, undefined);
     assert.equal(q.since, undefined);
+  });
+});
+
+describe("response types are stable whatever served the row", () => {
+  it("coerces Postgres BIGINT strings to numbers", () => {
+    // pg returns BIGINT as a string because it can exceed Number.MAX_SAFE_INTEGER.
+    // Unix seconds never will, so the same event must not have two shapes
+    // depending on whether the index or the relay fallback answered.
+    const fromIndex = normaliseRow({ created_at: "1785251242", kind: 1, content: "x" });
+    assert.equal(fromIndex.created_at, 1785251242);
+    assert.equal(typeof fromIndex.created_at, "number");
+  });
+
+  it("leaves an already-numeric row untouched", () => {
+    const fromRelay = normaliseRow({ created_at: 1785251242, kind: 1 });
+    assert.equal(fromRelay.created_at, 1785251242);
+  });
+
+  it("never mangles content that merely looks numeric", () => {
+    assert.equal(normaliseRow({ content: "1234", id: "99" }).content, "1234");
+  });
+
+  it("normalises the stats fields too", () => {
+    const s = normaliseRow({ node_id: "roebel", count: 3, newest: "1785243476" });
+    assert.equal(s.newest, 1785243476);
+    assert.equal(s.node_id, "roebel");
   });
 });

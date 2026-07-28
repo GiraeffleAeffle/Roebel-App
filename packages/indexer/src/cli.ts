@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import pg from "pg";
+import { RelayClient, verifyEvent, type NostrEvent } from "@netizen-labs/nostr";
 import { createApi } from "./api.js";
 import { ingestAll, type Source } from "./ingest.js";
 import { SCHEMA_SQL } from "./schema.js";
@@ -77,7 +78,34 @@ async function main(): Promise<void> {
   await pass();
   setInterval(() => void pass(), intervalSeconds * 1000);
 
-  createApi({ query, nodeId }).listen(port, () => {
+  /**
+   * Proof lookups must work immediately. Ask every configured relay for the ids,
+   * verify each signature here rather than trusting the relay, and shape the rows
+   * like indexed ones so a caller cannot tell the difference beyond `source`.
+   */
+  const fetchFromRelay = async (ids: string[]): Promise<Record<string, unknown>[]> => {
+    const out = new Map<string, Record<string, unknown>>();
+    for (const s of sources) {
+      const client = new RelayClient(s.relay, { timeoutMs: 6000 });
+      try {
+        for (const e of (await client.query([{ ids }])) as NostrEvent[]) {
+          if (!verifyEvent(e) || out.has(e.id)) continue;
+          out.set(e.id, {
+            id: e.id, pubkey: e.pubkey, kind: e.kind, created_at: e.created_at,
+            content: e.content, tags: e.tags, sig: e.sig,
+            node_id: s.nodeId, source: s.relay,
+          });
+        }
+      } catch {
+        // A relay being unreachable must not fail the lookup.
+      } finally {
+        client.close();
+      }
+    }
+    return [...out.values()];
+  };
+
+  createApi({ query, nodeId, fetchFromRelay }).listen(port, () => {
     console.log(`indexer for "${nodeId}" listening on :${port}; ingesting every ${intervalSeconds}s`);
     for (const s of sources) console.log(`  source ${s.nodeId} <- ${s.relay} kinds[${s.kinds}]`);
   });

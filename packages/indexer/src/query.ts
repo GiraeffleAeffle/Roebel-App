@@ -9,6 +9,12 @@ import type { NostrEvent } from "@netizen-labs/nostr";
  */
 
 export interface EventQuery {
+  /**
+   * Exact event ids. This is the PROOF lookup: an event id is the hash of its own
+   * content, so fetching by id and checking the signature is a complete, offline
+   * verification that nobody altered what was published.
+   */
+  ids?: string[];
   /** Full-text search over content. */
   q?: string;
   kinds?: number[];
@@ -35,6 +41,9 @@ export function buildEventQuery(query: EventQuery): BuiltQuery {
   const values: unknown[] = [];
   const bind = (v: unknown) => `$${values.push(v)}`;
 
+  if (query.ids?.length) {
+    where.push(`id = ANY(${bind(query.ids.map((i) => i.toLowerCase()))}::text[])`);
+  }
   if (query.q?.trim()) {
     where.push(`to_tsvector('simple', content) @@ plainto_tsquery('simple', ${bind(query.q.trim())})`);
   }

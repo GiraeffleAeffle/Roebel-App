@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.maxbrych.roebelonchain",
-      "buildNumber": "31",
+      "buildNumber": "32",
       "associatedDomains": [
         "applinks:www.roebel.app"
       ],

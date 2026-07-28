@@ -101,6 +101,35 @@ NIP-29 relay alongside, or modelling agent conversations as tagged threads on th
 relay. Note this is unrelated to the openDesk workspace interoperability work, which is about
 Nextcloud/Matrix/Collabora for humans.
 
+### 5b. `@mecky` mentions — LIVE 2026-07-28
+
+Tag Mecky in the app's Nostr test section and it answers in place.
+
+- The mention is a NIP-01 **`p` tag**, not the literal text "@mecky", so the question is legible
+  to any Nostr client — an agent on another node could answer it too.
+- The reply is a threaded kind 1 (`e` tag on the parent, `p` tag back to the asker), and it is
+  automatically labelled `netizen_agent` because it is built as an agent event.
+- `@netizen-labs/agent-watcher` runs beside the relay. Its **bounds are enforced before any
+  answer is produced**, and before the model is even called: never answers itself, never answers
+  another agent (two bots would talk until someone sees the bill), one answer per question,
+  5/author/hour, 100/day, and a kill switch.
+- The system prompt carries the one instruction that matters in a civic feed: say plainly when
+  you do not know, and never invent a decision, date, figure or municipal responsibility. An
+  agent that confabulates municipal facts is worse than none, because it does so wearing the
+  town's identity.
+
+**Verified live:** a citizen asked "was ist Nostr in einem Satz?" and Mecky answered on the
+relay — threaded onto the question, addressed back to the asker, and tagged `netizen_agent`.
+
+**Rotate the `ANTHROPIC_API_KEY`** — it was pasted into a chat log on 2026-07-28.
+
+**Rotate `NODE_AGENT_SECRET` before this is public.** It currently holds a demonstration value
+that appeared in a chat log, and it determines Mecky's identity — someone holding it could
+impersonate the town's agent on the relay. Rotating it changes the pubkey, so all three must
+move together: the box `.env`, `agents.a2a.relayPubkeys` in the manifest, and `MECKY_PUBKEY` in
+`apps/expo/app/settings/nostr.tsx`. Making the app read that value from config instead of a
+constant would remove the third step.
+
 ### 6. On-chain peer registry
 
 Peers are declared in each manifest today, which is auditable in a git diff and needs no
@@ -138,6 +167,93 @@ The identity bridge is Expo-only. The same wallet derives the **same npub** on t
 the key is re-derived, never transferred — so this is a small addition:
 `@netizen-labs/nostr` is isomorphic, and only the storage differs (WebCrypto instead of
 SecureStore). **Trigger:** Citizens asking to post from desktop.
+
+---
+
+## For the Netizen project repo
+
+`~/Documents/privat/side_projects/netizen_labs` becomes the real Netizen repo (possibly private
+on GitHub). These belong there rather than in Röbel's monorepo.
+
+### E. Netizen Network States Explorer — the open-data proof
+
+**The end goal, and the real test of open data access.** Not a dashboard: a working client that
+proves someone outside Röbel can build on the node's public record.
+
+**The bar: it should be possible to build an entire Röbel-App clone with its own UI, where
+everything works the same as the original** — using only the node's public interfaces, with no
+Supabase credentials and no permission from anyone.
+
+That is what makes this a test rather than a demo. Everything the app currently shows from
+Supabase that is legitimately public has to be reachable from the protocol and the index first
+(see [Public data on Nostr](PUBLIC_DATA_ON_NOSTR.md)), which is why that migration is the
+dependency: today only profiles and feed posts are published, so a clone could render a feed
+and nothing else.
+
+Building the Explorer against the same interfaces an outside builder would use is the honest
+way to find what is missing — every gap shows up as "the clone cannot render X".
+
+Plus the network view itself: which nodes exist, what each publishes, how they federate, how
+alive they are. A globe with node locations makes "a network of sovereign nodes" legible.
+
+**Most of the data is already public**, which makes this a front-end problem rather than a
+protocol one:
+
+- each node exposes `/stats` — what it knows, by source node and kind
+- `/events` answers search, kinds, authors, time range and provenance
+- each manifest declares its `peers`, so the federation graph is derivable
+- relays answer NIP-11 with name, description and supported NIPs
+
+**Design constraint worth fixing now:** derive location from the **declared** region, never from
+IP geolocation. A sovereignty project that silently geolocates its own operators has undermined
+the thing it sells.
+
+**Trigger:** node #3, or the first node run by someone outside Röbel. With n=2 on one box a
+globe would be theatre.
+
+### F. A setup guide for contributors and builders
+
+There is `CONTRIBUTOR_ONBOARDING.md`, but it is about working on the Röbel app — not about
+standing up a node. A builder currently has to read the manifest spec, the installer spec and
+three State documents to get started.
+
+What it needs to cover, in this order: a minimal manifest (now possible — see item 1), what
+`render` / `doctor` / `up` each do, the DNS records the node needs, which secrets the box needs
+and why, and how to federate with an existing node.
+
+**Trigger: before inviting the first outside operator.** They are the test of whether the
+documentation works, and a failed first attempt is expensive goodwill.
+
+---
+
+## Interoperability with Stadtstack
+
+### C. A civic data contract (topics, proposals, cases, evidence, decisions)
+
+An outside contributor is building **Stadtstack**, a deterministic decision-and-evidence
+pipeline, and proposes ten versioned handover objects — `civic_topic_v1`, `civic_proposal_v1`,
+`evidence_return_v1`, `decision_dossier_v1`, `impact_receipt_v1` and others — each carrying
+provenance, visibility class, review status and **authority binding**.
+
+**Netizen has nothing at this layer.** NSP-0…10 describe a *node*; nothing describes a *civic
+process*. The proposal is the right shape (few objects, versioned, at the boundary rather than
+aligning whole internal models) and additive to what exists.
+
+**Trigger: freeze the canonical topic/proposal/case ID and the first two objects before
+anything else.** Every other object references them, and the ID ends up embedded in every
+published event — it is the one mistake that is expensive to reverse.
+
+See [the alignment document](STADTSTACK_ALIGNMENT.md) for what already agrees, what genuinely
+diverges (Talos/Kubernetes vs compose; who owns which surface), and the answers we can already
+give to four of their seven open questions.
+
+### D. Node profiles as a manifest concept
+
+Stadtstack proposes named bundles — Community, Participation, Administration, Evidence,
+Companion, Operations — rather than declaring every service individually. Netizen's manifest is
+already declarative and its civic stack is now optional, so a profile is a naming layer on top
+rather than new machinery. **Trigger:** the second or third contributor node, when "which
+services do I need" becomes a real question rather than a copy-paste.
 
 ---
 

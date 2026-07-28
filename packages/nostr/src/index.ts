@@ -48,5 +48,22 @@ export {
 } from "./agent";
 export type { AgentIdentity } from "./agent";
 
+export {
+  KIND_DATE_BASED_EVENT,
+  KIND_TIME_BASED_EVENT,
+  buildCalendarEvent,
+  parseCalendarEvent,
+} from "./calendar";
+export type { CalendarEventInput } from "./calendar";
+
+export {
+  AUTHORIZED_BY_TAG,
+  authorizedBy,
+  buildOrgProfileEvent,
+  deriveOrgIdentity,
+  withAuthorizedBy,
+} from "./org";
+export type { OrgIdentity } from "./org";
+
 export { RelayClient } from "./relay";
 export type { Filter, PublishResult, RelayOptions } from "./relay";

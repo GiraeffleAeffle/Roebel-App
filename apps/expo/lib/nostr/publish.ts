@@ -1,4 +1,5 @@
 import {
+  buildCalendarEvent,
   type NostrEvent,
   type ProfileMetadata,
   RelayClient,
@@ -176,6 +177,93 @@ export async function publishTestNote(
   } catch {
     return { ok: false, message: 'Relay nicht erreichbar.' };
   }
+}
+
+/**
+ * Ask an agent a question by mentioning it.
+ *
+ * The mention is a NIP-01 `p` tag carrying the agent's pubkey — the standard way
+ * one Nostr event references an identity. That matters: the mention is legible to
+ * ANY Nostr client, not just this app, so an agent on another node could answer it
+ * too. Writing "@mecky" as plain text would only work inside Röbel.
+ */
+export async function publishAgentMention(
+  content: string,
+  agentPubkey: string,
+): Promise<{ ok: boolean; eventId?: string; message: string }> {
+  const identity = await loadStoredIdentity();
+  if (!identity) return { ok: false, message: 'Keine Nostr-Identität auf diesem Gerät.' };
+  try {
+    const event = buildNoteEvent(identity.secretKey, content, {
+      tags: [['p', agentPubkey.toLowerCase()]],
+    });
+    const result = await relay().publish(event);
+    return result.ok
+      ? { ok: true, eventId: event.id, message: 'Frage gestellt. Mecky antwortet gleich …' }
+      : { ok: false, message: result.message || 'Vom Relay abgelehnt.' };
+  } catch {
+    return { ok: false, message: 'Relay nicht erreichbar.' };
+  }
+}
+
+/**
+ * Look for an agent's reply to a specific event.
+ *
+ * A reply is a kind 1 carrying an `e` tag pointing at the parent. Filtering by
+ * `#e` server-side means the relay does the work rather than the phone.
+ */
+export async function fetchAgentReply(
+  parentEventId: string,
+  agentPubkey: string,
+): Promise<NostrEvent | null> {
+  try {
+    const events = await relay().query([
+      { kinds: [1], authors: [agentPubkey.toLowerCase()], "#e": [parentEventId], limit: 5 },
+    ]);
+    return events.sort((a, b) => b.created_at - a.created_at)[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Publish a cinema screening as a NIP-52 calendar event.
+ *
+ * The first app data type beyond profiles and feed posts to reach the protocol,
+ * chosen because it carries NO personal data: a screening time for a business.
+ * The worst case for a mistake here is a wrong film time.
+ *
+ * Replaceable by the movie's own id, so correcting or cancelling a screening is a
+ * re-publish rather than a deletion request a relay may ignore.
+ */
+export async function publishScreening(movie: {
+  id: string;
+  title: string;
+  description?: string | null;
+  date: string;
+  time?: string | null;
+  cover_image_url?: string | null;
+  fsk?: string | null;
+}): Promise<PublicationStatus> {
+  const identity = await loadStoredIdentity();
+  if (!identity) return 'pending';
+
+  // Local time: a screening is announced in the town's own timezone, and a date
+  // with no clock time is a legitimate all-day entry rather than midnight.
+  const start = Math.floor(new Date(`${movie.date}T${movie.time ?? '00:00:00'}`).getTime() / 1000);
+  if (!Number.isFinite(start)) return 'pending';
+
+  const event = buildCalendarEvent(identity.secretKey, {
+    id: movie.id,
+    title: movie.title,
+    summary: movie.description ?? null,
+    start,
+    image: movie.cover_image_url ?? null,
+    allDay: !movie.time,
+    labels: ['kino', ...(movie.fsk ? [movie.fsk.toLowerCase().replace(/\s+/g, '-')] : [])],
+  });
+
+  return publish(event, 'screening', movie.id);
 }
 
 /**

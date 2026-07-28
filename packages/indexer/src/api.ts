@@ -13,6 +13,32 @@ import { MAX_LIMIT, STATS_SQL, buildEventQuery, type EventQuery } from "./query.
 export interface ApiDeps {
   query: (sql: string, values: unknown[]) => Promise<Record<string, unknown>[]>;
   nodeId: string;
+  /**
+   * Fetch events straight from the relays when the index has not caught up.
+   *
+   * The index is a DERIVED view and ingests on a timer, so an event published
+   * seconds ago is legitimately absent. For a proof link — "show me exactly this
+   * event" — an empty page is the wrong answer: the protocol has it, so a cache
+   * miss must fall through to the source rather than deny it exists.
+   */
+  fetchFromRelay?: (ids: string[]) => Promise<Record<string, unknown>[]>;
+}
+
+/**
+ * Postgres BIGINT arrives as a STRING through `pg` — it can exceed JavaScript's
+ * safe integer range, so the driver refuses to guess. Unix seconds never will, so
+ * coercing here is safe and stops the same event having two shapes depending on
+ * whether it was served from the index or from the relay fallback.
+ *
+ * A consumer should never have to ask where a row came from to know its types.
+ */
+function normaliseRow(row: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...row };
+  for (const field of ["created_at", "kind", "count", "newest"]) {
+    const value = out[field];
+    if (typeof value === "string" && /^-?\d+$/.test(value)) out[field] = Number(value);
+  }
+  return out;
 }
 
 function numbers(value: string | null): number[] | undefined {
@@ -41,6 +67,7 @@ function integer(value: string | null): number | undefined {
 export function queryFromUrl(url: URL): EventQuery {
   const p = url.searchParams;
   return {
+    ids: strings(p.get("ids")),
     q: p.get("q") ?? undefined,
     kinds: numbers(p.get("kinds")),
     authors: strings(p.get("authors")),
@@ -50,6 +77,8 @@ export function queryFromUrl(url: URL): EventQuery {
     limit: integer(p.get("limit")),
   };
 }
+
+export { normaliseRow };
 
 export function createApi(deps: ApiDeps): Server {
   return createServer(async (req, res) => {
@@ -71,13 +100,29 @@ export function createApi(deps: ApiDeps): Server {
 
       if (url.pathname === "/stats") {
         const rows = await deps.query(STATS_SQL, []);
-        return send(200, { node: deps.nodeId, sources: rows });
+        return send(200, { node: deps.nodeId, sources: rows.map(normaliseRow) });
       }
 
       if (url.pathname === "/events") {
-        const built = buildEventQuery(queryFromUrl(url));
-        const rows = await deps.query(built.text, built.values);
-        return send(200, { node: deps.nodeId, count: rows.length, maxLimit: MAX_LIMIT, events: rows });
+        const query = queryFromUrl(url);
+        const built = buildEventQuery(query);
+        let rows = await deps.query(built.text, built.values);
+        let source = "index";
+
+        // Exact-id lookup only: a miss on a SEARCH means "no results", but a miss
+        // on "show me this event" may just mean the index has not read it yet.
+        if (rows.length === 0 && query.ids?.length && deps.fetchFromRelay) {
+          rows = await deps.fetchFromRelay(query.ids);
+          if (rows.length) source = "relay (not yet indexed)";
+        }
+
+        return send(200, {
+          node: deps.nodeId,
+          count: rows.length,
+          maxLimit: MAX_LIMIT,
+          source,
+          events: rows.map(normaliseRow),
+        });
       }
 
       send(404, { error: "not found", endpoints: ["/events", "/stats", "/health"] });
