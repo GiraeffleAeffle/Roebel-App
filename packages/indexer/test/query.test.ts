@@ -55,6 +55,18 @@ describe("query building", () => {
   });
 });
 
+describe("proof lookup by id", () => {
+  it("fetches exact events, bound not interpolated", () => {
+    const built = buildEventQuery({ ids: ["AbC123"] });
+    assert.match(built.text, /id = ANY\(\$1::text\[\]\)/);
+    assert.deepEqual(built.values[0], ["abc123"]);
+  });
+
+  it("reads ids off the query string", () => {
+    assert.deepEqual(queryFromUrl(new URL("http://x/events?ids=aa,bb")).ids, ["aa", "bb"]);
+  });
+});
+
 describe("rows carry provenance", () => {
   it("stamps which node and which relay an event came from", () => {
     const event = buildNoteEvent(SECRET, "Straßenfest", { createdAt: 1_785_000_000 });

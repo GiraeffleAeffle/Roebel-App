@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
+import { Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useActiveAccount } from 'thirdweb/react';
 import { useTheme } from '@/context/ThemeContext';
@@ -107,7 +108,8 @@ export default function NostrIdentityScreen() {
   const [sendingTest, setSendingTest] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string; eventId?: string } | null>(null);
   const [askingMecky, setAskingMecky] = useState(false);
-  const [meckyReply, setMeckyReply] = useState<string | null>(null);
+  const [meckyReply, setMeckyReply] = useState<{ content: string; id: string } | null>(null);
+  const [askedEventId, setAskedEventId] = useState<string | null>(null);
 
   const profileMetadata = useCallback(
     () => ({
@@ -250,6 +252,7 @@ export default function NostrIdentityScreen() {
 
     const sent = await publishAgentMention(content, MECKY_PUBKEY);
     setTestResult(sent);
+    setAskedEventId(sent.eventId ?? null);
     if (!sent.ok || !sent.eventId) {
       setAskingMecky(false);
       return;
@@ -262,7 +265,7 @@ export default function NostrIdentityScreen() {
       await new Promise((r) => setTimeout(r, 3000));
       const reply = await fetchAgentReply(sent.eventId, MECKY_PUBKEY);
       if (reply) {
-        setMeckyReply(reply.content);
+        setMeckyReply({ content: reply.content, id: reply.id });
         setAskingMecky(false);
         return;
       }
@@ -271,6 +274,20 @@ export default function NostrIdentityScreen() {
     setTestResult({ ok: false, message: 'Mecky hat nicht geantwortet. Läuft der Agent auf dem Node?' });
     setAskingMecky(false);
   }, [testText, askingMecky]);
+
+  /**
+   * Open the signed record on the node's own public index.
+   *
+   * The id IS the proof: a Nostr event id is the hash of its own content, so
+   * fetching by id and checking the signature verifies nobody altered what was
+   * published. The link points at Röbel's own index rather than a third-party
+   * viewer — the point is that the town publishes its own evidence.
+   */
+  const openProof = useCallback((...eventIds: string[]) => {
+    const ids = eventIds.filter(Boolean).join(',');
+    if (!ids) return;
+    void Linking.openURL(`${INDEX_BASE}/events?ids=${ids}`);
+  }, []);
 
   const copy = useCallback(async (value: string, which: 'npub' | 'hex') => {
     await Clipboard.setStringAsync(value);
@@ -521,11 +538,28 @@ export default function NostrIdentityScreen() {
             {meckyReply && (
               <View style={[styles.meckyReply, { borderColor: colors.borderSecondary }]}>
                 <Text style={[styles.cardLabel, { color: colors.primary }]}>MECKYS ANTWORT</Text>
-                <Text style={[styles.body, { color: colors.textPrimary }]}>{meckyReply}</Text>
+                <Text style={[styles.body, { color: colors.textPrimary }]}>{meckyReply.content}</Text>
                 <Text style={[styles.hint, { color: colors.textSecondary }]}>
                   Signiert von Meckys eigenem Schlüssel und als KI gekennzeichnet.
                 </Text>
+                <Pressable onPress={() => openProof(askedEventId ?? '', meckyReply.id)}>
+                  <Text style={[styles.proofLink, { color: colors.primary }]}>
+                    Frage und Antwort als Beweis öffnen ↗
+                  </Text>
+                </Pressable>
               </View>
+            )}
+
+            {testResult?.ok && testResult.eventId && (
+              <Pressable onPress={() => openProof(testResult.eventId!)} style={{ marginTop: 10 }}>
+                <Text style={[styles.proofLink, { color: colors.primary }]}>
+                  Signierten Beweis öffnen ↗
+                </Text>
+                <Text style={[styles.hint, { color: colors.textSecondary }]}>
+                  Event {testResult.eventId.slice(0, 16)}… — erscheint im Index, sobald der Node
+                  ihn gelesen hat (bis zu 2 Minuten).
+                </Text>
+              </Pressable>
             )}
 
             {testResult && (
@@ -536,7 +570,6 @@ export default function NostrIdentityScreen() {
                 ]}
               >
                 {testResult.message}
-                {testResult.eventId ? `\nEvent: ${testResult.eventId.slice(0, 16)}…` : ''}
               </Text>
             )}
           </View>
@@ -597,6 +630,8 @@ export default function NostrIdentityScreen() {
  * Mecky's Nostr identity on this node — derived from the node secret, declared in
  * the manifest's `agents.a2a.relayPubkeys`, and therefore stable.
  */
+const INDEX_BASE = 'https://index.roebel.app';
+
 const MECKY_PUBKEY = '0726d9e97ef182163a906d65911779ab50345f5507d2d5c81ca7f7385ae110f2';
 
 const styles = StyleSheet.create({
@@ -679,6 +714,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlignVertical: 'top',
   },
+  proofLink: { fontFamily: fontFamily.semiBold, fontSize: 14, marginTop: 2 },
   meckyReply: { marginTop: 14, borderWidth: 1, borderRadius: 12, padding: 14, gap: 6 },
   removeButton: { paddingVertical: 14, alignItems: 'center', marginTop: 4 },
   removeButtonText: { fontFamily: fontFamily.medium, fontSize: 14 },

@@ -41,6 +41,7 @@ function integer(value: string | null): number | undefined {
 export function queryFromUrl(url: URL): EventQuery {
   const p = url.searchParams;
   return {
+    ids: strings(p.get("ids")),
     q: p.get("q") ?? undefined,
     kinds: numbers(p.get("kinds")),
     authors: strings(p.get("authors")),
