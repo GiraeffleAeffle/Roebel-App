@@ -101,7 +101,7 @@ NIP-29 relay alongside, or modelling agent conversations as tagged threads on th
 relay. Note this is unrelated to the openDesk workspace interoperability work, which is about
 Nextcloud/Matrix/Collabora for humans.
 
-### 5b. `@mecky` mentions — BUILT 2026-07-28, awaiting one secret
+### 5b. `@mecky` mentions — LIVE 2026-07-28
 
 Tag Mecky in the app's Nostr test section and it answers in place.
 
@@ -118,8 +118,10 @@ Tag Mecky in the app's Nostr test section and it answers in place.
   agent that confabulates municipal facts is worse than none, because it does so wearing the
   town's identity.
 
-**Remaining: `ANTHROPIC_API_KEY` in `/opt/netizen/roebel/.env`, then
-`/opt/netizen/roebel/agent-watcher/up.sh`.** Everything else is deployed.
+**Verified live:** a citizen asked "was ist Nostr in einem Satz?" and Mecky answered on the
+relay — threaded onto the question, addressed back to the asker, and tagged `netizen_agent`.
+
+**Rotate the `ANTHROPIC_API_KEY`** — it was pasted into a chat log on 2026-07-28.
 
 **Rotate `NODE_AGENT_SECRET` before this is public.** It currently holds a demonstration value
 that appeared in a chat log, and it determines Mecky's identity — someone holding it could
@@ -173,23 +175,38 @@ SecureStore). **Trigger:** Citizens asking to post from desktop.
 `~/Documents/privat/side_projects/netizen_labs` becomes the real Netizen repo (possibly private
 on GitHub). These belong there rather than in Röbel's monorepo.
 
-### E. Netizen Network States Explorer
+### E. Netizen Network States Explorer — the open-data proof
 
-A public map of the network: which nodes exist, what each publishes, how they federate, and how
-alive they are. A globe with node locations is the obvious surface, and it is the first thing
-that makes "a network of sovereign nodes" legible to someone who is not running one.
+**The end goal, and the real test of open data access.** Not a dashboard: a working client that
+proves someone outside Röbel can build on the node's public record.
 
-**Most of the data already exists and is public**, which makes this a front-end problem rather
-than a protocol one:
+**The bar: it should be possible to build an entire Röbel-App clone with its own UI, where
+everything works the same as the original** — using only the node's public interfaces, with no
+Supabase credentials and no permission from anyone.
+
+That is what makes this a test rather than a demo. Everything the app currently shows from
+Supabase that is legitimately public has to be reachable from the protocol and the index first
+(see [Public data on Nostr](PUBLIC_DATA_ON_NOSTR.md)), which is why that migration is the
+dependency: today only profiles and feed posts are published, so a clone could render a feed
+and nothing else.
+
+Building the Explorer against the same interfaces an outside builder would use is the honest
+way to find what is missing — every gap shows up as "the clone cannot render X".
+
+Plus the network view itself: which nodes exist, what each publishes, how they federate, how
+alive they are. A globe with node locations makes "a network of sovereign nodes" legible.
+
+**Most of the data is already public**, which makes this a front-end problem rather than a
+protocol one:
 
 - each node exposes `/stats` — what it knows, by source node and kind
-- each node's manifest declares its `peers`, so the federation graph is derivable
-- `services.host.region` gives a coarse location **already declared**, with no new tracking
+- `/events` answers search, kinds, authors, time range and provenance
+- each manifest declares its `peers`, so the federation graph is derivable
 - relays answer NIP-11 with name, description and supported NIPs
 
-**Design constraint worth fixing now:** derive location from the **declared region**, never from
+**Design constraint worth fixing now:** derive location from the **declared** region, never from
 IP geolocation. A sovereignty project that silently geolocates its own operators has undermined
-the thing it sells. Coarse and declared beats precise and inferred.
+the thing it sells.
 
 **Trigger:** node #3, or the first node run by someone outside Röbel. With n=2 on one box a
 globe would be theatre.
