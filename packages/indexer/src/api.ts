@@ -24,6 +24,23 @@ export interface ApiDeps {
   fetchFromRelay?: (ids: string[]) => Promise<Record<string, unknown>[]>;
 }
 
+/**
+ * Postgres BIGINT arrives as a STRING through `pg` — it can exceed JavaScript's
+ * safe integer range, so the driver refuses to guess. Unix seconds never will, so
+ * coercing here is safe and stops the same event having two shapes depending on
+ * whether it was served from the index or from the relay fallback.
+ *
+ * A consumer should never have to ask where a row came from to know its types.
+ */
+function normaliseRow(row: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...row };
+  for (const field of ["created_at", "kind", "count", "newest"]) {
+    const value = out[field];
+    if (typeof value === "string" && /^-?\d+$/.test(value)) out[field] = Number(value);
+  }
+  return out;
+}
+
 function numbers(value: string | null): number[] | undefined {
   if (!value) return undefined;
   const parsed = value
@@ -61,6 +78,8 @@ export function queryFromUrl(url: URL): EventQuery {
   };
 }
 
+export { normaliseRow };
+
 export function createApi(deps: ApiDeps): Server {
   return createServer(async (req, res) => {
     const send = (status: number, body: unknown) => {
@@ -81,7 +100,7 @@ export function createApi(deps: ApiDeps): Server {
 
       if (url.pathname === "/stats") {
         const rows = await deps.query(STATS_SQL, []);
-        return send(200, { node: deps.nodeId, sources: rows });
+        return send(200, { node: deps.nodeId, sources: rows.map(normaliseRow) });
       }
 
       if (url.pathname === "/events") {
@@ -102,7 +121,7 @@ export function createApi(deps: ApiDeps): Server {
           count: rows.length,
           maxLimit: MAX_LIMIT,
           source,
-          events: rows,
+          events: rows.map(normaliseRow),
         });
       }
 
