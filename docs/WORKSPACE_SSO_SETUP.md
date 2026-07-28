@@ -238,3 +238,85 @@ on both the citizen dashboard (`/app/dashboard`) and the org Arbeitsbereich
   never in the repo.
 - **Sovereignty:** everything above runs on infra you own. This is the manual,
   hand-wired version of what Netizen Labs will package for others.
+
+---
+
+## Part E — API access (verified 2026-07-28)
+
+This section records the live configuration state of the production node and the
+bearer-token authentication chain that secures WebDAV and REST API calls from
+Röbel's workspace clients.
+
+### Software versions
+
+- **user_oidc:** 8.10.1 (well above the 7.4.0 floor; bearer-authenticated WebDAV/REST
+  requests began passing correctly at that version).
+- **groupfolders:** 22.0.5 installed. `provisioning_groups` is `1`, so a citizen's
+  `groups` claim maps to Nextcloud groups automatically on login.
+
+### Provider registration
+
+The OIDC provider identifier on the node is **`Röbel / Müritz`** — note the umlaut.
+This is derived from the manifest's `name` field via the installer's
+`renderNextcloudSetup` interpolation: `${m.name}`. When running `occ user_oidc`
+commands, **quote this identifier exactly** (e.g., `occ user_oidc:provider "Röbel / Müritz" …`).
+The first attempt used a different spelling and failed to find the provider.
+
+### uid mapping
+
+The uid mapping was changed during this session from `--unique-uid=1` to
+`--unique-uid=0`. Both are confirmed by inspecting `occ config:list user_oidc`:
+- `provider-1-uniqueUid: "0"`
+- `provider-1-mappingUid: "sub"`
+
+With `--unique-uid=1`, Nextcloud computed the uid as a hash of provider+sub (the
+node's one OIDC test user appeared as `2f36e31e1cd8…`). The workspace SDK derives
+WebDAV paths from the OIDC `sub` claim, so the two must be equal. Setting
+`--unique-uid=0` makes the uid equal to the `sub` value itself.
+
+**This was safe only because the node had exactly two users at the time** (one OIDC
+test user + `RoebelAdmin`). With this change, every existing user's home directory
+orphans (Nextcloud moves files to a different uid path). If this migration is needed
+on a node with real citizens already provisioned, back up the Nextcloud data volume
+first and plan a re-linking operation. **Do not repeat this on a live production node
+with active users without explicit operator review.**
+
+### Bearer token validation chain
+
+The Röbel ID keystone issues **opaque access tokens**, not JWTs. The
+`apps/roebel-id/src/oidc/provider.ts` sets no `formats` configuration, and panva's
+`oidc-provider` defaults to opaque. This has implications for Nextcloud's bearer
+validation.
+
+Nextcloud supports three bearer validation modes; the configuration is:
+```
+userinfo_bearer_validation = 1          # call the upstream userinfo endpoint
+selfencoded_bearer_validation = 0       # do NOT validate a self-encoded JWT
+oidc_provider_bearer_validation = 0     # (for when Nextcloud itself issues tokens)
+```
+
+With `userinfo_bearer_validation = 1`, Nextcloud validates an opaque token by
+round-tripping it to the keystone's `/oauth/me` endpoint (panva's userinfo). This is
+correct given that the keystone issues opaque tokens. An optimisation exists (later):
+configuring the keystone to issue JWT access tokens + `features.resourceIndicators`
+would let Nextcloud validate locally and save a userinfo round-trip per request, but
+it is not necessary now.
+
+**AUTH_STRATEGY is "bearer"** (validated via userinfo endpoint).
+
+### Honest gap: unproven end-to-end flow
+
+An end-to-end bearer `PROPFIND` returning `207 Multi-Status` has **not** been
+demonstrated yet. To prove this requires a real access token from the full
+wallet-signature OIDC round-trip — the flow described in Part C of this plan, which
+does not ship until Task 11 goes live. The configuration is correct by inspection
+(provider registration, uid mapping, bearer mode). It is not yet proven by a live
+request.
+
+**The first citizen login is the moment of truth.** If the bearer chain fails, the
+fallback is already designed: `createNextcloudClient` in the workspace SDK takes
+`auth` as a constructor argument, so switching to per-user app passwords (provisioned
+via the OCS API) is a strategy swap, not a rewrite. The OCS provisioning API itself
+was not exercised in this session because admin credentials were not available.
+
+---
