@@ -9,7 +9,19 @@ test("no org context yields no tiles", () => {
   assert.deepEqual(buildOrgWorkspaceTiles({ org: null }), []);
 });
 
-test("builds the full openDesk-equivalent suite for an org, in order", () => {
+// Files are a native surface now (/arbeitsbereich/dateien), so a tile that
+// linked out to Nextcloud would be a second, worse route to the same place.
+test("no longer offers a files tile", () => {
+  const ids = buildOrgWorkspaceTiles({
+    workspaceBaseUrl: "https://cloud.example",
+    chatBaseUrl: "https://chat.example",
+    org: { id: "acc-7", slug: "feuerwehr" },
+  }).map((t) => t.id);
+  assert.equal(ids.includes("org-nextcloud"), false);
+  assert.equal(ids.includes("org-chat"), true);
+});
+
+test("builds the openDesk-equivalent suite for an org, in order", () => {
   const tiles = buildOrgWorkspaceTiles({
     workspaceBaseUrl: "https://cloud.roebel.app",
     chatBaseUrl: "https://chat.roebel.app",
@@ -17,22 +29,21 @@ test("builds the full openDesk-equivalent suite for an org, in order", () => {
   });
   assert.deepEqual(
     tiles.map((t) => t.id),
-    ["org-nextcloud", "org-chat", "org-mail", "org-wiki", "org-video", "org-project", "org-agents"]
+    ["org-chat", "org-mail", "org-wiki", "org-video", "org-project", "org-agents"]
   );
-  assert.equal(tiles[0].label, "Dateien & Dokumente");
-  assert.equal(tiles[1].label, "Team-Chat");
-  assert.equal(tiles[1].icon, "messages");
+  assert.equal(tiles[0].label, "Team-Chat");
+  assert.equal(tiles[0].icon, "messages");
 });
 
 test("only configured suite members are visible (each tile is independently gated)", () => {
   const visible = filterAvailableTiles(
     buildOrgWorkspaceTiles({
-      workspaceBaseUrl: "https://cloud.roebel.app",
+      chatBaseUrl: "https://chat.roebel.app",
       mailBaseUrl: "https://mail.roebel.app",
       org: ORG,
     })
   );
-  assert.deepEqual(visible.map((t) => t.id), ["org-nextcloud", "org-mail"]);
+  assert.deepEqual(visible.map((t) => t.id), ["org-chat", "org-mail"]);
   assert.equal(visible[1].href, "https://mail.roebel.app");
 });
 
@@ -47,20 +58,9 @@ test("agent workspace tile lights up when configured (humans + AI agents, one sp
   assert.equal(agents.icon, "agents");
 });
 
-test("files tile is unconfigured without a workspace base url", () => {
-  const files = buildOrgWorkspaceTiles({
-    chatBaseUrl: "https://chat.roebel.app",
-    org: ORG,
-  }).find((t) => t.id === "org-nextcloud");
-  assert.ok(files);
-  assert.equal(files.requiresConfig, true);
-  assert.equal(files.configured, false);
-  assert.equal(files.href, "");
-});
-
 test("chat tile is unconfigured without a chat base url", () => {
   const chat = buildOrgWorkspaceTiles({
-    workspaceBaseUrl: "https://cloud.roebel.app",
+    mailBaseUrl: "https://mail.roebel.app",
     org: ORG,
   }).find((t) => t.id === "org-chat");
   assert.ok(chat);
@@ -71,28 +71,28 @@ test("chat tile is unconfigured without a chat base url", () => {
 
 test("configured tiles carry trimmed base-url hrefs", () => {
   const tiles = buildOrgWorkspaceTiles({
-    workspaceBaseUrl: "https://cloud.roebel.app/",
     chatBaseUrl: "https://chat.roebel.app/",
+    mailBaseUrl: "https://mail.roebel.app/",
     org: ORG,
   });
-  const files = tiles.find((t) => t.id === "org-nextcloud");
   const chat = tiles.find((t) => t.id === "org-chat");
-  assert.equal(files?.href, "https://cloud.roebel.app");
+  const mail = tiles.find((t) => t.id === "org-mail");
   assert.equal(chat?.href, "https://chat.roebel.app");
-  assert.equal(files?.configured, true);
+  assert.equal(mail?.href, "https://mail.roebel.app");
   assert.equal(chat?.configured, true);
+  assert.equal(mail?.configured, true);
 });
 
 test("filterAvailableTiles hides the tile whose base url is unset", () => {
   const visible = filterAvailableTiles(
     buildOrgWorkspaceTiles({
-      workspaceBaseUrl: "https://cloud.roebel.app",
+      chatBaseUrl: "https://chat.roebel.app",
       org: ORG,
     })
   );
   assert.deepEqual(
     visible.map((t) => t.id),
-    ["org-nextcloud"]
+    ["org-chat"]
   );
 });
 

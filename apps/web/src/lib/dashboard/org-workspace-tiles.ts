@@ -1,9 +1,12 @@
 /**
  * Org workspace SSO tiles. The org analog of `buildWorkspaceTiles`
  * (@/lib/dashboard/workspace-tiles): tiles link out to the org's SHARED
- * office apps, each authenticating the user via Röbel ID (OIDC). Scoping to
- * the org's own group folder / chat room is enforced downstream by the
- * `org:<accountId>:<role>` group claim in Nextcloud/Matrix — not here — so v1
+ * office apps, each authenticating the user via Röbel ID (OIDC). Files are
+ * native now (mounted via `FileBrowser` with an org scope on the org
+ * Arbeitsbereich page), so this only covers the surfaces that still link
+ * out: chat, mail, wiki, video, project and the agent workspace. Scoping to
+ * the org's own chat room is enforced downstream by the
+ * `org:<accountId>:<role>` group claim in Matrix — not here — so v1
  * simply links to the configured base URL.
  *
  * Pure + React-free so it is unit-testable under node:test. The UI layer maps
@@ -52,7 +55,6 @@ export function buildOrgWorkspaceTiles(
     (url ?? "").trim().replace(/\/+$/, "");
 
   const entries: Array<{ id: string; label: string; icon: string; url: string }> = [
-    { id: "org-nextcloud", label: "Dateien & Dokumente", icon: "cloud", url: normalise(config.workspaceBaseUrl) },
     { id: "org-chat", label: "Team-Chat", icon: "messages", url: normalise(config.chatBaseUrl) },
     { id: "org-mail", label: "E-Mail & Kalender", icon: "mail", url: normalise(config.mailBaseUrl) },
     { id: "org-wiki", label: "Wissen & Wiki", icon: "wiki", url: normalise(config.wikiBaseUrl) },

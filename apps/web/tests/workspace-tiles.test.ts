@@ -6,21 +6,15 @@ import {
   type WorkspaceTile,
 } from "../src/lib/dashboard/workspace-tiles";
 
-test("nextcloud tile is unconfigured when no base url", () => {
-  const nc = buildWorkspaceTiles({}).find((t) => t.id === "nextcloud");
-  assert.ok(nc);
-  assert.equal(nc.requiresConfig, true);
-  assert.equal(nc.configured, false);
-  assert.equal(nc.href, "");
-});
-
-test("nextcloud tile lights up with a base url (trailing slash trimmed)", () => {
-  const nc = buildWorkspaceTiles({
-    workspaceBaseUrl: "https://cloud.roebel.app/",
-  }).find((t) => t.id === "nextcloud");
-  assert.ok(nc);
-  assert.equal(nc.configured, true);
-  assert.equal(nc.href, "https://cloud.roebel.app");
+// Files are a native surface now (/arbeitsbereich/dateien), so a tile that
+// linked out to Nextcloud would be a second, worse route to the same place.
+test("no longer offers a files tile", () => {
+  const ids = buildWorkspaceTiles({
+    workspaceBaseUrl: "https://cloud.example",
+    chatBaseUrl: "https://chat.example",
+  }).map((t) => t.id);
+  assert.equal(ids.includes("nextcloud"), false);
+  assert.equal(ids.includes("chat"), true);
 });
 
 test("filter hides requiresConfig tiles that are unconfigured", () => {
@@ -36,18 +30,18 @@ test("unconfigured workspace yields no visible tiles", () => {
   assert.equal(filterAvailableTiles(buildWorkspaceTiles({})).length, 0);
 });
 
-test("configured workspace yields the nextcloud tile", () => {
+test("configured workspace yields the chat tile", () => {
   const visible = filterAvailableTiles(
-    buildWorkspaceTiles({ workspaceBaseUrl: "https://cloud.roebel.app" })
+    buildWorkspaceTiles({ chatBaseUrl: "https://chat.roebel.app" })
   );
   assert.equal(visible.length, 1);
-  assert.equal(visible[0].id, "nextcloud");
+  assert.equal(visible[0].id, "chat");
 });
 
 test("the citizen suite covers the openDesk equivalents + the agent workspace", () => {
   assert.deepEqual(
     buildWorkspaceTiles({}).map((t) => t.id),
-    ["nextcloud", "chat", "mail", "wiki", "video", "project", "agents"]
+    ["chat", "mail", "wiki", "video", "project", "agents"]
   );
 });
 
@@ -59,6 +53,6 @@ test("each suite member is independently config-gated", () => {
     })
   );
   assert.deepEqual(visible.map((t) => t.id), ["video", "agents"]);
-  // trailing slash trimmed on every member, not just nextcloud
+  // trailing slash trimmed on every member
   assert.equal(visible[1].href, "https://agents.roebel.app");
 });

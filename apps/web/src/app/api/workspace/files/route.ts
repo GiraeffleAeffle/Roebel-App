@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildAction } from "@netizen-labs/workspace";
-import { requireWorkspace, resolveScope } from "@/lib/workspace/context";
+import { ensureOrgFolder, requireWorkspace, resolveScope } from "@/lib/workspace/context";
 import { errorResponse, parseScopeRequest } from "@/lib/workspace/request";
 import { recordWorkspaceAction } from "@/lib/workspace/provenance-sink";
 
@@ -8,9 +8,10 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
-    const { session, client } = await requireWorkspace();
+    const { session, client, provisioner } = await requireWorkspace();
     const parsed = parseScopeRequest(new URL(request.url));
     const scope = resolveScope({ session, ...parsed });
+    await ensureOrgFolder({ session, client, provisioner }, scope);
     return NextResponse.json({ entries: await client.listDirectory(scope, parsed.path) });
   } catch (error) {
     return errorResponse(error);

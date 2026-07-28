@@ -1,9 +1,11 @@
 /**
  * Workspace SSO tiles. Each tile links out to an office app that authenticates
  * the citizen via Röbel ID (OIDC against roebel-id.fly.dev) — the tile itself
- * only carries the link; SSO is handled by the target app. v1 ships one tile,
- * Nextcloud/Collabora, gated on a configured workspace base URL. Add Buzz /
- * openDesk / Netizen tiles here later by extending `buildWorkspaceTiles`.
+ * only carries the link; SSO is handled by the target app. Files are native
+ * now (/arbeitsbereich/dateien, mounted via `FileBrowser`), so this only
+ * covers the office surfaces that still link out: chat, mail, wiki, video,
+ * project and the agent workspace. Add Buzz / openDesk / Netizen tiles here
+ * later by extending `buildWorkspaceTiles`.
  *
  * Pure + React-free on purpose so it is unit-testable under node:test. The UI
  * layer maps the string `icon` key to a lucide component and reads the base URL
@@ -57,7 +59,6 @@ function normalise(url: string | null | undefined): string {
  */
 export function buildWorkspaceTiles(config: WorkspaceTileConfig): WorkspaceTile[] {
   const entries: Array<{ id: string; label: string; icon: string; url: string }> = [
-    { id: "nextcloud", label: "Dokumente & Dateien", icon: "cloud", url: normalise(config.workspaceBaseUrl) },
     { id: "chat", label: "Chat", icon: "messages", url: normalise(config.chatBaseUrl) },
     { id: "mail", label: "E-Mail & Kalender", icon: "mail", url: normalise(config.mailBaseUrl) },
     { id: "wiki", label: "Wissen & Wiki", icon: "wiki", url: normalise(config.wikiBaseUrl) },

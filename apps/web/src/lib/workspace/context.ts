@@ -11,7 +11,7 @@ import {
 import { workspaceConfig } from "./config";
 import { refreshTokens } from "./oidc";
 import { createSessionStore } from "./session-store";
-import { hasOrgAccess, isExpired, type WorkspaceSession } from "./session";
+import { hasOrgAccess, isExpired, orgGroupId, type WorkspaceSession } from "./session";
 
 export const SESSION_COOKIE = "roebel_ws";
 
@@ -137,4 +137,19 @@ export async function requireWorkspace(): Promise<WorkspaceContext> {
       adminPassword: cfg.nextcloudAdminPassword,
     }),
   };
+}
+
+/**
+ * Ensure the org's shared folder exists and is bound to its group. Idempotent
+ * and create-if-absent, so it is safe on the request path — this is what closes
+ * the group-folder gap rather than leaving it to a runbook.
+ */
+export async function ensureOrgFolder(
+  ctx: WorkspaceContext,
+  scope: WorkspaceScope,
+): Promise<void> {
+  if (scope.kind !== "org" || !scope.accountId || !scope.folderName) return;
+  const groupId = orgGroupId(scope.accountId);
+  await ctx.provisioner.ensureGroup(groupId);
+  await ctx.provisioner.ensureGroupFolder({ name: scope.folderName, groupId });
 }
