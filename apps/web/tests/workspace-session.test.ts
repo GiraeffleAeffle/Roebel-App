@@ -1,0 +1,116 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { buildAuthorizationUrl, createPkcePair } from "../src/lib/workspace/oidc";
+import {
+  hasOrgAccess,
+  isExpired,
+  newSessionId,
+  orgGroupId,
+  sessionMatchesWallet,
+  type WorkspaceSession,
+} from "../src/lib/workspace/session";
+
+const session: WorkspaceSession = {
+  sub: "0xAbC0000000000000000000000000000000000001",
+  groups: ["citizen", "org:acc-7:member"],
+  accessToken: "at",
+  refreshToken: "rt",
+  expiresAt: 2_000_000_000_000,
+};
+
+describe("newSessionId", () => {
+  // The cookie carries ONLY this id; the tokens live in Postgres, because
+  // Collabora calls the WOPI endpoints with no cookie at all.
+  it("is url-safe, so it can sit in a cookie and in a WOPI token", () => {
+    assert.match(newSessionId(), /^[A-Za-z0-9_-]+$/);
+  });
+
+  it("carries at least 128 bits, since possessing it IS the session", () => {
+    // base64url: 4 chars per 3 bytes. 32 bytes -> 43 chars.
+    assert.ok(newSessionId().length >= 43);
+  });
+
+  it("does not repeat", () => {
+    const ids = new Set(Array.from({ length: 500 }, () => newSessionId()));
+    assert.equal(ids.size, 500);
+  });
+});
+
+describe("expiry", () => {
+  it("is expired once the clock passes expiresAt", () => {
+    assert.equal(isExpired(session, 2_000_000_000_001), true);
+  });
+
+  // Refreshing slightly early avoids a token that dies mid-request.
+  it("is treated as expired inside the 30s skew window", () => {
+    assert.equal(isExpired(session, 2_000_000_000_000 - 15_000), true);
+    assert.equal(isExpired(session, 2_000_000_000_000 - 45_000), false);
+  });
+});
+
+describe("wallet binding", () => {
+  it("matches case-insensitively, because checksummed and lowercase forms both occur", () => {
+    assert.equal(
+      sessionMatchesWallet(session, "0xabc0000000000000000000000000000000000001"),
+      true,
+    );
+  });
+
+  // Without this the previous citizen's files would stay on screen after a switch.
+  it("does not match a different wallet", () => {
+    assert.equal(
+      sessionMatchesWallet(session, "0x0000000000000000000000000000000000000002"),
+      false,
+    );
+  });
+});
+
+describe("org access", () => {
+  it("derives the group id the keystone emits", () => {
+    assert.equal(orgGroupId("acc-7"), "org:acc-7:member");
+  });
+
+  it("grants access when the claim is present", () => {
+    assert.equal(hasOrgAccess(session, "acc-7"), true);
+  });
+
+  it("denies access for an org the citizen has no claim for", () => {
+    assert.equal(hasOrgAccess(session, "acc-9"), false);
+  });
+
+  it("accepts any role, not only member", () => {
+    const owner = { ...session, groups: ["org:acc-9:owner"] };
+    assert.equal(hasOrgAccess(owner, "acc-9"), true);
+  });
+});
+
+describe("pkce + authorization url", () => {
+  it("derives an S256 challenge from the verifier", async () => {
+    const { verifier, challenge } = await createPkcePair();
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(verifier),
+    );
+    const expected = Buffer.from(new Uint8Array(digest)).toString("base64url");
+    assert.equal(challenge, expected);
+  });
+
+  it("builds a spec-shaped authorization request", () => {
+    const url = new URL(
+      buildAuthorizationUrl({
+        issuer: "https://id.roebel.app",
+        clientId: "roebel-web",
+        redirectUri: "https://roebel.app/api/workspace/auth/callback",
+        state: "st",
+        codeChallenge: "ch",
+      }),
+    );
+    assert.equal(url.origin + url.pathname, "https://id.roebel.app/auth");
+    assert.equal(url.searchParams.get("response_type"), "code");
+    assert.equal(url.searchParams.get("client_id"), "roebel-web");
+    assert.equal(url.searchParams.get("code_challenge_method"), "S256");
+    assert.equal(url.searchParams.get("code_challenge"), "ch");
+    assert.equal(url.searchParams.get("state"), "st");
+    assert.equal(url.searchParams.get("scope"), "openid profile email roebel");
+  });
+});
