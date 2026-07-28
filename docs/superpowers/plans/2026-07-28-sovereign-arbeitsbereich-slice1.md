@@ -1760,6 +1760,7 @@ const SECRET = new Uint8Array(32).fill(7);
 const scope: WorkspaceScope = { kind: "personal", sub: "0xabc" };
 const claims: WopiClaims = {
   sub: "0xabc",
+  sessionId: "sess-1",
   scope,
   path: "Dokumente/Antrag.odt",
   canWrite: true,
@@ -1902,9 +1903,14 @@ import type { WorkspaceScope } from "./types";
 /**
  * What a WOPI session is allowed to touch. Bound to ONE path, so a leaked
  * token opens one document for its remaining lifetime rather than a filesystem.
+ *
+ * `sessionId` is how the WOPI endpoints reach the citizen's Nextcloud tokens:
+ * Collabora calls them itself with no browser cookie, so the token has to carry
+ * the handle to the server-side session.
  */
 export interface WopiClaims {
   sub: string;
+  sessionId: string;
   scope: WorkspaceScope;
   path: string;
   canWrite: boolean;
@@ -1967,6 +1973,7 @@ export async function verifyWopiToken(
   const { payload } = await jwtVerify(token, secret);
   return {
     sub: payload.sub as string,
+    sessionId: payload.sessionId as string,
     scope: payload.scope as WorkspaceScope,
     path: payload.path as string,
     canWrite: payload.canWrite as boolean,
@@ -2270,9 +2277,19 @@ repo root, or the build context is 30 GB."
 
 Pure and React-free, so the whole auth surface is unit-tested before a route handler exists.
 
+> **The session is stored server-side.** Collabora calls the WOPI endpoints
+> (Task 13) server-to-server, carrying no browser cookie — so a session that
+> lives only in a cookie is unreadable exactly where a document load needs it.
+> The tokens therefore live in Postgres; the cookie and the WOPI token both
+> carry only an opaque session id. Two consequences worth having anyway: no
+> token ever reaches the browser, and an edit that outlives the access token's
+> hour still saves, because the server can refresh mid-session.
+
 **Files:**
 - Create: `apps/web/src/lib/workspace/oidc.ts`
 - Create: `apps/web/src/lib/workspace/session.ts`
+- Create: `apps/web/src/lib/workspace/session-store.ts`
+- Create: `supabase/migrations/20260728_workspace_sessions.sql`
 - Modify: `apps/web/.env.example`
 - Test: `apps/web/tests/workspace-session.test.ts`
 
@@ -2280,14 +2297,16 @@ Pure and React-free, so the whole auth surface is unit-tested before a route han
 - Consumes: nothing from earlier tasks.
 - Produces:
   - `interface WorkspaceSession { sub: string; groups: string[]; accessToken: string; refreshToken: string | null; expiresAt: number }`
-  - `function sealSession(s: WorkspaceSession, key: Uint8Array): Promise<string>`
-  - `function openSession(jwe: string, key: Uint8Array): Promise<WorkspaceSession | null>`
+  - `function newSessionId(): string`
   - `function isExpired(s: WorkspaceSession, nowMs: number): boolean`
   - `function sessionMatchesWallet(s: WorkspaceSession, wallet: string): boolean`
   - `function orgGroupId(accountId: string): string`
   - `function hasOrgAccess(s: WorkspaceSession, accountId: string): boolean`
+  - `interface SessionStore { create(id, s): Promise<void>; get(id): Promise<WorkspaceSession | null>; update(id, s): Promise<void>; destroy(id): Promise<void> }`
+  - `function createSessionStore(): SessionStore`
   - `function createPkcePair(): Promise<{ verifier: string; challenge: string }>`
   - `function buildAuthorizationUrl(p: { issuer: string; clientId: string; redirectUri: string; state: string; codeChallenge: string }): string`
+  - `function verifyIdToken(idToken: string, issuer: string, clientId: string): Promise<{ sub: string; groups: string[] }>`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2300,14 +2319,12 @@ import { buildAuthorizationUrl, createPkcePair } from "../src/lib/workspace/oidc
 import {
   hasOrgAccess,
   isExpired,
-  openSession,
+  newSessionId,
   orgGroupId,
-  sealSession,
   sessionMatchesWallet,
   type WorkspaceSession,
 } from "../src/lib/workspace/session";
 
-const KEY = new Uint8Array(32).fill(3);
 const session: WorkspaceSession = {
   sub: "0xAbC0000000000000000000000000000000000001",
   groups: ["citizen", "org:acc-7:member"],
@@ -2316,25 +2333,21 @@ const session: WorkspaceSession = {
   expiresAt: 2_000_000_000_000,
 };
 
-describe("session sealing", () => {
-  it("round-trips through an encrypted cookie", async () => {
-    const sealed = await sealSession(session, KEY);
-    assert.deepEqual(await openSession(sealed, KEY), session);
+describe("newSessionId", () => {
+  // The cookie carries ONLY this id; the tokens live in Postgres, because
+  // Collabora calls the WOPI endpoints with no cookie at all.
+  it("is url-safe, so it can sit in a cookie and in a WOPI token", () => {
+    assert.match(newSessionId(), /^[A-Za-z0-9_-]+$/);
   });
 
-  it("is opaque — the token must not be readable from the cookie", async () => {
-    const sealed = await sealSession(session, KEY);
-    assert.doesNotMatch(sealed, /"at"|"rt"|0xAbC/i);
+  it("carries at least 128 bits, since possessing it IS the session", () => {
+    // base64url: 4 chars per 3 bytes. 32 bytes -> 43 chars.
+    assert.ok(newSessionId().length >= 43);
   });
 
-  it("returns null rather than throwing on a tampered cookie", async () => {
-    const sealed = await sealSession(session, KEY);
-    assert.equal(await openSession(`${sealed}x`, KEY), null);
-  });
-
-  it("returns null for a cookie sealed with a different key", async () => {
-    const sealed = await sealSession(session, KEY);
-    assert.equal(await openSession(sealed, new Uint8Array(32).fill(9)), null);
+  it("does not repeat", () => {
+    const ids = new Set(Array.from({ length: 500 }, () => newSessionId()));
+    assert.equal(ids.size, 500);
   });
 });
 
@@ -2431,12 +2444,14 @@ Expected: FAIL — `Cannot find module '../src/lib/workspace/session'`.
 `apps/web/src/lib/workspace/session.ts`:
 
 ```typescript
-import { CompactEncrypt, compactDecrypt } from "jose";
-
 /**
- * The citizen's workspace session, held server-side and sealed into an httpOnly
- * cookie. Access tokens never reach the browser: every Nextcloud call is
- * proxied by a route handler.
+ * The citizen's workspace session. Stored server-side (see session-store.ts);
+ * the cookie and the WOPI token carry only an opaque id.
+ *
+ * Server-side because Collabora calls the WOPI endpoints itself, with no
+ * browser cookie — a cookie-only session is unreadable exactly where a
+ * document load needs it. Two properties follow for free: no token ever
+ * reaches the browser, and a long edit can be refreshed mid-session.
  */
 export interface WorkspaceSession {
   /** OIDC `sub` — the smart-account address, which is also the Nextcloud uid. */
@@ -2452,30 +2467,14 @@ export interface WorkspaceSession {
 /** Refresh this far before real expiry so a token cannot die mid-request. */
 const SKEW_MS = 30_000;
 
-export async function sealSession(
-  session: WorkspaceSession,
-  key: Uint8Array,
-): Promise<string> {
-  return new CompactEncrypt(new TextEncoder().encode(JSON.stringify(session)))
-    .setProtectedHeader({ alg: "dir", enc: "A256GCM" })
-    .encrypt(key);
-}
-
 /**
- * Returns null rather than throwing on any failure. A tampered or stale cookie
- * is an ordinary "not signed in", and making callers wrap every read in a
- * try/catch would guarantee one of them eventually forgets.
+ * A fresh session id. Possessing this id IS the session, so it is 32 bytes of
+ * CSPRNG output — not a counter, a uuid v4, or anything derived from the user.
  */
-export async function openSession(
-  jwe: string,
-  key: Uint8Array,
-): Promise<WorkspaceSession | null> {
-  try {
-    const { plaintext } = await compactDecrypt(jwe, key);
-    return JSON.parse(new TextDecoder().decode(plaintext)) as WorkspaceSession;
-  } catch {
-    return null;
-  }
+export function newSessionId(): string {
+  return Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString(
+    "base64url",
+  );
 }
 
 export function isExpired(session: WorkspaceSession, nowMs: number): boolean {
@@ -2509,7 +2508,117 @@ export function hasOrgAccess(
 }
 ```
 
-- [ ] **Step 4: Write `oidc.ts`**
+- [ ] **Step 4: Write the session store and its migration**
+
+`supabase/migrations/20260728_workspace_sessions.sql`:
+
+```sql
+-- Workspace sessions. Server-side because Collabora calls the WOPI endpoints
+-- itself, carrying no browser cookie — a cookie-only session is unreadable
+-- exactly where a document load needs it.
+create table if not exists public.workspace_sessions (
+  id            text        primary key,
+  sub           text        not null,
+  groups        text[]      not null default '{}',
+  access_token  text        not null,
+  refresh_token text,
+  expires_at    timestamptz not null,
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists workspace_sessions_sub_idx on public.workspace_sessions (sub);
+
+-- This table holds live OAuth tokens. RLS on with NO policies, plus an explicit
+-- revoke: the anon key ships inside the app bundle, and a readable version
+-- would hand any reader every citizen's Nextcloud access token.
+alter table public.workspace_sessions enable row level security;
+revoke all on public.workspace_sessions from anon, authenticated;
+```
+
+Apply it with the Supabase MCP — the CLI is deliberately not installed in this repo.
+
+`apps/web/src/lib/workspace/session-store.ts`:
+
+```typescript
+import { createClient } from "@supabase/supabase-js";
+import type { WorkspaceSession } from "./session";
+
+export interface SessionStore {
+  create(id: string, session: WorkspaceSession): Promise<void>;
+  get(id: string): Promise<WorkspaceSession | null>;
+  update(id: string, session: WorkspaceSession): Promise<void>;
+  destroy(id: string): Promise<void>;
+}
+
+function serviceClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
+}
+
+function toSession(row: {
+  sub: string;
+  groups: string[] | null;
+  access_token: string;
+  refresh_token: string | null;
+  expires_at: string;
+}): WorkspaceSession {
+  return {
+    sub: row.sub,
+    groups: row.groups ?? [],
+    accessToken: row.access_token,
+    refreshToken: row.refresh_token,
+    expiresAt: Date.parse(row.expires_at),
+  };
+}
+
+export function createSessionStore(): SessionStore {
+  return {
+    async create(id, session) {
+      const { error } = await serviceClient().from("workspace_sessions").insert({
+        id,
+        sub: session.sub,
+        groups: session.groups,
+        access_token: session.accessToken,
+        refresh_token: session.refreshToken,
+        expires_at: new Date(session.expiresAt).toISOString(),
+      });
+      if (error) throw new Error(error.message);
+    },
+
+    async get(id) {
+      const { data, error } = await serviceClient()
+        .from("workspace_sessions")
+        .select("sub, groups, access_token, refresh_token, expires_at")
+        .eq("id", id)
+        .maybeSingle();
+      // A missing row is "not signed in", not a failure. An actual query error
+      // IS a failure and must not be silently read as a logged-out user.
+      if (error) throw new Error(error.message);
+      return data ? toSession(data) : null;
+    },
+
+    async update(id, session) {
+      const { error } = await serviceClient()
+        .from("workspace_sessions")
+        .update({
+          access_token: session.accessToken,
+          refresh_token: session.refreshToken,
+          expires_at: new Date(session.expiresAt).toISOString(),
+        })
+        .eq("id", id);
+      if (error) throw new Error(error.message);
+    },
+
+    async destroy(id) {
+      await serviceClient().from("workspace_sessions").delete().eq("id", id);
+    },
+  };
+}
+```
+
+- [ ] **Step 5: Write `oidc.ts`**
 
 `apps/web/src/lib/workspace/oidc.ts`:
 
@@ -2606,9 +2715,59 @@ export async function refreshTokens(params: {
     refresh_token: params.refreshToken,
   });
 }
+
+// Cached across requests: the keystone's key set changes on rotation, not per
+// login, and createRemoteJWKSet handles the refresh itself.
+let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+
+/**
+ * Verify the id_token against the keystone's published keys and read its
+ * claims.
+ *
+ * This token arrives from the token endpoint over TLS under client
+ * authentication, so the signature check is belt-and-braces. It is here anyway
+ * because the alternative is an unverified-JWT parser sitting in the codebase
+ * for someone to reuse somewhere the reasoning does not hold.
+ */
+export async function verifyIdToken(
+  idToken: string,
+  issuer: string,
+  clientId: string,
+): Promise<{ sub: string; groups: string[] }> {
+  if (!jwks) jwks = createRemoteJWKSet(new URL("/jwks", issuer));
+  const { payload } = await jwtVerify(idToken, jwks, {
+    issuer,
+    audience: clientId,
+  });
+
+  const sub = payload.sub;
+  if (typeof sub !== "string" || sub.length === 0) {
+    throw new Error("id_token has no sub");
+  }
+
+  const raw = (payload as Record<string, unknown>).groups;
+  const groups = Array.isArray(raw)
+    ? raw.map(String)
+    : typeof raw === "string"
+      ? raw.split(" ").filter(Boolean)
+      : [];
+
+  return { sub, groups };
+}
 ```
 
-- [ ] **Step 5: Run the tests**
+Add the import at the top of the file:
+
+```typescript
+import { createRemoteJWKSet, jwtVerify } from "jose";
+```
+
+> Confirm the JWKS path against the keystone's own discovery document before
+> hardcoding `/jwks`:
+> `curl -s https://id.roebel.app/.well-known/openid-configuration | grep jwks_uri`.
+> Use whatever `jwks_uri` reports.
+
+- [ ] **Step 6: Run the tests**
 
 ```bash
 pnpm test:web
@@ -2616,7 +2775,7 @@ pnpm test:web
 
 Expected: PASS.
 
-- [ ] **Step 6: Document the env vars**
+- [ ] **Step 7: Document the env vars**
 
 Append to `apps/web/.env.example` — placeholders only:
 
@@ -2627,7 +2786,6 @@ ROEBEL_ID_ISSUER=https://id.roebel.app
 WORKSPACE_CLIENT_ID=roebel-web
 WORKSPACE_CLIENT_SECRET=replace-me
 # 32 random bytes, base64: openssl rand -base64 32
-WORKSPACE_SESSION_KEY=replace-me
 WOPI_TOKEN_SECRET=replace-me
 NEXTCLOUD_BASE_URL=https://cloud.roebel.app
 NEXTCLOUD_ADMIN_USER=replace-me
@@ -2636,21 +2794,30 @@ COLLABORA_BASE_URL=https://cloud.roebel.app
 NEXT_PUBLIC_APP_ORIGIN=https://roebel.app
 ```
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add apps/web/src/lib/workspace/oidc.ts apps/web/src/lib/workspace/session.ts \
+        apps/web/src/lib/workspace/session-store.ts \
+        supabase/migrations/20260728_workspace_sessions.sql \
         apps/web/.env.example apps/web/tests/workspace-session.test.ts
-git commit -m "feat(web): the workspace session, sealed and keyed to sub
+git commit -m "feat(web): the workspace session, server-side and keyed to sub
 
-Tokens live in an encrypted httpOnly cookie and never reach the
-browser. The session is keyed to sub, so switching wallets in the app
-discards it — otherwise the previous citizen's files would stay on
-screen, which is an identity bug rather than a caching one.
+Tokens live in Postgres; the cookie carries only an opaque id. That is
+forced by Collabora, which calls the WOPI endpoints itself with no
+browser cookie — a cookie-only session is unreadable exactly where a
+document load needs it. Two properties come along: no token ever
+reaches the browser, and an edit outliving the access token's hour can
+still be refreshed and saved.
 
-openSession returns null instead of throwing: a tampered cookie is an
-ordinary 'not signed in', and a throwing reader guarantees some call
-site eventually forgets the try/catch."
+The session is keyed to sub, so switching wallets discards it —
+otherwise the previous citizen's files stay on screen, which is an
+identity bug rather than a caching one.
+
+The id_token is verified against the keystone's JWKS. It arrives over
+TLS under client auth so this is belt-and-braces, but the alternative
+is an unverified-JWT parser sitting in the codebase to be reused
+somewhere the reasoning does not hold."
 ```
 
 ---
@@ -2671,6 +2838,12 @@ Every route handler needs the same four things: a valid session, a refreshed tok
   - `function isWorkspaceEnabled(): boolean`
   - `class WorkspaceAuthError extends Error { readonly reason: "no-session" | "expired" | "forbidden" }`
   - `function resolveScope(p: { session: WorkspaceSession; scopeKind: string | null; accountId: string | null; orgName: string | null }): WorkspaceScope`
+  - `const SESSION_COOKIE = "roebel_ws"` — holds only the opaque session id
+  - `function loadSession(sessionId: string): Promise<WorkspaceSession | null>` — the id-taking form the WOPI endpoints need
+  - `function readSession(): Promise<WorkspaceSession | null>` — the cookie-reading form
+  - `function readSessionId(): Promise<string | null>`
+  - `interface WorkspaceContext { session; client; provisioner }`
+  - `function requireWorkspace(): Promise<WorkspaceContext>`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2783,7 +2956,6 @@ export interface WorkspaceConfig {
   issuer: string;
   clientId: string;
   clientSecret: string;
-  sessionKey: Uint8Array;
   wopiSecret: Uint8Array;
   nextcloudBaseUrl: string;
   nextcloudAdminUser: string;
@@ -2796,7 +2968,6 @@ const REQUIRED = [
   "ROEBEL_ID_ISSUER",
   "WORKSPACE_CLIENT_ID",
   "WORKSPACE_CLIENT_SECRET",
-  "WORKSPACE_SESSION_KEY",
   "WOPI_TOKEN_SECRET",
   "NEXTCLOUD_BASE_URL",
   "NEXTCLOUD_ADMIN_USER",
@@ -2818,7 +2989,6 @@ export function workspaceConfig(): WorkspaceConfig {
     issuer: process.env.ROEBEL_ID_ISSUER!,
     clientId: process.env.WORKSPACE_CLIENT_ID!,
     clientSecret: process.env.WORKSPACE_CLIENT_SECRET!,
-    sessionKey: new Uint8Array(Buffer.from(process.env.WORKSPACE_SESSION_KEY!, "base64")),
     wopiSecret: new Uint8Array(Buffer.from(process.env.WOPI_TOKEN_SECRET!, "base64")),
     nextcloudBaseUrl: process.env.NEXTCLOUD_BASE_URL!,
     nextcloudAdminUser: process.env.NEXTCLOUD_ADMIN_USER!,
@@ -2846,13 +3016,8 @@ import {
 } from "@netizen-labs/workspace";
 import { workspaceConfig } from "./config";
 import { refreshTokens } from "./oidc";
-import {
-  hasOrgAccess,
-  isExpired,
-  openSession,
-  sealSession,
-  type WorkspaceSession,
-} from "./session";
+import { createSessionStore } from "./session-store";
+import { hasOrgAccess, isExpired, type WorkspaceSession } from "./session";
 
 export const SESSION_COOKIE = "roebel_ws";
 
@@ -2900,17 +3065,20 @@ export function resolveScope(params: {
 }
 
 /**
- * Read the session cookie, refreshing the access token when it is close to
- * expiry. Returns null when there is no usable session, which the route
- * handlers turn into a 401 the client answers by starting the OIDC hop.
+ * Load a session by id, refreshing the access token when it is close to expiry
+ * and writing the refreshed tokens back to the store.
+ *
+ * Takes the id rather than reading the cookie, because the WOPI endpoints have
+ * no cookie to read — Collabora calls them itself. That is the whole reason the
+ * session lives in Postgres.
  */
-export async function readSession(): Promise<WorkspaceSession | null> {
+export async function loadSession(
+  sessionId: string,
+): Promise<WorkspaceSession | null> {
   const cfg = workspaceConfig();
-  const jar = await cookies();
-  const raw = jar.get(SESSION_COOKIE)?.value;
-  if (!raw) return null;
+  const store = createSessionStore();
 
-  const session = await openSession(raw, cfg.sessionKey);
+  const session = await store.get(sessionId);
   if (!session) return null;
   if (!isExpired(session, Date.now())) return session;
   if (!session.refreshToken) return null;
@@ -2928,18 +3096,26 @@ export async function readSession(): Promise<WorkspaceSession | null> {
       refreshToken: tokens.refresh_token ?? session.refreshToken,
       expiresAt: Date.now() + tokens.expires_in * 1000,
     };
-    jar.set(SESSION_COOKIE, await sealSession(refreshed, cfg.sessionKey), {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      path: "/",
-    });
+    await store.update(sessionId, refreshed);
     return refreshed;
   } catch {
     // A refusal to refresh means the session is over. Re-authenticating is the
     // correct answer, not an error page.
     return null;
   }
+}
+
+/** The browser's session: the cookie carries the id, nothing else. */
+export async function readSession(): Promise<WorkspaceSession | null> {
+  const jar = await cookies();
+  const sessionId = jar.get(SESSION_COOKIE)?.value;
+  return sessionId ? loadSession(sessionId) : null;
+}
+
+/** The session id itself, for minting a WOPI token that outlives the request. */
+export async function readSessionId(): Promise<string | null> {
+  const jar = await cookies();
+  return jar.get(SESSION_COOKIE)?.value ?? null;
 }
 
 /** The session plus everything a handler needs to act on it. */
@@ -3012,59 +3188,50 @@ token, not an error page."
 - Create: `apps/web/src/app/api/workspace/auth/login/route.ts`
 - Create: `apps/web/src/app/api/workspace/auth/callback/route.ts`
 - Create: `apps/web/src/app/api/workspace/auth/logout/route.ts`
-- Create: `apps/web/src/lib/workspace/claims.ts`
-- Test: `apps/web/tests/workspace-claims.test.ts`
+- Create: `apps/web/src/lib/workspace/return-to.ts`
+- Test: `apps/web/tests/workspace-return-to.test.ts`
 
 **Interfaces:**
-- Consumes: `buildAuthorizationUrl`, `createPkcePair`, `exchangeCode` (Task 9); `sealSession` (Task 9); `SESSION_COOKIE`, `workspaceConfig` (Task 10).
-- Produces: `function claimsFromIdToken(idToken: string): { sub: string; groups: string[] }`
+- Consumes: `buildAuthorizationUrl`, `createPkcePair`, `exchangeCode`, `verifyIdToken`, `newSessionId`, `createSessionStore` (Task 9); `SESSION_COOKIE`, `workspaceConfig` (Task 10).
+- Produces: `function safeReturnTo(raw: string | null): string`
+
+> **Claims come from `verifyIdToken` (Task 9), not from an unverified parser.**
+> There is deliberately no `claims.ts`: an unverified-JWT reader in the codebase
+> is something a later contributor reuses where the reasoning does not hold.
 
 - [ ] **Step 1: Write the failing test**
 
-`apps/web/tests/workspace-claims.test.ts`:
+`apps/web/tests/workspace-return-to.test.ts`:
 
 ```typescript
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { claimsFromIdToken } from "../src/lib/workspace/claims";
+import { safeReturnTo } from "../src/lib/workspace/return-to";
 
-/** Build an unsigned JWT body — the signature is verified upstream at /token. */
-function idToken(payload: Record<string, unknown>): string {
-  const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
-  return `${b64({ alg: "RS256" })}.${b64(payload)}.sig`;
-}
+describe("safeReturnTo", () => {
+  it("keeps a relative path inside the app", () => {
+    assert.equal(safeReturnTo("/arbeitsbereich/dateien"), "/arbeitsbereich/dateien");
+  });
 
-describe("claimsFromIdToken", () => {
-  it("reads the sub and the groups claim", () => {
-    const token = idToken({ sub: "0xabc", groups: ["citizen", "org:acc-7:member"] });
-    assert.deepEqual(claimsFromIdToken(token), {
-      sub: "0xabc",
-      groups: ["citizen", "org:acc-7:member"],
+  it("falls back to the workspace root when absent", () => {
+    assert.equal(safeReturnTo(null), "/arbeitsbereich");
+  });
+
+  // Anything below is an open redirect: the callback appends returnTo to our
+  // own origin, so a value that escapes the path sends the citizen elsewhere
+  // immediately after they authenticated.
+  for (const attack of [
+    "https://evil.example/phish",
+    "//evil.example/phish",
+    "/\\evil.example",
+    "\\\\evil.example",
+    "javascript:alert(1)",
+    "  //evil.example",
+  ]) {
+    it(`rejects ${JSON.stringify(attack)}`, () => {
+      assert.equal(safeReturnTo(attack), "/arbeitsbereich");
     });
-  });
-
-  it("treats a missing groups claim as no memberships, not as an error", () => {
-    assert.deepEqual(claimsFromIdToken(idToken({ sub: "0xabc" })), {
-      sub: "0xabc",
-      groups: [],
-    });
-  });
-
-  it("accepts a space-delimited groups string, which some IdPs emit", () => {
-    const token = idToken({ sub: "0xabc", groups: "citizen org:acc-7:member" });
-    assert.deepEqual(claimsFromIdToken(token).groups, [
-      "citizen",
-      "org:acc-7:member",
-    ]);
-  });
-
-  it("throws on a token with no sub, which must never yield a session", () => {
-    assert.throws(() => claimsFromIdToken(idToken({ groups: [] })), /sub/);
-  });
-
-  it("throws on a malformed token rather than returning empty claims", () => {
-    assert.throws(() => claimsFromIdToken("not-a-jwt"));
-  });
+  }
 });
 ```
 
@@ -3074,50 +3241,30 @@ describe("claimsFromIdToken", () => {
 pnpm test:web
 ```
 
-Expected: FAIL — `Cannot find module '../src/lib/workspace/claims'`.
+Expected: FAIL — `Cannot find module '../src/lib/workspace/return-to'`.
 
-- [ ] **Step 3: Write `claims.ts`**
+- [ ] **Step 3: Write `return-to.ts`**
 
-`apps/web/src/lib/workspace/claims.ts`:
+`apps/web/src/lib/workspace/return-to.ts`:
 
 ```typescript
+const DEFAULT_RETURN = "/arbeitsbereich";
+
 /**
- * Read the claims out of an id_token.
+ * Constrain returnTo to a path on our own origin.
  *
- * No signature check here on purpose: this token came straight from the
- * keystone's /token endpoint over TLS, using client authentication, in response
- * to a code we generated. Verifying it again would be theatre. Anything read
- * from a token that did NOT arrive that way must be verified — this function is
- * not for those.
+ * The callback appends this to the app origin, so anything that can escape the
+ * path is an open redirect — and one that fires the instant a citizen has
+ * authenticated, which is the worst possible moment. A protocol-relative
+ * "//host" and a backslash variant both escape while still starting with "/",
+ * so a startsWith("/") check alone is not enough.
  */
-export function claimsFromIdToken(idToken: string): {
-  sub: string;
-  groups: string[];
-} {
-  const parts = idToken.split(".");
-  if (parts.length !== 3) {
-    throw new Error("id_token is not a JWT");
-  }
-  let payload: Record<string, unknown>;
-  try {
-    payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
-  } catch {
-    throw new Error("id_token payload is not JSON");
-  }
-
-  const sub = payload.sub;
-  if (typeof sub !== "string" || sub.length === 0) {
-    throw new Error("id_token has no sub");
-  }
-
-  const raw = payload.groups;
-  const groups = Array.isArray(raw)
-    ? raw.map(String)
-    : typeof raw === "string"
-      ? raw.split(" ").filter(Boolean)
-      : [];
-
-  return { sub, groups };
+export function safeReturnTo(raw: string | null): string {
+  if (!raw) return DEFAULT_RETURN;
+  const value = raw.trim();
+  if (!value.startsWith("/")) return DEFAULT_RETURN;
+  if (value.startsWith("//") || value.startsWith("/\\")) return DEFAULT_RETURN;
+  return value;
 }
 ```
 
@@ -3130,13 +3277,14 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { workspaceConfig } from "@/lib/workspace/config";
 import { buildAuthorizationUrl, createPkcePair } from "@/lib/workspace/oidc";
+import { safeReturnTo } from "@/lib/workspace/return-to";
 
 export const dynamic = "force-dynamic";
 
 /** Start the OIDC hop. The verifier and the return target ride in short cookies. */
 export async function GET(request: Request) {
   const cfg = workspaceConfig();
-  const returnTo = new URL(request.url).searchParams.get("returnTo") ?? "/arbeitsbereich";
+  const returnTo = safeReturnTo(new URL(request.url).searchParams.get("returnTo"));
   const { verifier, challenge } = await createPkcePair();
   const state = crypto.randomUUID();
 
@@ -3150,8 +3298,7 @@ export async function GET(request: Request) {
   };
   jar.set("roebel_ws_verifier", verifier, options);
   jar.set("roebel_ws_state", state, options);
-  // Relative paths only: an absolute returnTo would make this an open redirect.
-  jar.set("roebel_ws_return", returnTo.startsWith("/") ? returnTo : "/arbeitsbereich", options);
+  jar.set("roebel_ws_return", returnTo, options);
 
   return NextResponse.redirect(
     buildAuthorizationUrl({
@@ -3171,9 +3318,10 @@ export async function GET(request: Request) {
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { workspaceConfig } from "@/lib/workspace/config";
-import { exchangeCode } from "@/lib/workspace/oidc";
-import { claimsFromIdToken } from "@/lib/workspace/claims";
-import { sealSession } from "@/lib/workspace/session";
+import { exchangeCode, verifyIdToken } from "@/lib/workspace/oidc";
+import { newSessionId } from "@/lib/workspace/session";
+import { createSessionStore } from "@/lib/workspace/session-store";
+import { safeReturnTo } from "@/lib/workspace/return-to";
 import { SESSION_COOKIE } from "@/lib/workspace/context";
 
 export const dynamic = "force-dynamic";
@@ -3187,7 +3335,7 @@ export async function GET(request: Request) {
   const jar = await cookies();
   const verifier = jar.get("roebel_ws_verifier")?.value;
   const expectedState = jar.get("roebel_ws_state")?.value;
-  const returnTo = jar.get("roebel_ws_return")?.value ?? "/arbeitsbereich";
+  const returnTo = safeReturnTo(jar.get("roebel_ws_return")?.value ?? null);
 
   if (!code || !verifier || !state || state !== expectedState) {
     return NextResponse.redirect(`${cfg.appOrigin}/arbeitsbereich?fehler=anmeldung`);
@@ -3201,21 +3349,24 @@ export async function GET(request: Request) {
     redirectUri: `${cfg.appOrigin}/api/workspace/auth/callback`,
     codeVerifier: verifier,
   });
-  const { sub, groups } = claimsFromIdToken(tokens.id_token);
-
-  const sealed = await sealSession(
-    {
-      sub,
-      groups,
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token ?? null,
-      expiresAt: Date.now() + tokens.expires_in * 1000,
-    },
-    cfg.sessionKey,
+  const { sub, groups } = await verifyIdToken(
+    tokens.id_token,
+    cfg.issuer,
+    cfg.clientId,
   );
 
+  // The tokens go to Postgres; the cookie gets only this id.
+  const sessionId = newSessionId();
+  await createSessionStore().create(sessionId, {
+    sub,
+    groups,
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token ?? null,
+    expiresAt: Date.now() + tokens.expires_in * 1000,
+  });
+
   const response = NextResponse.redirect(`${cfg.appOrigin}${returnTo}`);
-  response.cookies.set(SESSION_COOKIE, sealed, {
+  response.cookies.set(SESSION_COOKIE, sessionId, {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
@@ -3233,11 +3384,18 @@ export async function GET(request: Request) {
 
 ```typescript
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/workspace/context";
+import { createSessionStore } from "@/lib/workspace/session-store";
 
 export const dynamic = "force-dynamic";
 
 export async function POST() {
+  // Destroy the stored session as well as the cookie: a row left behind is a
+  // live Nextcloud token that a logout was supposed to end.
+  const sessionId = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (sessionId) await createSessionStore().destroy(sessionId);
+
   const response = NextResponse.json({ ok: true });
   response.cookies.delete(SESSION_COOKIE);
   return response;
@@ -3256,20 +3414,23 @@ Expected: tests PASS; the build compiles the three new routes.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/web/src/lib/workspace/claims.ts \
+git add apps/web/src/lib/workspace/return-to.ts \
         apps/web/src/app/api/workspace/auth/login/route.ts \
         apps/web/src/app/api/workspace/auth/callback/route.ts \
         apps/web/src/app/api/workspace/auth/logout/route.ts \
-        apps/web/tests/workspace-claims.test.ts
+        apps/web/tests/workspace-return-to.test.ts
 git commit -m "feat(web): the OIDC hop, once, then silent
 
-Authorization code with PKCE and a state check; returnTo is forced to
-a relative path so the callback can never become an open redirect.
+Authorization code with PKCE and a state check. The id_token is
+verified against the keystone's JWKS before its claims are trusted.
 
-The id_token's signature is deliberately not re-checked: it arrived
-from the keystone's token endpoint over TLS, under client
-authentication, answering a code we generated. The comment says so, so
-nobody copies the shortcut somewhere it would be wrong."
+returnTo is constrained to a path on our own origin, and the guard
+rejects protocol-relative '//host' and the backslash variant too — a
+startsWith('/') check passes both, and an open redirect that fires the
+instant a citizen authenticates is the worst possible moment for one.
+
+Logout destroys the stored session, not just the cookie: a row left
+behind is a live Nextcloud token that a logout was meant to end."
 ```
 
 ---
@@ -3799,15 +3960,24 @@ export async function loadDiscovery(
 ```typescript
 import { NextResponse } from "next/server";
 import { buildEditorUrl, encodeFileId, mintWopiToken } from "@netizen-labs/workspace";
-import { requireWorkspace, resolveScope } from "@/lib/workspace/context";
+import {
+  readSessionId,
+  requireWorkspace,
+  resolveScope,
+} from "@/lib/workspace/context";
 import { workspaceConfig } from "@/lib/workspace/config";
 import { errorResponse, parseScopeRequest } from "@/lib/workspace/request";
 import { extensionOf, loadDiscovery } from "@/lib/workspace/editor";
 
 export const dynamic = "force-dynamic";
 
-/** Ten minutes is long enough to open a document and short enough to matter if leaked. */
-const WOPI_TTL_SECONDS = 600;
+/**
+ * How long an editing session's token stays valid. Eight hours covers a real
+ * working day on one document; the access token inside the session expires far
+ * sooner and is refreshed server-side, so this bound is about the capability,
+ * not about the credential.
+ */
+const WOPI_TTL_SECONDS = 8 * 60 * 60;
 
 /**
  * Mint an editing session: returns the iframe url plus the token the client
@@ -3833,9 +4003,16 @@ export async function GET(request: Request) {
     // Collabora into a retry loop against a 404.
     await client.stat(scope, parsed.path);
 
+    // The session id rides in the token: Collabora's own calls carry no
+    // cookie, so this is how the WOPI endpoints reach the citizen's tokens.
+    const sessionId = await readSessionId();
+    if (!sessionId) {
+      return NextResponse.json({ reason: "no-session" }, { status: 401 });
+    }
+
     const fileId = encodeFileId(scope, parsed.path);
     const token = await mintWopiToken(
-      { sub: session.sub, scope, path: parsed.path, canWrite: true },
+      { sub: session.sub, sessionId, scope, path: parsed.path, canWrite: true },
       cfg.wopiSecret,
       WOPI_TTL_SECONDS,
     );
@@ -3869,14 +4046,15 @@ import {
   verifyWopiToken,
 } from "@netizen-labs/workspace";
 import { workspaceConfig } from "@/lib/workspace/config";
-import { readSession } from "@/lib/workspace/context";
+import { loadSession } from "@/lib/workspace/context";
 
 export const dynamic = "force-dynamic";
 
 /**
  * CheckFileInfo. Collabora calls this itself, with only the WOPI token — there
- * is no browser session on this request, so the token is the sole authority and
- * must be verified here.
+ * is NO browser cookie on this request. The token is therefore the sole
+ * authority, and the citizen's Nextcloud tokens are reached through the
+ * session id it carries.
  */
 export async function GET(
   request: Request,
@@ -3898,10 +4076,14 @@ export async function GET(
   // The token is bound to one path; a mismatch means the file id was swapped.
   if (path !== claims.path) return NextResponse.json({}, { status: 403 });
 
-  const session = await readSession();
+  // Loading by id also refreshes an access token that expired mid-edit, which
+  // is why a document open for two hours still saves.
+  const session = await loadSession(claims.sessionId);
+  if (!session) return NextResponse.json({}, { status: 401 });
+
   const client = createNextcloudClient({
     baseUrl: cfg.nextcloudBaseUrl,
-    auth: bearerAuth(async () => session?.accessToken ?? ""),
+    auth: bearerAuth(async () => session.accessToken),
   });
   const entry = await client.stat(claims.scope, claims.path);
 
@@ -3924,7 +4106,7 @@ import {
   type WopiClaims,
 } from "@netizen-labs/workspace";
 import { workspaceConfig } from "@/lib/workspace/config";
-import { readSession } from "@/lib/workspace/context";
+import { loadSession } from "@/lib/workspace/context";
 import { recordWorkspaceAction } from "@/lib/workspace/provenance-sink";
 
 export const dynamic = "force-dynamic";
@@ -3944,12 +4126,18 @@ async function authorise(
   }
 }
 
-async function nextcloud() {
+/**
+ * A client authenticated as the citizen who opened the document. There is no
+ * cookie on a Collabora request, so the tokens come from the server-side
+ * session the WOPI token names — refreshed here if the edit outlived them.
+ */
+async function nextcloud(claims: WopiClaims) {
   const cfg = workspaceConfig();
-  const session = await readSession();
+  const session = await loadSession(claims.sessionId);
+  if (!session) return null;
   return createNextcloudClient({
     baseUrl: cfg.nextcloudBaseUrl,
-    auth: bearerAuth(async () => session?.accessToken ?? ""),
+    auth: bearerAuth(async () => session.accessToken),
   });
 }
 
@@ -3960,7 +4148,10 @@ export async function GET(
 ) {
   const claims = await authorise(request, (await params).fileId);
   if (!claims) return NextResponse.json({}, { status: 401 });
-  const body = await (await nextcloud()).download(claims.scope, claims.path);
+  const client = await nextcloud(claims);
+  if (!client) return NextResponse.json({}, { status: 401 });
+
+  const body = await client.download(claims.scope, claims.path);
   return new Response(body, {
     headers: { "Content-Type": "application/octet-stream" },
   });
@@ -3974,8 +4165,10 @@ export async function POST(
   const claims = await authorise(request, (await params).fileId);
   if (!claims) return NextResponse.json({}, { status: 401 });
   if (!claims.canWrite) return NextResponse.json({}, { status: 403 });
+  const client = await nextcloud(claims);
+  if (!client) return NextResponse.json({}, { status: 401 });
 
-  await (await nextcloud()).upload(claims.scope, claims.path, await request.arrayBuffer());
+  await client.upload(claims.scope, claims.path, await request.arrayBuffer());
   await recordWorkspaceAction(
     buildAction({
       actor: { kind: "human", sub: claims.sub },
