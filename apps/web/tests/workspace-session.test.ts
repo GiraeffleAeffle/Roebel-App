@@ -82,6 +82,35 @@ describe("org access", () => {
     const owner = { ...session, groups: ["org:acc-9:owner"] };
     assert.equal(hasOrgAccess(owner, "acc-9"), true);
   });
+
+  // The trailing colon in the match prefix is the only thing stopping a claim
+  // for org "acc-70" from also unlocking org "acc-7" — a bare prefix match
+  // would treat "acc-7" as a substring hit of "acc-70". Drop the colon and
+  // this goes green when it must not: one citizen reading another org's
+  // shared files.
+  it("does not grant access to a numeric prefix of the claimed org (acc-70 claim vs acc-7 request)", () => {
+    const superset = { ...session, groups: ["org:acc-70:member"] };
+    assert.equal(hasOrgAccess(superset, "acc-7"), false);
+  });
+
+  it("does not grant access the other way around either (acc-7 claim vs acc-70 request)", () => {
+    assert.equal(hasOrgAccess(session, "acc-70"), false);
+  });
+
+  it("does not grant access to a suffix of the claimed org (cc-7 from an acc-7 claim)", () => {
+    assert.equal(hasOrgAccess(session, "cc-7"), false);
+  });
+
+  it("does not match an accountId differing only in case", () => {
+    assert.equal(hasOrgAccess(session, "ACC-7"), false);
+  });
+
+  // Without the trailing colon, an empty accountId collapses the prefix to
+  // "org:", which every org claim starts with — turning "no org" into "every
+  // org this citizen belongs to."
+  it("does not match an empty-string accountId", () => {
+    assert.equal(hasOrgAccess(session, ""), false);
+  });
 });
 
 describe("pkce + authorization url", () => {
