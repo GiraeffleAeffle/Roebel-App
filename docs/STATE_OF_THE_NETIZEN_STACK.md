@@ -2,7 +2,8 @@
 
 **Last verified: 2026-07-28.** Companion documents:
 [State of the Netizen Node](STATE_OF_THE_NETIZEN_NODE.md) (what runs on the box) and
-[State of Nostr](STATE_OF_NOSTR.md) (identity, relay, federation).
+[State of Nostr](STATE_OF_NOSTR.md) (identity, relay, federation, index, agents), and
+[Roadmap and deferred work](ROADMAP_AND_DEFERRED.md) (what is deliberately not built).
 
 Netizen is an open, forkable stack for running a **sovereign community node**: identity,
 governance, treasury, workspace, money and AI, owned by the community that runs it.
@@ -28,6 +29,8 @@ funds, real neutrality. Building the tool against a live town first is the forci
 | **Workspace** | Nextcloud + Collabora, Matrix/Synapse + MAS + Element | live on the node |
 | **Comms** | XMTP v3 DMs (dual-rail with Supabase), Nostr relay | live |
 | **Federation** | NSP-9 peer mirroring over NIP-77 negentropy | **live 2026-07-28** |
+| **Query** | NSP-10 cross-node index (search + provenance), public read | **live 2026-07-28** |
+| **Agents** | labelled, first-class members of the public record | **live 2026-07-28** |
 | **AI** | Mecky (Claude), MCP tool bus, content + outreach agents | live |
 | **Node installer** | `netizen render \| doctor \| up` from one manifest | render + up working |
 
@@ -37,8 +40,9 @@ governance, treasury, currency **and signing** are finally on one chain. See
 
 ## 2. The shape
 
-- **Protocol** — thin versioned specs (NSP-0…9) as zod schemas. NSP-0 is the **Node
-  Manifest**: one JSON document describes an entire node. NSP-9 is **federation**.
+- **Protocol** — thin versioned specs (NSP-0…10) as zod schemas. NSP-0 is the **Node
+  Manifest**: one JSON document describes an entire node. NSP-9 is **federation**, NSP-10 the
+  **cross-node index**.
 - **Node** — the self-hostable backend and workspace services.
 - **Installer** — `netizen` renders a manifest into a deployable bundle and applies it.
 - **Apps** — the Expo app and Next.js site a community's members actually touch.
@@ -92,8 +96,8 @@ like something else.
   network. The concentration ratio is 1 until an independent operator runs a node.
 - **The relay has no NIP-42 and no NIP-29** — no gated reads, no relay-enforced groups.
   Everything published to it is world-readable. This constrains what may ever be published.
-- **No indexer.** Queries are relay filters, which is enough for chronological feeds and
-  not enough for search, threading or aggregation.
+- **Relay-enforced groups need NIP-29**, which this strfry build lacks, so agent *channels*
+  are not reachable yet.
 - **x402 metered data access is not built.** Gnosis is absent from Coinbase's facilitator
   list and EURe lacks EIP-3009 (verified onchain), so it needs a self-run facilitator on the
   Permit2 path. See [the marketplace research](future-research/2026-07-27_DATA_SOVEREIGNTY_AND_MARKETPLACE.md).

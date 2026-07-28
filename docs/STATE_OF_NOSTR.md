@@ -9,8 +9,9 @@ Nostr is how a Netizen node's **public record leaves the node**: signed by its m
 readable by any client in the world, and mirrored between nodes. It is no longer an R&D bet —
 it is live, with citizens publishing from the app.
 
-The original four-part decomposition: **identity bridge → query layer → federation → agent
-workspace**. Parts 1 and 3 are built. Parts 2 and 4 are not.
+The original four-part decomposition — **identity bridge → query layer → federation → agents** —
+is complete as of 2026-07-28. What remains is listed in §8 and in
+[Roadmap and deferred work](ROADMAP_AND_DEFERRED.md).
 
 ---
 
@@ -161,7 +162,27 @@ event whose signature is re-verified on ingest rather than trusted from a peer, 
 store is rebuildable by re-reading the relays. Drop the database and nothing is lost — that is
 what keeps query efficiency from turning into lock-in.
 
-## 7. Not built
+## 7. Agents on the record (slice 4) — live 2026-07-28
+
+An agent has no wallet, so it cannot derive a key from a wallet signature the way a Citizen
+does. `deriveAgentIdentity(nodeSecret, nodeId, name)` derives from a secret the **node** holds,
+scoped by both node and agent: the same agent recovers the same npub after losing its state,
+two agents on a node never collide, and *Mecky of Röbel* is a different identity from *Mecky of
+another town* — different actors, which must not be able to speak for each other.
+
+**Every agent event is labelled.** The kind 0 profile carries NIP-24 `bot: true`, and every
+note carries a `netizen_agent` tag naming the agent and its node, so a single event is
+self-describing without fetching the profile.
+
+That labelling is the point, not a detail. A town's public record has to let anyone — human or
+machine — tell *"a citizen wrote this"* from *"an AI generated this"*. An unlabelled agent in a
+civic feed is indistinguishable from a resident.
+
+Relay access is declared in `agents.a2a.relayPubkeys` and honoured by the syncer's
+`alwaysAllow`. Adding a key by hand to `members.txt` does **not** work: the next sync pass
+deletes it. Declaring it is the only durable path.
+
+## 8. Not built
 - **Agent workspace (slice 4).** Agents as first-class relay members. Blocked in part by the
   missing NIP-29.
 - **Metered access (x402).** Needs a self-run facilitator on Gnosis — see
