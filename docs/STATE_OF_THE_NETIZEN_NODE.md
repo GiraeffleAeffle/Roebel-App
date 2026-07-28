@@ -43,6 +43,7 @@ Verified live 2026-07-28:
 | `roebel-postgres-1` | `postgres:16` | shared database for the above |
 | `roebel-mirror-1` | `strfry` | the **federation mirror**, read-only |
 | `roebel-federation-1` | `strfry` | pulls declared peers into the mirror |
+| `roebel-indexer-1` | `node:22-alpine` | cross-node query API over both stores |
 | `testnode-strfry` | `strfry` | **node #2** — its own members-only relay |
 | `testnode-mirror` | `strfry` | node #2's federation mirror |
 | `testnode-federation` | `strfry` | node #2 pulling Röbel |
@@ -54,6 +55,7 @@ Verified live 2026-07-28:
 | `wss://relay.roebel.app` | 200 — authoring relay |
 | `https://cloud.roebel.app` | 302 — Nextcloud |
 | `https://chat.roebel.app` | 200 — Element |
+| `https://index.roebel.app` | 200 — cross-node query API (public read) |
 | `https://id.roebel.app/.well-known/openid-configuration` | 200 — Röbel ID (on **Fly**, not this box) |
 
 ## 4. Secrets
@@ -98,6 +100,12 @@ why parts of it look the way they do.
   fails with `mdb_env_open: Permission denied`. Chown the volume to `1000:1000`.
 - **`--env-file` is read at container-create time.** Editing `.env` then running
   `docker restart` does nothing; the container must be recreated.
+- **Caddy does not pick up a new Caddyfile on its own.** Shipping a route and setting DNS is
+  not enough — `caddy reload` (or a restart) is what triggers certificate issuance. A new
+  subdomain that returns nothing is usually this, not DNS.
+- **A new service needing Postgres must be in `postgresDatabases()`**, or its role is never
+  created. Matrix once failed with `password authentication failed for user "mas"` for exactly
+  this reason: the entrypoint hook only fires on an empty data directory.
 
 ## 7. Known gaps
 
