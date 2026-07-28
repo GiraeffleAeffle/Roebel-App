@@ -14,6 +14,7 @@ the right one.
 | Run my own node | [Netizen Node manifest](superpowers/specs/2026-07-26-netizen-node-manifest.md) → [installer](superpowers/specs/2026-07-26-netizen-node-installer.md) |
 | Contribute code | [Contributor onboarding](CONTRIBUTOR_ONBOARDING.md), [Forking guide](FORKING_GUIDE.md) |
 | Know what we deliberately have NOT built, and why | [Roadmap and deferred work](ROADMAP_AND_DEFERRED.md) |
+| Know who holds which key, and who can revoke it | [Key governance](KEY_GOVERNANCE.md) |
 | Decide where a new kind of data belongs | [Data placement and CRUD](DATA_PLACEMENT_AND_CRUD.md) |
 | Publish app data (events, cinema, orgs, marketplace) to Nostr | [Public data on Nostr](PUBLIC_DATA_ON_NOSTR.md) |
 | Work with the Stadtstack contributor | [Röbel × Netizen × Stadtstack alignment](STADTSTACK_ALIGNMENT.md) |
