@@ -168,6 +168,23 @@ export function doctor(m: NetizenManifest): DoctorReport {
   if (!m.operations?.hardening)
     warnings.push("no hardening declared (operations.hardening) — SSH policy and fail2ban are left to whoever remembers");
 
+  const ws = m.services.workspace;
+  if (ws?.collabora && (ws.wopiHosts ?? []).length === 0) {
+    warnings.push(
+      "workspace declares collabora but no wopiHosts — Collabora will refuse to render documents for the app",
+    );
+  }
+  if (ws?.nextcloud && !ws.bearerValidation) {
+    warnings.push(
+      "workspace declares nextcloud without bearerValidation — the app cannot read files through the API",
+    );
+  }
+  if (ws?.nextcloud && !ws.groupFolders) {
+    warnings.push(
+      "workspace declares nextcloud without groupFolders — org scope has nowhere to mount",
+    );
+  }
+
   return {
     node: m.id,
     secretRefs: collectSecretRefs(m),

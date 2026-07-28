@@ -45,6 +45,7 @@ function hostname(u: string): string {
 export function renderRoebelIdEnv(m: NetizenManifest): string {
   const nc = rp(m, "nextcloud");
   const mx = rp(m, "matrix");
+  const web = rp(m, "web");
   const s = m.services.secrets ?? {};
   // Reached only for a node that hosts its own IdP — which by definition
   // authenticates against a chain and a membership credential. Fail loudly rather
@@ -77,6 +78,13 @@ export function renderRoebelIdEnv(m: NetizenManifest): string {
       `MATRIX_CLIENT_ID=${mx.id}`,
       `MATRIX_CLIENT_SECRET=${s.matrixClientSecret ?? "$MATRIX_CLIENT_SECRET"}`,
       `MATRIX_REDIRECT_URIS=${mx.redirectUris.join(",")}`,
+    );
+  }
+  if (web) {
+    lines.push(
+      `WEB_CLIENT_ID=${web.id}`,
+      `WEB_CLIENT_SECRET=${s.webClientSecret ?? "$WEB_CLIENT_SECRET"}`,
+      `WEB_REDIRECT_URIS=${web.redirectUris.join(",")}`,
     );
   }
   return lines.join("\n") + "\n";
@@ -312,6 +320,7 @@ echo "matrix secrets ready"
 
 export function renderNextcloudSetup(m: NetizenManifest): string {
   const nc = rp(m, "nextcloud");
+  const ws = m.services.workspace;
   const secret = m.services.secrets?.nextcloudClientSecret ?? "$NEXTCLOUD_CLIENT_SECRET";
   return `#!/usr/bin/env bash
 ${header(m, "Nextcloud OIDC + group folders (run inside the container)")}set -euo pipefail
@@ -321,9 +330,29 @@ php occ user_oidc:provider "${m.name}" \\
   --clientsecret="${secret}" \\
   --discoveryuri="${m.identity?.idp.discovery ?? ""}" \\
   --scope="${m.identity?.idp.scopes.join(" ") ?? ""}" \\
-  --unique-uid=1 --mapping-uid=sub --mapping-email=email \\
+  --unique-uid=0 --mapping-uid=sub --mapping-email=email \\
   --mapping-display-name=name --mapping-groups=groups
+# --unique-uid=0 makes the Nextcloud uid EQUAL the OIDC sub, which is what makes
+# the WebDAV path derivable (the app can build a citizen's DAV root from their
+# access token's sub with no extra lookup). Flipping this on a node that already
+# has users renumbers every account and orphans their existing home directories
+# — safe only on a fresh install, never retrofit onto a running node.
 php occ config:app:set user_oidc provisioning_groups --value=1
+# Bearer-token API access — how the app reads a citizen's files with their own
+# access token rather than a stored password. Needs user_oidc >= 7.4.0.
+#
+# VERIFIED on the live node: the keystone issues OPAQUE access tokens (panva's
+# default — no \`formats\` config), not self-encoded JWTs. \`selfencoded_bearer_
+# validation\` validates a self-encoded JWT and would reject every token this
+# keystone issues, so it MUST stay off. \`userinfo_bearer_validation\` instead
+# calls the keystone's userinfo endpoint to validate the opaque token, which is
+# what actually works here. Do not "fix" this back to selfencoded=1 — it was
+# tried and breaks every WebDAV/OCS call.
+${ws?.bearerValidation
+  ? `php occ config:app:set user_oidc userinfo_bearer_validation --value=1
+php occ config:app:set user_oidc selfencoded_bearer_validation --value=0
+php occ config:app:set user_oidc oidc_provider_bearer_validation --value=0`
+  : "# bearerValidation not declared — the app cannot read files via the API"}
 php occ app:install groupfolders || true
 # One group folder per org (ACL = org:<accountId>:<role>) is provisioned by
 # \`netizen up\` from the org registry — idempotent (create-if-absent).
@@ -578,12 +607,17 @@ export function renderComposeYml(m: NetizenManifest): string {
     expose: ["80"]`,
     );
     if (ws.collabora) {
+      // Every declared WOPI host — the app's own origin(s) that embed this
+      // Collabora, alongside Nextcloud's own host — goes into the alias group.
+      // Without the app's origin here, Collabora refuses to render its
+      // documents for it.
+      const aliases = [`https://${hostname(ws.nextcloud)}`, ...(ws.wopiHosts ?? [])];
       svc.push(
         `  collabora:
     image: collabora/code:latest
     restart: unless-stopped
     environment:
-      aliasgroup1: "https://${hostname(ws.nextcloud)}"
+${aliases.map((alias, i) => `      aliasgroup${i + 1}: "${alias}"`).join("\n")}
       DONT_GEN_SSL_CERT: "true"
       extra_params: "--o:ssl.enable=false --o:ssl.termination=true"
     expose: ["9980"]`,

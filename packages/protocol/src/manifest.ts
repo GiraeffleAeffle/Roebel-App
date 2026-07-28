@@ -126,6 +126,18 @@ const Services = z.object({
       nextcloud: z.string().url().optional(), // files
       collabora: z.boolean().optional(), // collaborative docs
       groupFolders: z.boolean().optional(), // shared folder per org
+      /**
+       * Origins allowed to act as a WOPI host against this node's Collabora —
+       * i.e. the app that embeds the editor. Without the app's own origin here,
+       * Collabora refuses to render its documents.
+       */
+      wopiHosts: z.array(z.string().url()).optional(),
+      /**
+       * Enable user_oidc bearer-token validation, which lets the app call
+       * WebDAV/OCS with the citizen's access token instead of a password.
+       * Needs user_oidc >= 7.4.0.
+       */
+      bearerValidation: z.boolean().optional(),
       mail: z.string().url().optional(), // Open-Xchange (mail/calendar/contacts)
       wiki: z.string().url().optional(), // XWiki
       video: z.string().url().optional(), // Jitsi

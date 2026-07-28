@@ -82,7 +82,14 @@
       {
         "id": "web",
         "redirectUris": [
-          "https://www.roebel.app/api/auth/callback"
+          "https://www.roebel.app/api/auth/callback",
+          "https://roebel.app/api/workspace/auth/callback"
+        ],
+        "scopes": [
+          "openid",
+          "profile",
+          "email",
+          "roebel"
         ]
       },
       {
@@ -142,7 +149,11 @@
     "workspace": {
       "nextcloud": "https://cloud.roebel.app",
       "collabora": true,
-      "groupFolders": true
+      "groupFolders": true,
+      "bearerValidation": true,
+      "wopiHosts": [
+        "https://roebel.app"
+      ]
     },
     "chat": {
       "nostr": {
@@ -157,7 +168,8 @@
     },
     "secrets": {
       "nextcloudClientSecret": "$NEXTCLOUD_CLIENT_SECRET",
-      "matrixClientSecret": "$MATRIX_CLIENT_SECRET"
+      "matrixClientSecret": "$MATRIX_CLIENT_SECRET",
+      "webClientSecret": "$WEB_CLIENT_SECRET"
     },
     "backend": {
       "provider": "supabase",
