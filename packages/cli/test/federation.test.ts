@@ -29,6 +29,9 @@ const PEER = {
 };
 
 const withPeers = { ...base, peers: [PEER] };
+// Röbel's real manifest now declares a peer, so the "no federation" case must be
+// constructed explicitly rather than borrowed from it.
+const { peers: _declared, ...withoutPeers } = base as Record<string, unknown>;
 
 test("the schema accepts a declared peer", () => {
   const parsed = NetizenManifestSchema.parse({ ...base, peers: [PEER] });
@@ -44,10 +47,21 @@ test("a peer must declare kinds — there is no implicit 'sync everything'", () 
   assert.throws(() => NetizenManifestSchema.parse({ ...base, peers: [{ ...PEER, kinds: [] }] }));
 });
 
-test("a peer relay must be wss:// — never plaintext", () => {
+test("a peer relay must be wss:// across any network we do not control", () => {
+  // Plaintext to a routable host is the case that matters: it would put a town's
+  // public record on the wire in clear.
   assert.throws(() =>
     NetizenManifestSchema.parse({ ...base, peers: [{ ...PEER, relay: "ws://relay2.roebel.app" }] }),
   );
+});
+
+test("ws:// is allowed only for a same-host name that cannot leave the machine", () => {
+  // A docker service name or localhost. Requiring public DNS + a certificate for a
+  // same-box test fixture would just push people toward disabling the check.
+  for (const relay of ["ws://testnode-strfry:7777", "ws://localhost:7777", "ws://127.0.0.1:7777"]) {
+    const parsed = NetizenManifestSchema.parse({ ...base, peers: [{ ...PEER, relay }] });
+    assert.equal(parsed.peers?.[0].relay, relay);
+  }
 });
 
 test("sync is PULL-ONLY and writes into the mirror, never the authoring relay", () => {
@@ -95,12 +109,12 @@ test("the peer table records who and why, for review", () => {
 });
 
 test("a node with no peers ships no federation machinery at all", () => {
-  const bundle = renderBundle(base);
+  const bundle = renderBundle(withoutPeers as never);
   assert.equal(bundle.files["strfry-mirror/sync-peers.sh"], undefined);
   assert.equal(bundle.files["strfry-mirror/mirror.conf"], undefined);
-  assert.ok(!renderComposeYml(base).includes("federation:"));
-  assert.ok(!renderComposeYml(base).includes("mirror:"));
-  assert.ok(!plan(base).some((s) => s.id === "federation"));
+  assert.ok(!renderComposeYml(withoutPeers as never).includes("federation:"));
+  assert.ok(!renderComposeYml(withoutPeers as never).includes("mirror:"));
+  assert.ok(!plan(withoutPeers as never).some((s) => s.id === "federation"));
 });
 
 test("declaring peers adds the services, the files and a plan step", () => {

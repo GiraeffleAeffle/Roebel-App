@@ -206,7 +206,23 @@ const Ai = z.object({
 const Peer = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/, "peer id must be a lowercase slug"),
   name: z.string().min(1),
-  relay: z.string().regex(/^wss:\/\//, "a peer relay must be a wss:// url"),
+  /**
+   * The peer's relay.
+   *
+   * `wss://` always. Plaintext `ws://` is permitted ONLY for a host with no dot —
+   * a container/service name or `localhost` — which cannot be routed off the
+   * machine. The rule being encoded is "never plaintext across a network you do
+   * not control", not "always TLS": demanding a public DNS name and a certificate
+   * for a same-host test fixture would push people toward disabling the check.
+   */
+  relay: z
+    .string()
+    .refine(
+      (u) =>
+        /^wss:\/\/.+/.test(u) ||
+        /^ws:\/\/(localhost|127\.0\.0\.1|\[::1\]|[^./:]+)(:\d+)?(\/.*)?$/.test(u),
+      "a peer relay must be wss://, or ws:// only for a same-host name (no dot)",
+    ),
   /**
    * Event kinds this link carries. There is no implicit "all": a link that
    * declares nothing carries nothing, so widening what leaves the node is always
