@@ -52,8 +52,29 @@ export class WorkspaceAuthError extends Error {
  * `@netizen-labs/workspace` for the full incident writeup.
  *
  * `orgName`, if present on `params`, carries no authority and is never
- * read — kept only because callers still spread `parseScopeRequest`'s
- * output into this call.
+ * read. It is NOT here because a production caller still sends one —
+ * `parseScopeRequest` was changed to stop parsing or returning it at all,
+ * so nothing reaching this function through the `...parsed` spread in any
+ * route can carry it any more. It stays on this type only so
+ * `workspace-context.test.ts`'s regression suite can keep calling this
+ * function directly with a crafted `orgName` and assert, at both the type
+ * level and the runtime level, that it has zero effect (see its "ignores
+ * orgName entirely" case). Deleting the field would only break that test's
+ * ability to compile — it would not close any remaining exposure, since
+ * none exists.
+ *
+ * Still `async` with no `await` left in its body: this function is now a
+ * pure ACL check plus `orgFolderMount(accountId)` — no lookup, no I/O, by
+ * design. The keyword stays anyway because several forbidden-path tests
+ * above assert via `assert.rejects(() => resolveScope(...), ...)`, which
+ * requires a genuinely rejected Promise; a synchronous throw fails that
+ * assertion instead of satisfying it (verified — Node's `assert.rejects`
+ * does not catch a thunk that throws synchronously the way it catches a
+ * rejected Promise). Every production call site already does
+ * `await resolveScope(...)` too. Do not drop `async` here without also
+ * converting those `assert.rejects` calls, and do not add a real `await`
+ * back in either — reintroducing any lookup on this path is exactly the
+ * bug round 2 above fixed.
  */
 export async function resolveScope(params: {
   session: WorkspaceSession;
