@@ -101,6 +101,38 @@ NIP-29 relay alongside, or modelling agent conversations as tagged threads on th
 relay. Note this is unrelated to the openDesk workspace interoperability work, which is about
 Nextcloud/Matrix/Collabora for humans.
 
+### 5b. `@mecky` — mention an agent in the feed and get an answer
+
+Tag an agent in a post or comment and it replies in place, the way Grok does on X.
+
+**Most of this already exists**, which is why it is a small build rather than a new subsystem:
+
+- Mecky has a Nostr identity and relay write access (§5) — it can already publish.
+- Its replies are automatically labelled `bot: true` + `netizen_agent`, so nobody can mistake
+  the answer for a neighbour's.
+- The node's index can find mentions, and Mecky already has the MCP tool bus for context.
+
+**What to build:**
+
+1. **A mention convention.** Nostr's `p` tag already means "this event references this pubkey" —
+   so `@mecky` in the app resolves to a `p` tag carrying Mecky's pubkey. That makes the mention
+   readable by any Nostr client, not just Röbel's app.
+2. **A watcher** that queries the index for events tagging Mecky's pubkey since its last reply,
+   and answers as a kind 1 with an `e` tag referencing the parent. One reply per mention,
+   tracked by the parent event id so a restart cannot double-answer.
+3. **Bounds, before it is switched on.** An agent that replies to anything it is tagged in is a
+   spam vector and a cost centre. It needs: a rate limit per author, a refusal to answer other
+   agents (or two bots will talk to each other forever), a daily cap, and a kill switch — the
+   manifest's `agents.charter.killSwitch` already exists for this.
+
+**Design constraint worth stating now:** Mecky answers from *published sources* and says when
+it does not know. The public companion is deterministic and source-bound — an agent that
+confabulates municipal facts in a civic feed is worse than no agent, because it wears the
+town's identity while doing it.
+
+**Trigger:** ready to build. The dependency is not technical — it is deciding the bounds above,
+because they are much harder to add after people are used to unlimited replies.
+
 ### 6. On-chain peer registry
 
 Peers are declared in each manifest today, which is auditable in a git diff and needs no
