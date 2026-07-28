@@ -89,9 +89,13 @@ describe("ensureUser", () => {
   });
 
   it("throws (rather than reporting created:true) when user creation genuinely fails", async () => {
-    // statuscode 104 is OCS's "no permission" — a real failure carried inside
-    // an HTTP 200. Silently returning created:true here would tell a caller
-    // the citizen has a workspace home when they do not.
+    // statuscode 104 on the *create-user* endpoint is OCS's "group does not
+    // exist" (not "no permission" — that's a different code on a different
+    // endpoint; the provisioning-API docs assign 104 differently per call).
+    // The exact meaning doesn't change the behaviour under test here: any
+    // non-100/102 statuscode is a uniform, real failure. Silently returning
+    // created:true here would tell a caller the citizen has a workspace home
+    // when they do not.
     const { fetchImpl } = stubFetch([
       { body: ocs(404, null) },
       { body: ocs(104, null) },
@@ -112,38 +116,99 @@ describe("ensureUser", () => {
       (err: unknown) => err instanceof NextcloudError && err.status === 997,
     );
   });
+
+  it("throws a NextcloudError — not a JSON-parse crash — on a 200 reply that isn't OCS JSON", async () => {
+    // The realistic outage shape: a reverse proxy in front of Nextcloud
+    // returns its own HTML error page with a 200 (or serves a cached/static
+    // page) instead of proxying through to the OCS endpoint. `res.ok` is
+    // true, so this only surfaces on the JSON.parse fallback, which must
+    // produce a typed, credential-free error rather than an uncaught
+    // SyntaxError.
+    const { fetchImpl } = stubFetch([
+      { status: 200, body: "<html><body>502 Bad Gateway</body></html>" },
+    ]);
+    await assert.rejects(
+      () => provisioner(fetchImpl).ensureUser(SUB, "Max"),
+      (err: unknown) =>
+        err instanceof NextcloudError &&
+        err.status === 200 &&
+        /non-JSON OCS reply/.test(err.message),
+    );
+    // The admin credentials must never leak into a thrown error's message.
+    const { fetchImpl: fetchImpl2 } = stubFetch([
+      { status: 200, body: "<html>not json</html>" },
+    ]);
+    try {
+      await provisioner(fetchImpl2).ensureUser(SUB, "Max");
+      assert.fail("expected ensureUser to throw");
+    } catch (err) {
+      assert.ok(err instanceof NextcloudError);
+      assert.doesNotMatch(err.message, /pw|admin|Basic /);
+    }
+  });
 });
 
 describe("ensureGroupFolder", () => {
-  it("reuses an existing folder with the same mount point", async () => {
+  it("reuses an existing, already-bound folder with a single listing call", async () => {
+    // `groups` on the listing entry is the real OCS groupfolders shape:
+    // bound group ids keyed to a permission bitmask. When it already
+    // confirms our group, there is nothing left to do — no bind call.
     const { calls, fetchImpl } = stubFetch([
-      { body: ocs(100, { "3": { id: 3, mount_point: "Org Feuerwehr" } }) },
+      {
+        body: ocs(100, {
+          "3": {
+            id: 3,
+            mount_point: "Org Feuerwehr",
+            groups: { "org:acc-7:member": 31 },
+          },
+        }),
+      },
     ]);
     const result = await provisioner(fetchImpl).ensureGroupFolder({
       name: "Org Feuerwehr",
       groupId: "org:acc-7:member",
     });
     assert.deepEqual(result, { folderId: 3, created: false });
-    assert.equal(calls.length, 1, "listing only — never a second create");
+    assert.equal(calls.length, 1, "group already bound — no re-bind call");
   });
 
-  it("creates the folder and binds the group when none exists", async () => {
+  it("treats the PHP empty-array quirk (`groups: []` instead of `{}`) as not yet bound", async () => {
+    // An empty PHP associative array serializes to JSON `[]`, not `{}`. A
+    // check that only ever looked for an object key would misread this as
+    // "no groups exist to check" and skip the bind incorrectly either way —
+    // pin that `[]` is treated the same as "unknown", i.e. still bind.
     const { calls, fetchImpl } = stubFetch([
-      { body: ocs(100, {}) },
-      { body: ocs(100, { id: 9 }) },
+      { body: ocs(100, { "3": { id: 3, mount_point: "Org Feuerwehr", groups: [] } }) },
       { body: ocs(100, {}) },
     ]);
     const result = await provisioner(fetchImpl).ensureGroupFolder({
       name: "Org Feuerwehr",
       groupId: "org:acc-7:member",
     });
-    assert.deepEqual(result, { folderId: 9, created: true });
-    assert.match(calls[1].url, /\/apps\/groupfolders\/folders/);
-    assert.match(calls[2].url, /\/apps\/groupfolders\/folders\/9\/groups/);
-    assert.match(calls[2].body ?? "", /group=org%3Aacc-7%3Amember/);
+    assert.deepEqual(result, { folderId: 3, created: false });
+    assert.equal(calls.length, 2, "`[]` must not be mistaken for the group already being present");
+    assert.match(calls[1].url, /\/apps\/groupfolders\/folders\/3\/groups/);
   });
 
-  // --- Gap: partially-created folder when the group binding fails ---
+  it("creates the folder and binds the group when none exists", async () => {
+    const { calls, fetchImpl } = stubFetch([
+      { body: ocs(100, {}) }, // initial listing: nothing yet
+      { body: ocs(100, { id: 9 }) }, // create -> id 9
+      { body: ocs(100, { "9": { id: 9, mount_point: "Org Feuerwehr" } }) }, // re-list after create: just us
+      { body: ocs(100, {}) }, // bind succeeds
+    ]);
+    const result = await provisioner(fetchImpl).ensureGroupFolder({
+      name: "Org Feuerwehr",
+      groupId: "org:acc-7:member",
+    });
+    assert.deepEqual(result, { folderId: 9, created: true });
+    assert.match(calls[1].url, /\/apps\/groupfolders\/folders\?/, "create call");
+    assert.equal(calls[2].method, "GET", "re-lists after creating, to detect a lost race");
+    assert.match(calls[3].url, /\/apps\/groupfolders\/folders\/9\/groups/);
+    assert.match(calls[3].body ?? "", /group=org%3Aacc-7%3Amember/);
+  });
+
+  // --- Gap 1 (CRITICAL): partially-created folder when the group binding fails ---
   //
   // The create-folder call and the bind-group call are two separate OCS
   // requests. If the first succeeds and the second fails, a folder now
@@ -156,9 +221,10 @@ describe("ensureGroupFolder", () => {
   // anything needs retrying.
   it("throws — and does not report created:true — when binding the group to a freshly-created folder fails", async () => {
     const { calls, fetchImpl } = stubFetch([
-      { body: ocs(100, {}) },
-      { body: ocs(100, { id: 9 }) },
-      { body: ocs(997, null) },
+      { body: ocs(100, {}) }, // initial listing: nothing yet
+      { body: ocs(100, { id: 9 }) }, // create -> id 9
+      { body: ocs(100, { "9": { id: 9, mount_point: "Org Feuerwehr" } }) }, // re-list: just us
+      { body: ocs(997, null) }, // bind fails
     ]);
     await assert.rejects(
       () =>
@@ -168,7 +234,126 @@ describe("ensureGroupFolder", () => {
         }),
       (err: unknown) => err instanceof NextcloudError && err.status === 997,
     );
-    assert.equal(calls.length, 3, "the folder-create call still happened — this is the orphan case");
+    assert.equal(
+      calls.length,
+      4,
+      "listing, create, re-list, and the failed bind — the folder-create call still happened, this is the orphan case",
+    );
+  });
+
+  // The critical fix: the orphan above must not be permanent. The NEXT call
+  // for the same name+group must notice the folder exists but is not bound,
+  // and repair it — not just find it in the listing and declare success.
+  // This is the full sequence the prior implementation never tested: create,
+  // bind fails, retry, folder is now correctly bound.
+  it("self-heals on retry: re-binds the group to a folder left orphaned by a prior failed bind", async () => {
+    const first = stubFetch([
+      { body: ocs(100, {}) },
+      { body: ocs(100, { id: 9 }) },
+      { body: ocs(100, { "9": { id: 9, mount_point: "Org Feuerwehr" } }) },
+      { body: ocs(997, null) }, // bind fails — folder 9 now exists, ungrouped
+    ]);
+    await assert.rejects(() =>
+      provisioner(first.fetchImpl).ensureGroupFolder({
+        name: "Org Feuerwehr",
+        groupId: "org:acc-7:member",
+      }),
+    );
+
+    // Retry: the listing now finds folder 9 (created by the first call) with
+    // no `groups` entry for us — because the bind never landed. The buggy
+    // version of this code stopped at "found in the listing" and returned
+    // `{ created: false }` with zero attempt to bind. The fix must notice
+    // the missing binding and repair it here.
+    const second = stubFetch([
+      { body: ocs(100, { "9": { id: 9, mount_point: "Org Feuerwehr" } }) },
+      { body: ocs(100, {}) }, // repair bind succeeds
+    ]);
+    const result = await provisioner(second.fetchImpl).ensureGroupFolder({
+      name: "Org Feuerwehr",
+      groupId: "org:acc-7:member",
+    });
+    assert.deepEqual(result, { folderId: 9, created: false });
+    assert.equal(
+      second.calls.length,
+      2,
+      "listing plus the repair bind — not a silent no-op on an orphaned folder",
+    );
+    assert.equal(second.calls[1].method, "POST");
+    assert.match(second.calls[1].url, /\/apps\/groupfolders\/folders\/9\/groups/);
+    assert.match(second.calls[1].body ?? "", /group=org%3Aacc-7%3Amember/);
+  });
+
+  // --- Gap 2 (IMPORTANT): the two-tab creation race ---
+  //
+  // groupfolders has no server-side dedup on `mount_point` (unlike
+  // users/groups, which get OCS_ALREADY_EXISTS for free) — a plain
+  // check-then-act listing can't be made atomic from an HTTP client. Two
+  // tabs that both miss the lookup will both create a folder for the same
+  // name, ending up with two live rows (e.g. ids 10 and 11) both bound to
+  // the group, and both callers reporting bare success. These tests encode
+  // the race's observable effect on the wire — a second, same-named folder
+  // materializing between "create" and "re-list" — rather than literally
+  // racing two Promises: real concurrent execution order between two tabs
+  // is a network-timing detail with no single deterministic interleaving,
+  // but the reconciliation logic below must react correctly to any
+  // interleaving that could occur, which is exactly what fixing the
+  // listing's contents around the create call tests.
+  it("converges on the lowest id and reports the duplicate when two folders already share the mount point", async () => {
+    const { calls, fetchImpl } = stubFetch([
+      {
+        body: ocs(100, {
+          "11": { id: 11, mount_point: "Org Feuerwehr" },
+          "10": {
+            id: 10,
+            mount_point: "Org Feuerwehr",
+            groups: { "org:acc-7:member": 31 },
+          },
+        }),
+      },
+    ]);
+    const result = await provisioner(fetchImpl).ensureGroupFolder({
+      name: "Org Feuerwehr",
+      groupId: "org:acc-7:member",
+    });
+    assert.deepEqual(result, {
+      folderId: 10,
+      created: false,
+      duplicateFolderIds: [11],
+    });
+    assert.equal(
+      calls.length,
+      1,
+      "the canonical folder (10) is already bound — no bind call, and nothing is deleted",
+    );
+  });
+
+  it("detects a lost creation race via the post-create re-list and reports its own folder as the duplicate", async () => {
+    const { calls, fetchImpl } = stubFetch([
+      { body: ocs(100, {}) }, // initial listing: empty — both tabs would see this
+      { body: ocs(100, { id: 11 }) }, // our own create -> id 11 (the higher id: we lose)
+      {
+        body: ocs(100, {
+          "10": { id: 10, mount_point: "Org Feuerwehr" }, // another tab's folder, invisible to our first listing, now surfaced
+          "11": { id: 11, mount_point: "Org Feuerwehr" },
+        }),
+      },
+      { body: ocs(100, {}) }, // bind lands on the canonical folder, 10
+    ]);
+    const result = await provisioner(fetchImpl).ensureGroupFolder({
+      name: "Org Feuerwehr",
+      groupId: "org:acc-7:member",
+    });
+    assert.deepEqual(result, {
+      folderId: 10,
+      created: false,
+      duplicateFolderIds: [11],
+    });
+    assert.match(
+      calls[3].url,
+      /\/apps\/groupfolders\/folders\/10\/groups/,
+      "binds the canonical folder (10), never the one this call created and lost the race with (11)",
+    );
   });
 });
 

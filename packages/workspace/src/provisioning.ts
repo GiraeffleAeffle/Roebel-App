@@ -11,7 +11,19 @@ export interface Provisioner {
   ensureGroupFolder(params: {
     name: string;
     groupId: string;
-  }): Promise<{ folderId: number; created: boolean }>;
+  }): Promise<{
+    folderId: number;
+    created: boolean;
+    /**
+     * Present only when more than one groupfolder shares `name`. This is the
+     * one honest side effect of the two-tab race documented on
+     * `ensureGroupFolder` below: this client cannot stop a second duplicate
+     * row from being created, so it surfaces the fact rather than hiding it
+     * behind a bare success. The ids listed are never the one returned as
+     * `folderId`.
+     */
+    duplicateFolderIds?: number[];
+  }>;
 }
 
 export interface ProvisionerOptions {
@@ -25,6 +37,18 @@ interface OcsEnvelope<T> {
   ocs: { meta: { statuscode: number }; data: T };
 }
 
+interface GroupFolderEntry {
+  id: number;
+  mount_point: string;
+  // The real groupfolders listing endpoint includes each folder's bound
+  // groups, keyed by group id. But an empty PHP associative array encodes as
+  // JSON `[]`, not `{}` — a well-known PHP/JSON quirk — so "no groups yet"
+  // can arrive as either shape, and older server versions may omit the field
+  // entirely. Absence must be treated as "unknown", never as "confirmed not
+  // bound" vs. "confirmed bound" — see `isGroupConfirmedBound`.
+  groups?: Record<string, number> | unknown[];
+}
+
 // OCS's own status lives in this envelope, not in the HTTP status line — an
 // OCS failure (including "not found") can arrive inside an HTTP 200. Every
 // call below has to branch on `meta.statuscode`, never on `res.ok` alone.
@@ -32,6 +56,26 @@ const OCS_SUCCESS = 100;
 /** OCS's uniform "this already exists" code for every create-type call. */
 const OCS_ALREADY_EXISTS = 102;
 const OCS_NOT_FOUND = 404;
+
+/** True only when the listing positively confirms the group is bound —
+ * `false` also covers "we don't know", which is the safe default: it just
+ * costs one extra (idempotent) bind call, never a missed binding. */
+function isGroupConfirmedBound(
+  groups: GroupFolderEntry["groups"],
+  groupId: string,
+): boolean {
+  if (!groups || Array.isArray(groups)) return false;
+  return Object.prototype.hasOwnProperty.call(groups, groupId);
+}
+
+/** Deterministic choice so that every caller who observes the same set of
+ * same-named folders — whatever order they call in, whichever one of them
+ * did the creating — agrees on which single folder is "the" one. Ids are
+ * assigned by the server in increasing order, so "lowest id" is a pure
+ * function of shared server state, not of who happened to ask first. */
+function canonicalFolder(folders: GroupFolderEntry[]): GroupFolderEntry {
+  return folders.reduce((a, b) => (a.id <= b.id ? a : b));
+}
 
 export function createProvisioner(opts: ProvisionerOptions): Provisioner {
   const base = opts.baseUrl.replace(/\/+$/, "");
@@ -93,6 +137,40 @@ export function createProvisioner(opts: ProvisionerOptions): Provisioner {
     }
   }
 
+  async function listGroupFolders(): Promise<GroupFolderEntry[]> {
+    const listing = await ocs<Record<string, GroupFolderEntry>>(
+      "GET",
+      "/apps/groupfolders/folders?format=json",
+    );
+    assertOcsOk(listing, "list group folders", [OCS_SUCCESS]);
+    return Object.values(listing.ocs.data ?? {});
+  }
+
+  /**
+   * Idempotently make sure `groupId` can reach `folder`. Skips the network
+   * call entirely when the listing already told us the binding exists;
+   * otherwise issues the bind and tolerates OCS_ALREADY_EXISTS the same way
+   * `ensureUser`/`ensureGroup` tolerate it on their own create calls — two
+   * tabs binding the same group to the same folder is the same harmless
+   * race, and Nextcloud's own "add group to folder" call is a set-membership
+   * write, safe to repeat.
+   */
+  async function ensureGroupBound(
+    folder: { id: number; groups?: GroupFolderEntry["groups"] },
+    groupId: string,
+  ): Promise<void> {
+    if (isGroupConfirmedBound(folder.groups, groupId)) return;
+    const bound = await ocs<unknown>(
+      "POST",
+      `/apps/groupfolders/folders/${folder.id}/groups?format=json`,
+      { group: groupId },
+    );
+    assertOcsOk(bound, `bind group ${groupId} to folder ${folder.id}`, [
+      OCS_SUCCESS,
+      OCS_ALREADY_EXISTS,
+    ]);
+  }
+
   return {
     async ensureUser(sub, displayName) {
       const lookup = await ocs<unknown>(
@@ -135,16 +213,60 @@ export function createProvisioner(opts: ProvisionerOptions): Provisioner {
       return { created: created.ocs.meta.statuscode === OCS_SUCCESS };
     },
 
+    /**
+     * GUARANTEE this function actually offers — read before changing it.
+     *
+     * Unlike `ensureUser`/`ensureGroup`, this is NOT atomically idempotent.
+     * OCS's groupfolders API has no create-if-absent primitive and
+     * `mount_point` carries no uniqueness constraint server-side (there is
+     * no analog to the 102 "already exists" dedup that users/groups get for
+     * free) — creating a folder is a bare POST that always succeeds with a
+     * fresh id. The check-then-act window between "list" and "create"
+     * cannot be closed from an HTTP client. Two tabs that both miss the
+     * listing WILL both create a row for the same name.
+     *
+     * So this function does not prevent the duplicate row — it converges
+     * the *answer* despite it. Every caller that observes the same set of
+     * same-named folders (whether found on the very first listing, or
+     * uncovered by the re-list performed right after creating) picks the
+     * lowest folder id as canonical — a deterministic function of shared
+     * server state, so concurrent callers agree without coordinating — and
+     * idempotently ensures the group reaches THAT id. Two tabs racing this
+     * call always end up reporting the same `folderId`, both able to reach
+     * it through the group, even though the server may be left holding an
+     * extra row.
+     *
+     * It deliberately does NOT delete the loser. A duplicate discovered on
+     * the very first listing could be old, could already carry its own
+     * group binding or content from outside this code path — this client
+     * has no way to know, and deleting on a guess is the wrong failure mode
+     * for citizens' files. So a lost race leaves an inert, group-less
+     * duplicate that nothing in this codebase ever binds a group to or
+     * writes into; `duplicateFolderIds` surfaces it for a human to clean up
+     * by hand, rather than the result silently reporting bare success.
+     *
+     * A partially-provisioned folder — created, but the group bind failed
+     * or was never reached — self-heals on the next call: an existing
+     * folder always has its group binding (re-)ensured, never assumed from
+     * its mere presence in the listing.
+     */
     async ensureGroupFolder({ name, groupId }) {
-      const listing = await ocs<Record<string, { id: number; mount_point: string }>>(
-        "GET",
-        "/apps/groupfolders/folders?format=json",
-      );
-      assertOcsOk(listing, "list group folders", [OCS_SUCCESS]);
-      const existing = Object.values(listing.ocs.data ?? {}).find(
+      const matches = (await listGroupFolders()).filter(
         (folder) => folder.mount_point === name,
       );
-      if (existing) return { folderId: existing.id, created: false };
+
+      if (matches.length > 0) {
+        const canonical = canonicalFolder(matches);
+        await ensureGroupBound(canonical, groupId);
+        const duplicateFolderIds = matches
+          .filter((folder) => folder.id !== canonical.id)
+          .map((folder) => folder.id);
+        return {
+          folderId: canonical.id,
+          created: false,
+          ...(duplicateFolderIds.length > 0 ? { duplicateFolderIds } : {}),
+        };
+      }
 
       const created = await ocs<{ id: number }>(
         "POST",
@@ -152,24 +274,35 @@ export function createProvisioner(opts: ProvisionerOptions): Provisioner {
         { mountpoint: name },
       );
       assertOcsOk(created, `create group folder ${name}`, [OCS_SUCCESS]);
-      const folderId = created.ocs.data.id;
+      const ownFolderId = created.ocs.data.id;
+
+      // Re-list rather than trusting our own create response in isolation —
+      // this is the only way to notice a concurrent caller who also missed
+      // the first listing and created a same-named folder in the meantime
+      // (see the GUARANTEE comment above). This extra round trip only ever
+      // happens once per org (group-folder creation is a one-time bootstrap
+      // event, not a per-request cost), so it is not on the hot path.
+      const afterCreate = (await listGroupFolders()).filter(
+        (folder) => folder.mount_point === name,
+      );
+      const canonical =
+        afterCreate.length > 0 ? canonicalFolder(afterCreate) : { id: ownFolderId };
 
       // The folder now exists on the server whether or not the bind below
       // succeeds. If it fails, throw rather than reporting `created: true`
       // on a folder the group can't reach — the caller must see this as a
       // failure, not a false success, even though a folder row now exists.
-      const bound = await ocs<unknown>(
-        "POST",
-        `/apps/groupfolders/folders/${folderId}/groups?format=json`,
-        { group: groupId },
-      );
-      assertOcsOk(
-        bound,
-        `bind group ${groupId} to folder ${folderId}`,
-        [OCS_SUCCESS, OCS_ALREADY_EXISTS],
-      );
+      await ensureGroupBound(canonical, groupId);
 
-      return { folderId, created: true };
+      const duplicateFolderIds = afterCreate
+        .filter((folder) => folder.id !== canonical.id)
+        .map((folder) => folder.id);
+
+      return {
+        folderId: canonical.id,
+        created: canonical.id === ownFolderId,
+        ...(duplicateFolderIds.length > 0 ? { duplicateFolderIds } : {}),
+      };
     },
   };
 }
