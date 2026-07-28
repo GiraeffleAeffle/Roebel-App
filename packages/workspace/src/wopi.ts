@@ -33,12 +33,38 @@ export interface WopiFileInfo {
   Version: string;
 }
 
+/**
+ * A `fileId` arrived in a URL path segment and cannot be trusted to be well
+ * formed. Thrown rather than returned as `null` to match this package's other
+ * boundary failures (`ScopeViolationError`, `NextcloudError` in ./scope and
+ * ./nextcloud): a caller that forgets a null-check must not silently proceed
+ * with `undefined` scope/path fields, and a later task's WOPI route handler
+ * can catch this one named type and map it to a clean 404/400 without ever
+ * reaching Nextcloud.
+ */
+export class WopiFileIdError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WopiFileIdError";
+  }
+}
+
 function b64urlEncode(value: string): string {
   return Buffer.from(value, "utf8").toString("base64url");
 }
 
 function b64urlDecode(value: string): string {
   return Buffer.from(value, "base64url").toString("utf8");
+}
+
+function isWorkspaceScope(value: unknown): value is WorkspaceScope {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (v.kind !== "personal" && v.kind !== "org") return false;
+  if (typeof v.sub !== "string") return false;
+  if (v.accountId !== undefined && typeof v.accountId !== "string") return false;
+  if (v.folderName !== undefined && typeof v.folderName !== "string") return false;
+  return true;
 }
 
 /** Opaque, url-safe handle for (scope, path) — it rides in the WOPISrc path. */
@@ -50,11 +76,23 @@ export function decodeFileId(fileId: string): {
   scope: WorkspaceScope;
   path: string;
 } {
-  const parsed = JSON.parse(b64urlDecode(fileId)) as {
-    scope: WorkspaceScope;
-    path: string;
-  };
-  return parsed;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(b64urlDecode(fileId));
+  } catch {
+    throw new WopiFileIdError("fileId is not valid base64url-encoded JSON");
+  }
+
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !isWorkspaceScope((parsed as Record<string, unknown>).scope) ||
+    typeof (parsed as Record<string, unknown>).path !== "string"
+  ) {
+    throw new WopiFileIdError("fileId does not decode to a { scope, path } shape");
+  }
+
+  return parsed as { scope: WorkspaceScope; path: string };
 }
 
 export async function mintWopiToken(
@@ -73,7 +111,12 @@ export async function verifyWopiToken(
   token: string,
   secret: Uint8Array,
 ): Promise<WopiClaims> {
-  const { payload } = await jwtVerify(token, secret);
+  // Pinned rather than left to jose's default: an HMAC secret verifies
+  // equally under HS256/HS384/HS512, so without this a token re-signed with
+  // the same secret under a different alg would still pass. Not exploitable
+  // on its own (forging one still needs `secret`), but ruling out the whole
+  // alg-confusion surface is one line.
+  const { payload } = await jwtVerify(token, secret, { algorithms: ["HS256"] });
   return {
     sub: payload.sub as string,
     sessionId: payload.sessionId as string,
@@ -160,6 +203,10 @@ export function buildEditorUrl(params: {
   lang: string;
 }): string {
   const url = new URL(params.urlsrc);
+  // Enforce the "no token in this url" guarantee here, rather than trusting
+  // that urlsrc (assembled by a caller from Collabora's /hosting/discovery
+  // response) never already carries one.
+  url.searchParams.delete("access_token");
   url.searchParams.set("WOPISrc", params.wopiSrc);
   url.searchParams.set("lang", params.lang);
   return url.toString();

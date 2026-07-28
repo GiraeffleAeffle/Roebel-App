@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { SignJWT } from "jose";
 import {
   buildEditorUrl,
   checkFileInfo,
@@ -8,6 +9,7 @@ import {
   mintWopiToken,
   parseDiscovery,
   verifyWopiToken,
+  WopiFileIdError,
   type WopiClaims,
 } from "../src/wopi";
 import type { DirEntry } from "../src/propfind";
@@ -33,6 +35,38 @@ describe("file ids", () => {
   it("is url-safe, because it travels in a WOPISrc query parameter", () => {
     assert.match(encodeFileId(scope, "Meine Akten/Bericht #1.odt"), /^[A-Za-z0-9_-]+$/);
   });
+
+  it("round-trips an org scope with spaces, #, parens and non-ASCII in the path", () => {
+    // The "is url-safe" test above only checks the encoded charset — it never
+    // decodes back, so it cannot prove the value survives the round trip. An
+    // org scope is included because it carries the extra accountId/folderName
+    // fields a personal scope doesn't.
+    const orgScope: WorkspaceScope = {
+      kind: "org",
+      sub: "0xabc",
+      accountId: "acct-1",
+      folderName: "Org Feuerwehr",
+    };
+    const trickyPath = "Elternbeirat (Grundschule)/Bericht #1 Prüfbericht Müritz.odt";
+    const decoded = decodeFileId(encodeFileId(orgScope, trickyPath));
+    assert.deepEqual(decoded.scope, orgScope);
+    assert.equal(decoded.path, trickyPath);
+  });
+
+  it("rejects a fileId that isn't valid base64url-encoded JSON with a typed error, not a raw SyntaxError", () => {
+    assert.throws(() => decodeFileId("!!!not-a-real-fileid!!!"), WopiFileIdError);
+    assert.throws(
+      () => decodeFileId(Buffer.from("hello world", "utf8").toString("base64url")),
+      WopiFileIdError,
+    );
+  });
+
+  it("rejects decoded JSON that isn't a { scope, path } shape, instead of silently returning undefined fields", () => {
+    const wrongShape = Buffer.from(JSON.stringify({ foo: "bar" }), "utf8").toString(
+      "base64url",
+    );
+    assert.throws(() => decodeFileId(wrongShape), WopiFileIdError);
+  });
 });
 
 describe("tokens", () => {
@@ -51,6 +85,32 @@ describe("tokens", () => {
     await assert.rejects(
       () => verifyWopiToken(token, new Uint8Array(32).fill(9)),
     );
+  });
+
+  it("rejects a token whose payload was tampered with after signing, even though the secret is correct", async () => {
+    const token = await mintWopiToken(claims, SECRET, 600);
+    const [header, payload, signature] = token.split(".");
+    const decodedPayload = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    decodedPayload.canWrite = false; // flip a claim without re-signing
+    const tamperedPayload = Buffer.from(JSON.stringify(decodedPayload), "utf8").toString(
+      "base64url",
+    );
+    const tampered = `${header}.${tamperedPayload}.${signature}`;
+    await assert.rejects(() => verifyWopiToken(tampered, SECRET));
+  });
+
+  it("rejects a token whose header claims an algorithm other than HS256, even signed with the right secret", async () => {
+    // Not exploitable on its own — forging this still needs SECRET — but
+    // pinning the algorithm is one line and rules out any future alg-confusion
+    // surface within the HMAC family (HS256/HS384/HS512 all accept the same
+    // raw-bytes key, so jose's default `jwtVerify` would otherwise accept any
+    // of them here).
+    const other = await new SignJWT({ ...claims } as unknown as Record<string, unknown>)
+      .setProtectedHeader({ alg: "HS384" })
+      .setIssuedAt()
+      .setExpirationTime(Math.floor(Date.now() / 1000) + 600)
+      .sign(SECRET);
+    await assert.rejects(() => verifyWopiToken(other, SECRET));
   });
 });
 
@@ -83,6 +143,14 @@ describe("checkFileInfo", () => {
     const info = checkFileInfo(entry, { ...claims, canWrite: false }, "Max B.");
     assert.equal(info.UserCanWrite, false);
     assert.equal(info.SupportsUpdate, false);
+  });
+
+  it("never claims lock support the WOPI host does not implement", () => {
+    // Slice 1 is single-editor-per-document; claiming SupportsLocks would make
+    // Collabora issue lock calls this host never answers. A regression that
+    // flips this to `true` must not pass silently.
+    const info = checkFileInfo(entry, claims, "Max B.");
+    assert.equal(info.SupportsLocks, false);
   });
 });
 
@@ -160,5 +228,18 @@ describe("buildEditorUrl", () => {
       lang: "de-DE",
     });
     assert.doesNotMatch(url, /access_token/);
+  });
+
+  it("strips an access_token the discovery urlsrc already carries, instead of trusting the input to be clean", () => {
+    // Collabora's real discovery urlsrc ends in a bare "?", so this isn't
+    // live-exploitable today — but the "no token in the URL" guarantee must be
+    // enforced by this function, not by trusting what urlsrc happens to be.
+    const url = buildEditorUrl({
+      urlsrc: "https://office.example/browser/abc/cool.html?foo=bar&access_token=PRE_EXISTING",
+      wopiSrc: "https://roebel.app/api/workspace/wopi/files/XYZ",
+      lang: "de-DE",
+    });
+    assert.doesNotMatch(url, /access_token/);
+    assert.equal(new URL(url).searchParams.get("foo"), "bar");
   });
 });
