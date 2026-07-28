@@ -49,7 +49,7 @@ interface NavItem {
 
 const mainNavItems: NavItem[] = [
   { href: "/app", label: "Feed", icon: Home, exact: true },
-  { href: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard, modes: ["citizen"] },
+  { href: "/arbeitsbereich", label: "Arbeitsbereich", icon: LayoutDashboard, modes: ["citizen"] },
   { href: "/app/proposals", label: "Stadt", icon: Landmark },
   { href: "/app/events", label: "Veranstaltungen", icon: Calendar },
   { href: "/app/karte", label: "Karte", icon: MapPin },
