@@ -52,8 +52,16 @@ describe("loadDiscovery", () => {
   });
 
   it("returns an empty map on a non-200, rather than parsing an error page", async () => {
+    // The body is valid discovery XML that WOULD parse into a non-empty map
+    // if the status check were skipped — a Collabora deployment behind a
+    // proxy can return a 502 with a body that still happens to look like
+    // XML, and the status must gate parsing regardless of what the body
+    // contains. "nope" as a body would pass this assertion even with the
+    // `!res.ok` branch deleted, because parseDiscovery's own internal
+    // try/catch already turns unparseable garbage into an empty map — that
+    // would test the wrong thing.
     const fetchImpl = (async () =>
-      new Response("nope", { status: 502 })) as unknown as typeof globalThis.fetch;
+      new Response(DISCOVERY, { status: 502 })) as unknown as typeof globalThis.fetch;
     assert.equal((await loadDiscovery("https://office.example", fetchImpl)).size, 0);
   });
 });
