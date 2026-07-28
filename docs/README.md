@@ -14,6 +14,7 @@ the right one.
 | Run my own node | [Netizen Node manifest](superpowers/specs/2026-07-26-netizen-node-manifest.md) → [installer](superpowers/specs/2026-07-26-netizen-node-installer.md) |
 | Contribute code | [Contributor onboarding](CONTRIBUTOR_ONBOARDING.md), [Forking guide](FORKING_GUIDE.md) |
 | Know what we deliberately have NOT built, and why | [Roadmap and deferred work](ROADMAP_AND_DEFERRED.md) |
+| Work with the Stadtstack contributor | [Röbel × Netizen × Stadtstack alignment](STADTSTACK_ALIGNMENT.md) |
 | Understand the mission | [Mission and goals](MISSION_AND_GOALS.md) |
 
 ## How these documents relate

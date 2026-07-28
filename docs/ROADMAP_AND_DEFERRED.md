@@ -141,6 +141,37 @@ SecureStore). **Trigger:** Citizens asking to post from desktop.
 
 ---
 
+## Interoperability with Stadtstack
+
+### C. A civic data contract (topics, proposals, cases, evidence, decisions)
+
+An outside contributor is building **Stadtstack**, a deterministic decision-and-evidence
+pipeline, and proposes ten versioned handover objects — `civic_topic_v1`, `civic_proposal_v1`,
+`evidence_return_v1`, `decision_dossier_v1`, `impact_receipt_v1` and others — each carrying
+provenance, visibility class, review status and **authority binding**.
+
+**Netizen has nothing at this layer.** NSP-0…10 describe a *node*; nothing describes a *civic
+process*. The proposal is the right shape (few objects, versioned, at the boundary rather than
+aligning whole internal models) and additive to what exists.
+
+**Trigger: freeze the canonical topic/proposal/case ID and the first two objects before
+anything else.** Every other object references them, and the ID ends up embedded in every
+published event — it is the one mistake that is expensive to reverse.
+
+See [the alignment document](STADTSTACK_ALIGNMENT.md) for what already agrees, what genuinely
+diverges (Talos/Kubernetes vs compose; who owns which surface), and the answers we can already
+give to four of their seven open questions.
+
+### D. Node profiles as a manifest concept
+
+Stadtstack proposes named bundles — Community, Participation, Administration, Evidence,
+Companion, Operations — rather than declaring every service individually. Netizen's manifest is
+already declarative and its civic stack is now optional, so a profile is a naming layer on top
+rather than new machinery. **Trigger:** the second or third contributor node, when "which
+services do I need" becomes a real question rather than a copy-paste.
+
+---
+
 ## Making a node trivial to stand up
 
 These two are the difference between "a contributor *can* run a node" and "a contributor
