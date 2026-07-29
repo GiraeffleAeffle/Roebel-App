@@ -15,6 +15,7 @@ the right one.
 | Contribute code | [Contributor onboarding](CONTRIBUTOR_ONBOARDING.md), [Forking guide](FORKING_GUIDE.md) |
 | Know what we deliberately have NOT built, and why | [Roadmap and deferred work](ROADMAP_AND_DEFERRED.md) |
 | Know who holds which key, and who can revoke it | [Key governance](KEY_GOVERNANCE.md) |
+| Know our GDPR/AI-Act duties and the deletion path | [DSGVO & AI Act compliance](DSGVO_AI_ACT_COMPLIANCE.md) |
 | Decide where a new kind of data belongs | [Data placement and CRUD](DATA_PLACEMENT_AND_CRUD.md) |
 | Publish app data (events, cinema, orgs, marketplace) to Nostr | [Public data on Nostr](PUBLIC_DATA_ON_NOSTR.md) |
 | Work with the Stadtstack contributor | [Röbel × Netizen × Stadtstack alignment](STADTSTACK_ALIGNMENT.md) |
@@ -54,7 +55,10 @@ they record assumptions that were **wrong** and what replaced them.
 
 **Research** — `future-research/`. Strategy and technology evaluation, including honest
 "unverified" sections. Several claims here were later checked on-chain and corrected; the
-corrections stayed in the documents rather than being quietly edited out.
+corrections stayed in the documents rather than being quietly edited out. Newest:
+[IT-Planungsrat blockchain report → regulatory landscape 2026](future-research/2026-07-29_ITPLR_BLOCKCHAIN_REGULATORY_LANDSCAPE.md)
+(EUDI wallet, MiCA, municipal-token precedents, funding pipeline), whose operative
+consequences live in [DSGVO & AI Act compliance](DSGVO_AI_ACT_COMPLIANCE.md).
 
 **Runbooks** — operational procedures: [MACI Shamir operations](MACI_SHAMIR_OPERATIONS.md),
 [deployment playbook](DEPLOYMENT_PLAYBOOK.md), [Hetzner setup](HETZNER_SETUP.md),
