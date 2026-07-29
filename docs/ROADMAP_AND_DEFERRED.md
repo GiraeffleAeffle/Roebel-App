@@ -185,6 +185,26 @@ media: calendar data should use NIP-52 kinds rather than invented ones, and medi
 served from a Blossom server next to strfry — NIP-96 is officially deprecated in its
 favour. **Trigger:** publishing the events/cinema/org datasets, or any media, to the relay.
 
+### 13. The index does not honour replaceable events
+
+Found 2026-07-29, during the node-secret rotation. strfry correctly keeps **one** kind 0 per
+pubkey — that is NIP-01 replaceable-event semantics. The index keys on event id, so it keeps
+**every version**: after two watcher restarts the relay held 1 profile and the index returned 2.
+
+Harmless today, because the only consumer sorts newest-first and both versions were identical.
+It is not harmless for the plan in [Data placement and CRUD](DATA_PLACEMENT_AND_CRUD.md), where
+**edit** is expressed as a parameterised replaceable event (kinds 30000–39999 keyed by their `d`
+tag). Under the current index an edited event would be returned alongside the version it was
+meant to replace, and a reader has no way to know which is current — an edit that does not
+replace anything is not an edit.
+
+The fix is to collapse on read or on ingest: newest `created_at` wins per `(pubkey, kind)` for
+kinds 0/3/10000–19999, and per `(pubkey, kind, d)` for 30000–39999, with ties broken by the
+lexicographically smaller id as NIP-01 specifies. Deletions (kind 5) need the same treatment.
+
+**Trigger:** before shipping edit or delete for any Nostr-published dataset. Doing it after
+would mean rewriting rows readers had already been served.
+
 ---
 
 ## For the Netizen project repo
