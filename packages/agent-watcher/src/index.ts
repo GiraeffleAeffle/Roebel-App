@@ -10,3 +10,5 @@ export { DEFAULT_BOUNDS, emptyHistory, recordReply, shouldAnswer } from "./bound
 export type { Bounds, Decision, Refusal, ReplyHistory } from "./bounds";
 export { watchOnce } from "./watcher";
 export type { PassResult, WatcherDeps } from "./watcher";
+export { announceAgentProfile } from "./profile";
+export type { AnnounceDeps } from "./profile";

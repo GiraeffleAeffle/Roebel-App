@@ -250,6 +250,17 @@ export default function NostrIdentityScreen() {
     setTestResult(null);
     setMeckyReply(null);
 
+    // Give up after ~40s rather than spinning forever: if no answer has arrived by
+    // then the watcher is down, and saying so is more useful than a spinner.
+    const waitForReply = async (eventId: string, agentPubkey: string) => {
+      for (let attempt = 0; attempt < 13; attempt++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const reply = await fetchAgentReply(eventId, agentPubkey);
+        if (reply) return reply;
+      }
+      return null;
+    };
+
     const sent = await publishAgentMention(content, MECKY_PUBKEY);
     setTestResult(sent);
     setAskedEventId(sent.eventId ?? null);
@@ -259,17 +270,32 @@ export default function NostrIdentityScreen() {
     }
     setTestText('');
 
-    // Give up after ~40s rather than spinning forever: if no answer has arrived by
-    // then the watcher is down, and saying so is more useful than a spinner.
-    for (let attempt = 0; attempt < 13; attempt++) {
-      await new Promise((r) => setTimeout(r, 3000));
-      const reply = await fetchAgentReply(sent.eventId, MECKY_PUBKEY);
-      if (reply) {
-        setMeckyReply({ content: reply.content, id: reply.id });
-        setAskingMecky(false);
-        return;
+    const reply = await waitForReply(sent.eventId, MECKY_PUBKEY);
+    if (reply) {
+      setMeckyReply({ content: reply.content, id: reply.id });
+      setAskingMecky(false);
+      return;
+    }
+
+    // Silence is ambiguous: the agent may be down, or its key may have rotated
+    // since this build shipped — in which case the mention was addressed to a
+    // pubkey nobody is listening on, and re-polling would never help. Ask the
+    // node who it is now, and if it disagrees, ask again properly.
+    const current = await discoverAgentPubkey();
+    if (current && current !== MECKY_PUBKEY) {
+      const resent = await publishAgentMention(content, current);
+      if (resent.ok && resent.eventId) {
+        setTestResult(resent);
+        setAskedEventId(resent.eventId);
+        const retried = await waitForReply(resent.eventId, current);
+        if (retried) {
+          setMeckyReply({ content: retried.content, id: retried.id });
+          setAskingMecky(false);
+          return;
+        }
       }
     }
+
     setMeckyReply(null);
     setTestResult({ ok: false, message: 'Mecky hat nicht geantwortet. Läuft der Agent auf dem Node?' });
     setAskingMecky(false);
@@ -625,13 +651,50 @@ export default function NostrIdentityScreen() {
   );
 }
 
-/**
- * Mecky's Nostr identity on this node — derived from the node secret, declared in
- * the manifest's `agents.a2a.relayPubkeys`, and therefore stable.
- */
 const INDEX_BASE = 'https://index.roebel.app';
 
-const MECKY_PUBKEY = '0726d9e97ef182163a906d65911779ab50345f5507d2d5c81ca7f7385ae110f2';
+/**
+ * Mecky's Nostr identity on this node — derived from the node secret and declared
+ * in the manifest's `agents.a2a.relayPubkeys`.
+ *
+ * Compiled in as the *trusted* value: it costs no network round trip, and it
+ * cannot be spoofed by anyone who can write to the relay. But a node secret can
+ * be rotated (it was, on 2026-07-29), and a stale constant fails silently here —
+ * `fetchAgentReply` would filter on an author who never posts, so a perfectly
+ * healthy agent reports "Mecky did not answer".
+ *
+ * This repo has already paid for that exact mistake once: the app encrypted MACI
+ * ballots to a hardcoded pre-rotation coordinator key, and every vote tallied
+ * 0/0/0. Nothing threw. The votes simply did not count. So the constant is the
+ * default and the node's own index is the fallback — see `discoverAgentPubkey`.
+ */
+const MECKY_PUBKEY = '412e639ad250e84faeb3033bba1d20ee09b8a68a2ca8542fcd19d3c2475df16b';
+
+/**
+ * Ask the node which key its agent publishes under today.
+ *
+ * Only consulted when the compiled-in key produced no answer, so the trusted
+ * value always wins when it is still correct. Returns null on any failure: an
+ * unreachable index must not turn into a confident wrong answer.
+ */
+async function discoverAgentPubkey(): Promise<string | null> {
+  try {
+    const res = await fetch(`${INDEX_BASE}/events?kinds=0&limit=50`);
+    if (!res.ok) return null;
+    const body = await res.json();
+    const events: any[] = Array.isArray(body) ? body : (body?.events ?? []);
+    const profiles = events.filter((e) =>
+      (e?.tags ?? []).some((t: string[]) => t?.[0] === 'netizen_agent' && t?.[1] === 'mecky'),
+    );
+    // Newest wins: a rotation leaves the retired agent's profile in the record,
+    // so both keys carry the same agent tag and only recency separates them.
+    profiles.sort((a, b) => (b?.created_at ?? 0) - (a?.created_at ?? 0));
+    const pubkey = profiles[0]?.pubkey;
+    return typeof pubkey === 'string' && /^[0-9a-f]{64}$/.test(pubkey) ? pubkey : null;
+  } catch {
+    return null;
+  }
+}
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

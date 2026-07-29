@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { deriveAgentIdentity } from "@netizen-labs/nostr";
 import { DEFAULT_BOUNDS, emptyHistory } from "./bounds";
+import { announceAgentProfile } from "./profile";
 import { watchOnce } from "./watcher";
 
 /**
@@ -81,6 +82,22 @@ async function main(): Promise<void> {
   console.log(`agent "${agentName}" on "${nodeId}" watching ${relayUrl}`);
   console.log(`  npub ${agent.npub}`);
   console.log(`  bounds: ${bounds.perAuthorPerHour}/author/h, ${bounds.perDay}/day, enabled=${bounds.enabled}`);
+
+  // Introduce ourselves before answering anything. kind 0 is replaceable, so this
+  // is idempotent across restarts, and it means a re-keyed agent is never left
+  // publishing under a pubkey no client can put a name to.
+  await announceAgentProfile({
+    agent,
+    relayUrl,
+    metadata: {
+      name: process.env.AGENT_DISPLAY_NAME ?? agentName[0].toUpperCase() + agentName.slice(1),
+      about:
+        process.env.AGENT_ABOUT ??
+        `KI-Assistent von ${nodeName}. Antwortet, wenn man ihn erwähnt.`,
+      ...(process.env.AGENT_PICTURE ? { picture: process.env.AGENT_PICTURE } : {}),
+    },
+    log: (m) => console.log(`  ${m}`),
+  });
 
   const pass = async () => {
     try {

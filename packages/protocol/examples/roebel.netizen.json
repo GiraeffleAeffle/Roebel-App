@@ -219,7 +219,7 @@
       "transport": "xmtp",
       "nostrKey": "NIP-06 derived from the agent smart account",
       "relayPubkeys": [
-        "0726d9e97ef182163a906d65911779ab50345f5507d2d5c81ca7f7385ae110f2"
+        "412e639ad250e84faeb3033bba1d20ee09b8a68a2ca8542fcd19d3c2475df16b"
       ]
     }
   },
