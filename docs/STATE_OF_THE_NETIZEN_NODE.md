@@ -1,6 +1,6 @@
 # State of the Netizen Node
 
-**Last verified: 2026-07-28**, by reading the running node. Part of the
+**Last verified: 2026-07-29**, by reading the running node. Part of the
 [documentation index](README.md); see also
 [State of the Netizen Stack](STATE_OF_THE_NETIZEN_STACK.md) and
 [State of Nostr](STATE_OF_NOSTR.md).
@@ -107,8 +107,45 @@ why parts of it look the way they do.
   created. Matrix once failed with `password authentication failed for user "mas"` for exactly
   this reason: the entrypoint hook only fires on an empty data directory.
 
-## 7. Known gaps
+## 7. Backups, restore and leaving
 
+A nightly systemd timer runs `ops/backup.sh` at 02:30, keeping 14 days under
+`/var/backups/netizen/<timestamp>/`. Each run writes `ops/status.json` so an agent can read
+the node's health without a human.
+
+It captures every live database — `nextcloud`, `synapse`, `mas`, `indexer` — plus the
+Nextcloud data tree, the strfry event export and the relay allow-list. It does **not** capture
+`.env`; secrets are copied by hand at export time, deliberately, so dumps at rest hold no keys.
+
+**Verified 2026-07-29, on the live node, not in theory:**
+
+- **Restore works.** All 18 indexer rows were deleted outright, then recovered from the dump to
+  the same count. The indexer was the chosen target because it is derived data — a broken
+  restore path would have cost nothing to discover.
+- **Exit works.** A clean-room stack (fresh LMDB, fresh Postgres, empty policy directory) was
+  built from backup output alone and passed all five checks in `EXPORT_AND_RELAUNCH.md` (in the
+  Netizen Labs repo) — including the sharpest one, where a proof link created before the move
+  still resolved through the rebuilt index.
+- **Identity survives.** Mecky's key was re-derived from `NODE_AGENT_SECRET` by a script sharing
+  no code with `@netizen-labs/nostr`, and matched the live pubkey exactly. This is what makes
+  the managed tier's exit non-lossy, and it is why that secret must be escrowed to the
+  community at setup rather than held only by a host.
+
+The half that is **not** backed up is the half that rebuilds itself: the federation mirror
+re-syncs from peers, the index re-reads the relays, Caddy re-issues its certificates. That is
+the practical payoff of treating the protocol as the source of truth — an export is small.
+
+## 8. Known gaps
+
+- **Backups are on-box only.** `offsite` reports `unconfigured`, so every dump shares the fate
+  of the machine it protects. `ops/backup.sh` warns on each run and `status.json` says so,
+  because silence here would read as safety. Closing it means setting
+  `BACKUP_RESTIC_REPOSITORY` / `BACKUP_RESTIC_PASSWORD`.
+- **A duplicate Mecky watcher is running.** A one-shot `docker run` from 2026-07-28 (container
+  `great_galileo`) never exited and has polled alongside `roebel-agent-watcher` since. It has
+  answered nothing — the `already-answered` bound refused every duplicate, which is that guard
+  doing its job — but it burns Anthropic tokens. Remove with
+  `docker rm -f great_galileo`.
 - **Node #2 is on the same box.** It proves the protocol, not independence. The
   concentration ratio stays 1 until an outside operator runs one.
 - **Node #2's containers are not compose-managed.** It now runs from its own rendered
