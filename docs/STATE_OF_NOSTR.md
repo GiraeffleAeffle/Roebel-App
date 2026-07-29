@@ -32,7 +32,10 @@ bidirectional link cannot ping-pong.
 **Absent and consequential: no NIP-42, no NIP-29.** No AUTH means **no gated reads** —
 everything on the relay is world-readable, permanently. No relay-enforced groups means the
 Buzz-style channel model is not reachable on this binary. Both constrain what may ever be
-published here.
+published here. One nuance (2026-07-29): upstream strfry **does** support NIP-42, so
+enabling AUTH here is configuration work, not a software swap — NIP-29 is what genuinely
+needs different relay software. See
+[Roadmap §7](ROADMAP_AND_DEFERRED.md) for the trigger.
 
 ## 2. Identity — wallet → npub
 
@@ -189,7 +192,27 @@ deletes it. Declaring it is the only durable path.
   [State of the Netizen Stack](STATE_OF_THE_NETIZEN_STACK.md) §5.
 - **Onchain peer registry.** `peers` is shaped for a contract to populate it later.
 
-## 7. Where the code is
+## 9. Ecosystem check — 2026-07-29
+
+A research pass against the July-2026 ecosystem
+([full report](future-research/2026-07-29_NOSTR_OIDC_OPENDESK_LANDSCAPE.md)) confirmed the
+architecture and produced a short adoption list:
+
+- **NIP-77 is now a merged NIP** with implementations beyond strfry — our federation
+  pattern is protocol-standard, not strfry-proprietary.
+- **strfry 1.1.1** (2026-07-21) is out; we run 1.1.0. Update carries sync and stability fixes.
+- **Adopt next:** NIP-65 relay lists + NIP-05 under `roebel.app` (without them, outbox-model
+  clients — the 2026 majority — cannot discover this relay's content), NIP-52 for town
+  events, Blossom for any Nostr-side media (NIP-96 is officially deprecated).
+- **Deletion is now a duty, not a courtesy:** on our own relay NIP-09/NIP-62 requests must
+  become real LMDB deletion, mirror included — the obligation and procedure live in
+  [DSGVO_AI_ACT_COMPLIANCE](DSGVO_AI_ACT_COMPLIANCE.md) §2.1.
+- **No other municipality runs its own relay** as far as a targeted search could find —
+  worth telling in funding applications.
+- Nostr's network-wide usage is flat (~17k DAU): treat the relay as sovereignty
+  infrastructure, not a reach channel; reach would come via Ditto/Mostr mirroring.
+
+## 10. Where the code is
 
 | | |
 |---|---|

@@ -57,8 +57,10 @@ they record assumptions that were **wrong** and what replaced them.
 "unverified" sections. Several claims here were later checked on-chain and corrected; the
 corrections stayed in the documents rather than being quietly edited out. Newest:
 [IT-Planungsrat blockchain report → regulatory landscape 2026](future-research/2026-07-29_ITPLR_BLOCKCHAIN_REGULATORY_LANDSCAPE.md)
-(EUDI wallet, MiCA, municipal-token precedents, funding pipeline), whose operative
-consequences live in [DSGVO & AI Act compliance](DSGVO_AI_ACT_COMPLIANCE.md).
+(EUDI wallet, MiCA, municipal-token precedents, funding pipeline) and
+[Nostr / OIDC / openDesk landscape 2026](future-research/2026-07-29_NOSTR_OIDC_OPENDESK_LANDSCAPE.md)
+(both architecture bets validated; don't adopt openDesk, stay component-compatible); the
+operative consequences live in [DSGVO & AI Act compliance](DSGVO_AI_ACT_COMPLIANCE.md).
 
 **Runbooks** — operational procedures: [MACI Shamir operations](MACI_SHAMIR_OPERATIONS.md),
 [deployment playbook](DEPLOYMENT_PLAYBOOK.md), [Hetzner setup](HETZNER_SETUP.md),

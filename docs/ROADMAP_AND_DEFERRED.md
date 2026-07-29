@@ -143,7 +143,8 @@ without asking anyone.
 
 The relay has no AUTH, so **everything published is world-readable, permanently**. This is
 why only already-public data goes on it. Private or member-only content would need NIP-42 or
-a different relay.
+a different relay. Nuance (2026-07-29): upstream strfry supports NIP-42, so this is
+configuration work on the existing binary, optionally paired with NIP-70 protected events.
 
 **Trigger:** a genuine requirement to publish something that is not public. Treat with
 suspicion — the append-only log makes GDPR erasure advisory at best.
@@ -167,6 +168,22 @@ The identity bridge is Expo-only. The same wallet derives the **same npub** on t
 the key is re-derived, never transferred — so this is a small addition:
 `@netizen-labs/nostr` is isomorphic, and only the storage differs (WebCrypto instead of
 SecureStore). **Trigger:** Citizens asking to post from desktop.
+
+### 11. Discoverability — NIP-65 relay lists and NIP-05 names
+
+Outbox-model clients (the 2026 majority) find an author's content through their kind-10002
+relay list; without one, nothing published here is discoverable from outside. NIP-05
+(`name@roebel.app`) adds the human-readable identity on our own domain. Small work: publish
+kind 10002 for each opted-in account and serve `/.well-known/nostr.json`.
+**Trigger:** the first push for external reach — mirroring to Fediverse/Bluesky via
+Ditto/Mostr counts. (Context: [ecosystem check 2026-07-29](future-research/2026-07-29_NOSTR_OIDC_OPENDESK_LANDSCAPE.md).)
+
+### 12. Standard kinds for town data — NIP-52 events, Blossom media
+
+When the [Public data on Nostr](PUBLIC_DATA_ON_NOSTR.md) migration reaches events and
+media: calendar data should use NIP-52 kinds rather than invented ones, and media should be
+served from a Blossom server next to strfry — NIP-96 is officially deprecated in its
+favour. **Trigger:** publishing the events/cinema/org datasets, or any media, to the relay.
 
 ---
 
