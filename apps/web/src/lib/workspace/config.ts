@@ -5,6 +5,8 @@
  * Arbeitsbereich, and the app ships unchanged. That is the same config-gating
  * the workspace tiles already use.
  */
+import { allowedOrigins } from "./origin";
+
 export interface WorkspaceConfig {
   issuer: string;
   clientId: string;
@@ -15,6 +17,13 @@ export interface WorkspaceConfig {
   nextcloudAdminPassword: string;
   collaboraBaseUrl: string;
   appOrigin: string;
+  /**
+   * Extra origins the OIDC round trip may use, comma-separated. The citizen
+   * decides which host they are on (apex vs www both resolve), and the PKCE
+   * cookies are host-only — so the redirect_uri must follow the request rather
+   * than a fixed value. Anything not listed here falls back to appOrigin.
+   */
+  allowedOrigins: string[];
 }
 
 const REQUIRED = [
@@ -48,5 +57,9 @@ export function workspaceConfig(): WorkspaceConfig {
     nextcloudAdminPassword: process.env.NEXTCLOUD_ADMIN_PASSWORD!,
     collaboraBaseUrl: process.env.COLLABORA_BASE_URL!,
     appOrigin: process.env.NEXT_PUBLIC_APP_ORIGIN!,
+    allowedOrigins: allowedOrigins(
+      process.env.NEXT_PUBLIC_APP_ORIGIN!,
+      process.env.WORKSPACE_ALLOWED_ORIGINS,
+    ),
   };
 }
