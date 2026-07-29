@@ -6,6 +6,8 @@ Open-source civic technology platform for Roebel/Mueritz, Mecklenburg-Vorpommern
 
 Verified residents get a soulbound **civic ID**, vote on local proposals with **encrypted MACI ballots**, and transact in **Röbel Münzen**, the town's own [Circles](https://aboutcircles.com) group currency. The whole stack — identity, private voting, and money — runs natively on **Gnosis Chain**.
 
+Since July 2026 the town also runs its own **sovereign node**: a machine in Germany hosting the workspace, chat, a members-only [Nostr](https://nostr.com) relay and a public index, federating with other nodes over an open protocol. Röbel is **Genesis Node #1** of the [Netizen](#the-sovereign-node--netizen-genesis-node-1) stack — the forkable generalisation of this repo.
+
 > 🎯 **Mission & Goals:** [docs/MISSION_AND_GOALS.md](docs/MISSION_AND_GOALS.md) — sovereign blockchain × AI infrastructure for coordination, and the 7 goals (sovereign infra, identity, technodemocratic decisions, on-chain money, cross-node AI automation, a sovereign workplace suite, and a forkable protocol) it decomposes into.
 
 ## What's Inside
@@ -18,15 +20,35 @@ This [Turborepo](https://turbo.build/repo) monorepo contains:
 |-----|-------------|-------|
 | **[apps/web](apps/web/)** | Roebel Website + admin dashboards (proposals, verification, treasury, Münzen tokenomics) | Next.js 15, Tailwind CSS, thirdweb v5 |
 | **[apps/expo](apps/expo/)** | Roebel Mobile App (iOS + Android) — voting, verification, Röbel Münzen wallet, Mecky AI | Expo SDK 55, React Native, thirdweb v5 |
+| **[apps/roebel-id](apps/roebel-id/)** | **Röbel ID** — the town's own OIDC provider, bridging a wallet to Nextcloud, Matrix and the web app | panva `oidc-provider`, Fly.io |
+| **[apps/coordinator](apps/coordinator/)** | MACI tally coordinator — Shamir share reconstruction, proof generation, on-chain submission | Node, snarkjs, Fly.io |
+| **[apps/mini-apps](apps/mini-apps/)** | Mini-apps embedded in the mobile app (e.g. `roebel-data`) | Next.js |
 | **[circles-roebel-mini-app](circles-roebel-mini-app/)** | Standalone Circles mini-app ("Röbel Circles") — trust graph, transfers, invites (runs inside the Circles host) | Vite, React 19, Tailwind 4 |
 
 ### Packages
+
+Röbel-specific packages:
 
 | Package | Description |
 |---------|-------------|
 | **[packages/config](packages/config/)** | Shared ESLint and TypeScript configs |
 | **[packages/blockchain](packages/blockchain/)** | Contract ABIs, addresses, thirdweb utilities — **canonical address source of truth** |
 | **[packages/design-tokens](packages/design-tokens/)** | Shared colors, spacing, typography tokens |
+
+**Netizen packages** — the town-agnostic half, developed here against a live town and extracted
+into the [Netizen](#the-sovereign-node--netizen-genesis-node-1) project. Nothing in them knows
+the word "Röbel":
+
+| Package | Description |
+|---------|-------------|
+| **[packages/protocol](packages/protocol/)** | The **Node Manifest** (NSP-0) and the rest of the NSP specs as zod schemas — one JSON document describes a whole node |
+| **[packages/cli](packages/cli/)** | `netizen render \| doctor \| up` — turns a manifest into a deployable bundle, then onto a machine |
+| **[packages/nostr](packages/nostr/)** | Wallet-derived Nostr identity, NIP-01 events, wallet↔npub binding proofs, agent + organisation keys, NIP-52 calendars |
+| **[packages/relay-sync](packages/relay-sync/)** | On-chain membership → relay write access, **fail-closed** |
+| **[packages/indexer](packages/indexer/)** | Cross-node query layer — search, provenance, proof lookup |
+| **[packages/agent-watcher](packages/agent-watcher/)** | A node's AI agent answers when mentioned, under explicit bounds |
+| **[packages/workspace](packages/workspace/)** | Scope guard + Nextcloud WebDAV/OCS client for the sovereign workspace |
+| **[packages/miniapp-sdk](packages/miniapp-sdk/)** | Client + host bridge for embedding mini-apps |
 
 ### Smart Contracts
 
@@ -93,6 +115,8 @@ with just the staging Supabase URL + anon key (both safe to share). Full instruc
 - **Currency**: **Röbel Münzen** — a collateral-backed [Circles v2](https://aboutcircles.com) group currency, gated on the CitizenNFT, adding an economic Sybil cost and a transparent on-chain trust graph.
 - **Backend**: Supabase (Postgres, Auth, Realtime, Edge Functions).
 - **AI**: Claude API powering the Mecky chatbot assistant (German language).
+- **Sovereign node**: a community-owned machine in Germany running the workspace (Nextcloud + Collabora), chat (Matrix), a members-only Nostr relay, a federation mirror and a public index — declared in a single manifest and installable with one command.
+- **Public record**: citizens hold their own Nostr key, derived from their wallet, and publish signed posts to the town's relay. A public index makes that record queryable by anyone, including other nodes.
 
 > 📘 **MACI deep-dive:** [docs/MACI_E_GOVERNANCE.md](docs/MACI_E_GOVERNANCE.md) explains the privacy layer end-to-end (identity → Governor → MACI core/Poll/MessageProcessor/Tally/VkRegistry → coordinator → apps), the ceremony zKey parameters, the operational runbook, and the security model. *Note: that doc predates the Gnosis move and still cites Base addresses for the mechanism walkthrough — the current live addresses are in this README and in the deployment manifest below.*
 >
@@ -101,6 +125,112 @@ with just the staging Supabase URL + anon key (both safe to share). Full instruc
 > 🪙 **Circles / Röbel Münzen:** [docs/CIRCLES_ROEBEL_MUENZEN_STATE.md](docs/CIRCLES_ROEBEL_MUENZEN_STATE.md) and [docs/CIRCLES_TOKENOMICS.md](docs/CIRCLES_TOKENOMICS.md).
 >
 > 🔐 **Coordinator privacy federation:** [docs/SHAMIR_CEREMONY.md](docs/SHAMIR_CEREMONY.md) (concept) and [docs/MACI_SHAMIR_OPERATIONS.md](docs/MACI_SHAMIR_OPERATIONS.md) (runbook).
+
+---
+
+## The sovereign node — Netizen Genesis Node #1
+
+A chain gives a town identity, votes and money. It does not give it a place to keep documents,
+hold a conversation, or publish a record it still controls next decade. Since **2026-07-21**
+Röbel runs its own machine for that: a Hetzner box in Falkenstein, EU-resident, owned by the
+community rather than rented per-seat from a platform.
+
+The node is not configured by hand. It is declared in **one JSON manifest**
+([`packages/protocol/examples/roebel.netizen.json`](packages/protocol/examples/roebel.netizen.json))
+and installed with the CLI:
+
+```bash
+netizen render roebel.netizen.json   # manifest -> deployable bundle
+netizen doctor                       # check the declaration against reality
+netizen up --host                    # ship it, idempotently
+```
+
+Anything running on the box but *not* in the manifest is drift: it will not survive a rebuild
+and will not exist on a fork. That rule is what makes this repo a blueprint instead of a
+souvenir.
+
+### What it serves
+
+| Endpoint | What it is |
+|---|---|
+| `wss://relay.roebel.app` | The town's **authoring relay** — members-only writes |
+| `https://index.roebel.app` | **Public, unauthenticated** cross-node query API over the civic record |
+| `https://cloud.roebel.app` | Nextcloud + Collabora — files and collaborative documents |
+| `https://chat.roebel.app` | Element / Matrix |
+| `https://id.roebel.app` | **Röbel ID**, the town's OIDC provider (hosted on Fly, deliberately not on the box) |
+
+### Identity on the public record
+
+A Nostr key is a secp256k1 Schnorr key; an Ethereum address is not one, and an ERC-4337 smart
+account has no private key at all. So a citizen's Nostr identity is **derived from a signature
+their own wallet produces** over a fixed message — deterministic in, deterministic out, so the
+same wallet reproduces the same `npub` on any device after any reinstall.
+
+The consequences are the point:
+
+- **The key never touches the node.** It is derived on the phone and stays there. The node
+  cannot post as a citizen, and cannot lose their identity for them.
+- **The identity is node-independent.** The derivation message contains no town name, so one
+  wallet has one Nostr identity across every Netizen node — which is what federation needs.
+- **Write access is on-chain membership.** A syncer reads `CitizenNFTv2` holders, verifies each
+  wallet↔npub binding proof, and regenerates the relay's allow-list. It is **fail-closed**: if
+  the RPC or the registry errors, the allow-list is left untouched, because a stale allow-list
+  is a far better failure than an empty one.
+
+Every post carries a **proof link** in the app: tap it and you get the raw signed event —
+pubkey, signature, timestamp — served by the public index. Not a screenshot of a claim, the
+claim itself.
+
+### Federation
+
+The node runs *two* relays: the members-only one it authors into, and a **read-only mirror**
+that pulls declared peers over [NIP-77](https://github.com/nostr-protocol/nips/blob/master/77.md)
+negentropy set reconciliation. Peers are declared in the manifest with a required `why` field,
+so every trust decision between towns is reviewable in a git diff.
+
+> **Honest limit: n = 2, and both nodes are on one box.** Federation is proven as a *protocol*,
+> not as a *network*. The concentration ratio stays 1 until an independent operator runs one.
+
+### Agents on the record
+
+Mecky, the town's AI assistant, has its own Nostr identity and answers when mentioned. Every
+machine-authored event carries NIP-24 `bot: true` and an agent tag, because an unlabelled agent
+in a civic feed is indistinguishable from a resident — and that is the failure mode that erodes
+trust in the whole record. The watcher refuses to answer on explicit bounds: kill switch,
+already-answered, self, other agents, per-author rate limit, daily cap.
+
+### Portability, tested rather than promised
+
+Sovereignty that has never been exercised is a hope. On **2026-07-29** the full export path was
+run against the live node: a clean-room stack was rebuilt from backup output alone and passed
+every check — the relay served the same events, the allow-list regenerated from chain into a
+byte-identical key set, federation reconverged from peers, and **a proof link created before the
+move still resolved** through the rebuilt index.
+
+The node's agent identity was re-derived from the escrowed node secret by a script sharing no
+code with our libraries, and matched exactly. That last point is what makes leaving a host
+non-lossy, and it is why that secret belongs with the community and not with an operator.
+
+Roughly half a node is **derived** and needs no backup at all: the federation mirror re-syncs
+from peers, the index re-reads the relays, TLS certificates re-issue themselves. That is the
+practical payoff of treating the protocol as the source of truth — an export is small.
+
+### What is *not* on the public record yet
+
+Today only **profiles** (kind 0) and **feed posts** (kind 1) are published to Nostr, and only
+for citizens who opt in. Events, cinema listings, organisations and the marketplace still live
+in Supabase only; publishing them is designed
+([docs/PUBLIC_DATA_ON_NOSTR.md](docs/PUBLIC_DATA_ON_NOSTR.md)) and not yet shipped. Private data
+— messages, evidence, PII — is **never** destined for the relay; see
+[docs/DATA_PLACEMENT_AND_CRUD.md](docs/DATA_PLACEMENT_AND_CRUD.md) for the rule and
+[docs/DSGVO_AI_ACT_COMPLIANCE.md](docs/DSGVO_AI_ACT_COMPLIANCE.md) for the GDPR duties that
+shape it.
+
+> 📗 **Node docs:** [State of the Netizen Stack](docs/STATE_OF_THE_NETIZEN_STACK.md) ·
+> [State of the Netizen Node](docs/STATE_OF_THE_NETIZEN_NODE.md) ·
+> [State of Nostr](docs/STATE_OF_NOSTR.md) ·
+> [Key governance](docs/KEY_GOVERNANCE.md) ·
+> [Roadmap and deferred work](docs/ROADMAP_AND_DEFERRED.md)
 
 ---
 
