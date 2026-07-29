@@ -49,6 +49,15 @@ Unterschrift.]**
 | Röbel-Münzen-Transfers (Zahlungsgraph) | Circles-Gruppe `0xAc2C…` | vollständiger sozialer Zahlungsgraph |
 | EURe-Spenden in die Gemeinschaftskasse | Safe + EURe V2 | Spender-Adressen |
 
+**Nostr (eigener Relay `wss://relay.roebel.app` + Föderations-Mirror):** kind-0-Profile und
+kind-1-Posts opt-in publizierender Citizens (nur ohnehin öffentliche App-Inhalte), signiert
+mit dem wallet-abgeleiteten npub. Die Wallet↔npub-Zuordnung (`nostr_identities`) ist
+bewusst die RLS-Ausnahme ohne Lesezugriff. Als Relay-Betreiber sind wir für die auf
+unserem Relay gespeicherten Events **Verantwortliche** und zugleich DSA-Hostingdienst
+(Kleinstunternehmen → Art.-16-Meldeweg genügt, keine Plattformpflichten nach Art. 20 ff.;
+vgl. Bundestag WD 7-026/26 vom 2026-05-29). Föderierte Events von Peer-Nodes liegen im
+Mirror — auch dafür gilt unsere Löschverantwortung.
+
 **Off-chain (Identitätsbrücke — das ist der löschbare Teil):** Supabase (EU-Projekt
 `wwbeqhkslxdxhktqzqti`): Nutzerkonten (Wallet ↔ E-Mail via thirdweb inAppWallet,
 Anzeigename, `is_verified_citizen`), Attestierungs-Evidenz (`request_evidence`),
@@ -128,11 +137,21 @@ gilt die On-Chain-Spur als **effektiv anonymisiert** — das ist unsere Erfüllu
    Feed-Beiträge/Kommentare (bzw. anonymisieren auf „Gelöschtes Mitglied"), `muenzen_tips`-
    und `roebel_points_card`-Zuordnung, Newsletter-Abo (Resend), Einträge in
    `mecky_outreach_log`, XMTP-Konversations-Registry-Zeilen.
-4. **Dritte anstoßen:** thirdweb-Konto-Löschung (E-Mail↔Wallet-Mapping beim Prozessor!),
+4. **Nostr wirklich löschen:** Die App publiziert bereits eine NIP-09-Löschanfrage
+   (advisory für fremde Relays). Auf **unserem eigenen** Relay ist Löschung aber
+   durchsetzbar und damit geschuldet: Events des npub aus der LMDB des Authoring-Relays
+   **und des Föderations-Mirrors** löschen (`strfry delete`/Policy-Workflow), Eintrag in
+   `nostr_identities` entfernen (Allow-List-Sync entzieht Schreibrecht im nächsten Pass).
+   **[TODO]** NIP-62 („Request to Vanish") serverseitig unterstützen — die Spec ist
+   ausdrücklich für rechtsverbindliche Löschpflichten geschrieben; strfry hat dafür keinen
+   nativen Support, also per Plugin/Cron abbilden. Gegenüber dem Betroffenen transparent
+   machen: Kopien auf fremden Relays/Peer-Nodes liegen außerhalb unserer Kontrolle
+   (dokumentiert bereits die UI, vgl. [STATE_OF_NOSTR §4](STATE_OF_NOSTR.md)).
+5. **Dritte anstoßen:** thirdweb-Konto-Löschung (E-Mail↔Wallet-Mapping beim Prozessor!),
    Circles-Profil (Name/Avatar im Circles-Profildienst), ggf. Cloudflare-Stream-Videos.
-5. **Backups:** Löschung greift in Backup-Rotation binnen Frist X **[TODO: Frist aus
+6. **Backups:** Löschung greift in Backup-Rotation binnen Frist X **[TODO: Frist aus
    Supabase-Backup-Policy ermitteln und hier eintragen]**.
-6. **Protokollieren** (Nachweispflicht Art. 5(2)) und dem Betroffenen bestätigen, inkl.
+7. **Protokollieren** (Nachweispflicht Art. 5(2)) und dem Betroffenen bestätigen, inkl.
    Erläuterung, was on-chain verbleibt und warum das anonymisiert ist.
 
 **[TODO]** Diesen Ablauf als Runbook + idealerweise als Admin-Funktion („Konto löschen")
@@ -247,4 +266,5 @@ Verwaltungshandeln) vor Launch erneut prüfen.
 | 4 | Pre-Mint-Aufklärung im Onboarding + Datenschutzerklärung (§ 2.2) | Q3 2026 | S |
 | 5 | DPIA formalisieren (aus § 1), AV-Verträge inventarisieren | Q3/Q4 2026 | M |
 | 6 | Governance-Metadaten-Sichtbarkeit minimieren (§ 3.1) | laufend | S |
-| 7 | Semaphore-Teilnahmenachweise (§ 3.3) | Trigger: ZK-Roadmap | L |
+| 7 | Relay: NIP-09/62 → echte LMDB-Löschung (auch Mirror) + DSA-Meldeweg/Abuse-Kontakt (§ 2.1 Nr. 4) | Q3 2026 | S–M |
+| 8 | Semaphore-Teilnahmenachweise (§ 3.3) | Trigger: ZK-Roadmap | L |
