@@ -46,6 +46,7 @@ import { GnosisWalletProvider } from '@/context/GnosisWalletContext';
 import { ConsentProvider } from '@/context/ConsentContext';
 import { ConditionalPostHogProvider } from '@/components/consent/ConditionalPostHogProvider';
 import { ConsentGate } from '@/components/consent/ConsentGate';
+import { PublicRecordConsent } from '@/components/consent/PublicRecordConsent';
 import { PostHogTelemetry } from '@/components/consent/PostHogTelemetry';
 import { AppUpdateGate } from '@/components/AppUpdateGate';
 import AnimatedSplash from '@/components/AnimatedSplash';
@@ -320,6 +321,7 @@ function Layout() {
                             <PendingPostFeedbackProvider>
                               <ExploreDotProvider>
                                 <ConsentGate />
+                                <PublicRecordConsent />
                                 <AppUpdateGate />
                                 <ThemedLayout />
                                 {/* <DebugLogOverlay /> — debug-log FAB disabled; re-enable here + in index.js */}
