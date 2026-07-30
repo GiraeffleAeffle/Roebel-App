@@ -13,3 +13,5 @@ export { htmlToMarkdown } from "./html-to-md.js";
 export type { PublishSpec } from "./mappers.js";
 export { buildSpecs, mirrorSpecMedia, publishOnce, signSpec } from "./sync.js";
 export type { DatasetName, PublisherDeps, PublishSummary } from "./sync.js";
+export { backfeedOnce, classify } from "./backfeed.js";
+export type { BackfeedDeps, BackfeedSummary } from "./backfeed.js";

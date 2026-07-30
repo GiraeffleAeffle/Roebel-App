@@ -200,6 +200,12 @@ const Services = z.object({
     .object({
       datasets: z.array(z.enum(["events", "cinema", "orgs", "articles", "marketplace"])).min(1),
       intervalSeconds: z.number().int().positive().optional(),
+      /**
+       * The reverse direction: posts and interactions signed by bound citizens
+       * in ANY Nostr client flow back into the app's own tables. This is what
+       * makes multi-client true rather than half-true.
+       */
+      backfeed: z.boolean().optional(),
     })
     .optional(),
   // Secret references only (guards the "secrets by reference" rule).

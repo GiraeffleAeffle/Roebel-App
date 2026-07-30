@@ -4,6 +4,7 @@ import {
   type ProfileMetadata,
   RelayClient,
   buildDeletionEvent,
+  buildEvent,
   buildNoteEvent,
   buildProfileEvent,
 } from '@netizen-labs/nostr';
@@ -96,6 +97,92 @@ export async function publishPost(postId: string, content: string): Promise<Publ
   const identity = await loadStoredIdentity();
   if (!identity) return 'pending';
   return publish(buildNoteEvent(identity.secretKey, content), 'post', postId);
+}
+
+/** The parent post's event id on the relay, or null if it was never published. */
+async function publishedEventIdOf(sourceType: string, sourceId: string): Promise<string | null> {
+  try {
+    const { data } = await supabase
+      .from('nostr_publications')
+      .select('event_id')
+      .eq('source_type', sourceType)
+      .eq('source_id', sourceId)
+      .eq('status', 'published')
+      .maybeSingle();
+    return (data?.event_id as string | undefined) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Mirror a comment as a NIP-10 threaded reply.
+ *
+ * Only possible when the parent post itself is on the relay — a reply to an
+ * event that does not exist is noise no client can thread. Same fire-and-forget
+ * contract as publishPost: never awaited in the UI path.
+ */
+export async function publishComment(
+  commentId: string,
+  postId: string,
+  content: string,
+): Promise<PublicationStatus> {
+  const identity = await loadStoredIdentity();
+  if (!identity) return 'pending';
+  const parent = await publishedEventIdOf('post', postId);
+  if (!parent) return 'pending';
+  const event = buildNoteEvent(identity.secretKey, content, {
+    tags: [['e', parent, '', 'root']],
+  });
+  return publish(event, 'comment', commentId);
+}
+
+/**
+ * Mirror a like as a NIP-25 reaction ("+").
+ *
+ * source_id is scoped by the reactor's pubkey: nostr_publications keys on
+ * (source_type, source_id), and two citizens liking the same post must not
+ * collide.
+ */
+export async function publishLike(postId: string): Promise<PublicationStatus> {
+  const identity = await loadStoredIdentity();
+  if (!identity) return 'pending';
+  const parent = await publishedEventIdOf('post', postId);
+  if (!parent) return 'pending';
+  const event = buildEvent(identity.secretKey, 7, '+', { tags: [['e', parent]] });
+  return publish(event, 'like', `${postId}:${identity.publicKey.slice(0, 16)}`);
+}
+
+/** Unliking retracts the reaction with a NIP-09 deletion request. */
+export async function publishUnlike(postId: string): Promise<void> {
+  const identity = await loadStoredIdentity();
+  if (!identity) return;
+  const likeEventId = await publishedEventIdOf('like', `${postId}:${identity.publicKey.slice(0, 16)}`);
+  if (!likeEventId) return;
+  try {
+    await relay().publish(buildDeletionEvent(identity.secretKey, [likeEventId], { reason: 'Like zurückgenommen' }));
+  } catch {
+    // Advisory anyway; the app state is authoritative for the UI.
+  }
+}
+
+/**
+ * Mirror a repost. NIP-18: a bare repost is kind 6 referencing the original;
+ * a quote-repost with own words is a kind 1 carrying a `q` tag.
+ */
+export async function publishRepost(
+  repostPostId: string,
+  originalPostId: string,
+  quoteContent?: string,
+): Promise<PublicationStatus> {
+  const identity = await loadStoredIdentity();
+  if (!identity) return 'pending';
+  const original = await publishedEventIdOf('post', originalPostId);
+  if (!original) return 'pending';
+  const event = quoteContent
+    ? buildNoteEvent(identity.secretKey, quoteContent, { tags: [['q', original]] })
+    : buildEvent(identity.secretKey, 6, '', { tags: [['e', original]] });
+  return publish(event, 'repost', repostPostId);
 }
 
 /** Publish (or refresh) the Citizen's kind 0 profile. Only already-public fields. */

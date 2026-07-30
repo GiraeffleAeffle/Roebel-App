@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { backfeedOnce } from "./backfeed.js";
 import { publishOnce, type DatasetName } from "./sync.js";
 
 /**
@@ -90,6 +91,40 @@ async function main(): Promise<void> {
     };
   }
 
+  // Backfeed cutover: events older than the FIRST run predate the dedupe
+  // ledger and would double-insert, so the fence is written once and kept on
+  // the persistent media volume.
+  let backfeedCutover = 0;
+  const backfeedEnabled = process.env.BACKFEED === "true" && mediaDir;
+  if (backfeedEnabled) {
+    const cutoverFile = `${mediaDir}/backfeed-cutover`;
+    try {
+      backfeedCutover = Number((await readFile(cutoverFile, "utf8")).trim());
+    } catch {
+      backfeedCutover = Math.floor(Date.now() / 1000);
+      await writeFile(cutoverFile, String(backfeedCutover), "utf8");
+    }
+    if (!Number.isFinite(backfeedCutover) || backfeedCutover <= 0) {
+      backfeedCutover = Math.floor(Date.now() / 1000);
+    }
+  }
+
+  const insertRow = async (table: string, body: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const res = await fetch(`${supabaseUrl}/rest/v1/${table}`, {
+      method: "POST",
+      headers: {
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`${table}: PostgREST ${res.status} ${await res.text()}`);
+    const rows = (await res.json()) as Record<string, unknown>[];
+    return rows[0] ?? {};
+  };
+
   const pass = async (): Promise<void> => {
     const startedAt = new Date().toISOString();
     try {
@@ -115,6 +150,15 @@ async function main(): Promise<void> {
         },
         log: (m) => console.log(`[${startedAt}] ${m}`),
       });
+      if (backfeedEnabled) {
+        await backfeedOnce({
+          relayUrl,
+          cutover: backfeedCutover,
+          fetchRows,
+          insertRow,
+          log: (m) => console.log(`[${startedAt}] ${m}`),
+        });
+      }
     } catch (error) {
       // Fail without touching anything: the relay keeps its last-known-good
       // record, and the next tick retries.

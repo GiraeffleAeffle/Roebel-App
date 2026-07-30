@@ -115,6 +115,42 @@ On delete the app publishes a NIP-09 kind 5 request and says plainly in the UI t
 on Nostr is **advisory** — relays may ignore it, and clients that already fetched an event
 keep it. That is why data which must be erasable never goes on the relay at all.
 
+## 4a. Every event traces back to a wallet
+
+The record is pseudonymous to read, attributable on demand — by design, and the mechanism
+differs by rail:
+
+- **Citizen-signed events** (posts, comments, likes, reposts): the Nostr key derives
+  deterministically from one wallet signature, and registration stores a **mutual binding
+  proof** — the wallet's ETH signature over `account=…\nnpub=…` plus the npub-signed binding
+  event. Anyone holding both can verify the link cryptographically; neither can be forged
+  alone. The registry (`nostr_identities`) is deliberately private, so the wallet↔npub mapping
+  is *disclosable* (to the citizen themselves, or where legally required) rather than
+  *broadcast* — publishing it would let anyone correlate a person's speech with their entire
+  on-chain financial history, which is a decision only the citizen may take.
+- **Node-signed events** (events, cinema, articles, listings): the signing scope names the
+  owning organisation (`org-<account-id>`), and marketplace listings additionally carry the
+  seller's own npub as a `p` tag — which chains back to their wallet via the same binding.
+- **Backfed content**: a post arriving from a third-party client enters the app attributed to
+  the **owner wallet** resolved through the binding — `posts.wallet_address` is the wallet,
+  not a guess. An event by an unbound key is refused entirely: no binding, no attribution, no
+  ingest.
+
+What is deliberately NOT done: publishing per-event wallet signatures. The binding already
+makes every event wallet-attributable transitively, and a smart account's ERC-1271 signature
+cannot be verified offline anyway — it would fatten every event for a guarantee the binding
+provides once.
+
+## 4b. Multi-client interop — live 2026-07-30
+
+The app dual-writes posts, comments (NIP-10 replies), likes (NIP-25 reactions, retracted via
+NIP-09) and reposts (NIP-18, `q`-tag for quotes) to the relay, and the node's **backfeed**
+ingests the reverse direction: kind 1/7 events by bound citizens, written in ANY Nostr client,
+land in the app's own tables. `nostr_publications` is the dedupe ledger in both directions,
+and a cutover fence keeps pre-ledger history out. Trust rules, each pinned by a test: bound
+citizens only, agent-labelled events never enter the feed as people, unknown parents thread
+nowhere.
+
 ## 5. Federation (NSP-9) — live 2026-07-28
 
 Peers are **declared in the manifest** (`peers`: id, name, relay, kinds, why) and rendered by

@@ -201,7 +201,8 @@
         "articles",
         "marketplace"
       ],
-      "intervalSeconds": 300
+      "intervalSeconds": 300,
+      "backfeed": true
     }
   },
   "ai": {

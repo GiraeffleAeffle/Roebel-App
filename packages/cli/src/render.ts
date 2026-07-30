@@ -555,7 +555,7 @@ export function renderComposeYml(m: NetizenManifest): string {
       PUBLISH_DATASETS: "${pub.datasets.join(",")}"
       PUBLISH_INTERVAL_SECONDS: "${pub.intervalSeconds ?? 300}"
       PUBLISHER_KEYS_FILE: "/etc/strfry/publisher-keys.txt"
-      MEDIA_DIR: "/media"${m.services.indexer?.publicRead ? `\n      MEDIA_PUBLIC_BASE: "${m.services.indexer.publicRead}"` : ""}
+      MEDIA_DIR: "/media"${m.services.indexer?.publicRead ? `\n      MEDIA_PUBLIC_BASE: "${m.services.indexer.publicRead}"` : ""}${pub.backfeed ? `\n      BACKFEED: "true"` : ""}
       SUPABASE_URL: "\${SUPABASE_URL}"
       SUPABASE_SERVICE_KEY: "\${SUPABASE_SERVICE_KEY}"
       NODE_AGENT_SECRET: "\${NODE_AGENT_SECRET}"

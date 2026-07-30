@@ -439,7 +439,7 @@ export async function createPost(input: CreatePostInput): Promise<PostRecord | n
   // slice, and a Citizen without a Nostr identity (or not yet allow-listed)
   // simply posts as before. Only main-feed human posts are mirrored — nothing
   // private, nothing auto-generated.
-  if (post.post_type === 'user' && post.feed_type === 'main') {
+  if ((post.post_type === 'user' || post.post_type === 'repost') && post.feed_type === 'main') {
     void mirrorPostToNostr(post);
   }
 
@@ -449,7 +449,12 @@ export async function createPost(input: CreatePostInput): Promise<PostRecord | n
 /** Publish a post to the relay if this device holds a Nostr identity. Swallows everything. */
 async function mirrorPostToNostr(post: PostRecord): Promise<void> {
   try {
-    const { publishPost } = await import('./nostr/publish');
+    const { publishPost, publishRepost } = await import('./nostr/publish');
+    if (post.quoted_post_id) {
+      // NIP-18: bare repost = kind 6; quote with own words = kind 1 + q tag.
+      await publishRepost(post.id, post.quoted_post_id, post.content || undefined);
+      return;
+    }
     const media = (post.media_urls ?? []).join('\n');
     const content = media ? `${post.content}\n\n${media}` : post.content;
     await publishPost(post.id, content);
@@ -609,6 +614,7 @@ export async function togglePostLike(postId: string, walletAddress: string): Pro
   if (existing) {
     // Unlike
     await supabase.from('post_likes').delete().eq('id', existing.id);
+    void import('./nostr/publish').then(({ publishUnlike }) => publishUnlike(postId)).catch(() => {});
     // Decrement count
     const { data: post } = await supabase
       .from('posts')
@@ -625,6 +631,8 @@ export async function togglePostLike(postId: string, walletAddress: string): Pro
   } else {
     // Like
     await supabase.from('post_likes').insert({ post_id: postId, wallet_address: walletAddress });
+    // Mirror as a NIP-25 reaction; fire-and-forget like the post mirror.
+    void import('./nostr/publish').then(({ publishLike }) => publishLike(postId)).catch(() => {});
     // Increment count
     const { data: post } = await supabase
       .from('posts')
@@ -854,6 +862,14 @@ export async function createComment(input: CreateCommentInput): Promise<PostComm
   if (error) {
     console.error('Error creating comment:', error);
     return null;
+  }
+
+  // Mirror top-level comments on mirrored posts as NIP-10 replies. Replies to
+  // replies stay app-only for now — threading depth needs its own design.
+  if (data && !input.parent_comment_id) {
+    void import('./nostr/publish')
+      .then(({ publishComment }) => publishComment(data.id, input.post_id, input.content))
+      .catch(() => {});
   }
 
   // posts.comments_count / parent reply_count are maintained by the
