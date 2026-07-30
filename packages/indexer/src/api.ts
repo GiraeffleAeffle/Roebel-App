@@ -122,12 +122,23 @@ everything served here is verifiable, not just asserted.</p>
 <ul>
 <li><a href="/stats">/stats</a> — what this index holds, by node and kind</li>
 <li><a href="/events?limit=10">/events</a> — query by <code>kinds</code>, <code>authors</code>, <code>ids</code>, <code>since</code>, <code>until</code>, <code>node</code>, <code>q</code> (full-text), <code>limit</code></li>
+<li><a href="/manifest">/manifest</a> — the node's public manifest: chain id, contract addresses, relays, peers</li>
+<li><code>/media/&lt;sha256&gt;</code> — content-addressed images (the hash in the URL is the integrity check)</li>
 <li><a href="/health">/health</a></li>
 </ul>
-<p>Examples: <a href="/events?kinds=31923&amp;limit=10">the town calendar (NIP-52)</a> ·
-<a href="/events?kinds=0&amp;limit=50">profiles &amp; organisations</a> ·
-<a href="/events?kinds=1&amp;limit=20">public posts</a> ·
-<a href="/events?q=Hafen">full-text search</a></p>
+<p>The record, by kind:</p>
+<ul>
+<li><a href="/events?kinds=0&amp;limit=50">0</a> — profiles: citizens, agents (<code>bot:true</code>), organisations (<code>netizen_org</code> tag; name, about, picture, banner, category, opening_hours, slug)</li>
+<li><a href="/events?kinds=1&amp;limit=20">1</a> — public feed posts &amp; replies, signed on the citizen's own device</li>
+<li><a href="/events?kinds=5&amp;limit=10">5</a> / <a href="/events?kinds=6&amp;limit=10">6</a> / <a href="/events?kinds=7&amp;limit=10">7</a> — deletions (honoured), reposts, reactions</li>
+<li><a href="/events?kinds=31923&amp;limit=10">31923</a> — calendar: town events &amp; cinema programme (NIP-52; <code>d</code>=<code>event:&lt;id&gt;</code>/<code>movie:&lt;id&gt;</code>, title/start/end/location/image/status tags)</li>
+<li><a href="/events?kinds=30023&amp;limit=10">30023</a> — long-form articles (NIP-23, Markdown; <code>ai_generated</code> tag where it applies)</li>
+<li><a href="/events?kinds=30018&amp;limit=10">30018</a> — marketplace listings (NIP-15; withdrawn = content-free tombstone with <code>status:withdrawn</code>)</li>
+</ul>
+<p>Also: <a href="/events?q=Hafen">full-text search</a>. Editable records are NIP-01
+replaceable events — the index serves only the current version, honours NIP-09 deletions,
+and re-verifies every signature on ingest. Provenance rides on every row
+(<code>node_id</code>, <code>source</code>).</p>
 <p>Built on the <a href="https://github.com/Roebel-Labs/Roebel-App">Röbel App</a> / Netizen stack.</p>
 </body></html>`);
         return;
