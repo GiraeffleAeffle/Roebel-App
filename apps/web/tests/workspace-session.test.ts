@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildAuthorizationUrl, createPkcePair } from "../src/lib/workspace/oidc";
+import { buildAuthorizationUrl, createPkcePair, groupsFrom } from "../src/lib/workspace/oidc";
 import {
   CITIZEN_GROUP,
   ORG_ROLES,
@@ -209,5 +209,33 @@ describe("isCitizenSession", () => {
 
   it("an attester who is not also a citizen does not pass the citizen gate", () => {
     assert.equal(isCitizenSession(withGroups(["attester"])), false);
+  });
+});
+
+describe("groupsFrom", () => {
+  it("reads an array claim", () => {
+    assert.deepEqual(groupsFrom({ groups: ["citizen", "org:acc-7:member"] }), [
+      "citizen",
+      "org:acc-7:member",
+    ]);
+  });
+
+  it("reads a space-delimited string claim", () => {
+    assert.deepEqual(groupsFrom({ groups: "citizen org:acc-7:owner" }), [
+      "citizen",
+      "org:acc-7:owner",
+    ]);
+  });
+
+  // This is the production failure: the keystone declares `groups` under the
+  // `roebel` scope, so with panva's default conformIdTokenClaims the ID Token
+  // carries only `sub`. An empty result here is what makes the callback fall
+  // back to userinfo instead of treating a citizen as a non-citizen.
+  it("returns empty when the claim is absent, which triggers the userinfo fallback", () => {
+    assert.deepEqual(groupsFrom({ sub: "0xabc" }), []);
+  });
+
+  it("returns empty for a claim of the wrong type rather than throwing", () => {
+    assert.deepEqual(groupsFrom({ groups: 42 }), []);
   });
 });

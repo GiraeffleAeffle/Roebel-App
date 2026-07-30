@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { workspaceConfig, type WorkspaceConfig } from "@/lib/workspace/config";
-import { exchangeCode, verifyIdToken } from "@/lib/workspace/oidc";
+import { exchangeCode, fetchUserinfo, groupsFrom, verifyIdToken } from "@/lib/workspace/oidc";
 import { newSessionId } from "@/lib/workspace/session";
 import { createSessionStore } from "@/lib/workspace/session-store";
 import { safeReturnTo } from "@/lib/workspace/return-to";
@@ -70,11 +70,30 @@ export const GET = withWorkspaceRoute(async (request: Request) => {
       redirectUri: `${origin}/api/workspace/auth/callback`,
       codeVerifier: verifier,
     });
-    const { sub, groups } = await verifyIdToken(
+    const verified = await verifyIdToken(
       tokens.id_token,
       cfg.issuer,
       cfg.clientId,
     );
+    const sub = verified.sub;
+
+    // `groups` IS the ACL for this workspace, and the keystone declares it
+    // under the `roebel` scope — so with panva's default conformIdTokenClaims
+    // the ID Token carries only `sub` and the claim arrives from userinfo. Fall
+    // back to it rather than treating a citizen as a non-citizen.
+    let groups = verified.groups;
+    if (groups.length === 0) {
+      const info = await fetchUserinfo(cfg.issuer, tokens.access_token);
+      // Never take claims from a userinfo response describing someone else.
+      if (
+        typeof info.sub === "string" &&
+        info.sub.toLowerCase() === sub.toLowerCase()
+      ) {
+        groups = groupsFrom(info);
+      } else {
+        console.error("[workspace] userinfo sub does not match id_token sub");
+      }
+    }
 
     // The tokens go to Postgres; the cookie gets only this id.
     const sessionId = newSessionId();

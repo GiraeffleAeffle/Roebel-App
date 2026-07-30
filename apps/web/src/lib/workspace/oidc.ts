@@ -128,12 +128,47 @@ export async function verifyIdToken(
     throw new Error("id_token has no sub");
   }
 
-  const raw = (payload as Record<string, unknown>).groups;
-  const groups = Array.isArray(raw)
-    ? raw.map(String)
-    : typeof raw === "string"
-      ? raw.split(" ").filter(Boolean)
-      : [];
+  return { sub, groups: groupsFrom(payload as Record<string, unknown>) };
+}
 
-  return { sub, groups };
+/**
+ * Read the `groups` claim, which the keystone may emit as an array or as a
+ * space-delimited string.
+ */
+export function groupsFrom(payload: Record<string, unknown>): string[] {
+  const raw = payload.groups;
+  if (Array.isArray(raw)) return raw.map(String);
+  if (typeof raw === "string") return raw.split(" ").filter(Boolean);
+  return [];
+}
+
+/**
+ * Fetch the claims the ID Token does not carry.
+ *
+ * The keystone declares `groups` under the `roebel` SCOPE, and panva's
+ * `oidc-provider` defaults `conformIdTokenClaims: true` — so whenever an access
+ * token is issued (which the authorization-code flow always does), the ID Token
+ * carries only `sub` and the scoped claims are served from userinfo instead.
+ *
+ * `groups` is the entire ACL for this workspace: without it every citizen looks
+ * like a non-citizen and the personal surface 403s. That is exactly what
+ * happened in production, and the symptom — a successful login followed by "no
+ * access" — points at the gate rather than at the token, which is why it is
+ * worth the comment.
+ *
+ * Kept as a fallback rather than the primary source: if the keystone is ever
+ * configured with `conformIdTokenClaims: false`, the ID Token carries the
+ * claims and this request never happens.
+ */
+export async function fetchUserinfo(
+  issuer: string,
+  accessToken: string,
+): Promise<Record<string, unknown>> {
+  const res = await fetch(new URL("/me", issuer), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(`userinfo returned ${res.status}`);
+  }
+  return (await res.json()) as Record<string, unknown>;
 }
