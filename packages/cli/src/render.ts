@@ -331,7 +331,8 @@ php occ user_oidc:provider "${m.name}" \\
   --discoveryuri="${m.identity?.idp.discovery ?? ""}" \\
   --scope="${m.identity?.idp.scopes.join(" ") ?? ""}" \\
   --unique-uid=0 --mapping-uid=sub --mapping-email=email \\
-  --mapping-display-name=name --mapping-groups=groups
+  --mapping-display-name=name --mapping-groups=groups \\
+  --check-bearer=1 --bearer-provisioning=1
 # --unique-uid=0 makes the Nextcloud uid EQUAL the OIDC sub, which is what makes
 # the WebDAV path derivable (the app can build a citizen's DAV root from their
 # access token's sub with no extra lookup). Flipping this on a node that already
@@ -341,6 +342,13 @@ php occ config:app:set user_oidc provisioning_groups --value=1
 # Bearer-token API access — how the app reads a citizen's files with their own
 # access token rather than a stored password. Needs user_oidc >= 7.4.0.
 #
+# --check-bearer defaults to 0 when a provider is created, and WITHOUT it the
+# provider is never consulted for bearer auth at all: a valid token returns 401
+# from every WebDAV/OCS call while every setting reads back correct. That cost
+# hours on the live node. --bearer-provisioning=1 creates the Nextcloud account
+# on first bearer request, which is what makes a citizen's first file listing
+# work without an interactive Nextcloud login.
+#
 # VERIFIED on the live node: the keystone issues OPAQUE access tokens (panva's
 # default — no \`formats\` config), not self-encoded JWTs. \`selfencoded_bearer_
 # validation\` validates a self-encoded JWT and would reject every token this
@@ -348,10 +356,17 @@ php occ config:app:set user_oidc provisioning_groups --value=1
 # calls the keystone's userinfo endpoint to validate the opaque token, which is
 # what actually works here. Do not "fix" this back to selfencoded=1 — it was
 # tried and breaks every WebDAV/OCS call.
+#
+# config:system:set, NOT config:app:set. user_oidc reads these through
+# getSystemValue('user_oidc', []) — Nextcloud's SYSTEM config. Setting them as
+# APP config succeeds, echoes the value back, shows correctly in
+# \`occ config:list user_oidc\`, and is never read by the code path that decides
+# whether a bearer token is accepted. A setting that confirms itself and does
+# nothing is the worst shape a misconfiguration can take; this comment exists so
+# nobody re-derives that the hard way.
 ${ws?.bearerValidation
-  ? `php occ config:app:set user_oidc userinfo_bearer_validation --value=1
-php occ config:app:set user_oidc selfencoded_bearer_validation --value=0
-php occ config:app:set user_oidc oidc_provider_bearer_validation --value=0`
+  ? `php occ config:system:set user_oidc userinfo_bearer_validation --value=true --type=boolean
+php occ config:system:set user_oidc selfencoded_bearer_validation --value=false --type=boolean`
   : "# bearerValidation not declared — the app cannot read files via the API"}
 php occ app:install groupfolders || true
 # One group folder per org (ACL = org:<accountId>:<role>) is provisioned by

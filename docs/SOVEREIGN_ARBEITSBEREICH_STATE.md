@@ -4,6 +4,11 @@
 ([MISSION_AND_GOALS](MISSION_AND_GOALS.md)) — citizens get the workspace shell
 organisations already had, and files stop being a link-out.
 
+**LIVE on the node as of 2026-07-29: a citizen lists their own files and opens a
+document in Collabora.** Still behind the `NEXT_PUBLIC_WORKSPACE_NATIVE_FILES`
+flag for everyone else — see [§3](#3-turning-it-on) and
+[§5](#5-what-the-first-real-login-actually-broke-on).
+
 **Shipped but NOT enabled.** The whole surface is behind a flag and nine env
 vars, all currently unset, so production behaves exactly as before. Read
 [§3 Turning it on](#3-turning-it-on) before flipping anything, and
@@ -41,15 +46,13 @@ ever reaches the browser, and an edit outliving the token's hour still saves.
 
 ## 2. Honest limits
 
-- **A bearer `PROPFIND` returning 207 has never been observed** against the real
-  Nextcloud. It needs a real access token, which needs the wallet round-trip that
-  only exists now. Config is correct by inspection; the first citizen login is
-  the moment of truth. Fallback is per-user app passwords — a strategy swap, not
-  a rewrite, because `auth` is a constructor argument.
-- **`ensureUser` is built, tested, exported and never called.** Nothing on our
-  side creates the Nextcloud user or the group membership; it rests entirely on
-  `user_oidc` provisioning on a bearer request. This is the most likely
-  first-login failure.
+- ~~A bearer `PROPFIND` returning 207 has never been observed.~~ **RESOLVED
+  2026-07-29: 207, real files, authenticated with a citizen's own token.** See §5
+  for the three settings that were wrong.
+- **`ensureUser` is still never called — and no longer needs to be.**
+  `--bearer-provisioning=1` makes `user_oidc` create the Nextcloud account on the
+  first bearer request, which is where that responsibility belongs. The
+  provisioner remains built and tested for the group-folder path.
 - **No full `next build` completed locally.** Compilation of every route was
   verified (the build reached page-data collection), and `tsc --noEmit` is clean
   across all workspace files — which matters because `next.config` sets
@@ -131,3 +134,50 @@ before this work. Set = the native surface takes over and the tile disappears.
 | `apps/web/src/app/api/workspace/` | auth, files, editor and WOPI routes |
 | `apps/roebel-id/src/config.ts` | the `web` relying party |
 | `packages/protocol` + `packages/cli` | manifest fields, rendering, doctor checks |
+
+
+## 5. What the first real login actually broke on
+
+Every layer was individually correct and the whole chain still failed. Recorded
+because none of it is guessable from the code, and all of it is node state.
+
+**1 · The keystone did not put `groups` in the ID Token.** panva's
+`oidc-provider` defaults `conformIdTokenClaims: true`, so once an access token is
+issued — always, in the authorization-code flow — the ID Token carries only `sub`
+and scoped claims are served from userinfo. `groups` is the ACL every relying
+party gates on, so a verified citizen holding a CitizenNFTv2 was refused their own
+files. Fixed with `conformIdTokenClaims: false` in
+`apps/roebel-id/src/oidc/provider.ts`; the app also falls back to `/me`, so either
+configuration works.
+
+**2 · `--check-bearer` was `0`.** It is the documented default when a `user_oidc`
+provider is created. Without it the provider is never consulted for bearer auth
+at all: a demonstrably valid token — 200 at the keystone's own userinfo endpoint —
+returned 401 from every WebDAV call. Now `1`, alongside
+`--bearer-provisioning=1`.
+
+**3 · The bearer settings were written to the wrong config store.** `user_oidc`
+reads them through `getSystemValue('user_oidc', [])` — Nextcloud's **system**
+config. They had been set with `occ config:app:set`, which succeeded, echoed the
+value back, and displayed correctly in `occ config:list user_oidc`. The code path
+that decides whether to accept a bearer token never reads app config. **A setting
+that confirms itself and does nothing is the worst shape a misconfiguration can
+take.** Fixed with `occ config:system:set … --type=boolean`.
+
+**4 · Collabora rejected the app as a WOPI host.** `aliasgroup1` named only the
+Nextcloud host, so opening a document returned "Unautorisierter WOPI-Host". The
+app's own origin must be in that list. Now `aliasgroup1..3` = Nextcloud, `www`,
+apex.
+
+**5 · The OIDC round trip must follow the host the citizen is on.** The PKCE
+cookies are host-only. Pinning one configured origin failed in **both**
+directions — apex configured while browsing `www`, then `www` while browsing
+apex. The origin is now derived from the request, allow-listed
+(`WORKSPACE_ALLOWED_ORIGINS`), and pinned in a cookie so the callback exchanges
+the code against the same `redirect_uri`.
+
+All five are now rendered by the installer (`packages/cli/src/render.ts`) and
+declared in the manifest, so node #2 inherits them instead of rediscovering them.
+The one exception, still hand-applied on Röbel's node: the three `aliasgroup`
+entries were added directly to `/opt/netizen/roebel/docker-compose.yml`; a
+`netizen up` will render them from `services.workspace.wopiHosts`.

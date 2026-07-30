@@ -152,6 +152,7 @@
       "groupFolders": true,
       "bearerValidation": true,
       "wopiHosts": [
+        "https://www.roebel.app",
         "https://roebel.app"
       ]
     },
