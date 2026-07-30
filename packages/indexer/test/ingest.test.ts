@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildNoteEvent, deriveNostrSecretKey, type NostrEvent } from "@netizen-labs/nostr";
+import { buildEvent, buildNoteEvent, buildProfileEvent, deriveNostrSecretKey, type NostrEvent } from "@netizen-labs/nostr";
 import { ingestAll, ingestSource, type IngestDeps, type Source } from "../src/ingest.js";
 
 const SECRET = deriveNostrSecretKey("0x" + "5c".repeat(65));
@@ -104,5 +104,52 @@ describe("a sweep over several sources", () => {
     assert.equal(results.length, 2);
     assert.equal(results[0].stored, 0);
     assert.equal(results[1].stored, 1);
+  });
+});
+
+describe("replaceable-event semantics (NIP-01)", () => {
+  function sqlDeps(events: NostrEvent[]) {
+    const calls: { sql: string; values: unknown[] }[] = [];
+    const d = deps(events, {
+      insert: async (sql: string, values: unknown[]) => {
+        calls.push({ sql, values });
+      },
+    } as never);
+    return { d, calls };
+  }
+
+  it("a kind 0 profile supersedes: delete-older then insert-if-newest", async () => {
+    const profile = buildProfileEvent(SECRET, { name: "Mecky" });
+    const { d, calls } = sqlDeps([profile]);
+    await ingestSource(SOURCE, d);
+
+    assert.equal(calls.length, 2);
+    assert.match(calls[0].sql, /DELETE FROM nostr_events/);
+    // Supersede key: (pubkey, kind, ""), NIP-01 order params (created_at, id).
+    assert.deepEqual(calls[0].values, [profile.pubkey, 0, "", profile.created_at, profile.id]);
+    assert.match(calls[1].sql, /NOT EXISTS/);
+    // d_tag rides as the 10th column: "" for plain replaceable.
+    assert.equal(calls[1].values[9], "");
+  });
+
+  it("a parameterised event is scoped by its d tag", async () => {
+    const cal = buildEvent(SECRET, 31923, JSON.stringify({ title: "Kino" }), {
+      tags: [["d", "screening-42"]],
+    });
+    const { d, calls } = sqlDeps([cal]);
+    await ingestSource(SOURCE, d);
+
+    assert.deepEqual(calls[0].values, [cal.pubkey, 31923, "screening-42", cal.created_at, cal.id]);
+    assert.equal(calls[1].values[9], "screening-42");
+  });
+
+  it("a regular note stays immutable: single plain insert, NULL scope", async () => {
+    const note = buildNoteEvent(SECRET, "immutable");
+    const { d, calls } = sqlDeps([note]);
+    await ingestSource(SOURCE, d);
+
+    assert.equal(calls.length, 1);
+    assert.doesNotMatch(calls[0].sql, /DELETE/);
+    assert.equal(calls[0].values[9], null);
   });
 });

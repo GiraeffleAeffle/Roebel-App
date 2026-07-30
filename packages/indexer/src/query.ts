@@ -81,6 +81,35 @@ export interface IndexedEvent extends NostrEvent {
   source: string;
 }
 
+/**
+ * NIP-01 replaceable-event classes.
+ *
+ * The relay already enforces these semantics — one kind 0 per pubkey, one
+ * 3xxxx per (pubkey, d) — and an index that ignores them returns every historic
+ * version side by side. An edit that does not replace anything is not an edit,
+ * so the index must collapse exactly the way the relay does.
+ */
+export function isReplaceable(kind: number): boolean {
+  return kind === 0 || kind === 3 || (kind >= 10000 && kind < 20000);
+}
+
+export function isParameterised(kind: number): boolean {
+  return kind >= 30000 && kind < 40000;
+}
+
+/** The `d` tag that scopes a parameterised replaceable event; "" when absent, per NIP-01. */
+export function dTagOf(event: NostrEvent): string {
+  const tag = event.tags?.find((t) => t[0] === "d");
+  return tag?.[1] ?? "";
+}
+
+/** The replacement key for this event, or null for regular (immutable) kinds. */
+export function replaceableDTag(event: NostrEvent): string | null {
+  if (isParameterised(event.kind)) return dTagOf(event);
+  if (isReplaceable(event.kind)) return "";
+  return null;
+}
+
 /** Map a relay event onto a row, stamped with where it came from. */
 export function toRow(event: NostrEvent, nodeId: string, source: string): unknown[] {
   return [
@@ -93,11 +122,39 @@ export function toRow(event: NostrEvent, nodeId: string, source: string): unknow
     event.sig,
     nodeId,
     source,
+    replaceableDTag(event),
   ];
 }
 
 export const INSERT_SQL = `
-  INSERT INTO nostr_events (id, pubkey, kind, created_at, content, tags, sig, node_id, source)
-  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+  INSERT INTO nostr_events (id, pubkey, kind, created_at, content, tags, sig, node_id, source, d_tag)
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+  ON CONFLICT (id) DO NOTHING
+`.replace(/\s+/g, " ");
+
+/**
+ * Drop every version this event supersedes: same author, same kind, same `d`
+ * scope, and older by NIP-01 ordering (created_at, ties to the
+ * lexicographically smaller id). Runs before the insert, so the pair leaves at
+ * most one version standing regardless of arrival order.
+ */
+export const DELETE_SUPERSEDED_SQL = `
+  DELETE FROM nostr_events
+  WHERE pubkey = $1 AND kind = $2 AND d_tag IS NOT DISTINCT FROM $3
+    AND (created_at < $4 OR (created_at = $4 AND id > $5))
+`.replace(/\s+/g, " ");
+
+/**
+ * Insert a replaceable event only when nothing newer is already indexed —
+ * the mirror image of the delete above, for events arriving out of order.
+ */
+export const INSERT_IF_NEWEST_SQL = `
+  INSERT INTO nostr_events (id, pubkey, kind, created_at, content, tags, sig, node_id, source, d_tag)
+  SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
+  WHERE NOT EXISTS (
+    SELECT 1 FROM nostr_events
+    WHERE pubkey = $2 AND kind = $3 AND d_tag IS NOT DISTINCT FROM $10
+      AND (created_at > $4 OR (created_at = $4 AND id < $1))
+  )
   ON CONFLICT (id) DO NOTHING
 `.replace(/\s+/g, " ");

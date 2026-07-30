@@ -1,5 +1,11 @@
 import { RelayClient, verifyEvent, type NostrEvent } from "@netizen-labs/nostr";
-import { INSERT_SQL, toRow } from "./query.js";
+import {
+  DELETE_SUPERSEDED_SQL,
+  INSERT_IF_NEWEST_SQL,
+  INSERT_SQL,
+  replaceableDTag,
+  toRow,
+} from "./query.js";
 
 /**
  * Pulling a relay's public events into the index.
@@ -68,7 +74,22 @@ export async function ingestSource(source: Source, deps: IngestDeps): Promise<In
       rejected += 1;
       continue;
     }
-    await deps.insert(INSERT_SQL, toRow(event, source.nodeId, source.relay));
+    const dTag = replaceableDTag(event);
+    if (dTag !== null) {
+      // Replaceable: supersede older versions, then insert only if newest.
+      // NIP-01 semantics the relay already enforces; the index must match it,
+      // or every edit is returned beside the version it was meant to replace.
+      await deps.insert(DELETE_SUPERSEDED_SQL, [
+        event.pubkey.toLowerCase(),
+        event.kind,
+        dTag,
+        event.created_at,
+        event.id,
+      ]);
+      await deps.insert(INSERT_IF_NEWEST_SQL, toRow(event, source.nodeId, source.relay));
+    } else {
+      await deps.insert(INSERT_SQL, toRow(event, source.nodeId, source.relay));
+    }
     stored += 1;
   }
 
