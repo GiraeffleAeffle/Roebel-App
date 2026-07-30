@@ -493,7 +493,10 @@ test("a declared publisher becomes a rendered service wired into the allow-list"
   assert.match(compose, /EXTRA_KEYS_FILE: "\/etc\/strfry\/publisher-keys\.txt"/);
 
   // Not declared => not rendered, and the syncer has no extra-keys file.
-  const plain = renderComposeYml(roebel);
+  const plain = renderComposeYml({
+    ...roebel,
+    services: { ...roebel.services, publisher: undefined },
+  });
   assert.doesNotMatch(plain, /publisher:/);
   assert.doesNotMatch(plain, /EXTRA_KEYS_FILE/);
 });
