@@ -149,16 +149,12 @@ the practical payoff of treating the protocol as the source of truth — an expo
   of the machine it protects. `ops/backup.sh` warns on each run and `status.json` says so,
   because silence here would read as safety. Closing it means setting
   `BACKUP_RESTIC_REPOSITORY` / `BACKUP_RESTIC_PASSWORD`.
-- **The agent watcher is not in the manifest.** It is the one service started by a hand-written
-  `agent-watcher/up.sh` rather than declared and rendered like everything else — which is
-  exactly the drift §5 warns about, and it is *why* a stray duplicate container was possible at
-  all. It will not survive a rebuild and will not exist on a fork. Declaring it is the fix.
-- **A duplicate Mecky watcher is still running.** A one-shot `docker run` from 2026-07-28
-  (container `great_galileo`) never exited and has polled alongside `roebel-agent-watcher`
-  since. It answered nothing — the `already-answered` bound refused every duplicate — and since
-  the 2026-07-29 key rotation it holds the *retired* secret, whose pubkey is no longer on the
-  allow-list, so it cannot publish at all. It still spends Anthropic tokens thinking. Remove
-  with `docker rm -f great_galileo`.
+- ~~The agent watcher is not in the manifest~~ **Fixed 2026-07-30**: `agents.watcher` in the
+  manifest renders a compose service (`roebel-agent-watcher-1`), which now receives only the
+  two secrets it needs — the old hand-rolled `--env-file` approach handed it the entire `.env`,
+  Supabase service key included. The stray hand-run containers from 07-28/29 were removed the
+  same day; the compose service kept the same npub, because identity lives in the secret, not
+  the container.
 - **Node #2 is on the same box.** It proves the protocol, not independence. The
   concentration ratio stays 1 until an outside operator runs one.
 - **Node #2's containers are not compose-managed.** It now runs from its own rendered
