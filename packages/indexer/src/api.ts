@@ -22,6 +22,10 @@ export interface ApiDeps {
    * miss must fall through to the source rather than deny it exists.
    */
   fetchFromRelay?: (ids: string[]) => Promise<Record<string, unknown>[]>;
+  /** The node's public manifest as a JSON string, when one is mounted. */
+  manifest?: () => string;
+  /** Read a content-addressed media file by its sha256 hex, when a media dir is mounted. */
+  readMedia?: (sha256: string) => Promise<{ bytes: Uint8Array; contentType: string } | null>;
 }
 
 /**
@@ -130,6 +134,38 @@ everything served here is verifiable, not just asserted.</p>
       }
 
       if (url.pathname === "/health") return send(200, { ok: true, node: deps.nodeId });
+
+      // The node's public manifest: chain id, contract addresses, relays, peers.
+      // This is how an Atlas discovers the on-chain half of the record —
+      // governance and currency are already open on Gnosis, and the manifest is
+      // the address book that makes them findable without asking anyone.
+      if (url.pathname === "/manifest" && deps.manifest) {
+        res.writeHead(200, {
+          "Content-Type": "application/json; charset=utf-8",
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "public, max-age=300",
+        });
+        res.end(deps.manifest());
+        return;
+      }
+
+      // Content-addressed media: GET /media/<sha256>[.ext]. The hash IS the
+      // authentication — any mirror serving the same bytes serves the same URL
+      // path, which is what makes the record's images survivable beyond this
+      // node (Blossom-compatible reads, BUD-01 shape).
+      const mediaMatch = url.pathname.match(/^\/media\/([0-9a-f]{64})(?:\.[a-z0-9]+)?$/);
+      if (mediaMatch && deps.readMedia) {
+        const file = await deps.readMedia(mediaMatch[1]);
+        if (!file) return send(404, { error: "no such media" });
+        res.writeHead(200, {
+          "Content-Type": file.contentType,
+          "Access-Control-Allow-Origin": "*",
+          // Content-addressed => immutable forever.
+          "Cache-Control": "public, max-age=31536000, immutable",
+        });
+        res.end(file.bytes);
+        return;
+      }
 
       if (url.pathname === "/stats") {
         const rows = await deps.query(STATS_SQL, []);

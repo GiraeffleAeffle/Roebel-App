@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { berlinToUnix, eventToSpec, movieToSpec, orgToSpec } from "../src/mappers.js";
+import { htmlToMarkdown } from "../src/html-to-md.js";
+import { articleToSpec, berlinToUnix, eventToSpec, listingToSpec, movieToSpec, orgToSpec } from "../src/mappers.js";
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 const ORGS = new Set([ORG_ID]);
@@ -140,5 +141,90 @@ describe("Berlin wall-clock conversion", () => {
 
   it("accepts HH:MM:SS the way Postgres sends it", () => {
     assert.equal(berlinToUnix("2026-08-14", "19:30:00"), berlinToUnix("2026-08-14", "19:30"));
+  });
+});
+
+describe("article mapping (NIP-23)", () => {
+  const ARTICLE = {
+    id: "ar-1",
+    account_id: ORG_ID,
+    title: "Seefest war ein Erfolg",
+    excerpt: "Kurzfassung",
+    content: "<h2>Titel</h2><p>Ein <strong>guter</strong> Tag am <a href=\"https://roebel.app\">Hafen</a>.</p>",
+    cover_image_url: "https://cdn/cover.jpg",
+    category: "news",
+    tags: ["hafen", "fest"],
+    status: "published",
+    published_at: "2026-07-29T18:00:00+00:00",
+    ai_generated: true,
+    updated_at: "2026-07-30T09:00:00+00:00",
+  };
+
+
+  it("converts the HTML body to Markdown — kind 30023 specifies Markdown", () => {
+    const spec = articleToSpec(ARTICLE, ORGS, htmlToMarkdown)!;
+    assert.equal(spec.kind, 30023);
+    assert.equal(spec.d, "article:ar-1");
+    assert.match(spec.content, /## Titel/);
+    assert.match(spec.content, /\*\*guter\*\*/);
+    assert.match(spec.content, /\[Hafen\]\(https:\/\/roebel\.app\)/);
+    assert.doesNotMatch(spec.content, /<[a-z]+>/i);
+  });
+
+  it("carries the Art. 50 label onto the record", () => {
+    const spec = articleToSpec(ARTICLE, ORGS, htmlToMarkdown)!;
+    assert.deepEqual(spec.tags.find((t) => t[0] === "ai_generated"), ["ai_generated", "true"]);
+  });
+
+  it("refuses personal-account articles — a byline needs opt-in", () => {
+    assert.equal(articleToSpec({ ...ARTICLE, account_id: "someone-personal" }, ORGS, htmlToMarkdown), null);
+  });
+});
+
+describe("marketplace mapping (NIP-15) — withdrawal FIRST", () => {
+  const SELLER = "0x1234abcd1234abcd1234abcd1234abcd1234abcd";
+  const SELLER_PUB = "e".repeat(64);
+  const OPTED = new Map([[SELLER, SELLER_PUB]]);
+  const LISTING = {
+    id: "l-1",
+    account_id: null,
+    title: "Fahrrad",
+    description: "28 Zoll",
+    price: "80",
+    price_type: "VB",
+    category: "sport",
+    condition: "gebraucht",
+    media_urls: ["https://cdn/rad.jpg"],
+    neighborhood: "Altstadt",
+    listing_type: "product",
+    seller_wallet_address: SELLER.toUpperCase(),
+    status: "active",
+    updated_at: "2026-07-30T08:00:00+00:00",
+  };
+
+  it("a withdrawn listing becomes a content-free tombstone on the same d", () => {
+    const spec = listingToSpec({ ...LISTING, status: "deleted" }, ORGS, OPTED)!;
+    assert.equal(spec.kind, 30018);
+    assert.equal(spec.d, "listing:l-1");
+    assert.equal(spec.content, "");
+    assert.deepEqual(spec.tags, [["d", "listing:l-1"], ["status", "withdrawn"]]);
+  });
+
+  it("publishes an active listing only when the seller opted into the record", () => {
+    const spec = listingToSpec(LISTING, ORGS, OPTED)!;
+    assert.equal(spec.scope, "markt");
+    assert.deepEqual(spec.tags.find((t) => t[0] === "p"), ["p", SELLER_PUB]);
+    const content = JSON.parse(spec.content);
+    assert.equal(content.name, "Fahrrad");
+    assert.equal(content.currency, "EUR");
+  });
+
+  it("REFUSES a listing whose seller has no binding — no opt-in, no record", () => {
+    assert.equal(listingToSpec(LISTING, ORGS, new Map()), null);
+  });
+
+  it("the seller wallet address itself never reaches the record", () => {
+    const spec = listingToSpec(LISTING, ORGS, OPTED)!;
+    assert.ok(!JSON.stringify(spec).toLowerCase().includes(SELLER));
   });
 });

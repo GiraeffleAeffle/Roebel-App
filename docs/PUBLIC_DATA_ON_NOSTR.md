@@ -17,13 +17,23 @@ public datasets onto the relay every 5 minutes — first live pass: 41 events ac
 
 | Published to the relay now | Not yet |
 |---|---|
-| kind 0 Citizen profiles | marketplace (deliberately last — §3.4) |
-| kind 1 public feed posts (dual-written by the citizen's device) | events owned by *personal* accounts (needs per-person opt-in) |
-| agent profiles and replies | media files (Blossom — roadmap #12) |
+| kind 0 Citizen profiles | events/articles owned by *personal* accounts (needs per-person opt-in) |
+| kind 1 public feed posts (dual-written by the citizen's device) | comments, likes, reposts (client-signed — next app-side slice) |
+| agent profiles and replies | org avatars inside kind 0 content (still Supabase URLs) |
 | the wallet↔npub binding (kind 30078) | |
 | **events / Veranstaltungen** — NIP-52 `31923`, signed per owning org | |
 | **cinema programme** — NIP-52 `31923`, signed by the cinema's own key | |
 | **organisation profiles** — kind 0, each org under its own derived key | |
+| **blog articles** — NIP-23 `30023`, HTML→Markdown, `ai_generated` label carried onto the record | |
+| **marketplace** — NIP-15 `30018`, seller opt-in gated (unrevoked npub binding), withdrawal-as-edit | |
+| **images** — mirrored content-addressed at `/media/<sha256>` (Blossom-shaped reads); the hash in the signed event is the integrity check | |
+| **the manifest** — `/manifest` on the index: chain id + every contract address, so governance and Münzen are discoverable on-chain without asking anyone | |
+
+**The withdrawal path shipped before the publish path**, exactly as §3.4 demands — and the
+first kind-30018 events on the record were four withdrawal tombstones, published before any
+active listing (their sellers had not opted in, so the gate held them back). The index honours
+NIP-09 kind 5 with a durable hide state: a deletion outlives the row, so a mirror re-serving
+the deleted event cannot resurrect it.
 
 The CMS half publishes differently from feed posts, deliberately: posts are signed on the
 citizen's device (the key never leaves it), but events and org data are edited server-side, so

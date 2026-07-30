@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { writeFile, rename } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { publishOnce, type DatasetName } from "./sync.js";
 
 /**
@@ -21,7 +22,7 @@ function required(name: string): string {
   return value;
 }
 
-const VALID_DATASETS = new Set<DatasetName>(["events", "cinema", "orgs"]);
+const VALID_DATASETS = new Set<DatasetName>(["events", "cinema", "orgs", "articles", "marketplace"]);
 
 async function main(): Promise<void> {
   const nodeId = required("NODE_ID");
@@ -38,7 +39,7 @@ async function main(): Promise<void> {
     .map((d) => d.trim())
     .filter((d): d is DatasetName => VALID_DATASETS.has(d as DatasetName));
   if (datasets.length === 0) {
-    console.error("PUBLISH_DATASETS names no known dataset (events, cinema, orgs)");
+    console.error("PUBLISH_DATASETS names no known dataset (events, cinema, orgs, articles, marketplace)");
     process.exit(2);
   }
 
@@ -52,6 +53,43 @@ async function main(): Promise<void> {
 
   console.log(`publisher for "${nodeId}" -> ${relayUrl}; datasets: ${datasets.join(", ")}`);
 
+  // Content-addressed media mirror: images referenced by published events are
+  // fetched once, stored by sha256 beside a content-type sidecar, and the
+  // event's URL is rewritten to the node's own /media/<sha>. Any failure keeps
+  // the original URL — the record must degrade to centralized, never to broken.
+  const mediaDir = process.env.MEDIA_DIR ?? "";
+  const mediaBase = (process.env.MEDIA_PUBLIC_BASE ?? "").replace(/\/$/, "");
+  let mirrorMedia: ((url: string) => Promise<string | null>) | undefined;
+  if (mediaDir && mediaBase) {
+    await mkdir(mediaDir, { recursive: true });
+    const mapPath = `${mediaDir}/url-map.json`;
+    let urlMap: Record<string, string> = {};
+    try {
+      urlMap = JSON.parse(await readFile(mapPath, "utf8"));
+    } catch {
+      // first run
+    }
+    mirrorMedia = async (url) => {
+      const known = urlMap[url];
+      if (known) return `${mediaBase}/media/${known}`;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        const sha = createHash("sha256").update(bytes).digest("hex");
+        await writeFile(`${mediaDir}/${sha}.tmp`, bytes);
+        await rename(`${mediaDir}/${sha}.tmp`, `${mediaDir}/${sha}`);
+        await writeFile(`${mediaDir}/${sha}.type`, res.headers.get("content-type") ?? "application/octet-stream");
+        urlMap[url] = sha;
+        await writeFile(`${mapPath}.tmp`, JSON.stringify(urlMap), "utf8");
+        await rename(`${mapPath}.tmp`, mapPath);
+        return `${mediaBase}/media/${sha}`;
+      } catch {
+        return null;
+      }
+    };
+  }
+
   const pass = async (): Promise<void> => {
     const startedAt = new Date().toISOString();
     try {
@@ -61,6 +99,7 @@ async function main(): Promise<void> {
         datasets,
         fetchRows,
         relayUrl,
+        ...(mirrorMedia ? { mirrorMedia } : {}),
         // Announce signing keys BEFORE publishing, atomically — the allow-list
         // syncer reads this file on its own schedule and must never see a half
         // write. First-pass publishes still race the syncer's next pass; that

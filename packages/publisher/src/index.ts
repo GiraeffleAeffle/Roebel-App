@@ -8,7 +8,8 @@
  * node itself publishes them — each under a node-held per-organisation
  * identity, so provenance survives the trip.
  */
-export { berlinToUnix, eventToSpec, movieToSpec, orgToSpec, CINEMA_SCOPE, TOWN_SCOPE, KIND_CALENDAR_TIME } from "./mappers.js";
+export { articleToSpec, berlinToUnix, eventToSpec, listingToSpec, movieToSpec, orgToSpec, CINEMA_SCOPE, MARKET_SCOPE, TOWN_SCOPE, KIND_CALENDAR_TIME, KIND_LONG_FORM, KIND_PRODUCT } from "./mappers.js";
+export { htmlToMarkdown } from "./html-to-md.js";
 export type { PublishSpec } from "./mappers.js";
-export { buildSpecs, publishOnce, signSpec } from "./sync.js";
+export { buildSpecs, mirrorSpecMedia, publishOnce, signSpec } from "./sync.js";
 export type { DatasetName, PublisherDeps, PublishSummary } from "./sync.js";

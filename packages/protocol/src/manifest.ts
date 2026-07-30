@@ -198,7 +198,7 @@ const Services = z.object({
    */
   publisher: z
     .object({
-      datasets: z.array(z.enum(["events", "cinema", "orgs"])).min(1),
+      datasets: z.array(z.enum(["events", "cinema", "orgs", "articles", "marketplace"])).min(1),
       intervalSeconds: z.number().int().positive().optional(),
     })
     .optional(),

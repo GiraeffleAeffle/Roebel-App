@@ -548,12 +548,14 @@ export function renderComposeYml(m: NetizenManifest): string {
     volumes:
       - "./publisher/publisher.cjs:/app/publisher.cjs:ro"
       - "./strfry-policy:/etc/strfry"
+      - "media_data:/media"
     environment:
       NODE_ID: "${m.id}"
       RELAY_URL: "ws://strfry:7777"
       PUBLISH_DATASETS: "${pub.datasets.join(",")}"
       PUBLISH_INTERVAL_SECONDS: "${pub.intervalSeconds ?? 300}"
       PUBLISHER_KEYS_FILE: "/etc/strfry/publisher-keys.txt"
+      MEDIA_DIR: "/media"${m.services.indexer?.publicRead ? `\n      MEDIA_PUBLIC_BASE: "${m.services.indexer.publicRead}"` : ""}
       SUPABASE_URL: "\${SUPABASE_URL}"
       SUPABASE_SERVICE_KEY: "\${SUPABASE_SERVICE_KEY}"
       NODE_AGENT_SECRET: "\${NODE_AGENT_SECRET}"
@@ -577,8 +579,12 @@ export function renderComposeYml(m: NetizenManifest): string {
     command: ["node", "/app/indexer.cjs"]
     volumes:
       - "./indexer/indexer.cjs:/app/indexer.cjs:ro"
+      - "./manifest.json:/app/manifest.json:ro"
+      - "media_data:/media"
     environment:
       NODE_ID: "${m.id}"
+      MANIFEST_PATH: "/app/manifest.json"
+      MEDIA_DIR: "/media"
       DATABASE_URL: "postgres://indexer:\${POSTGRES_PASSWORD}@postgres:5432/indexer"
       SOURCES: '${JSON.stringify(sources)}'
       INGEST_INTERVAL_SECONDS: "${idx.ingestIntervalSeconds ?? 120}"
@@ -772,6 +778,8 @@ ${aliases.map((alias, i) => `      aliasgroup${i + 1}: "${alias}"`).join("\n")}
   // The federation mirror keeps its own store: peers' events never mingle with
   // what this node's own members authored.
   if (hasNostr && m.peers?.length) vols.push("mirror_db:");
+  // Content-addressed media shared between publisher (writes) and indexer (serves).
+  if (hasNostr && m.services.publisher) vols.push("media_data:");
   if (hasMatrix) vols.push("synapse_data:");
   if (ws?.nextcloud) vols.push("nextcloud_data:");
   if (ws?.wiki) vols.push("xwiki_data:");
@@ -1829,6 +1837,10 @@ export function renderBundle(m: NetizenManifest): Bundle {
     "README.md": renderBundleReadme(m),
     "bootstrap.sh": renderBootstrap(m),
     "docker-compose.yml": renderComposeYml(m),
+    // The node's public manifest, served by the indexer at /manifest — the
+    // address book that makes the on-chain half (governance, currency)
+    // discoverable. Safe to ship: secrets are references by construction.
+    "manifest.json": JSON.stringify(m, null, 2),
     "Caddyfile": renderCaddyfile(m),
     // Keystone env only when this node hosts it; an external keystone keeps its
     // own secrets at its host (emitting a stray env file here would mislead).

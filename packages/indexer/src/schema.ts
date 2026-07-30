@@ -55,4 +55,19 @@ CREATE INDEX IF NOT EXISTS idx_nostr_events_replace   ON nostr_events (pubkey, k
 -- Full-text search is the one thing a relay filter genuinely cannot do.
 CREATE INDEX IF NOT EXISTS idx_nostr_events_fts
   ON nostr_events USING GIN (to_tsvector('simple', content));
+
+-- NIP-09 hide state. Rows here outlive the events they delete, so a deleted
+-- event cannot resurrect when a mirror or slow peer re-serves it. target_id is
+-- the e-tag form; (target_kind, target_d) the a-tag form, bounded by created_at.
+CREATE TABLE IF NOT EXISTS nostr_deletions (
+  pubkey      TEXT NOT NULL,
+  target_id   TEXT,
+  target_kind INTEGER,
+  target_d    TEXT,
+  created_at  BIGINT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_nostr_deletions_id
+  ON nostr_deletions (pubkey, target_id) WHERE target_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_nostr_deletions_addr
+  ON nostr_deletions (pubkey, target_kind, target_d) WHERE target_kind IS NOT NULL;
 `;

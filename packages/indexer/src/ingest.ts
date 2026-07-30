@@ -1,6 +1,11 @@
 import { RelayClient, verifyEvent, type NostrEvent } from "@netizen-labs/nostr";
 import {
+  DELETE_EVENT_BY_ADDR_SQL,
+  DELETE_EVENT_BY_ID_SQL,
   DELETE_SUPERSEDED_SQL,
+  deletionTargets,
+  INSERT_DELETION_ADDR_SQL,
+  INSERT_DELETION_ID_SQL,
   isParameterised,
   isReplaceable,
   INSERT_IF_NEWEST_SQL,
@@ -90,6 +95,24 @@ export async function ingestSource(source: Source, deps: IngestDeps): Promise<In
   for (const event of events) {
     if (!verifyEvent(event)) {
       rejected += 1;
+      continue;
+    }
+    if (event.kind === 5) {
+      // NIP-09: record the hide state first (it must outlive the rows), then
+      // drop what it covers, then store the request itself as part of the
+      // record. Author-only: every statement carries the signer's pubkey.
+      const targets = deletionTargets(event);
+      const pubkey = event.pubkey.toLowerCase();
+      for (const id of targets.ids) {
+        await deps.insert(INSERT_DELETION_ID_SQL, [pubkey, id, event.created_at]);
+        await deps.insert(DELETE_EVENT_BY_ID_SQL, [id, pubkey]);
+      }
+      for (const addr of targets.addresses) {
+        await deps.insert(INSERT_DELETION_ADDR_SQL, [pubkey, addr.kind, addr.d, event.created_at]);
+        await deps.insert(DELETE_EVENT_BY_ADDR_SQL, [pubkey, addr.kind, addr.d, event.created_at]);
+      }
+      await deps.insert(INSERT_SQL, toRow(event, source.nodeId, source.relay));
+      stored += 1;
       continue;
     }
     const dTag = replaceableDTag(event);

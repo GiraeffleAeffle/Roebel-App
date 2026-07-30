@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildEvent, buildNoteEvent, buildProfileEvent, deriveNostrSecretKey, type NostrEvent } from "@netizen-labs/nostr";
 import { ingestAll, ingestSource, type IngestDeps, type Source } from "../src/ingest.js";
+import { INSERT_IF_NEWEST_SQL, INSERT_SQL } from "../src/query.js";
 
 const SECRET = deriveNostrSecretKey("0x" + "5c".repeat(65));
 const OTHER = deriveNostrSecretKey("0x" + "7e".repeat(65));
@@ -162,5 +163,58 @@ describe("replaceable-event semantics (NIP-01)", () => {
     assert.equal(calls.length, 1);
     assert.doesNotMatch(calls[0].sql, /DELETE/);
     assert.equal(calls[0].values[9], null);
+  });
+});
+
+describe("NIP-09 deletion requests", () => {
+  function sqlDeps(events: NostrEvent[]) {
+    const calls: { sql: string; values: unknown[] }[] = [];
+    const d = deps(events, {
+      insert: async (sql: string, values: unknown[]) => {
+        calls.push({ sql, values });
+      },
+    } as never);
+    return { d, calls };
+  }
+
+  it("records the hide state BEFORE dropping rows, then stores the request itself", async () => {
+    const target = buildNoteEvent(SECRET, "wegdamit");
+    const del = buildEvent(SECRET, 5, "", { tags: [["e", target.id]] });
+    const { d, calls } = sqlDeps([del]);
+    await ingestSource(SOURCE, d);
+
+    assert.equal(calls.length, 3);
+    assert.match(calls[0].sql, /INSERT INTO nostr_deletions/);
+    assert.deepEqual(calls[0].values, [del.pubkey, target.id, del.created_at]);
+    assert.match(calls[1].sql, /DELETE FROM nostr_events WHERE id = \$1 AND pubkey = \$2/);
+    assert.deepEqual(calls[1].values, [target.id, del.pubkey]);
+    // The request is part of the record.
+    assert.match(calls[2].sql, /INSERT INTO nostr_events/);
+  });
+
+  it("address-form deletion covers versions up to the request, author-only", async () => {
+    const del = buildEvent(SECRET, 5, "", {
+      tags: [["a", `30018:${buildNoteEvent(SECRET, "x").pubkey}:listing:l-1`]],
+    });
+    const { d, calls } = sqlDeps([del]);
+    await ingestSource(SOURCE, d);
+
+    assert.match(calls[0].sql, /INSERT INTO nostr_deletions/);
+    assert.deepEqual(calls[0].values, [del.pubkey, 30018, "listing:l-1", del.created_at]);
+    assert.match(calls[1].sql, /created_at <= \$4/);
+  });
+
+  it("IGNORES an address deletion naming someone else's pubkey", async () => {
+    const del = buildEvent(SECRET, 5, "", { tags: [["a", `30018:${"f".repeat(64)}:listing:l-1`]] });
+    const { d, calls } = sqlDeps([del]);
+    await ingestSource(SOURCE, d);
+    // Only the kind 5 itself is stored; no deletion rows, no drops.
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].sql, /INSERT INTO nostr_events/);
+  });
+
+  it("insert SQL guards against resurrection from a mirror", () => {
+    assert.match(INSERT_SQL, /nostr_deletions/);
+    assert.match(INSERT_IF_NEWEST_SQL, /nostr_deletions/);
   });
 });

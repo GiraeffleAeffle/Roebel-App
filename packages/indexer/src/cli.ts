@@ -107,7 +107,46 @@ async function main(): Promise<void> {
     return [...out.values()];
   };
 
-  createApi({ query, nodeId, fetchFromRelay }).listen(port, () => {
+  // Optional mounts: the node's public manifest, and the content-addressed
+  // media mirror the publisher fills. Both absent on nodes that don't use them.
+  const manifestPath = process.env.MANIFEST_PATH ?? "";
+  let manifestJson: string | null = null;
+  if (manifestPath) {
+    try {
+      const { readFileSync } = await import("node:fs");
+      manifestJson = JSON.stringify(JSON.parse(readFileSync(manifestPath, "utf8")));
+    } catch (error) {
+      console.error(`MANIFEST_PATH unreadable (${manifestPath}):`, (error as Error).message);
+    }
+  }
+  const mediaDir = process.env.MEDIA_DIR ?? "";
+  const readMedia = mediaDir
+    ? async (sha256: string) => {
+        const { readFile } = await import("node:fs/promises");
+        // The publisher stores each file as <sha256> with a sidecar <sha256>.type
+        // naming the content type. Hash-named, so path traversal is impossible.
+        try {
+          const bytes = await readFile(`${mediaDir}/${sha256}`);
+          let contentType = "application/octet-stream";
+          try {
+            contentType = (await readFile(`${mediaDir}/${sha256}.type`, "utf8")).trim() || contentType;
+          } catch {
+            // no sidecar — serve as generic bytes
+          }
+          return { bytes: new Uint8Array(bytes), contentType };
+        } catch {
+          return null;
+        }
+      }
+    : undefined;
+
+  createApi({
+    query,
+    nodeId,
+    fetchFromRelay,
+    ...(manifestJson ? { manifest: () => manifestJson! } : {}),
+    ...(readMedia ? { readMedia } : {}),
+  }).listen(port, () => {
     console.log(`indexer for "${nodeId}" listening on :${port}; ingesting every ${intervalSeconds}s`);
     for (const s of sources) console.log(`  source ${s.nodeId} <- ${s.relay} kinds[${s.kinds}]`);
   });

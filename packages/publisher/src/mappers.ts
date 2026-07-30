@@ -184,3 +184,136 @@ export function orgToSpec(row: Row, nodeId: string): PublishSpec | null {
     createdAt: unixFromUpdatedAt(row),
   };
 }
+
+/** NIP-23 long-form article. */
+export const KIND_LONG_FORM = 30023;
+/** NIP-15 product listing. */
+export const KIND_PRODUCT = 30018;
+/** Scope the marketplace curator publishes under. */
+export const MARKET_SCOPE = "markt";
+
+/**
+ * A published blog article → NIP-23 long-form content.
+ *
+ * Only articles owned by organisation accounts (or the town) publish; an
+ * article under a personal account is a person's byline, and that needs the
+ * same explicit opt-in events do. AI-co-written articles carry their
+ * `ai_generated` flag onto the record — the Art. 50 label must survive the
+ * trip to other clients, not just render in ours.
+ */
+export function articleToSpec(
+  row: Row,
+  orgAccountIds: Set<string>,
+  htmlToMd: (html: string) => string,
+): PublishSpec | null {
+  if (str(row, "status") !== "published") return null;
+  const id = str(row, "id");
+  const title = str(row, "title");
+  if (!id || !title) return null;
+
+  const accountId = str(row, "account_id");
+  if (accountId && !orgAccountIds.has(accountId)) return null;
+  const scope = accountId ? `org-${accountId}` : TOWN_SCOPE;
+
+  const tags: string[][] = [
+    ["d", `article:${id}`],
+    ["title", title],
+  ];
+  const excerpt = str(row, "excerpt");
+  if (excerpt) tags.push(["summary", excerpt]);
+  const cover = str(row, "cover_image_url");
+  if (cover) tags.push(["image", cover]);
+  const publishedAt = str(row, "published_at");
+  if (publishedAt) tags.push(["published_at", String(Math.floor(Date.parse(publishedAt) / 1000))]);
+  const category = str(row, "category");
+  if (category) tags.push(["t", category]);
+  for (const t of Array.isArray(row["tags"]) ? (row["tags"] as unknown[]) : []) {
+    if (typeof t === "string" && t.trim()) tags.push(["t", t.trim()]);
+  }
+  if (row["ai_generated"] === true) tags.push(["ai_generated", "true"]);
+
+  return {
+    scope,
+    kind: KIND_LONG_FORM,
+    d: `article:${id}`,
+    content: htmlToMd(str(row, "content") ?? ""),
+    tags,
+    createdAt: unixFromUpdatedAt(row),
+  };
+}
+
+/**
+ * A marketplace listing → NIP-15 product, or its withdrawal.
+ *
+ * Sellers are usually private individuals, so the gate is their own opt-in:
+ * the listing publishes only when the seller's wallet holds an unrevoked
+ * Nostr binding (they joined the public record), or the listing belongs to an
+ * organisation. The seller's npub rides as a `p` tag for attribution — the
+ * signing key is the node's market curator, because the node cannot and must
+ * not hold the seller's key.
+ *
+ * Withdrawal is an EDIT, tested before publish by design: any non-active
+ * status becomes a content-free tombstone on the same `d`, so a sold or
+ * removed listing disappears from every honest client via plain NIP-01
+ * replacement — no reliance on advisory deletion.
+ */
+export function listingToSpec(
+  row: Row,
+  orgAccountIds: Set<string>,
+  optedInWallets: Map<string, string>,
+): PublishSpec | null {
+  const id = str(row, "id");
+  const title = str(row, "title");
+  if (!id || !title) return null;
+
+  const accountId = str(row, "account_id");
+  const wallet = (str(row, "seller_wallet_address") ?? "").toLowerCase();
+  const isOrg = accountId ? orgAccountIds.has(accountId) : false;
+  const sellerPubkey = optedInWallets.get(wallet) ?? null;
+  if (!isOrg && !sellerPubkey) return null;
+
+  const scope = isOrg && accountId ? `org-${accountId}` : MARKET_SCOPE;
+  const d = `listing:${id}`;
+
+  if (str(row, "status") !== "active") {
+    return {
+      scope,
+      kind: KIND_PRODUCT,
+      d,
+      content: "",
+      tags: [
+        ["d", d],
+        ["status", "withdrawn"],
+      ],
+      createdAt: unixFromUpdatedAt(row),
+    };
+  }
+
+  const tags: string[][] = [
+    ["d", d],
+    ["title", title],
+    ["status", "active"],
+  ];
+  const category = str(row, "category");
+  if (category) tags.push(["t", category]);
+  const neighborhood = str(row, "neighborhood");
+  if (neighborhood) tags.push(["location", neighborhood]);
+  for (const url of Array.isArray(row["media_urls"]) ? (row["media_urls"] as unknown[]) : []) {
+    if (typeof url === "string" && url.trim()) tags.push(["image", url]);
+  }
+  if (!isOrg && sellerPubkey) tags.push(["p", sellerPubkey]);
+
+  const content = JSON.stringify({
+    id,
+    stall_id: MARKET_SCOPE,
+    name: title,
+    description: str(row, "description") ?? "",
+    currency: "EUR",
+    price: str(row, "price") ?? "",
+    price_type: str(row, "price_type") ?? undefined,
+    condition: str(row, "condition") ?? undefined,
+    type: str(row, "listing_type") ?? undefined,
+  });
+
+  return { scope, kind: KIND_PRODUCT, d, content, tags, createdAt: unixFromUpdatedAt(row) };
+}
