@@ -44,6 +44,20 @@ export function buildProvider(deps: {
       roebel: ['groups', 'roebel:citizen', 'roebel:attester', 'roebel:tier', 'roebel:actor_type'],
     },
     scopes: ['openid', 'email', 'profile', 'roebel'],
+    /**
+     * Put the scoped claims — `groups` above all — into the ID Token.
+     *
+     * panva defaults this to true, which means that once an access token is
+     * issued (the authorization-code flow always issues one) the ID Token
+     * carries only `sub` and everything else must be fetched from userinfo.
+     * `groups` is the ACL every relying party here gates on, so that default
+     * cost a verified citizen access to their own files: login succeeded, the
+     * claim never arrived, and the workspace refused them.
+     *
+     * Relying parties may still call userinfo; this only makes the ID Token
+     * self-sufficient, which is what our own consumers expect.
+     */
+    conformIdTokenClaims: false,
     async findAccount(_ctx, id) {
       const claims = await resolveClaims(id)
       return { accountId: id, claims: async () => ({ ...claims, sub: id }) }

@@ -83,15 +83,24 @@ export const GET = withWorkspaceRoute(async (request: Request) => {
     // back to it rather than treating a citizen as a non-citizen.
     let groups = verified.groups;
     if (groups.length === 0) {
-      const info = await fetchUserinfo(cfg.issuer, tokens.access_token);
-      // Never take claims from a userinfo response describing someone else.
-      if (
-        typeof info.sub === "string" &&
-        info.sub.toLowerCase() === sub.toLowerCase()
-      ) {
-        groups = groupsFrom(info);
-      } else {
-        console.error("[workspace] userinfo sub does not match id_token sub");
+      // Best-effort, never fatal. An earlier version let this throw, and a
+      // userinfo hiccup then failed the whole login — turning a citizen who
+      // would merely have been refused (403) into one who could not sign in at
+      // all (401). A missing claim must degrade to "no groups", not to "no
+      // session".
+      try {
+        const info = await fetchUserinfo(cfg.issuer, tokens.access_token);
+        // Never take claims from a userinfo response describing someone else.
+        if (
+          typeof info.sub === "string" &&
+          info.sub.toLowerCase() === sub.toLowerCase()
+        ) {
+          groups = groupsFrom(info);
+        } else {
+          console.error("[workspace] userinfo sub does not match id_token sub");
+        }
+      } catch (err) {
+        console.error("[workspace] userinfo fetch failed:", err);
       }
     }
 
