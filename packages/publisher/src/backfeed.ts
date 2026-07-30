@@ -45,6 +45,7 @@ type Classified =
   | { type: "post"; content: string }
   | { type: "comment"; parentEventId: string; content: string }
   | { type: "like"; parentEventId: string }
+  | { type: "repost"; parentEventId: string }
   | { type: "skip"; reason: string };
 
 /** Pure classification, so the trust rules are testable without I/O. */
@@ -61,6 +62,10 @@ export function classify(
   if (event.kind === 7) {
     if (!eTag) return { type: "skip", reason: "reaction-without-target" };
     return { type: "like", parentEventId: eTag[1] };
+  }
+  if (event.kind === 6) {
+    if (!eTag) return { type: "skip", reason: "repost-without-target" };
+    return { type: "repost", parentEventId: eTag[1] };
   }
   if (event.kind === 1) {
     const content = event.content.trim();
@@ -112,7 +117,7 @@ export async function backfeedOnce(deps: BackfeedDeps): Promise<BackfeedSummary>
     : new RelayClient(deps.relayUrl, { timeoutMs: 15_000 });
   let events: NostrEvent[] = [];
   try {
-    events = await client.query([{ kinds: [1, 7], since: deps.cutover, limit: 500 }]);
+    events = await client.query([{ kinds: [1, 6, 7], since: deps.cutover, limit: 500 }]);
   } finally {
     client.close();
   }
@@ -198,6 +203,43 @@ export async function backfeedOnce(deps: BackfeedDeps): Promise<BackfeedSummary>
         });
         await bumpCount(deps, postId, "comments_count");
         summary.comments += 1;
+      } else if (verdict.type === "repost") {
+        const postId = await postIdFor(deps, verdict.parentEventId);
+        if (!postId) {
+          summary.skipped += 1;
+          continue;
+        }
+        const dup = await deps.fetchRows(
+          "posts",
+          `select=id&wallet_address=eq.${wallet}&quoted_post_id=eq.${postId}&post_type=eq.repost&limit=1`,
+        );
+        if (dup.length) {
+          summary.skipped += 1;
+          continue;
+        }
+        const owners = await deps.fetchRows(
+          "account_owners",
+          `select=account_id&wallet_address=eq.${wallet}&limit=1`,
+        );
+        const repost = await deps.insertRow("posts", {
+          wallet_address: wallet,
+          account_id: owners[0] ? owners[0].account_id : null,
+          content: "",
+          category: "generell",
+          feed_type: "main",
+          post_type: "repost",
+          quoted_post_id: postId,
+          status: "published",
+        });
+        await deps.insertRow("nostr_publications", {
+          source_type: "repost",
+          source_id: repost.id,
+          pubkey_hex: event.pubkey,
+          event_id: event.id,
+          status: "published",
+          relay_message: "backfeed: ingested from relay",
+        });
+        summary.posts += 1;
       } else {
         const postId = await postIdFor(deps, verdict.parentEventId);
         if (!postId) {

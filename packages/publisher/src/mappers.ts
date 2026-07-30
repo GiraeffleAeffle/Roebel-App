@@ -35,10 +35,21 @@ function str(row: Row, key: string): string | null {
   return typeof v === "string" && v.trim() !== "" ? v : null;
 }
 
+/**
+ * Bump when any mapper's OUTPUT changes shape (new fields, new tags).
+ *
+ * created_at = updated_at + version, so a mapper upgrade re-publishes every
+ * record strictly newer than its previous incarnation. Without this, an
+ * enrichment at an unchanged updated_at ties with the old event on the relay
+ * and NIP-01's id tie-break picks the survivor at random — observed live: one
+ * org profile stayed stale after gaining its banner.
+ */
+export const MAPPER_VERSION = 2;
+
 function unixFromUpdatedAt(row: Row): number {
   const raw = str(row, "updated_at") ?? str(row, "created_at");
   const parsed = raw ? Date.parse(raw) : NaN;
-  return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : 0;
+  return (Number.isFinite(parsed) ? Math.floor(parsed / 1000) : 0) + MAPPER_VERSION;
 }
 
 /**
@@ -174,6 +185,16 @@ export function orgToSpec(row: Row, nodeId: string): PublishSpec | null {
   if (bio) profile.about = bio;
   const avatar = str(row, "avatar_url");
   if (avatar) profile.picture = avatar;
+  // `banner` is the standard Nostr profile field every client renders.
+  const cover = str(row, "cover_url");
+  if (cover) profile.banner = cover;
+  // Business data a directory needs: what kind of org, and when it is open.
+  const subType = str(row, "sub_type");
+  if (subType) profile.category = subType;
+  const hours = str(row, "opening_hours");
+  if (hours) profile.opening_hours = hours;
+  const slug = str(row, "slug");
+  if (slug) profile.slug = slug;
 
   return {
     scope: `org-${id}`,

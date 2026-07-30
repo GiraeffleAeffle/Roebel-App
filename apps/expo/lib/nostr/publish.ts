@@ -400,15 +400,18 @@ export async function retryPendingPublications(walletAddress?: string): Promise<
     // existed, it has no ledger row at all. Sweep the citizen's recent posts
     // for unledgered ones — all made after the guidelines consent.
     if (walletAddress) {
-      const dayAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+      // ALL of the citizen's own public posts, oldest first — including those
+      // from before the integration existed. Their key, their device, their
+      // enrollment; the batch cap spreads the backfill over a few sweeps.
       const { data: recent } = await supabase
         .from('posts')
         .select('id')
         .eq('wallet_address', walletAddress.toLowerCase())
         .eq('feed_type', 'main')
         .eq('post_type', 'user')
-        .gte('created_at', dayAgo)
-        .limit(20);
+        .eq('status', 'published')
+        .order('created_at', { ascending: true })
+        .limit(30);
       const recentIds = (recent ?? []).map((r) => String(r.id));
       if (recentIds.length) {
         const { data: ledgered } = await supabase

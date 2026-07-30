@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { htmlToMarkdown } from "../src/html-to-md.js";
-import { articleToSpec, berlinToUnix, eventToSpec, listingToSpec, movieToSpec, orgToSpec } from "../src/mappers.js";
+import { articleToSpec, berlinToUnix, eventToSpec, listingToSpec, MAPPER_VERSION, movieToSpec, orgToSpec } from "../src/mappers.js";
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 const ORGS = new Set([ORG_ID]);
@@ -38,7 +38,7 @@ describe("event mapping", () => {
     assert.deepEqual(spec.tags.find((t) => t[0] === "title"), ["title", "Seefest"]);
     assert.deepEqual(spec.tags.find((t) => t[0] === "status"), ["status", "confirmed"]);
     // created_at is the row's updated_at — the idempotency anchor.
-    assert.equal(spec.createdAt, Math.floor(Date.parse(EVENT_ROW.updated_at) / 1000));
+    assert.equal(spec.createdAt, Math.floor(Date.parse(EVENT_ROW.updated_at) / 1000) + MAPPER_VERSION);
   });
 
   it("NEVER copies organiser contact data — the privacy boundary is the mapper", () => {
@@ -118,6 +118,7 @@ describe("organisation mapping", () => {
       name: "Hafenverein Röbel",
       about: "Wir kümmern uns um den Hafen.",
       picture: "https://cdn/hafen.png",
+      slug: "hafenverein",
     });
   });
 

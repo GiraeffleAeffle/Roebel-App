@@ -80,7 +80,7 @@ export async function buildSpecs(
   if (wantsOrgs || wantsEvents) {
     orgRows = await deps.fetchRows(
       "accounts",
-      "select=id,account_type,name,bio,avatar_url,slug,updated_at,created_at&account_type=eq.organisation",
+      "select=id,account_type,name,bio,avatar_url,cover_url,sub_type,opening_hours,slug,updated_at,created_at&account_type=eq.organisation",
     );
   }
   const orgIds = new Set(orgRows.map((r) => String(r.id)));
@@ -157,15 +157,36 @@ export async function mirrorSpecMedia(
   mirror: (url: string) => Promise<string | null>,
 ): Promise<void> {
   const cache = new Map<string, string | null>();
+  const mirrorUrl = async (url: string): Promise<string | null> => {
+    if (!cache.has(url)) cache.set(url, await mirror(url));
+    return cache.get(url) ?? null;
+  };
   for (const spec of specs) {
     let rewritten = false;
     for (const tag of spec.tags) {
       if (tag[0] !== "image" || !tag[1]) continue;
-      if (!cache.has(tag[1])) cache.set(tag[1], await mirror(tag[1]));
-      const mirrored = cache.get(tag[1]);
+      const mirrored = await mirrorUrl(tag[1]);
       if (mirrored && mirrored !== tag[1]) {
         tag[1] = mirrored;
         rewritten = true;
+      }
+    }
+    // Profile images live INSIDE the kind 0 content JSON, not in tags.
+    if (spec.kind === 0) {
+      try {
+        const profile = JSON.parse(spec.content) as Record<string, unknown>;
+        for (const field of ["picture", "banner"]) {
+          const url = profile[field];
+          if (typeof url !== "string" || !url) continue;
+          const mirrored = await mirrorUrl(url);
+          if (mirrored && mirrored !== url) {
+            profile[field] = mirrored;
+            rewritten = true;
+          }
+        }
+        if (rewritten) spec.content = JSON.stringify(profile);
+      } catch {
+        // not JSON — leave it alone
       }
     }
     // A rewritten URL IS a new version of the record. Without this bump the
