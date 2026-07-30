@@ -10,6 +10,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '@/context/ThemeContext';
 import ExperienceInput, { type ExperienceInputHandle } from './ExperienceInput';
 import type { EventExperience } from '@/lib/types/feed';
@@ -34,6 +35,19 @@ export default function ExperienceComposerModal({
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const inputRef = useRef<ExperienceInputHandle>(null);
+  // iOS cannot present the system photo picker over an open Modal. Hide the
+  // Modal for the duration of the pick — its children stay mounted, so the
+  // draft text survives — and restore it afterwards.
+  const [pickerActive, setPickerActive] = useState(false);
+  const pickImageOutsideModal = async (): Promise<ImagePicker.ImagePickerResult | null> => {
+    setPickerActive(true);
+    await new Promise((r) => setTimeout(r, 350));
+    try {
+      return await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+    } finally {
+      setPickerActive(false);
+    }
+  };
 
   // Keyboard covers the home indicator while open, so only reserve the bottom
   // safe-area inset once it's dismissed and the dock rests on the screen edge.
@@ -78,7 +92,7 @@ export default function ExperienceComposerModal({
 
   return (
     <Modal
-      visible={visible}
+      visible={visible && !pickerActive}
       transparent
       animationType="none"
       statusBarTranslucent
@@ -96,6 +110,7 @@ export default function ExperienceComposerModal({
             ref={inputRef}
             eventId={eventId}
             walletAddress={walletAddress}
+            pickImage={pickImageOutsideModal}
             onError={onError}
             onCreated={(created) => {
               onCreated(created);

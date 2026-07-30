@@ -32,6 +32,8 @@ type Props = {
   onCreated: (created: EventExperience) => void;
   onFocusChange?: (focused: boolean) => void;
   onError?: (message: string) => void;
+  /** Override the system picker — required inside a Modal (see handlePickImage). */
+  pickImage?: () => Promise<ImagePicker.ImagePickerResult | null>;
 };
 
 const ExperienceInput = forwardRef<ExperienceInputHandle, Props>(function ExperienceInput(
@@ -41,6 +43,7 @@ const ExperienceInput = forwardRef<ExperienceInputHandle, Props>(function Experi
     onCreated,
     onFocusChange,
     onError,
+    pickImage,
   },
   ref,
 ) {
@@ -69,11 +72,13 @@ const ExperienceInput = forwardRef<ExperienceInputHandle, Props>(function Experi
   };
 
   const handlePickImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.8,
-    });
-    if (result.canceled || !result.assets[0]) return;
+    // When hosted inside a Modal the caller supplies a picker that hides the
+    // modal first: on iOS the system photo picker cannot present over an
+    // already-presented Modal — it flickers and never opens.
+    const result = pickImage
+      ? await pickImage()
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+    if (!result || result.canceled || !result.assets[0]) return;
 
     setIsUploading(true);
     const asset = result.assets[0];

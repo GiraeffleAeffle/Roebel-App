@@ -31,8 +31,7 @@ import {
   loadStoredIdentity,
   registerIdentity,
 } from '@/lib/nostr/identity';
-import { publishProfile, publishTestNote, readFromRelay } from '@/lib/nostr/publish';
-import { publishAgentMention, fetchAgentReply } from '@/lib/nostr/publish';
+import { publishProfile, readFromRelay } from '@/lib/nostr/publish';
 
 /**
  * Nostr-Identität — onboarding for the identity bridge.
@@ -104,12 +103,6 @@ export default function NostrIdentityScreen() {
   const [showDetails, setShowDetails] = useState(false);
   /** null = not looked up yet. Read straight off Gnosis, so it resolves in a second. */
   const [hasCitizenNft, setHasCitizenNft] = useState<boolean | null>(null);
-  const [testText, setTestText] = useState('');
-  const [sendingTest, setSendingTest] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string; eventId?: string } | null>(null);
-  const [askingMecky, setAskingMecky] = useState(false);
-  const [meckyReply, setMeckyReply] = useState<{ content: string; id: string } | null>(null);
-  const [askedEventId, setAskedEventId] = useState<string | null>(null);
 
   const profileMetadata = useCallback(
     () => ({
@@ -222,98 +215,6 @@ export default function NostrIdentityScreen() {
       setBusy(false);
     }
   }, [account, busy, probeAccess]);
-
-  const onSendTest = useCallback(async () => {
-    const content = testText.trim();
-    if (!content || sendingTest) return;
-    setSendingTest(true);
-    setTestResult(null);
-    const result = await publishTestNote(content);
-    setSendingTest(false);
-    setTestResult(result);
-    if (result.ok) setTestText('');
-  }, [testText, sendingTest]);
-
-  /**
-   * Ask Mecky, and wait for it to answer.
-   *
-   * The mention is a `p` tag rather than the literal text "@mecky", so the
-   * question is legible to any Nostr client — an agent on another node could
-   * answer it too. The reply is polled rather than streamed: an agent that has to
-   * think takes seconds, and a socket held open on a phone is the more fragile
-   * of the two designs.
-   */
-  const onAskMecky = useCallback(async () => {
-    const content = testText.trim();
-    if (!content || askingMecky) return;
-    setAskingMecky(true);
-    setTestResult(null);
-    setMeckyReply(null);
-
-    // Give up after ~40s rather than spinning forever: if no answer has arrived by
-    // then the watcher is down, and saying so is more useful than a spinner.
-    const waitForReply = async (eventId: string, agentPubkey: string) => {
-      for (let attempt = 0; attempt < 13; attempt++) {
-        await new Promise((r) => setTimeout(r, 3000));
-        const reply = await fetchAgentReply(eventId, agentPubkey);
-        if (reply) return reply;
-      }
-      return null;
-    };
-
-    const sent = await publishAgentMention(content, MECKY_PUBKEY);
-    setTestResult(sent);
-    setAskedEventId(sent.eventId ?? null);
-    if (!sent.ok || !sent.eventId) {
-      setAskingMecky(false);
-      return;
-    }
-    setTestText('');
-
-    const reply = await waitForReply(sent.eventId, MECKY_PUBKEY);
-    if (reply) {
-      setMeckyReply({ content: reply.content, id: reply.id });
-      setAskingMecky(false);
-      return;
-    }
-
-    // Silence is ambiguous: the agent may be down, or its key may have rotated
-    // since this build shipped — in which case the mention was addressed to a
-    // pubkey nobody is listening on, and re-polling would never help. Ask the
-    // node who it is now, and if it disagrees, ask again properly.
-    const current = await discoverAgentPubkey();
-    if (current && current !== MECKY_PUBKEY) {
-      const resent = await publishAgentMention(content, current);
-      if (resent.ok && resent.eventId) {
-        setTestResult(resent);
-        setAskedEventId(resent.eventId);
-        const retried = await waitForReply(resent.eventId, current);
-        if (retried) {
-          setMeckyReply({ content: retried.content, id: retried.id });
-          setAskingMecky(false);
-          return;
-        }
-      }
-    }
-
-    setMeckyReply(null);
-    setTestResult({ ok: false, message: 'Mecky hat nicht geantwortet. Läuft der Agent auf dem Node?' });
-    setAskingMecky(false);
-  }, [testText, askingMecky]);
-
-  /**
-   * Open the signed record on the node's own public index.
-   *
-   * The id IS the proof: a Nostr event id is the hash of its own content, so
-   * fetching by id and checking the signature verifies nobody altered what was
-   * published. The link points at Röbel's own index rather than a third-party
-   * viewer — the point is that the town publishes its own evidence.
-   */
-  const openProof = useCallback((...eventIds: string[]) => {
-    const ids = eventIds.filter(Boolean).join(',');
-    if (!ids) return;
-    void Linking.openURL(`${INDEX_BASE}/events?ids=${ids}`);
-  }, []);
 
   const copy = useCallback(async (value: string, which: 'npub' | 'hex') => {
     await Clipboard.setStringAsync(value);
@@ -512,91 +413,12 @@ export default function NostrIdentityScreen() {
 
         {stage === 'active' && (
           <View style={[styles.card, { backgroundColor: colors.surface }]}>
-            <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>TESTBEITRAG</Text>
-            <Text style={[styles.body, { color: colors.textSecondary, marginBottom: 12 }]}>
-              Geht nur auf das Relay — erscheint nicht im Feed und löst keine Benachrichtigungen aus.
+            <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>ALLES BEREIT</Text>
+            <Text style={[styles.body, { color: colors.textSecondary }]}>
+              Deine Beiträge werden jetzt automatisch signiert und Teil des öffentlichen
+              Datenbestands — poste einfach ganz normal im Feed. Auch ältere eigene Beiträge
+              werden nach und nach übernommen.
             </Text>
-            <TextInput
-              style={[
-                styles.testInput,
-                { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.background },
-              ]}
-              value={testText}
-              onChangeText={setTestText}
-              placeholder="Kurzer Testtext …"
-              placeholderTextColor={colors.textTertiary}
-              multiline
-              editable={!sendingTest}
-            />
-            <Pressable
-              style={[
-                styles.secondaryButton,
-                { borderColor: colors.border, marginTop: 12, opacity: testText.trim() && !sendingTest ? 1 : 0.5 },
-              ]}
-              disabled={!testText.trim() || sendingTest}
-              onPress={onSendTest}
-            >
-              {sendingTest ? (
-                <ActivityIndicator color={colors.primary} />
-              ) : (
-                <Text style={[styles.secondaryButtonText, { color: colors.textPrimary }]}>
-                  Testbeitrag senden
-                </Text>
-              )}
-            </Pressable>
-            <Pressable
-              style={[
-                styles.secondaryButton,
-                { borderColor: colors.primary, marginTop: 10, opacity: testText.trim() && !askingMecky ? 1 : 0.5 },
-              ]}
-              disabled={!testText.trim() || askingMecky}
-              onPress={onAskMecky}
-            >
-              {askingMecky ? (
-                <ActivityIndicator color={colors.primary} />
-              ) : (
-                <Text style={[styles.secondaryButtonText, { color: colors.primary }]}>
-                  Mecky fragen (@mecky)
-                </Text>
-              )}
-            </Pressable>
-
-            {meckyReply && (
-              <View style={[styles.meckyReply, { borderColor: colors.borderSecondary }]}>
-                <Text style={[styles.cardLabel, { color: colors.primary }]}>MECKYS ANTWORT</Text>
-                <Text style={[styles.body, { color: colors.textPrimary }]}>{meckyReply.content}</Text>
-                <Text style={[styles.hint, { color: colors.textSecondary }]}>
-                  Signiert von Meckys eigenem Schlüssel und als KI gekennzeichnet.
-                </Text>
-                <Pressable onPress={() => openProof(askedEventId ?? '', meckyReply.id)}>
-                  <Text style={[styles.proofLink, { color: colors.primary }]}>
-                    Frage und Antwort als Beweis öffnen ↗
-                  </Text>
-                </Pressable>
-              </View>
-            )}
-
-            {testResult?.ok && testResult.eventId && (
-              <Pressable onPress={() => openProof(testResult.eventId!)} style={{ marginTop: 10 }}>
-                <Text style={[styles.proofLink, { color: colors.primary }]}>
-                  Signierten Beweis öffnen ↗
-                </Text>
-                <Text style={[styles.hint, { color: colors.textSecondary }]}>
-                  Event {testResult.eventId.slice(0, 16)}…
-                </Text>
-              </Pressable>
-            )}
-
-            {testResult && (
-              <Text
-                style={[
-                  styles.hint,
-                  { color: testResult.ok ? colors.success : colors.error, marginTop: 10 },
-                ]}
-              >
-                {testResult.message}
-              </Text>
-            )}
           </View>
         )}
 
@@ -649,51 +471,6 @@ export default function NostrIdentityScreen() {
       </ScrollView>
     </SafeAreaView>
   );
-}
-
-const INDEX_BASE = 'https://index.roebel.app';
-
-/**
- * Mecky's Nostr identity on this node — derived from the node secret and declared
- * in the manifest's `agents.a2a.relayPubkeys`.
- *
- * Compiled in as the *trusted* value: it costs no network round trip, and it
- * cannot be spoofed by anyone who can write to the relay. But a node secret can
- * be rotated (it was, on 2026-07-29), and a stale constant fails silently here —
- * `fetchAgentReply` would filter on an author who never posts, so a perfectly
- * healthy agent reports "Mecky did not answer".
- *
- * This repo has already paid for that exact mistake once: the app encrypted MACI
- * ballots to a hardcoded pre-rotation coordinator key, and every vote tallied
- * 0/0/0. Nothing threw. The votes simply did not count. So the constant is the
- * default and the node's own index is the fallback — see `discoverAgentPubkey`.
- */
-const MECKY_PUBKEY = '412e639ad250e84faeb3033bba1d20ee09b8a68a2ca8542fcd19d3c2475df16b';
-
-/**
- * Ask the node which key its agent publishes under today.
- *
- * Only consulted when the compiled-in key produced no answer, so the trusted
- * value always wins when it is still correct. Returns null on any failure: an
- * unreachable index must not turn into a confident wrong answer.
- */
-async function discoverAgentPubkey(): Promise<string | null> {
-  try {
-    const res = await fetch(`${INDEX_BASE}/events?kinds=0&limit=50`);
-    if (!res.ok) return null;
-    const body = await res.json();
-    const events: any[] = Array.isArray(body) ? body : (body?.events ?? []);
-    const profiles = events.filter((e) =>
-      (e?.tags ?? []).some((t: string[]) => t?.[0] === 'netizen_agent' && t?.[1] === 'mecky'),
-    );
-    // Newest wins: a rotation leaves the retired agent's profile in the record,
-    // so both keys carry the same agent tag and only recency separates them.
-    profiles.sort((a, b) => (b?.created_at ?? 0) - (a?.created_at ?? 0));
-    const pubkey = profiles[0]?.pubkey;
-    return typeof pubkey === 'string' && /^[0-9a-f]{64}$/.test(pubkey) ? pubkey : null;
-  } catch {
-    return null;
-  }
 }
 
 const styles = StyleSheet.create({
@@ -777,7 +554,6 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   proofLink: { fontFamily: fontFamily.semiBold, fontSize: 14, marginTop: 2 },
-  meckyReply: { marginTop: 14, borderWidth: 1, borderRadius: 12, padding: 14, gap: 6 },
   removeButton: { paddingVertical: 14, alignItems: 'center', marginTop: 4 },
   removeButtonText: { fontFamily: fontFamily.medium, fontSize: 14 },
 });
