@@ -373,3 +373,66 @@ export async function readFromRelay(
     return [];
   }
 }
+
+/**
+ * Re-publish posts whose mirror never landed.
+ *
+ * A citizen's very first mirrored post races the allow-list (the syncer runs
+ * every 5 minutes), so it records as rejected. This sweep retries everything
+ * pending or rejected for THIS device's identity from the app's own posts —
+ * scope-limited by design: only publications the app already attempted, which
+ * all happened after consent.
+ */
+export async function retryPendingPublications(walletAddress?: string): Promise<void> {
+  const identity = await loadStoredIdentity();
+  if (!identity) return;
+  try {
+    const { data } = await supabase
+      .from('nostr_publications')
+      .select('source_id')
+      .eq('source_type', 'post')
+      .eq('pubkey_hex', identity.publicKey)
+      .in('status', ['pending', 'rejected'])
+      .limit(20);
+    const sourceIds = new Set((data ?? []).map((r) => String(r.source_id)));
+
+    // The very first post races ENROLLMENT itself: published before an identity
+    // existed, it has no ledger row at all. Sweep the citizen's recent posts
+    // for unledgered ones — all made after the guidelines consent.
+    if (walletAddress) {
+      const dayAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+      const { data: recent } = await supabase
+        .from('posts')
+        .select('id')
+        .eq('wallet_address', walletAddress.toLowerCase())
+        .eq('feed_type', 'main')
+        .eq('post_type', 'user')
+        .gte('created_at', dayAgo)
+        .limit(20);
+      const recentIds = (recent ?? []).map((r) => String(r.id));
+      if (recentIds.length) {
+        const { data: ledgered } = await supabase
+          .from('nostr_publications')
+          .select('source_id')
+          .eq('source_type', 'post')
+          .in('source_id', recentIds);
+        const known = new Set((ledgered ?? []).map((r) => String(r.source_id)));
+        for (const id of recentIds) if (!known.has(id)) sourceIds.add(id);
+      }
+    }
+
+    for (const row of [...sourceIds].map((source_id) => ({ source_id }))) {
+      const { data: post } = await supabase
+        .from('posts')
+        .select('id, content, media_urls')
+        .eq('id', row.source_id)
+        .maybeSingle();
+      if (!post) continue;
+      const media = ((post.media_urls as string[] | null) ?? []).join('\n');
+      const content = media ? `${post.content}\n\n${media}` : (post.content as string);
+      await publishPost(post.id as string, content);
+    }
+  } catch {
+    // Best-effort; the next sweep tries again.
+  }
+}

@@ -22,6 +22,7 @@ const GUIDELINES_FULL = [
   "Kein Spam oder wiederholte Werbung.",
   "Respektiere die Privatsphäre anderer – keine persönlichen Daten ohne Erlaubnis.",
   "Beiträge, die gegen die Richtlinien verstoßen, können von der Community gemeldet werden.",
+  "Dein Beitrag wird Teil des öffentlichen Datenbestands.",
 ];
 
 function GuidelinesDialog({

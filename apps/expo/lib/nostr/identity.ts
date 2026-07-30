@@ -220,3 +220,28 @@ export async function clearIdentity(): Promise<void> {
   await SecureStore.deleteItemAsync(SECRET_KEY_STORE);
   await SecureStore.deleteItemAsync(REGISTRATION_STORE);
 }
+
+/**
+ * Background enrollment after the citizen accepted the community guidelines.
+ *
+ * The guidelines screen states plainly that a post becomes part of the public
+ * record — that acceptance is the consent moment, and everything after it is
+ * deliberately invisible: one silent smart-account signature, derivation,
+ * registration. No keys, no npub, no protocol vocabulary in the user's path.
+ * Never throws; a failed enrollment simply retries on a later post.
+ */
+export async function ensureIdentitySilently(account: SigningAccount): Promise<void> {
+  try {
+    const existing = await loadStoredIdentity();
+    if (existing) {
+      // Registered already, or derived-but-unregistered from an aborted run.
+      if (await getRegisteredAt()) return;
+      await registerIdentity(account, existing);
+      return;
+    }
+    const identity = await deriveAndStoreIdentity(account);
+    await registerIdentity(account, identity);
+  } catch (err) {
+    console.warn('[nostr] silent enrollment skipped', (err as Error)?.message);
+  }
+}

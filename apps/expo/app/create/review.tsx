@@ -19,6 +19,7 @@ import { useCreatePost } from '@/context/CreatePostContext';
 import { usePendingPostFeedback } from '@/context/PendingPostFeedbackContext';
 import { useActiveProfileImage } from '@/hooks/useActiveProfileImage';
 import { createPost, createPoll, PostingDeniedError } from '@/lib/supabase-posts';
+import { useActiveAccount } from 'thirdweb/react';
 import PostLinkedEventCard from '@/components/feed/PostLinkedEventCard';
 import QuotedPostPreview from '@/components/feed/QuotedPostPreview';
 import PostLinkedMarketplaceCard from '@/components/feed/PostLinkedMarketplaceCard';
@@ -35,6 +36,7 @@ const GUIDELINES = [
   'Keine Werbung oder Spam ohne Genehmigung',
   'Respektiere die Privatsphäre anderer',
   'Keine illegalen oder gefährlichen Inhalte',
+  'Dein Beitrag wird Teil des öffentlichen Datenbestands',
 ];
 
 export default function ReviewScreen() {
@@ -42,6 +44,7 @@ export default function ReviewScreen() {
   const router = useRouter();
   const { user } = useUser();
   const { activeAccount } = useAccount();
+  const thirdwebAccount = useActiveAccount();
   const { showSnackbar } = useSnackbar();
   const draft = useCreatePost();
   const activeProfileImage = useActiveProfileImage();
@@ -62,6 +65,18 @@ export default function ReviewScreen() {
 
     try {
       const content = draft.content.trim() || (draft.linkedEventId ? 'Schaut euch dieses Event an!' : draft.linkedMarketplaceId ? 'Schaut euch diese Anzeige an!' : draft.linkedMiniAppId ? 'Schaut euch diese Mini-App an!' : '');
+      // Guidelines accepted by posting; enroll the public-record identity in
+      // the background and retry any mirror that raced the allow-list.
+      if (user?.is_verified_citizen && thirdwebAccount) {
+        const acct = thirdwebAccount;
+        void import('@/lib/nostr/identity')
+          .then(async ({ ensureIdentitySilently }) => {
+            await ensureIdentitySilently(acct);
+            const { retryPendingPublications } = await import('@/lib/nostr/publish');
+            await retryPendingPublications(walletAddress);
+          })
+          .catch(() => {});
+      }
       const post = await createPost({
         wallet_address: walletAddress,
         account_id: activeAccount?.id,
