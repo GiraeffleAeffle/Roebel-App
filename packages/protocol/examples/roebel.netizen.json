@@ -221,6 +221,13 @@
       "relayPubkeys": [
         "412e639ad250e84faeb3033bba1d20ee09b8a68a2ca8542fcd19d3c2475df16b"
       ]
+    },
+    "watcher": {
+      "agent": "mecky",
+      "displayName": "Mecky",
+      "model": "claude-sonnet-5",
+      "perAuthorPerHour": 5,
+      "perDay": 100
     }
   },
   "operations": {

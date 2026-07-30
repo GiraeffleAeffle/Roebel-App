@@ -294,6 +294,26 @@ const Agents = z.object({
         .optional(),
     })
     .optional(),
+  /**
+   * The node's mention-answering agent, run as a rendered service.
+   *
+   * Declared here — not hand-started with `docker run` — because an agent that
+   * exists outside the manifest undercuts the whole governance story: its
+   * bounds, its model and its very existence should be a reviewable diff, and a
+   * hand-started container is exactly how Röbel ended up with a stray duplicate
+   * watcher burning tokens for a day.
+   */
+  watcher: z
+    .object({
+      /** Agent name slug — the identity is derived from (node secret, node id, this). */
+      agent: z.string().regex(/^[a-z0-9-]+$/, "agent name must be a lowercase slug"),
+      displayName: z.string().optional(),
+      /** Model for answers. The watcher's own default applies when omitted. */
+      model: z.string().optional(),
+      perAuthorPerHour: z.number().int().positive().optional(),
+      perDay: z.number().int().positive().optional(),
+    })
+    .optional(),
 });
 
 /**

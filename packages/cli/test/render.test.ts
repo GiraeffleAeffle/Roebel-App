@@ -437,3 +437,43 @@ test("declared agent pubkeys are passed through to the syncer", () => {
   };
   assert.match(renderComposeYml(withAgent), new RegExp(`AGENT_PUBKEYS: "${"a".repeat(64)},${"b".repeat(64)}"`));
 });
+
+test("a declared watcher becomes a rendered service, not a hand-started container", () => {
+  const withWatcher = {
+    ...roebel,
+    agents: {
+      ...roebel.agents,
+      watcher: { agent: "mecky", displayName: "Mecky", model: "claude-sonnet-5", perAuthorPerHour: 5, perDay: 100 },
+    },
+  };
+  const compose = renderComposeYml(withWatcher);
+  assert.match(compose, /agent-watcher:/);
+  assert.match(compose, /AGENT_NAME: "mecky"/);
+  assert.match(compose, /AGENT_DISPLAY_NAME: "Mecky"/);
+  assert.match(compose, /ANTHROPIC_MODEL: "claude-sonnet-5"/);
+  assert.match(compose, /AGENT_PER_AUTHOR_PER_HOUR: "5"/);
+  assert.match(compose, /AGENT_PER_DAY: "100"/);
+  // Secrets are compose-interpolated from the box's .env, never inlined —
+  // and ONLY the two the watcher needs. The old hand-rolled `docker run
+  // --env-file .env` handed the agent the Supabase service key too.
+  assert.match(compose, /ANTHROPIC_API_KEY: "\$\{ANTHROPIC_API_KEY\}"/);
+  assert.match(compose, /NODE_AGENT_SECRET: "\$\{NODE_AGENT_SECRET\}"/);
+  const watcherBlock = compose.slice(compose.indexOf("agent-watcher:"));
+  const nextService = watcherBlock.slice(watcherBlock.indexOf("\n  "));
+  assert.ok(
+    !watcherBlock.slice(0, watcherBlock.length - nextService.length).includes("SUPABASE"),
+    "the watcher must not receive Supabase credentials",
+  );
+
+  // No watcher declared => no service. The stray-duplicate failure mode was a
+  // watcher existing outside the declaration.
+  const withoutWatcher = { ...roebel, agents: { ...roebel.agents, watcher: undefined } };
+  assert.doesNotMatch(renderComposeYml(withoutWatcher), /agent-watcher:/);
+
+  // No relay => nothing to watch; declaring a watcher renders nothing.
+  const noNostr = {
+    ...withWatcher,
+    services: { ...withWatcher.services, chat: { ...withWatcher.services.chat, nostr: undefined } },
+  };
+  assert.doesNotMatch(renderComposeYml(noNostr), /agent-watcher:/);
+});

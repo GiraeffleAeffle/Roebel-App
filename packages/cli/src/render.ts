@@ -557,6 +557,37 @@ export function renderComposeYml(m: NetizenManifest): string {
       );
     }
 
+    // NSP-6: the node's mention-answering agent, as a declared service. Secrets
+    // come from the box's .env via compose interpolation — never from the
+    // manifest, which is public. Only the two the watcher actually needs are
+    // passed, deliberately NOT the whole .env: the hand-rolled predecessor used
+    // --env-file and handed the agent the Supabase service key with it.
+    if (hasNostr && m.agents?.watcher) {
+      const w = m.agents.watcher;
+      const optional = [
+        w.displayName ? `      AGENT_DISPLAY_NAME: ${JSON.stringify(w.displayName)}` : "",
+        w.model ? `      ANTHROPIC_MODEL: "${w.model}"` : "",
+        w.perAuthorPerHour ? `      AGENT_PER_AUTHOR_PER_HOUR: "${w.perAuthorPerHour}"` : "",
+        w.perDay ? `      AGENT_PER_DAY: "${w.perDay}"` : "",
+      ].filter(Boolean);
+      svc.push(
+        `  agent-watcher:
+    image: node:22-alpine
+    restart: unless-stopped
+    command: ["node", "/app/agent-watcher.cjs"]
+    volumes:
+      - "./agent-watcher/agent-watcher.cjs:/app/agent-watcher.cjs:ro"
+    environment:
+      NODE_ID: "${m.id}"
+      NODE_NAME: ${JSON.stringify(m.name)}
+      AGENT_NAME: "${w.agent}"
+      RELAY_URL: "ws://strfry:7777"
+      ANTHROPIC_API_KEY: "\${ANTHROPIC_API_KEY}"
+      NODE_AGENT_SECRET: "\${NODE_AGENT_SECRET}"${optional.length ? "\n" + optional.join("\n") : ""}
+    depends_on: [strfry]`,
+      );
+    }
+
     // NSP-9 federation: mirror declared peers' public events over NIP-77
     // negentropy. Runs `strfry sync` inside the relay's own container image so it
     // shares the binary and the store; pull-based, so no inbound surface is added.
