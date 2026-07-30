@@ -20,6 +20,7 @@
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+import { markSyntheticImage } from '../_shared/ai-marking.ts';
 
 const KIE_CREATE = 'https://api.kie.ai/api/v1/jobs/createTask';
 const KIE_POLL = 'https://api.kie.ai/api/v1/jobs/recordInfo';
@@ -384,8 +385,12 @@ serve(async (req: Request) => {
 
   const imgResp = await fetch(imageUrl);
   if (!imgResp.ok) return json(502, { ok: false, code: 'IMAGE_DOWNLOAD_FAILED' });
-  const imgBytes = new Uint8Array(await imgResp.arrayBuffer());
+  const rawBytes = new Uint8Array(await imgResp.arrayBuffer());
   const contentType = imgResp.headers.get('content-type') ?? 'image/jpeg';
+  // AI Act Art. 50(2): embed the machine-readable synthetic-media marking in
+  // the file itself before it lands in public storage.
+  const { bytes: imgBytes, marked } = markSyntheticImage(rawBytes, `Röbel App / kie.ai ${model}`);
+  if (!marked) console.warn('unmarkable image format:', contentType);
   const ext = contentType.includes('png') ? 'png' : 'jpg';
 
   // Timestamped path so each regeneration writes a fresh object — bypasses the

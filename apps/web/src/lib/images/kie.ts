@@ -10,10 +10,12 @@
 import "server-only";
 import {
   buildKieCreatePayload,
+  NANO_BANANA_2_LITE,
   parseKieTaskResponse,
   type KieCreateInput,
   type KieTaskState,
 } from "./kie-payload";
+import { markSyntheticImage } from "./ai-marking";
 
 export {
   NANO_BANANA_2_LITE,
@@ -126,5 +128,11 @@ export async function fetchGeneratedImage(
   const res = await fetch(url);
   if (!res.ok) throw new KieImageError("Das erzeugte Bild konnte nicht geladen werden.");
   const contentType = res.headers.get("content-type") ?? "image/png";
-  return { bytes: new Uint8Array(await res.arrayBuffer()), contentType };
+  const raw = new Uint8Array(await res.arrayBuffer());
+  // AI Act Art. 50(2): every synthetic image we persist carries the
+  // machine-readable marking inside the file, not just in our database.
+  const model = process.env.KIE_IMAGE_MODEL ?? NANO_BANANA_2_LITE;
+  const { bytes, marked } = markSyntheticImage(raw, `Röbel App / kie.ai ${model}`);
+  if (!marked) console.warn("[images/kie] unmarkable image format:", contentType);
+  return { bytes, contentType };
 }
