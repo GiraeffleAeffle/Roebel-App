@@ -11,9 +11,9 @@ import { Send, Bot, User, Sparkles, RefreshCw } from "lucide-react";
 import type { AppMode } from "@/lib/context/AppModeContext";
 
 const MODE_GREETINGS: Record<AppMode, string> = {
-  tourist: "Moin! 👋 Ich bin Mecky, dein Stadtführer für Röbel. Frag mich nach Restaurants, Events, Sehenswürdigkeiten oder was du sonst wissen möchtest!",
-  citizen: "Moin! 👋 Ich bin Mecky, dein Bürgerassistent. Frag mich zu Abstimmungen, Community-Themen oder was gerade in Röbel los ist!",
-  org: "Moin! 👋 Ich bin Mecky, dein Business-Berater. Frag mich zum Röbel Card Partnerprogramm, Marketing-Tipps oder wie du dein Gewerbe in der App am besten präsentierst!",
+  tourist: "Moin! 👋 Ich bin Mecky, eine künstliche Intelligenz und dein Stadtführer für Röbel. Frag mich nach Restaurants, Events, Sehenswürdigkeiten oder was du sonst wissen möchtest!",
+  citizen: "Moin! 👋 Ich bin Mecky, eine künstliche Intelligenz und dein Bürgerassistent. Frag mich zu Abstimmungen, Community-Themen oder was gerade in Röbel los ist!",
+  org: "Moin! 👋 Ich bin Mecky, eine künstliche Intelligenz und dein Business-Berater. Frag mich zum Röbel Card Partnerprogramm, Marketing-Tipps oder wie du dein Gewerbe in der App am besten präsentierst!",
 };
 
 const QUICK_PROMPTS: Record<AppMode, string[]> = {
@@ -97,10 +97,12 @@ export default function MeckyPage() {
         </div>
         <div>
           <h1 className="text-lg font-semibold text-foreground">Mecky</h1>
+          {/* AI Act Art. 50(1): permanently visible KI disclosure in the chat itself */}
           <p className="text-xs text-muted-foreground">
             {effectiveMode === "tourist" ? "Dein Stadtführer" :
              effectiveMode === "citizen" ? "Dein Bürgerassistent" :
              "Dein Business-Berater"}
+            {" · KI-Assistent"}
           </p>
         </div>
       </div>

@@ -243,12 +243,19 @@ export default function MeckyScreen() {
             style={styles.headerAvatar}
             contentFit="cover"
           />
-          <Text
-            style={[styles.headerTitle, { color: colors.textPrimary }]}
-            numberOfLines={1}
-          >
-            {currentTitle}
-          </Text>
+          <View style={styles.headerTitleGroup}>
+            <Text
+              style={[styles.headerTitle, { color: colors.textPrimary }]}
+              numberOfLines={1}
+            >
+              {currentTitle}
+            </Text>
+            {/* AI Act Art. 50(1): the KI disclosure must be permanently visible in the
+                chat, not only in the consent gate or the Impressum. */}
+            <Text style={[styles.headerAiHint, { color: colors.textTertiary }]}>
+              KI-Assistent
+            </Text>
+          </View>
           <ChevronRightIcon
             width={14}
             height={14}
@@ -324,7 +331,7 @@ export default function MeckyScreen() {
                   Hallo! Ich bin Mecky 👋
                 </Text>
                 <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-                  Frag mich nach Events, Restaurants, Nachrichten oder was auch immer du über Röbel wissen willst!
+                  Ich bin eine künstliche Intelligenz. Frag mich nach Events, Restaurants, Nachrichten oder was auch immer du über Röbel wissen willst!
                 </Text>
                 {!isStoryThread && (
                   <Pressable
@@ -545,10 +552,19 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: 16,
   },
+  headerTitleGroup: {
+    flexShrink: 1,
+    alignItems: 'flex-start',
+  },
   headerTitle: {
     flexShrink: 1,
     fontSize: 18,
     fontFamily: 'MonaSansSemiCondensed-SemiBold',
+  },
+  headerAiHint: {
+    fontSize: 11,
+    fontFamily: 'MonaSans-Medium',
+    marginTop: -1,
   },
   headerChevron: {
     transform: [{ rotate: '90deg' }],
