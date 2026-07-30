@@ -11,16 +11,27 @@ the record is civic rather than social and the identities are attested.
 
 ## 1. What is actually published today
 
-**Two things.** Be precise about this, because the plan below is often mistaken for the state.
+**Since 2026-07-30, most of it.** The node runs a **publisher service**
+(`@netizen-labs/publisher`, declared as `services.publisher` in the manifest) that mirrors the
+public datasets onto the relay every 5 minutes — first live pass: 41 events accepted.
 
 | Published to the relay now | Not yet |
 |---|---|
-| kind 0 Citizen profiles | events / Veranstaltungen |
-| kind 1 public feed posts (dual-written) | cinema programme |
-| agent profiles and replies | organisations |
-| the wallet↔npub binding (kind 30078) | marketplace |
+| kind 0 Citizen profiles | marketplace (deliberately last — §3.4) |
+| kind 1 public feed posts (dual-written by the citizen's device) | events owned by *personal* accounts (needs per-person opt-in) |
+| agent profiles and replies | media files (Blossom — roadmap #12) |
+| the wallet↔npub binding (kind 30078) | |
+| **events / Veranstaltungen** — NIP-52 `31923`, signed per owning org | |
+| **cinema programme** — NIP-52 `31923`, signed by the cinema's own key | |
+| **organisation profiles** — kind 0, each org under its own derived key | |
 
-Everything else lives in Supabase only. Nothing below is built.
+The CMS half publishes differently from feed posts, deliberately: posts are signed on the
+citizen's device (the key never leaves it), but events and org data are edited server-side, so
+the **node** publishes them under node-held per-organisation identities
+(`deriveOrgIdentity`). The publisher is stateless — `created_at` is the row's `updated_at`, so
+an unchanged row rebuilds the identical event (relay dedups) and an edit becomes a NIP-01
+replacement. The mapper is the privacy boundary: organiser email/phone/name are never read,
+and a test pins that planted PII cannot appear in a serialized event.
 
 ## 2. The rule that decides the order: publish the minimum
 

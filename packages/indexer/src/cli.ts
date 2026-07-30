@@ -57,10 +57,12 @@ async function main(): Promise<void> {
         },
         // Resume from what is already indexed for this exact source, so a restart
         // costs one small overlap rather than a full re-read.
-        watermark: async (id, relay) => {
+        // Per (source, kind): a shared watermark would let the newest feed post
+        // starve back-dated replaceable kinds out of the ingest window.
+        watermark: async (id, relay, kind) => {
           const rows = await query(
-            "SELECT MAX(created_at)::bigint AS newest FROM nostr_events WHERE node_id = $1 AND source = $2",
-            [id, relay],
+            "SELECT MAX(created_at)::bigint AS newest FROM nostr_events WHERE node_id = $1 AND source = $2 AND kind = $3",
+            [id, relay, kind],
           );
           const newest = rows[0]?.newest;
           return newest == null ? null : Number(newest);

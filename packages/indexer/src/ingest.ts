@@ -1,6 +1,8 @@
 import { RelayClient, verifyEvent, type NostrEvent } from "@netizen-labs/nostr";
 import {
   DELETE_SUPERSEDED_SQL,
+  isParameterised,
+  isReplaceable,
   INSERT_IF_NEWEST_SQL,
   INSERT_SQL,
   replaceableDTag,
@@ -27,7 +29,7 @@ export interface IngestDeps {
   /** Bound parameters, never interpolation. */
   insert: (sql: string, values: unknown[]) => Promise<void>;
   /** Newest `created_at` already indexed for this source, so a pass resumes. */
-  watermark: (nodeId: string, relay: string) => Promise<number | null>;
+  watermark: (nodeId: string, relay: string, kind: number) => Promise<number | null>;
   log?: (message: string) => void;
   makeClient?: (url: string) => Pick<RelayClient, "query" | "close">;
 }
@@ -56,13 +58,29 @@ export async function ingestSource(source: Source, deps: IngestDeps): Promise<In
     ? deps.makeClient(source.relay)
     : new RelayClient(source.relay, { timeoutMs: 15_000 });
 
-  const since = await deps.watermark(source.nodeId, source.relay);
-  const filter: Record<string, unknown> = { kinds: source.kinds, limit: 500 };
-  if (since !== null) filter.since = Math.max(0, since - OVERLAP_SECONDS);
+  // One filter per kind, each with its own watermark. A single shared watermark
+  // silently starves back-dated kinds: replaceable events carry the *record's*
+  // last-edit time as created_at, which sits weeks behind the feed — a shared
+  // "since" pinned to the newest post would exclude the entire town calendar.
+  //
+  // Replaceable kinds get NO watermark at all. Their created_at is an edit
+  // time, so an org profile new to the index can still be "older" than one
+  // already seen — a time window can never be correct for them. They are also
+  // bounded sets (one event per pubkey/d), so a full re-read costs a few
+  // hundred events, and supersede-on-insert makes it idempotent.
+  const filters: Record<string, unknown>[] = [];
+  for (const kind of source.kinds) {
+    const filter: Record<string, unknown> = { kinds: [kind], limit: 500 };
+    if (!isReplaceable(kind) && !isParameterised(kind)) {
+      const since = await deps.watermark(source.nodeId, source.relay, kind);
+      if (since !== null) filter.since = Math.max(0, since - OVERLAP_SECONDS);
+    }
+    filters.push(filter);
+  }
 
   let events: NostrEvent[] = [];
   try {
-    events = await client.query([filter]);
+    events = await client.query(filters);
   } finally {
     client.close();
   }

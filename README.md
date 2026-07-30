@@ -215,13 +215,19 @@ Roughly half a node is **derived** and needs no backup at all: the federation mi
 from peers, the index re-reads the relays, TLS certificates re-issue themselves. That is the
 practical payoff of treating the protocol as the source of truth — an export is small.
 
-### What is *not* on the public record yet
+### What is on the public record
 
-Today only **profiles** (kind 0) and **feed posts** (kind 1) are published to Nostr, and only
-for citizens who opt in. Events, cinema listings, organisations and the marketplace still live
-in Supabase only; publishing them is designed
-([docs/PUBLIC_DATA_ON_NOSTR.md](docs/PUBLIC_DATA_ON_NOSTR.md)) and not yet shipped. Private data
-— messages, evidence, PII — is **never** destined for the relay; see
+Citizen **profiles** and **feed posts** are published opt-in, signed on the citizen's own
+device. Since **2026-07-30** the node also mirrors its public datasets onto the relay itself:
+**events** and the **cinema programme** as NIP-52 calendar events and **organisation
+profiles** as kind 0 — each signed by a node-held per-organisation key, so the cinema's
+screenings carry the cinema's signature. Any standard Nostr client can render the town
+calendar; anyone can build a full rival client from the public index alone
+([docs/PUBLIC_DATA_ON_NOSTR.md](docs/PUBLIC_DATA_ON_NOSTR.md)).
+
+Not on the record: the marketplace (deliberately last — the withdrawal path gets tested before
+the publish path), events hosted by private individuals (needs per-person opt-in), and private
+data — messages, evidence, PII — which is **never** destined for the relay; see
 [docs/DATA_PLACEMENT_AND_CRUD.md](docs/DATA_PLACEMENT_AND_CRUD.md) for the rule and
 [docs/DSGVO_AI_ACT_COMPLIANCE.md](docs/DSGVO_AI_ACT_COMPLIANCE.md) for the GDPR duties that
 shape it.

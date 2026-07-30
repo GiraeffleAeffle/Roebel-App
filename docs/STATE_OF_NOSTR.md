@@ -100,8 +100,16 @@ What stays protected is the clean lookup table, and Citizens who register but ne
 
 ## 4. What is published
 
-Opt-in per Citizen, and only data **already public in the app**: kind 0 profiles and kind 1
-feed posts. Nothing private, nothing personal, nothing paid.
+Two rails, distinguished by **who holds the key**:
+
+- **Citizen-signed** (device-held keys, opt-in): kind 0 profiles and kind 1 feed posts —
+  only data already public in the app. Nothing private, nothing personal, nothing paid.
+- **Node-signed** (node-held per-organisation keys, since 2026-07-30): the public CMS
+  datasets, mirrored by `@netizen-labs/publisher` (`services.publisher` in the manifest).
+  Events and cinema as NIP-52 `31923`, organisation profiles as kind 0 — the cinema's
+  screenings signed by the cinema's derived key, an org's events by that org's key. relay-sync
+  merges the publisher's pubkeys into the allow-list each pass (`EXTRA_KEYS_FILE`). Details
+  and the privacy boundary: [Public data on Nostr](PUBLIC_DATA_ON_NOSTR.md) §1.
 
 On delete the app publishes a NIP-09 kind 5 request and says plainly in the UI that erasure
 on Nostr is **advisory** — relays may ignore it, and clients that already fetched an event

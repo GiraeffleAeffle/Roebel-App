@@ -185,25 +185,19 @@ media: calendar data should use NIP-52 kinds rather than invented ones, and medi
 served from a Blossom server next to strfry — NIP-96 is officially deprecated in its
 favour. **Trigger:** publishing the events/cinema/org datasets, or any media, to the relay.
 
-### 13. The index does not honour replaceable events
+### 13. ~~The index does not honour replaceable events~~ — DONE 2026-07-30
 
-Found 2026-07-29, during the node-secret rotation. strfry correctly keeps **one** kind 0 per
-pubkey — that is NIP-01 replaceable-event semantics. The index keys on event id, so it keeps
-**every version**: after two watcher restarts the relay held 1 profile and the index returned 2.
+Found 2026-07-29 during the node-secret rotation (relay held 1 Mecky profile, index returned
+2). **Fixed the day before it would have mattered**: ingest now collapses on the replacement
+key — `(pubkey, kind, "")` for 0/3/1xxxx, `(pubkey, kind, d)` for 3xxxx — with NIP-01 ordering
+(newest `created_at`, ties to the smaller id), as delete-superseded before insert-if-newest so
+arrival order cannot matter. Startup backfills `d_tag` for pre-existing rows and collapses
+their duplicates idempotently. This unblocked the publisher (§ Nostr): every CMS dataset edits
+as a replacement now.
 
-Harmless today, because the only consumer sorts newest-first and both versions were identical.
-It is not harmless for the plan in [Data placement and CRUD](DATA_PLACEMENT_AND_CRUD.md), where
-**edit** is expressed as a parameterised replaceable event (kinds 30000–39999 keyed by their `d`
-tag). Under the current index an edited event would be returned alongside the version it was
-meant to replace, and a reader has no way to know which is current — an edit that does not
-replace anything is not an edit.
-
-The fix is to collapse on read or on ingest: newest `created_at` wins per `(pubkey, kind)` for
-kinds 0/3/10000–19999, and per `(pubkey, kind, d)` for 30000–39999, with ties broken by the
-lexicographically smaller id as NIP-01 specifies. Deletions (kind 5) need the same treatment.
-
-**Trigger:** before shipping edit or delete for any Nostr-published dataset. Doing it after
-would mean rewriting rows readers had already been served.
+Still open from the original finding: **kind 5 deletion requests** are not yet honoured by the
+index (a hide state). **Trigger:** before shipping user-facing delete for any published
+dataset — withdrawal-by-edit (`status: cancelled`) covers events until then.
 
 ---
 

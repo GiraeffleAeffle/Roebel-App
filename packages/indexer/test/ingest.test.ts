@@ -23,7 +23,7 @@ function deps(
     watermark: async () => null,
     makeClient: () => ({
       query: async (f: unknown[]) => {
-        filters.push(f[0] as Record<string, unknown>);
+        for (const filter of f) filters.push(filter as Record<string, unknown>);
         return events;
       },
       close: () => {},
@@ -57,12 +57,23 @@ describe("ingesting a relay", () => {
     assert.equal(d.stored[0][4], "echt");
   });
 
-  it("resumes from the watermark, with an overlap so nothing falls in the gap", async () => {
+  it("resumes immutable kinds from the watermark, with an overlap so nothing falls in the gap", async () => {
     const d = deps([], { watermark: async () => 1_785_000_000 });
     await ingestSource(SOURCE, d);
-    const since = d.filters[0].since as number;
+    // SOURCE declares [0, 1]: one filter per kind.
+    const noteFilter = d.filters.find((f) => (f.kinds as number[])[0] === 1)!;
+    const since = noteFilter.since as number;
     assert.ok(since < 1_785_000_000, "must re-read a small overlap");
     assert.ok(since >= 1_785_000_000 - 600, "but not restart from the beginning");
+  });
+
+  it("replaceable kinds get NO watermark — their created_at is an edit time, not an arrival time", async () => {
+    const d = deps([], { watermark: async () => 1_785_000_000 });
+    await ingestSource(SOURCE, d);
+    const profileFilter = d.filters.find((f) => (f.kinds as number[])[0] === 0)!;
+    // An org profile new to the index can be "older" than one already seen; a
+    // time window would starve it out forever. Bounded set, so full re-read.
+    assert.equal(profileFilter.since, undefined);
   });
 
   it("reads everything on a first pass, when there is no watermark", async () => {

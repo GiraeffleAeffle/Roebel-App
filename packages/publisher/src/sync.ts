@@ -34,6 +34,12 @@ export interface PublisherDeps {
   fetchRows: (table: string, query: string) => Promise<Record<string, unknown>[]>;
   relayUrl: string;
   makeClient?: (url: string) => Pick<RelayClient, "publish" | "close">;
+  /**
+   * Called with every signing pubkey BEFORE anything is published. The caller
+   * announces them to the allow-list here — announcing after publishing would
+   * guarantee a fully-rejected first pass on every fresh node.
+   */
+  onPubkeys?: (pubkeys: string[]) => Promise<void>;
   log?: (message: string) => void;
 }
 
@@ -119,6 +125,7 @@ export async function publishOnce(deps: PublisherDeps): Promise<PublishSummary> 
   const identities = new Map<string, OrgIdentity>();
   const events = specs.map((s) => signSpec(s, identities, deps.nodeSecret, deps.nodeId));
   const pubkeys = [...new Set(events.map((e) => e.pubkey))];
+  if (deps.onPubkeys) await deps.onPubkeys(pubkeys);
 
   const client = deps.makeClient
     ? deps.makeClient(deps.relayUrl)
