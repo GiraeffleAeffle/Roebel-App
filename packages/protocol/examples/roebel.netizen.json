@@ -181,9 +181,19 @@
       "publicRead": "https://index.roebel.app",
       "kinds": [
         0,
-        1
+        1,
+        31922,
+        31923
       ],
       "ingestIntervalSeconds": 120
+    },
+    "publisher": {
+      "datasets": [
+        "events",
+        "cinema",
+        "orgs"
+      ],
+      "intervalSeconds": 300
     }
   },
   "ai": {

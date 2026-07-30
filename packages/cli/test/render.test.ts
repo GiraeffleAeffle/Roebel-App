@@ -477,3 +477,23 @@ test("a declared watcher becomes a rendered service, not a hand-started containe
   };
   assert.doesNotMatch(renderComposeYml(noNostr), /agent-watcher:/);
 });
+
+test("a declared publisher becomes a rendered service wired into the allow-list", () => {
+  const withPublisher = {
+    ...roebel,
+    services: { ...roebel.services, publisher: { datasets: ["events", "cinema", "orgs"], intervalSeconds: 600 } },
+  };
+  const compose = renderComposeYml(withPublisher);
+  assert.match(compose, /publisher:/);
+  assert.match(compose, /PUBLISH_DATASETS: "events,cinema,orgs"/);
+  assert.match(compose, /PUBLISH_INTERVAL_SECONDS: "600"/);
+  // Identity root and dataset read come from the box's .env, never inlined.
+  assert.match(compose, /NODE_AGENT_SECRET: "\$\{NODE_AGENT_SECRET\}"/);
+  // The syncer merges the publisher's derived org keys every pass.
+  assert.match(compose, /EXTRA_KEYS_FILE: "\/etc\/strfry\/publisher-keys\.txt"/);
+
+  // Not declared => not rendered, and the syncer has no extra-keys file.
+  const plain = renderComposeYml(roebel);
+  assert.doesNotMatch(plain, /publisher:/);
+  assert.doesNotMatch(plain, /EXTRA_KEYS_FILE/);
+});

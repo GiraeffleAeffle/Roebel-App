@@ -190,6 +190,18 @@ const Services = z.object({
       ingestIntervalSeconds: z.number().int().positive().optional(),
     })
     .optional(),
+  /**
+   * The public-data publisher: mirrors the node's public datasets onto its own
+   * relay as signed replaceable events, each under a node-held per-organisation
+   * identity. Naming a dataset here IS the decision to make it open data —
+   * which is exactly the kind of decision that belongs in a reviewable diff.
+   */
+  publisher: z
+    .object({
+      datasets: z.array(z.enum(["events", "cinema", "orgs"])).min(1),
+      intervalSeconds: z.number().int().positive().optional(),
+    })
+    .optional(),
   // Secret references only (guards the "secrets by reference" rule).
   secrets: z.record(secretRef).optional(),
 });

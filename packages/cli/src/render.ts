@@ -525,7 +525,38 @@ export function renderComposeYml(m: NetizenManifest): string {
       # This node's own agents. Their key is NIP-06 derived from an agent smart
       # account holding no CitizenNFT, so without this the syncer would erase
       # them every pass and no agent could publish to its own community's relay.
-      AGENT_PUBKEYS: "${agentKeys.join(",")}"
+      AGENT_PUBKEYS: "${agentKeys.join(",")}"${
+        m.services.publisher
+          ? `\n      # Publisher-derived org identities join the allow-list every pass.\n      EXTRA_KEYS_FILE: "/etc/strfry/publisher-keys.txt"`
+          : ""
+      }
+    depends_on: [strfry]`,
+      );
+    }
+
+    // The public-data publisher: Supabase public datasets -> signed replaceable
+    // events on the relay, each under a node-held per-organisation identity.
+    // Needs the node secret (identity root) and the service key (dataset read),
+    // and shares the policy dir so relay-sync can merge its derived pubkeys.
+    if (hasNostr && m.services.publisher && m.services.backend) {
+      const pub = m.services.publisher;
+      svc.push(
+        `  publisher:
+    image: node:22-alpine
+    restart: unless-stopped
+    command: ["node", "/app/publisher.cjs"]
+    volumes:
+      - "./publisher/publisher.cjs:/app/publisher.cjs:ro"
+      - "./strfry-policy:/etc/strfry"
+    environment:
+      NODE_ID: "${m.id}"
+      RELAY_URL: "ws://strfry:7777"
+      PUBLISH_DATASETS: "${pub.datasets.join(",")}"
+      PUBLISH_INTERVAL_SECONDS: "${pub.intervalSeconds ?? 300}"
+      PUBLISHER_KEYS_FILE: "/etc/strfry/publisher-keys.txt"
+      SUPABASE_URL: "\${SUPABASE_URL}"
+      SUPABASE_SERVICE_KEY: "\${SUPABASE_SERVICE_KEY}"
+      NODE_AGENT_SECRET: "\${NODE_AGENT_SECRET}"
     depends_on: [strfry]`,
       );
     }
