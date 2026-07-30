@@ -96,6 +96,39 @@ export function createApi(deps: ApiDeps): Server {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
 
+      // The root is the front door of the open-data claim. A browser landing
+      // here should learn what this is and how to query it — "not found" reads
+      // as a broken service to exactly the person we want to convince.
+      if (url.pathname === "/") {
+        res.writeHead(200, {
+          "Content-Type": "text/html; charset=utf-8",
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "public, max-age=300",
+        });
+        res.end(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Netizen index — ${deps.nodeId}</title>
+<style>body{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;max-width:44rem;margin:3rem auto;padding:0 1rem;line-height:1.6;background:#111;color:#ddd}a{color:#7ABBF2}code{background:#222;padding:.1rem .35rem;border-radius:4px}h1{font-size:1.3rem}</style>
+</head><body>
+<h1>Public index of the "${deps.nodeId}" Netizen node</h1>
+<p>This node's public record — signed Nostr events, queryable by anyone.
+No API key, no account. Every event carries its author's signature, so
+everything served here is verifiable, not just asserted.</p>
+<p>Endpoints:</p>
+<ul>
+<li><a href="/stats">/stats</a> — what this index holds, by node and kind</li>
+<li><a href="/events?limit=10">/events</a> — query by <code>kinds</code>, <code>authors</code>, <code>ids</code>, <code>since</code>, <code>until</code>, <code>node</code>, <code>q</code> (full-text), <code>limit</code></li>
+<li><a href="/health">/health</a></li>
+</ul>
+<p>Examples: <a href="/events?kinds=31923&amp;limit=10">the town calendar (NIP-52)</a> ·
+<a href="/events?kinds=0&amp;limit=50">profiles &amp; organisations</a> ·
+<a href="/events?kinds=1&amp;limit=20">public posts</a> ·
+<a href="/events?q=Hafen">full-text search</a></p>
+<p>Built on the <a href="https://github.com/Roebel-Labs/Roebel-App">Röbel App</a> / Netizen stack.</p>
+</body></html>`);
+        return;
+      }
+
       if (url.pathname === "/health") return send(200, { ok: true, node: deps.nodeId });
 
       if (url.pathname === "/stats") {

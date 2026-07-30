@@ -20,7 +20,81 @@
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
-import { markSyntheticImage } from '../_shared/ai-marking.ts';
+// ---------------------------------------------------------------------------
+// AI Act Art. 50(2): machine-readable marking of synthetic images.
+// INLINED from apps/web/src/lib/images/ai-marking.ts (keep in sync) because
+// the Supabase per-function bundler cannot resolve ../_shared imports in the
+// dashboard deploy flow — this function must be self-contained.
+// ---------------------------------------------------------------------------
+const DIGITAL_SOURCE_TYPE =
+  'http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia';
+
+function aiMarkXmp(generator: string): string {
+  return (
+    `<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>` +
+    `<x:xmpmeta xmlns:x="adobe:ns:meta/">` +
+    `<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">` +
+    `<rdf:Description rdf:about=""` +
+    ` xmlns:Iptc4xmpExt="http://iptc.org/std/Iptc4xmpExt/2008-02-29/"` +
+    ` xmlns:xmp="http://ns.adobe.com/xap/1.0/"` +
+    ` Iptc4xmpExt:DigitalSourceType="${DIGITAL_SOURCE_TYPE}"` +
+    ` xmp:CreatorTool="${generator}"/>` +
+    `</rdf:RDF></x:xmpmeta>` +
+    `<?xpacket end="w"?>`
+  );
+}
+
+function aiMarkUtf8(text: string): Uint8Array {
+  return new TextEncoder().encode(text);
+}
+
+function aiMarkCrc32(bytes: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) {
+    crc ^= bytes[i];
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function aiMarkU32be(value: number): Uint8Array {
+  return new Uint8Array([(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff]);
+}
+
+function aiMarkConcat(parts: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
+const AI_MARK_PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+function markSyntheticImage(bytes: Uint8Array, generator: string): { bytes: Uint8Array; marked: boolean } {
+  const xmp = aiMarkXmp(generator);
+  const isPng = bytes.length > 33 && AI_MARK_PNG_SIG.every((b, i) => bytes[i] === b);
+  const isJpeg = bytes.length > 4 && bytes[0] === 0xff && bytes[1] === 0xd8;
+  if (isPng) {
+    // iTXt chunk with the standard XML:com.adobe.xmp keyword, after IHDR (byte 33).
+    const data = aiMarkConcat([aiMarkUtf8('XML:com.adobe.xmp'), new Uint8Array([0, 0, 0, 0, 0]), aiMarkUtf8(xmp)]);
+    const typeAndData = aiMarkConcat([aiMarkUtf8('iTXt'), data]);
+    const chunk = aiMarkConcat([aiMarkU32be(data.length), typeAndData, aiMarkU32be(aiMarkCrc32(typeAndData))]);
+    return { bytes: aiMarkConcat([bytes.slice(0, 33), chunk, bytes.slice(33)]), marked: true };
+  }
+  if (isJpeg) {
+    // APP1 segment with the XMP namespace header, right after SOI.
+    const payload = aiMarkConcat([aiMarkUtf8('http://ns.adobe.com/xap/1.0/\0'), aiMarkUtf8(xmp)]);
+    const length = payload.length + 2;
+    if (length > 0xffff) return { bytes, marked: false };
+    const segment = aiMarkConcat([new Uint8Array([0xff, 0xe1, (length >>> 8) & 0xff, length & 0xff]), payload]);
+    return { bytes: aiMarkConcat([bytes.slice(0, 2), segment, bytes.slice(2)]), marked: true };
+  }
+  return { bytes, marked: false };
+}
+// --------------------------------- end inline -------------------------------
 
 const KIE_CREATE = 'https://api.kie.ai/api/v1/jobs/createTask';
 const KIE_POLL = 'https://api.kie.ai/api/v1/jobs/recordInfo';
