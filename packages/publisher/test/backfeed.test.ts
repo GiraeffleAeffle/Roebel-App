@@ -55,8 +55,10 @@ describe("backfeed classification — the trust rules", () => {
 describe("a backfeed pass", () => {
   function harness(events: NostrEvent[], tables: Record<string, Record<string, unknown>[]>) {
     const inserted: { table: string; body: Record<string, unknown> }[] = [];
+    const updated: { table: string; query: string; body: Record<string, unknown> }[] = [];
     return {
       inserted,
+      updated,
       deps: {
         relayUrl: "ws://relay",
         cutover: 1_000,
@@ -73,6 +75,9 @@ describe("a backfeed pass", () => {
         insertRow: async (table: string, body: Record<string, unknown>) => {
           inserted.push({ table, body });
           return { id: `${table}-row-1`, ...body };
+        },
+        updateRow: async (table: string, query: string, body: Record<string, unknown>) => {
+          updated.push({ table, query, body });
         },
         makeClient: () => ({ query: async () => events, close: () => {} }),
       },
@@ -109,6 +114,10 @@ describe("a backfeed pass", () => {
     const comment = h.inserted.find((i) => i.table === "post_comments")!;
     assert.equal(comment.body.post_id, "post-uuid-9");
     assert.equal(comment.body.wallet_address, WALLET);
+    // The feed reads denormalised counters — an invisible comment is no comment.
+    const bump = h.updated.find((u) => u.table === "posts")!;
+    assert.equal(bump.query, "id=eq.post-uuid-9");
+    assert.deepEqual(bump.body, { comments_count: 1 });
   });
 
   it("drops a comment whose parent is unknown — a reply into nowhere threads nowhere", async () => {

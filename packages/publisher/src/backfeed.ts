@@ -27,6 +27,8 @@ export interface BackfeedDeps {
   fetchRows: (table: string, query: string) => Promise<Record<string, unknown>[]>;
   /** POST returning the created row. */
   insertRow: (table: string, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  /** PATCH rows matching the query. */
+  updateRow: (table: string, query: string, body: Record<string, unknown>) => Promise<void>;
   makeClient?: (url: string) => Pick<RelayClient, "query" | "close">;
   log?: (message: string) => void;
 }
@@ -67,6 +69,17 @@ export function classify(
     return { type: "post", content };
   }
   return { type: "skip", reason: `kind-${event.kind}` };
+}
+
+/** The feed reads denormalised counters; an invisible interaction is no interaction. */
+async function bumpCount(
+  deps: BackfeedDeps,
+  postId: string,
+  column: "comments_count" | "likes_count",
+): Promise<void> {
+  const rows = await deps.fetchRows("posts", `select=${column}&id=eq.${postId}&limit=1`);
+  const current = Number(rows[0]?.[column] ?? 0);
+  await deps.updateRow("posts", `id=eq.${postId}`, { [column]: current + 1 });
 }
 
 /** The app post a relay event id belongs to, via the publication ledger. */
@@ -183,6 +196,7 @@ export async function backfeedOnce(deps: BackfeedDeps): Promise<BackfeedSummary>
           status: "published",
           relay_message: "backfeed: ingested from relay",
         });
+        await bumpCount(deps, postId, "comments_count");
         summary.comments += 1;
       } else {
         const postId = await postIdFor(deps, verdict.parentEventId);
@@ -207,6 +221,7 @@ export async function backfeedOnce(deps: BackfeedDeps): Promise<BackfeedSummary>
           status: "published",
           relay_message: "backfeed: ingested from relay",
         });
+        await bumpCount(deps, postId, "likes_count");
         summary.likes += 1;
       }
     } catch (error) {

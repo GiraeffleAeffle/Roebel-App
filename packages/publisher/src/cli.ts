@@ -125,6 +125,19 @@ async function main(): Promise<void> {
     return rows[0] ?? {};
   };
 
+  const updateRow = async (table: string, query: string, body: Record<string, unknown>): Promise<void> => {
+    const res = await fetch(`${supabaseUrl}/rest/v1/${table}?${query}`, {
+      method: "PATCH",
+      headers: {
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`${table}: PostgREST ${res.status}`);
+  };
+
   const pass = async (): Promise<void> => {
     const startedAt = new Date().toISOString();
     try {
@@ -156,6 +169,7 @@ async function main(): Promise<void> {
           cutover: backfeedCutover,
           fetchRows,
           insertRow,
+          updateRow,
           log: (m) => console.log(`[${startedAt}] ${m}`),
         });
       }
