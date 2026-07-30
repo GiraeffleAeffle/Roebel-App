@@ -437,3 +437,56 @@ or federation work.
 
 Röbel's are. Node #2 runs from a **rendered manifest** but was started with `docker run`.
 **Trigger:** when node #2 becomes a template a contributor copies.
+
+### 19. A physical node in the town — "Netizen OS" first, a box second
+
+Measured 2026-07-30: the entire stack uses **2.1 GiB RAM, 11 GB disk, ~0% CPU** — a €150–250
+fanless N100 mini-PC runs a full node; a €50 thin client runs a light mirror (relay +
+federation + indexer: under 100 MB combined). Break-even against the Hetzner box is inside a
+year. The real obstacles are ingress (CGNAT, dynamic IPs, TLS — solvable with a static-IP
+business line at the Rathaus, DNS-01 challenges, or a €4/mo WireGuard ingress VPS) and the
+fact that home hardware makes **off-site backups more urgent, not less**.
+
+The path deliberately does not start with manufacturing: **(1)** a flashable "Netizen OS"
+image — Ubuntu + Docker + the `netizen` CLI + a first-boot wizard, weeks of work, zero
+capital; **(2)** a white-labelled ODM mini-PC pre-flashed in 50–100 unit batches (the
+Umbrel/Start9 category, ~€300–500 retail); **(3)** custom hardware only at real volume. Local
+AI inference, not the civic stack, is what would actually size a future box (see
+[State of Sovereign AI §3](STATE_OF_SOVEREIGN_AI.md)).
+
+**Trigger:** the first community or business that wants the node in its own building — or
+the assisted tier getting its first taker.
+
+### 20. Peer-escrowed off-site backups
+
+`offsite` is unconfigured: every dump shares the fate of the box. The restic scaffolding
+exists (`BACKUP_RESTIC_REPOSITORY` / `BACKUP_RESTIC_PASSWORD`); the *right* long-term shape
+for a network of town nodes is **peers holding each other's encrypted dumps** — declared in
+the manifest like any other peer relationship, so backup trust is reviewable in a git diff
+too. **Trigger:** immediately for restic-to-any-target; peer escrow when node #3 exists on
+independent hardware.
+
+---
+
+## Sovereign AI
+
+The state and thesis live in [State of Sovereign AI](STATE_OF_SOVEREIGN_AI.md); these are the
+deliberately-deferred pieces.
+
+### 21. Egress logging, then egress gating
+
+Every agent question today transits Anthropic's API; the manifest's
+`dataEgressPolicy: governance-gated` is a field, not a control. The cheap first step is an
+**audit log of what leaves the node** (which surface, which destination, how many tokens) —
+honesty before enforcement. Gating comes after there is something measured to gate.
+**Trigger:** before any agent tool reads personal data beyond the asking user's own scope.
+
+### 22. LiteLLM gateway on the node, then local inference
+
+One seam through which every model call passes is the precondition for swapping any model
+without touching agent code — the polytheistic design depends on this seam existing. Local
+inference (EuroLLM on an eu-gpu tier or a shared regional node) comes after the gateway,
+because without the seam a local model is just one more hardcoded integration.
+**Trigger for the gateway:** the second distinct model provider in production use. **Trigger
+for local inference:** a model that meets the German-language civic bar on hardware a region
+can afford — re-evaluate quarterly, this moves fast.

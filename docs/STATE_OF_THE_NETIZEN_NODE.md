@@ -26,6 +26,14 @@ stays on Fly, so the box itself needs very few secrets.
 DNS is at **IONOS**, not Vercel or Hetzner. A records for `*.roebel.app` that point at the
 node are edited there.
 
+**Measured footprint (2026-07-30):** the full stack — 18 containers including Nextcloud,
+Collabora, Matrix, Postgres, three relays and the indexer — uses **2.1 GiB RAM, 11 GB disk,
+and rounds to 0% CPU**. The relay + mirror + indexer alone are under 100 MB combined. The box
+is dramatically oversized for the civic stack, which is what makes a town-local mini-PC or a
+€50 light mirror realistic — see [roadmap #19](ROADMAP_AND_DEFERRED.md); what would actually
+consume a sovereign machine is local AI inference
+([State of Sovereign AI §3](STATE_OF_SOVEREIGN_AI.md)).
+
 ## 2. What runs on it
 
 Verified live 2026-07-28:
