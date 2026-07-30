@@ -656,6 +656,7 @@ export default function FeedHome() {
       <PostOptionsDrawer
         visible={optionsDrawerVisible}
         onClose={() => setOptionsDrawerVisible(false)}
+        postId={selectedPost?.id}
         isOwner={isOwnPost(selectedPost)}
         canPin={isOwnPost(selectedPost) && isCitizen}
         isPinned={isPostPinned(selectedPost?.pinned_until)}

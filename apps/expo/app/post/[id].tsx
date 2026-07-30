@@ -782,6 +782,7 @@ export default function PostDetailScreen() {
       <PostOptionsDrawer
         visible={optionsDrawerVisible}
         onClose={() => setOptionsDrawerVisible(false)}
+        postId={post.id}
         isOwner={isOwnPost}
         canPin={isOwnPost && isCitizen}
         isPinned={isPostPinned(post.pinned_until)}
