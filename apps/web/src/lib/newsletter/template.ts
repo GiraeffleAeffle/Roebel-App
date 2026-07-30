@@ -67,6 +67,7 @@ export function renderNewsletterEmail(opts: {
       <tr><td style="padding:24px 32px;background-color:#f9fafb;border-top:1px solid #E5E7EB;">
         <p style="font-size:12px;line-height:1.6;color:#6B7280;margin:0;font-family:${FONT_STACK};">
           Du erhältst diese E-Mail, weil du den Newsletter der Röbel App abonniert hast.<br>
+          Dieser Newsletter wird mit KI-Unterstützung erstellt und vor dem Versand redaktionell geprüft.<br>
           <a href="${unsubscribeUrl}" style="color:#6B7280;text-decoration:underline;">Abmelden</a> ·
           <a href="${BASE_URL}/impressum" style="color:#6B7280;text-decoration:underline;">Impressum</a> ·
           <a href="${BASE_URL}/datenschutz" style="color:#6B7280;text-decoration:underline;">Datenschutz</a>

@@ -1224,6 +1224,36 @@ Sie können Ihre Einwilligung jederzeit mit Wirkung für die Zukunft widerrufen 
 
 ---
 
+## Künstliche Intelligenz (KI-Systeme)
+
+### Eingesetzte KI-Systeme und Zwecke
+
+Wir setzen KI-Systeme für folgende Funktionen ein und kennzeichnen sie gemäß Art. 50 der
+KI-Verordnung (VO (EU) 2024/1689):
+
+- **Mecky (Chat-Assistent):** ein KI-Assistent auf Basis der Claude-Modelle von Anthropic.
+  Mecky ist in der App und auf der Website dauerhaft als KI gekennzeichnet. Ihre
+  Chat-Nachrichten an Mecky werden zur Beantwortung an die Anthropic Ireland Ltd. bzw.
+  Anthropic PBC (USA) übermittelt; mit Anthropic besteht ein Auftragsverarbeitungsvertrag,
+  die Übermittlung in die USA erfolgt auf Grundlage der EU-Standardvertragsklauseln
+  (Art. 46 Abs. 2 lit. c DSGVO). Rechtsgrundlage der Verarbeitung ist Ihre Einwilligung
+  bei Aktivierung von Mecky (Art. 6 Abs. 1 lit. a DSGVO).
+- **KI-mitgeschriebene Geschichten:** Artikel, die mit Meckys Hilfe entstehen, sind
+  sichtbar mit „Mit KI erstellt" gekennzeichnet.
+- **Newsletter:** wird mit KI-Unterstützung erstellt und vor dem Versand redaktionell
+  geprüft; ein Hinweis steht in jeder Ausgabe.
+- **KI-generierte Bilder** (z. B. Veranstaltungs-Flyer, Speisekarten-Bilder): tragen eine
+  maschinenlesbare Kennzeichnung als synthetisch erzeugter Inhalt (IPTC
+  „trainedAlgorithmicMedia") in den Bilddateien selbst.
+- **Mecky auf Nostr:** Beiträge des Assistenten im öffentlichen Nostr-Protokoll sind
+  maschinenlesbar als Bot gekennzeichnet (`bot: true`) und signiert.
+
+### Keine automatisierte Entscheidungsfindung
+
+Unsere KI-Systeme treffen keine Entscheidungen mit Rechtswirkung oder ähnlich erheblicher
+Beeinträchtigung im Sinne von Art. 22 DSGVO. Abstimmungen, Verifizierungen und
+Vereinsentscheidungen werden von Menschen getroffen.
+
 ## Zusätzliche Hinweise
 
 ### Kinder

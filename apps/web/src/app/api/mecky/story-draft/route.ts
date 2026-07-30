@@ -156,23 +156,38 @@ export async function POST(request: Request) {
       },
       async createDraftArticle({ accountId: aId, authorAccountId: authorId, draft }) {
         const slug = await uniqueSlug(admin, aId, generateSlug(draft.title));
-        const { data, error } = await admin
+        const row = {
+          account_id: aId,
+          author_account_id: authorId,
+          title: draft.title,
+          slug,
+          excerpt: draft.excerpt,
+          content: draft.content_html,
+          cover_image_url: null,
+          category: draft.category,
+          tags: draft.tags,
+          status: "draft",
+          published_at: null,
+          // AI Act Art. 50(4): the article is AI-co-written; the flag drives
+          // the visible "Mit KI erstellt" label wherever the story renders.
+          ai_generated: true,
+        };
+        let { data, error } = await admin
           .from("blog_articles")
-          .insert({
-            account_id: aId,
-            author_account_id: authorId,
-            title: draft.title,
-            slug,
-            excerpt: draft.excerpt,
-            content: draft.content_html,
-            cover_image_url: null,
-            category: draft.category,
-            tags: draft.tags,
-            status: "draft",
-            published_at: null,
-          })
+          .insert(row)
           .select("id, slug")
           .single();
+
+        // Column not migrated yet: story creation must not break on the label.
+        // The migration's backfill stamps this article once it runs.
+        if (error && /ai_generated/.test(error.message)) {
+          const { ai_generated: _flag, ...withoutFlag } = row;
+          ({ data, error } = await admin
+            .from("blog_articles")
+            .insert(withoutFlag)
+            .select("id, slug")
+            .single());
+        }
 
         if (error || !data) {
           throw new Error(error?.message ?? "Artikel konnte nicht erstellt werden");

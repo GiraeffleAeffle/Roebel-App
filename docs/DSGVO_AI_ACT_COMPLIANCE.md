@@ -220,18 +220,41 @@ VO (EU) 2024/1689; Art.-50-Pflichten anwendbar ab **2026-08-02**; Sanktionen bis
 | **Mecky-Outreach-E-Mails** (Fördermittel) | 50(1) sinngemäß + Lauterkeit | Fußzeile „Diese E-Mail wurde KI-unterstützt erstellt; verantwortlich: [Verein/Person]" — Banded-Honest-Report-Ansatz passt bereits |
 | **Event-Stories-Audio / TTS** (falls aktiv) | 50(2)/(4) | wie Bilder: maschinenlesbar + sichtbar kennzeichnen |
 
-### 4.2 Umsetzungsplan **[TODO — Frist 2026-08-02]**
+### 4.2 Umsetzungsstand **[umgesetzt 2026-07-30 — zwei operative Gates offen]**
 
-1. Mecky-Disclosure in Expo + Web (ein UI-String + Erstnachricht) — kleinster Aufwand,
-   größte Sichtbarkeit.
-2. Zentrale Kennzeichnungs-Helper in der Bild-Pipeline (`apps/web/src/lib/images/kie.ts` +
-   Edge Functions `generate-menu-image`, Flyer-Generator): XMP/C2PA-Metadaten + Badge-Flag
-   im Datensatz, damit alle Render-Stellen das Badge anzeigen können.
-3. Story-Engine/Newsletter: Label-Komponente + Feld `ai_generated` an Story/Newsletter,
-   Redaktionsverantwortliche:n benennen.
-4. Kurzer Vermerk in der Datenschutzerklärung/Impressum (eingesetzte KI-Systeme, Zwecke).
-5. Nicht vergessen: **KI-Kompetenz-Pflicht (Art. 4)** gilt seit 2025-02-02 — kurze interne
-   Notiz, wer die Systeme betreut und wie Missbrauch gemeldet wird, genügt bei unserer Größe.
+1. ✅ **Mecky-Disclosure Expo + Web:** dauerhafte „KI-Assistent"-Zeile im Chat-Header
+   (Expo `app/messages/mecky.tsx`, Web `app/app/mecky/page.tsx`) + Erstnachricht/Begrüßung
+   sagt es in Klartext. Der Expo-Consent-Gate nannte es schon vorher.
+2. ✅ **Maschinenlesbare Bild-Kennzeichnung:** `markSyntheticImage()` bettet ein
+   XMP-Paket mit `Iptc4xmpExt:DigitalSourceType=trainedAlgorithmicMedia` direkt in die
+   Bilddatei ein (PNG `iTXt` / JPEG `APP1`, dependency-frei, in Next **und** Deno lauffähig).
+   Verdrahtet an beiden Persistenz-Engpässen: `fetchGeneratedImage()`
+   (`apps/web/src/lib/images/ai-marking.ts`, deckt Flyer & alle Web-Pfade) und
+   `generate-menu-image` (Spiegel in `functions/_shared/ai-marking.ts`).
+   **GATE: Edge Function `generate-menu-image` neu deployen.**
+3. ✅ **Story-Label:** Migration `20260730_blog_articles_ai_generated.sql` (Spalte +
+   Backfill über `mecky_conversations.draft_article_id`); Draft-Insert setzt das Flag
+   (mit Fallback, solange die Spalte fehlt); Artikelseite zeigt Badge „Mit KI erstellt"
+   (nicht-fataler Query — fehlende Spalte bricht die Seite nicht).
+   **GATE: Migration anwenden.** Newsletter-Footer trägt den Hinweis
+   „mit KI-Unterstützung erstellt und redaktionell geprüft" — der redaktionelle Check ist
+   real: der Admin editiert jede Ausgabe vor dem manuellen Versand.
+4. ✅ **Datenschutzerklärung:** neuer Abschnitt „Künstliche Intelligenz (KI-Systeme)" in
+   `apps/web/public/datenschutz.md` (Systeme, Zwecke, Anthropic-AVV/SCC, keine
+   Art.-22-Entscheidungen).
+5. ✅ **Art.-4-Notiz (KI-Kompetenz, gilt seit 2025-02-02):** Verantwortlich für Betrieb und
+   Aufsicht aller KI-Systeme: **M. Brych (Röbel Labs / Netizen Labs)**. Missbrauch oder
+   Fehlverhalten der Systeme wird über die App-Kontaktwege bzw. direkt an den Betreiber
+   gemeldet; Abschaltwege: Mecky-Kill-Switch (`app_settings`), Agent-Watcher
+   `AGENT_ENABLED=false`. Bei Vereinsgründung auf den Verein übertragen.
+
+**Anmerkung Outreach:** Die Fördermittel-Outreach läuft derzeit als **In-App-Benachrichtigung
+von Mecky** („Mecky glaubt …"), nicht als E-Mail — durch die dauerhafte KI-Kennzeichnung
+Meckys ist der Absender als KI erkennbar. Sollte künftig echter E-Mail-Versand dazukommen,
+Fußzeile ergänzen: „Diese E-Mail wurde KI-unterstützt erstellt; verantwortlich: [Verein]".
+
+**Nostr-Seite war bereits konform:** jeder von Mecky signierte Event trägt NIP-24
+`bot: true` + `netizen_agent`-Tag ([State of Sovereign AI](STATE_OF_SOVEREIGN_AI.md)).
 
 Mecky ist **kein Hochrisiko-System** (Annex III), solange er nicht über Leistungsansprüche
 o. Ä. entscheidet — bei künftigen „agentischen" Mecky-Fähigkeiten (Outbound Runtime,

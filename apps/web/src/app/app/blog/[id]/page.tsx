@@ -58,6 +58,19 @@ export default async function BlogArticlePage({
 
   const article = data as unknown as BlogArticleRow;
 
+  // AI Act Art. 50(4): visible label for AI-co-written stories. Queried
+  // separately and non-fatally so a not-yet-migrated column cannot take the
+  // article page down with it.
+  let aiGenerated = false;
+  {
+    const { data: aiRow } = await supabase
+      .from("blog_articles")
+      .select("ai_generated")
+      .eq("id", id)
+      .maybeSingle();
+    aiGenerated = Boolean((aiRow as { ai_generated?: boolean } | null)?.ai_generated);
+  }
+
   if (article.account.is_extern && article.account.extern_status !== "approved") {
     notFound();
   }
@@ -95,6 +108,11 @@ export default async function BlogArticlePage({
             {article.is_featured && (
               <Badge className="bg-yellow-100 text-yellow-800 text-xs">
                 Featured
+              </Badge>
+            )}
+            {aiGenerated && (
+              <Badge variant="outline" className="text-xs text-muted-foreground">
+                Mit KI erstellt
               </Badge>
             )}
             {(article.tags ?? []).slice(0, 3).map((t) => (
