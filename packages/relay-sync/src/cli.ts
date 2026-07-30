@@ -42,15 +42,31 @@ async function main(): Promise<void> {
     .split(",")
     .map((k) => k.trim())
     .filter(Boolean);
+  // The publisher derives per-organisation identities from the node secret and
+  // writes their pubkeys here. Re-read every pass: a new organisation must not
+  // wait for a container restart to publish.
+  const extraKeysFile = process.env.EXTRA_KEYS_FILE ?? "";
 
   const runPass = async (): Promise<void> => {
     const startedAt = new Date().toISOString();
+    let extraKeys: string[] = [];
+    if (extraKeysFile) {
+      try {
+        const { readFile } = await import("node:fs/promises");
+        extraKeys = (await readFile(extraKeysFile, "utf8"))
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line && !line.startsWith("#"));
+      } catch {
+        // Absent until the publisher's first pass — nothing to merge yet.
+      }
+    }
     try {
       const summary = await syncAllowList({
         fetchRegistry: registry,
         chain,
         allowListPath,
-        alwaysAllow: agentPubkeys,
+        alwaysAllow: [...agentPubkeys, ...extraKeys],
         log: (message) => console.log(`[${startedAt}] ${message}`),
       });
       if (summary.changed) {
