@@ -33,6 +33,6 @@
   },
   "votingPeriodSeconds": 3600,
   "tallyGracePeriodSeconds": 604800,
-  "registry": "<CommunityRegistry address on the target chain>",
+  "registry": "0x1c4B243a5f72248aEFcd6F11caf0d3cFAe9fF889",
   "skipVk": false
 }

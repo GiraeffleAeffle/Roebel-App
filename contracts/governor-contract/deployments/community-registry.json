@@ -1,0 +1,11 @@
+{
+  "chain": "gnosis",
+  "chainId": 100,
+  "contract": "CommunityRegistry",
+  "address": "0x1c4B243a5f72248aEFcd6F11caf0d3cFAe9fF889",
+  "deployedAt": "2026-07-31",
+  "deployer": "0xd5028284017A32C672CbD73Fe35aCD897bA874cf",
+  "creationTx": "0xb548c68ed3c518966e563426bfda37c81a66285aeacaa6a34968fcc537c02702",
+  "verified": "https://gnosis.blockscout.com/address/0x1c4B243a5f72248aEFcd6F11caf0d3cFAe9fF889",
+  "note": "Unowned, admin-free community address book — one per chain. FCFS bytes32 ids (keccak256 of the community slug); each record is writable only by its own controller (the community's timelock/Safe). A phone book, not a root of trust. Registered by community-factory.cjs stage C; consumed by netizen deploy --merge, Atlas, and any indexer. Spec: docs/superpowers/specs/2026-07-31-community-registry-and-manifest-presets-design.md."
+}

@@ -69,8 +69,21 @@ module.exports = {
     // Etherscan v2 unified API — single key works across all chains; the chain is
     // selected via the network name + chainId. Per-chain apiKey objects were
     // deprecated when Basescan/Etherscan v1 endpoints were sunset (May 2025).
-    apiKey: BASESCAN_API_KEY,
+    // Blockscout (gnosis) accepts any non-empty key; Etherscan v2 needs the real one.
+    apiKey: {
+      base: BASESCAN_API_KEY,
+      baseSepolia: BASESCAN_API_KEY,
+      gnosis: "blockscout",
+    },
     customChains: [
+      {
+        network: "gnosis",
+        chainId: 100,
+        urls: {
+          apiURL: "https://gnosis.blockscout.com/api",
+          browserURL: "https://gnosis.blockscout.com",
+        },
+      },
       {
         network: "base",
         chainId: 8453,
