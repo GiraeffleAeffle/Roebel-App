@@ -177,3 +177,22 @@ accounts" to "a third party holds the signer" — honest partial progress — an
 first-class account path they do not have today.
 
 Plan: [`2026-07-27-wallet-sovereignty.md`](../superpowers/plans/2026-07-27-wallet-sovereignty.md).
+
+## Addendum 2026-07-31 — onchain answers (M0 of the Accounts plan)
+
+Verified against citizen account `0x90f677dC480E76A127eC1DCE42263a370e396313`
+(CitizenNFTv2 `ownerOf(1)`) on Gnosis, via `rpc.gnosischain.com`:
+
+- **Account bytecode:** deployed — EIP-1167 minimal proxy (45 bytes) →
+  implementation `0xf22175c80c6e074c171811c59c6c0087e2a6a346`
+- **EntryPoint:** `0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789` → **v0.6**
+  (read via `entryPoint()` on the account)
+- **Factory:** `0x85e23b94e7F5E9cC1fF78BCe78cfb15B81f0DF00` (read via `factory()`
+  on the account; contract confirmed to have code on Gnosis) — thirdweb's default
+  AccountFactory, publicly callable
+- **Consequence for the rails (M2):** Alto must serve EntryPoint **v0.6** for
+  legacy accounts alongside v0.7+ for new accounts. §7 items 1–2 of this doc are
+  now answered; item 3 (paymaster audit status) remains open. §7 item 2's
+  `initialize` question narrows to: read the implementation at `0xf22175c8…` and
+  record what its initializer binds beyond the admin signer before any
+  self-driven factory call.
