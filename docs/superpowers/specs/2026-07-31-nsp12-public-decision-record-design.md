@@ -94,19 +94,27 @@ Rules carried over from Ethereum verbatim because they are the load-bearing ones
 ## 3. Event grammar
 
 Existing kinds stay untouched: 32100 proposal head (shipped), 32101 menu, 32102 civic
-notice. New kinds below are **provisional**; final numbers are claimed in
-`packages/publisher/src/mappers.ts` at implementation time, which is the kind registry of
-record. All are addressable (parameterized-replaceable) except the transition, which is a
-regular immutable event — the audit trail must not be rewritable.
+notice. The new kinds below are implemented. Kind numbers now live in
+`packages/protocol/src/decisions.ts` (`DECISION_KINDS`) — the registry of record;
+`packages/publisher/src/mappers.ts` aliases them, so it stays the readable registry and
+never drifts. All are addressable (parameterized-replaceable) except the transition, which
+is a regular immutable event — the audit trail must not be rewritable.
 
 | Kind | Name | Form | Content |
 |---|---|---|---|
-| 32100 | Proposal head (exists, extended) | addressable, `d` = proposal slug | Markdown abstract + motivation. New tags: `status` (stage from §2), `champion` (`p` tag with role marker), `cycle` (`a` tag to 32106) |
+| 32100 | Proposal head (exists, extended) | addressable, `d` = proposal slug | Markdown abstract + motivation. New tags: `stage` (stage from §2), `champion` (`p` tag with role marker), `cycle` (`a` tag to 32106) |
 | 2100 | Status transition | **regular, immutable** | `a` tag to the head, `from`/`to` stage tags, free-text reason, signed by whoever §2 authorizes for that transition. For `beschlossen`/`abgelehnt`: an `a` tag citing the 32102 civic notice is mandatory |
-| 32103 | Meeting record | addressable, `d` = `<body>-<date>` | Agenda published before the meeting, minutes and transcript pointers after (pointers into the workspace plane, NSP-7) |
-| 32104 | Meinungsbild result | addressable, `d` = poll id | MACI tally pointer, parameters (threshold band, anonymity-set size), verification pointer, and an explicit `advisory` tag — always |
-| 32105 | Impact summary | addressable, `d` = `<proposal-slug>-<audience>` | "Was bedeutet das für dich" per stakeholder group (`anwohner`, `gewerbe`, `vereine`, `verwaltung`), authored by a labeled agent npub |
-| 32106 | Decision cycle | addressable, `d` = cycle slug (e.g. `massnahmen-2027`) | The Meta-EIP analog: list of `a` tags to proposal heads, each with a stage marker (`vorgeschlagen` / `in-pruefung` / `eingeplant` / `nicht-aufgenommen` — the PFI/CFI/SFI/DFI mapping), plus the headliner designation and the pitch-window dates |
+| 32103 | Meeting record | addressable, `d` = `meeting:<body>:<YYYY-MM-DD>` | Agenda published before the meeting, minutes and transcript pointers after (pointers into the workspace plane, NSP-7) |
+| 32104 | Meinungsbild result | addressable, `d` = `poll:<id>` | MACI tally pointer, parameters (threshold band, anonymity-set size), verification pointer, and an explicit `["advisory","true"]` tag — value pinned, always |
+| 32105 | Impact summary | addressable, `d` = `impact:proposal:<id>:<audience>` | "Was bedeutet das für dich" per stakeholder group (`anwohner`, `gewerbe`, `vereine`, `verwaltung`), authored by a labeled agent npub |
+| 32106 | Decision cycle | addressable, `d` = `cycle:<slug>` (e.g. `cycle:massnahmen-2027`) | The Meta-EIP analog: list of `a` tags to proposal heads, each with a stage marker (`vorgeschlagen` / `in-pruefung` / `eingeplant` / `nicht-aufgenommen` — the PFI/CFI/SFI/DFI mapping), plus the headliner designation and the pitch-window dates |
+
+The 32100 `status` tag is reserved for the on-chain Governor-state snapshot already live on
+the head (shipped in `packages/publisher`); the civic lifecycle stage from §2 gets its own,
+deliberately distinct tag, `stage`, so the two never collide in meaning or get conflated in
+the explorer. The head extension itself — the `stage`, `champion`, and `cycle` tags — ships
+with slice 2/3 (editor-agent, explorer), not slice 1: this slice implements the
+transition/meeting/meinungsbild/impact/cycle grammar and validation only.
 
 Head example (abridged):
 
@@ -116,7 +124,7 @@ Head example (abridged):
   "tags": [
     ["d", "radweg-seeufer"],
     ["title", "Radweg am Seeufer"],
-    ["status", "beschlussvorlage"],
+    ["stage", "beschlussvorlage"],
     ["p", "<champion-npub-hex>", "", "champion"],
     ["a", "32106:<node-pubkey>:massnahmen-2027", "", "cycle"]
   ],
@@ -168,8 +176,11 @@ The 32104 result event is a *pointer*, not a tally system: MACI poll id, the pub
 tally, its verification artifacts, and the parameters that make the signal honest
 (threshold band, anonymity-set size). Two hard rules:
 
-1. The `advisory` tag is mandatory and the explorer renders the advisory framing
-   unconditionally. Wording is "Meinungsbild", never "Abstimmung" (standing legal rule).
+1. The tag is `["advisory","true"]` — the value is pinned, not just its presence.
+   Validators reject `["advisory","false"]` or anything else the same as a missing tag,
+   because the tag carries legal weight: results must render as advisory. The explorer
+   renders the advisory framing unconditionally. Wording is "Meinungsbild", never
+   "Abstimmung" (standing legal rule).
 2. A 32104 may only be published by the coordinator pipeline after tally verification —
    the same signed path the coordinator already uses, no manual results.
 
@@ -184,14 +195,23 @@ Sketch of the NSP-0 block:
     "kinds": { "head": 32100, "transition": 2100, "meeting": 32103,
                "meinungsbild": 32104, "impact": 32105, "cycle": 32106 },
     "agents": {
-      "editor": { "npub": "<npub>", "staleAfterDays": 180 },
-      "impact": { "npub": "<npub>", "audiences": ["anwohner", "gewerbe", "vereine", "verwaltung"] }
+      "editor": { "agent": "mecky-editor", "staleAfterDays": 180 },
+      "impact": { "agent": "mecky-impact", "audiences": ["anwohner", "gewerbe", "vereine", "verwaltung"] }
     },
-    "bodies": [ { "id": "stadtvertretung", "noticeAuthor": "<org-npub>" } ],
+    "bodies": [ { "id": "stadtvertretung", "noticeScope": "town" } ],
     "cycle": { "current": "massnahmen-2027" }
   }
 }
 ```
+
+Agents are referenced by a watcher-style slug (`"agent": "<slug>"`), identity derived the
+same way as `agents.watcher` — not a raw npub, which would be a second identity scheme
+layered into one manifest. Bodies name the publisher scope their notices are signed under
+(`noticeScope`, e.g. `"town"`), because a civic notice is org-scope speech, not a personal
+one. `record.decisions.kinds` overrides are declarative only for now: the validators and
+builders in `packages/protocol/src/decisions.ts` read from `DECISION_KINDS` directly, not
+from a parsed manifest, so per-node kind remapping stays unsupported until a consumer
+actually reads the override.
 
 Touchpoints, all additive:
 - **NSP-10 indexer**: the six kinds join the indexed set (kind widening is a visible
