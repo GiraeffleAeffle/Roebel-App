@@ -9,7 +9,7 @@ import {
   type WorkspaceScope,
 } from "@netizen-labs/workspace";
 import { workspaceConfig } from "./config";
-import { refreshTokens } from "./oidc";
+import { fetchUserinfo, groupsFrom, refreshTokens } from "./oidc";
 import { createSessionStore } from "./session-store";
 import {
   ORG_ROLES,
@@ -135,12 +135,41 @@ export async function resolveScope(params: {
 }
 
 /**
+ * Fold a fresh access/refresh token pair plus (maybe) a freshly-fetched
+ * `groups` claim into the previous session. Pure so the refresh branch below
+ * can be tested without a fake OIDC server or store — see
+ * `workspace-session-refresh.test.ts`.
+ *
+ * `freshGroups` is `null`, not `[]`, when the userinfo call is skipped or
+ * fails: `null` means "no answer, keep the old claim", `[]` is itself a
+ * legitimate answer (a citizen who now has zero groups) and must overwrite.
+ */
+export function mergeRefreshedSession(
+  prev: WorkspaceSession,
+  tokens: { accessToken: string; refreshToken: string | null; expiresAt: number },
+  freshGroups: string[] | null,
+): WorkspaceSession {
+  return { ...prev, ...tokens, groups: freshGroups ?? prev.groups };
+}
+
+/**
  * Load a session by id, refreshing the access token when it is close to expiry
  * and writing the refreshed tokens back to the store.
  *
  * Takes the id rather than reading the cookie, because the WOPI endpoints have
  * no cookie to read — Collabora calls them itself. That is the whole reason the
  * session lives in Postgres.
+ *
+ * Every refresh also re-fetches userinfo and re-resolves `groups` — this is
+ * finding §4's fix. Without it, an org-membership revocation (or a citizen
+ * status change) never reached an already-logged-in session: the cookie
+ * carries only an id, `SessionStore.update()` only ever wrote tokens, and the
+ * cached claim from login could keep granting access for the session's full
+ * 14-day cookie lifetime. A transient userinfo failure must not lock the
+ * citizen out mid-refresh, so it falls back to the previous groups rather
+ * than failing the refresh — the stale-claims window then simply persists
+ * until the next successful refresh, instead of a revoked citizen being
+ * signed out by a network blip.
  */
 export async function loadSession(
   sessionId: string,
@@ -160,12 +189,35 @@ export async function loadSession(
       clientSecret: cfg.clientSecret,
       refreshToken: session.refreshToken,
     });
-    const refreshed: WorkspaceSession = {
-      ...session,
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token ?? session.refreshToken,
-      expiresAt: Date.now() + tokens.expires_in * 1000,
-    };
+
+    // Same sub-match guard as the login callback (route.ts) — never take
+    // claims from a userinfo response describing someone else. Best-effort:
+    // a userinfo hiccup degrades to "keep the old groups", not to a failed
+    // refresh.
+    let freshGroups: string[] | null = null;
+    try {
+      const info = await fetchUserinfo(cfg.issuer, tokens.access_token);
+      if (
+        typeof info.sub === "string" &&
+        info.sub.toLowerCase() === session.sub.toLowerCase()
+      ) {
+        freshGroups = groupsFrom(info);
+      } else {
+        console.error("[workspace] userinfo sub does not match session sub on refresh");
+      }
+    } catch (err) {
+      console.error("[workspace] userinfo fetch failed on refresh:", err);
+    }
+
+    const refreshed = mergeRefreshedSession(
+      session,
+      {
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token ?? session.refreshToken,
+        expiresAt: Date.now() + tokens.expires_in * 1000,
+      },
+      freshGroups,
+    );
     await store.update(sessionId, refreshed);
     return refreshed;
   } catch {

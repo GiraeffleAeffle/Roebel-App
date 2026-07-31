@@ -61,6 +61,7 @@ export function createSessionStore(): SessionStore {
       const { error } = await serviceClient()
         .from("workspace_sessions")
         .update({
+          groups: session.groups,
           access_token: session.accessToken,
           refresh_token: session.refreshToken,
           expires_at: new Date(session.expiresAt).toISOString(),
