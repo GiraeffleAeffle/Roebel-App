@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { orgPostToSpec } from "@netizen-labs/publisher";
 import { RecordClient } from "../src/index";
 import { getThread, listPosts } from "../src/social";
+import { asRecordEvent } from "./helpers";
+
+/** A RecordClient whose transport always answers with these events, ignoring the requested filters. */
+const clientFor = (events: unknown[]) =>
+  new RecordClient("https://i", (async () => new Response(JSON.stringify({ events }))) as unknown as typeof fetch);
 
 const note = (id: string, pubkey: string, content: string, tags: string[][] = []) => ({
   id, pubkey, kind: 1, created_at: 1753900000, content, tags,
@@ -108,4 +114,69 @@ test("listPosts returns [] without any enrichment queries when the index has no 
   const posts = await listPosts(new RecordClient("https://i", fetchFn));
   assert.deepEqual(posts, []);
   assert.equal(calls, 1); // the initial kind-1 list only — no author/like/comment queries for zero posts
+});
+
+// --- Review fix: media_urls is data on the wire, not a wire limit ---
+//
+// orgPostToSpec (packages/publisher/src/mappers.ts:477-497) and the device-side
+// publishPost/repairMisdatedMirrors (apps/expo/lib/nostr/publish.ts:487-489,
+// 552-553) fold media into content as `${body}\n\n${url1}\n${url2}...`.trim().
+// A keyless fork's feed must recover it, not silently drop every post image.
+
+test("listPosts: trailing media URLs are extracted in order and stripped from content", async () => {
+  const content = "Hallo Röbel\n\nhttps://x/1.jpg\nhttps://x/2.jpg";
+  const posts = await listPosts(clientFor([note(POST, P1, content)]));
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].content, "Hallo Röbel");
+  assert.deepEqual(posts[0].media_urls, ["https://x/1.jpg", "https://x/2.jpg"]);
+});
+
+test("listPosts: a sentence that legitimately ends with a link is NOT treated as media", async () => {
+  const content = "Mehr dazu: https://x/info";
+  const posts = await listPosts(clientFor([note(POST, P1, content)]));
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].content, content);
+  assert.deepEqual(posts[0].media_urls, []);
+});
+
+test("listPosts: a post that is nothing but a bare URL, with no blank-line separator, is not treated as media", async () => {
+  const content = "https://x/onlyurl.jpg";
+  const posts = await listPosts(clientFor([note(POST, P1, content)]));
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].content, content); // it is the body, not attached media
+  assert.deepEqual(posts[0].media_urls, []);
+});
+
+test("round-trip parity: orgPostToSpec's folded media URLs are recovered in order and stripped from content", async () => {
+  const row = {
+    id: "post1", account_id: "acc1", content: "Sommerfest war toll!",
+    media_urls: ["https://x/1.jpg", "https://x/2.jpg"],
+    status: "published", created_at: "2026-07-15T12:00:00Z",
+  };
+  const spec = orgPostToSpec(row, new Set(["acc1"]))!;
+  const posts = await listPosts(clientFor([asRecordEvent(spec)]));
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].content, "Sommerfest war toll!");
+  assert.deepEqual(posts[0].media_urls, ["https://x/1.jpg", "https://x/2.jpg"]);
+});
+
+// --- Review fix (MINOR A): the tag-only agent signal, isolated from the profile-bot signal ---
+
+test("is_agent: the post's own netizen_agent tag suffices even when the author profile is NOT a bot", async () => {
+  const fetchFn = (async (url: RequestInfo | URL) => {
+    const u = new URL(String(url));
+    const kinds = u.searchParams.get("kinds") ?? "";
+    const e = u.searchParams.get("e");
+    if (kinds === "1" && !e) return new Response(JSON.stringify({ events: [
+      note(POST, P1, "Ich bin ein Agent", [["netizen_agent", "mecky", "roebel"]]),
+    ] }));
+    if (kinds === "0") return new Response(JSON.stringify({ events: [
+      profile(P1, { name: "Maxi" }), // no "bot": true — this profile is NOT how is_agent becomes true here
+    ] }));
+    return new Response(JSON.stringify({ events: [] })); // kind 7, and kind 1+e for comments
+  }) as unknown as typeof fetch;
+
+  const posts = await listPosts(new RecordClient("https://i", fetchFn));
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].is_agent, true);
 });

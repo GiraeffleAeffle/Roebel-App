@@ -72,6 +72,48 @@ function isReply(ev: RecordEvent): boolean {
   return ev.tags.some((t) => t[0] === "e");
 }
 
+/** A line that, once trimmed, is nothing but a bare absolute http(s) URL. */
+const MEDIA_URL_LINE = /^https?:\/\/\S+$/;
+
+/**
+ * Recovers media URLs the current producers fold into plain-text content
+ * instead of a separate tag — `orgPostToSpec` (mappers.ts) and the
+ * device-side `publishPost`/`repairMisdatedMirrors`
+ * (apps/expo/lib/nostr/publish.ts) both build
+ * `${body}\n\n${url1}\n${url2}...`.trim(). The data IS on the wire in a
+ * consistent, detectable shape; a keyless fork must not drop it.
+ *
+ * Conservative and strict on purpose: only a CONTIGUOUS run of trailing
+ * lines that are each, once trimmed, nothing but a bare http(s) URL — AND
+ * that run is preceded by a blank line (the literal `\n\n` separator every
+ * producer emits) — counts as media. A one-line post that is just a URL, or
+ * a sentence that happens to end in a link, has no such separator and is
+ * left alone (media_urls: [], content untouched). This also covers the
+ * empty-body-plus-media edge case: `.trim()` eats a leading `\n\n` entirely
+ * when there is no body text before it, so that case is structurally
+ * identical to "the body is just a URL" and is treated the same way —
+ * there is no reliable signal to tell them apart.
+ *
+ * Known limit: a legitimate multi-line body that HAPPENS to end in one or
+ * more URL-only lines preceded by a blank line (e.g. a citizen deliberately
+ * formatting several links as their own paragraph) is indistinguishable
+ * from folded media and gets extracted the same way — the wire format has
+ * no marker separating "this is attached media" from "this is the last
+ * paragraph, which happens to be links."
+ */
+function extractTrailingMedia(content: string): { content: string; media_urls: string[] } {
+  const lines = content.split("\n");
+  let cut = lines.length;
+  while (cut > 0 && MEDIA_URL_LINE.test(lines[cut - 1].trim())) cut -= 1;
+  if (cut === lines.length) return { content, media_urls: [] }; // no trailing URL-only lines at all
+  const blankLineIndex = cut - 1;
+  if (blankLineIndex < 0 || lines[blankLineIndex] !== "") return { content, media_urls: [] };
+  return {
+    content: lines.slice(0, blankLineIndex).join("\n"),
+    media_urls: lines.slice(cut).map((l) => l.trim()),
+  };
+}
+
 /**
  * Turn raw kind-1 events into `RecordPost`s with ONE batched kind-0 authors
  * join, ONE batched kind-7 reaction count and ONE batched kind-1 (e-filtered)
@@ -114,6 +156,7 @@ async function enrich(client: RecordClient, events: RecordEvent[]): Promise<Reco
     // agent's profile alone must be enough for a reader who only fetched
     // this batch, e.g. getThread on a single reply).
     const isAgent = (author?.isBot ?? false) || ev.tags.some((t) => t[0] === AGENT_TAG);
+    const { content, media_urls } = extractTrailingMedia(ev.content);
     return {
       // orgPostToSpec (mappers.ts) never emits a `d` tag (spec.tags is always
       // []), and the device-side publishPost (apps/expo/lib/nostr/publish.ts)
@@ -127,13 +170,8 @@ async function enrich(client: RecordClient, events: RecordEvent[]): Promise<Reco
       author_avatar: author?.avatar ?? null,
       is_org: author?.isOrg ?? false,
       is_agent: isAgent,
-      content: ev.content,
-      // Both publishing paths (orgPostToSpec, and the device's publishPost /
-      // repairMisdatedMirrors) fold media URLs into the plain-text content
-      // ("body\n\n<url>\n<url>") rather than a separate tag — there is no
-      // structural signal a record-mode reader can use to split them back
-      // out today, so this is always [].
-      media_urls: [],
+      content,
+      media_urls,
       created_at: new Date(ev.created_at * 1000).toISOString(),
       likes_count: likesByPost.get(ev.id) ?? 0,
       comments_count: commentsByPost.get(ev.id) ?? 0,
