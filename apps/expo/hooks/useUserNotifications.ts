@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useActiveAccount } from 'thirdweb/react';
 import { supabase } from '@/lib/supabase';
 import { useUser } from '@/context/UserContext';
 import { useAccount } from '@/context/AccountContext';
@@ -14,6 +15,7 @@ import type { UserNotification } from '@/lib/types';
 export default function useUserNotifications() {
   const { user } = useUser();
   const { refreshAccounts } = useAccount();
+  const account = useActiveAccount();
   const walletAddress = user?.wallet_address;
 
   const [notifications, setNotifications] = useState<UserNotification[]>([]);
@@ -120,32 +122,33 @@ export default function useUserNotifications() {
 
   const handleAcceptInvite = useCallback(
     async (notification: UserNotification) => {
-      if (!walletAddress) return;
+      if (!account) return;
       const invitationId = (notification.metadata as any)?.invitation_id;
       if (!invitationId) return;
 
-      await acceptInvite(invitationId, walletAddress);
+      await acceptInvite(account, invitationId);
       setNotifications((prev) =>
         prev.map((n) => (n.id === notification.id ? { ...n, is_read: true } : n))
       );
       setUnreadCount((prev) => Math.max(0, prev - 1));
       await refreshAccounts();
     },
-    [walletAddress, refreshAccounts]
+    [account, refreshAccounts]
   );
 
   const handleDeclineInvite = useCallback(
     async (notification: UserNotification) => {
+      if (!account) return;
       const invitationId = (notification.metadata as any)?.invitation_id;
       if (!invitationId) return;
 
-      await declineInvite(invitationId);
+      await declineInvite(account, invitationId);
       setNotifications((prev) =>
         prev.map((n) => (n.id === notification.id ? { ...n, is_read: true } : n))
       );
       setUnreadCount((prev) => Math.max(0, prev - 1));
     },
-    []
+    [account]
   );
 
   return {

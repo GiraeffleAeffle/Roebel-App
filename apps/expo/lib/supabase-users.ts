@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { createPersonalAccount } from './supabase-accounts';
+import type { SigningAccount } from './org-membership';
 import { Events, track } from './analytics';
 import type { UserRecord, UserTier } from './types';
 
@@ -26,11 +27,18 @@ export async function fetchUserByWallet(walletAddress: string): Promise<UserReco
  * Create or fetch user on login.
  * First login: creates with tier='tourist' and a personal account.
  * Returning login: updates last_login_at and email only (preserves tier).
+ *
+ * `account` is the caller's thirdweb account (in scope on every client-side
+ * login path) — it signs the org-membership request that creates the new
+ * user's personal account. When absent (e.g. a server-side caller with no
+ * wallet to sign with), the personal account step is skipped; that has
+ * always been non-fatal here, same as an insert failure was before.
  */
 export async function upsertUser(
   walletAddress: string,
   email?: string,
   authProvider?: string,
+  account?: SigningAccount,
 ): Promise<UserRecord | null> {
   const normalizedAddress = walletAddress.toLowerCase();
 
@@ -75,9 +83,13 @@ export async function upsertUser(
 
   const newUser = data as UserRecord;
 
-  // Create personal account for new user
+  // Create personal account for new user — signed by their wallet.
   const displayName = newUser.username || normalizedAddress.slice(0, 10) + '...';
-  await createPersonalAccount(normalizedAddress, displayName, newUser.profile_picture_url);
+  if (account) {
+    await createPersonalAccount(account, displayName, newUser.profile_picture_url);
+  } else {
+    console.warn('upsertUser: no signing account provided — skipping personal account creation');
+  }
 
   // Re-fetch to get active_account_id
   return fetchUserByWallet(normalizedAddress);

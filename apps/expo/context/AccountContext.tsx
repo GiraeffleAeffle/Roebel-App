@@ -1,12 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useActiveAccount } from 'thirdweb/react';
 import { useUser } from '@/context/UserContext';
 import {
   fetchOwnedAccounts,
   fetchAccountById,
   createOrgAccount as createOrgAccountDB,
   switchActiveAccount as switchActiveAccountDB,
-  inviteOwner as inviteOwnerDB,
   removeOwner as removeOwnerDB,
   deleteAccount as deleteAccountDB,
   type CreateOrgAccountOptions,
@@ -31,7 +31,6 @@ interface AccountContextValue {
     name: string,
     options?: CreateOrgAccountOptions
   ) => Promise<Account>;
-  inviteCitizen: (accountId: string, walletAddress: string) => Promise<void>;
   removeCitizen: (accountId: string, walletAddress: string) => Promise<void>;
   deleteOrgAccount: (accountId: string) => Promise<void>;
   isOwnerOf: (accountId: string | null) => boolean;
@@ -44,6 +43,7 @@ const AccountContext = createContext<AccountContextValue | undefined>(undefined)
 export function AccountProvider({ children }: { children: React.ReactNode }) {
   const { user } = useUser();
   const walletAddress = user?.wallet_address;
+  const thirdwebAccount = useActiveAccount();
 
   const [activeAccount, setActiveAccount] = useState<Account | null>(null);
   const [ownedAccounts, setOwnedAccounts] = useState<Account[]>([]);
@@ -215,30 +215,23 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
       name: string,
       options?: CreateOrgAccountOptions
     ): Promise<Account> => {
-      if (!walletAddress) throw new Error('No wallet connected');
+      if (!thirdwebAccount) throw new Error('No wallet connected');
 
-      const account = await createOrgAccountDB(walletAddress, subType, name, options);
+      const account = await createOrgAccountDB(thirdwebAccount, subType, name, options);
       if (!account) throw new Error('Failed to create organization');
 
       setOwnedAccounts((prev) => [...prev, account]);
       return account;
     },
-    [walletAddress]
-  );
-
-  const inviteCitizen = useCallback(
-    async (accountId: string, citizenWallet: string) => {
-      if (!walletAddress) throw new Error('No wallet connected');
-      await inviteOwnerDB(accountId, citizenWallet, walletAddress);
-    },
-    [walletAddress]
+    [thirdwebAccount]
   );
 
   const removeCitizen = useCallback(
     async (accountId: string, citizenWallet: string) => {
-      await removeOwnerDB(accountId, citizenWallet);
+      if (!thirdwebAccount) throw new Error('No wallet connected');
+      await removeOwnerDB(thirdwebAccount, accountId, citizenWallet);
     },
-    []
+    [thirdwebAccount]
   );
 
   const deleteOrgAccount = useCallback(
@@ -278,14 +271,13 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
       roleInActiveAccount,
       switchAccount,
       createOrgAccount,
-      inviteCitizen,
       removeCitizen,
       deleteOrgAccount,
       isOwnerOf,
       isLoading,
       refreshAccounts,
     }),
-    [activeAccount, ownedAccounts, recentOtherAccounts, roleInActiveAccount, switchAccount, createOrgAccount, inviteCitizen, removeCitizen, deleteOrgAccount, isOwnerOf, isLoading, refreshAccounts]
+    [activeAccount, ownedAccounts, recentOtherAccounts, roleInActiveAccount, switchAccount, createOrgAccount, removeCitizen, deleteOrgAccount, isOwnerOf, isLoading, refreshAccounts]
   );
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;

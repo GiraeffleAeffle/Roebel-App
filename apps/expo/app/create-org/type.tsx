@@ -8,12 +8,15 @@ import WizardFooter from '@/components/WizardFooter';
 import StoryProgress from '@/components/StoryProgress';
 import OrgCategoryIcon from '@/components/OrgCategoryIcon';
 
+// 'stadt' and 'fraktion' are administrator-issued only — the org-membership
+// edge function's self-service create_account whitelist
+// (restaurant/unternehmen/verein/journalist) rejects them, so they're not
+// offered here. See apps/expo/supabase/functions/org-membership/index.ts
+// SELF_SERVICE_SUB_TYPES.
 const ORG_TYPES: { value: OrgTypeChoice; icon: string; label: string; desc: string }[] = [
   { value: 'restaurant', icon: 'restaurant-01', label: 'Restaurant', desc: 'Gastronomie mit Speisekarte' },
   { value: 'unternehmen', icon: 'store-01', label: 'Unternehmen', desc: 'Gewerbe & Dienstleistungen' },
   { value: 'verein', icon: 'agreement-02', label: 'Verein', desc: 'Sport, Kultur, Soziales' },
-  { value: 'stadt', icon: 'real-estate-02', label: 'Stadt', desc: 'Stadt Röbel/Müritz' },
-  { value: 'fraktion', icon: 'balance-scale', label: 'Fraktion', desc: 'Fraktionen im Stadtrat' },
   { value: 'journalist', icon: 'license-draft', label: 'Journalist:in', desc: 'Redaktion oder freischaffend' },
 ];
 

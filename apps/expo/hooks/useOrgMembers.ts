@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useActiveAccount } from 'thirdweb/react';
 import { useUser } from '@/context/UserContext';
 import { useAccount } from '@/context/AccountContext';
 import { getAccountRole, updateMemberRole, canManageMembers, canLeaveOrg } from '@/lib/supabase-account-roles';
@@ -10,6 +11,7 @@ import type { MemberWithProfile, InviteTokenWithUser, OrgRole } from '@/lib/type
 export default function useOrgMembers(accountId: string | undefined) {
   const { user } = useUser();
   const { refreshAccounts } = useAccount();
+  const account = useActiveAccount();
   const walletAddress = user?.wallet_address;
 
   const [members, setMembers] = useState<MemberWithProfile[]>([]);
@@ -23,12 +25,12 @@ export default function useOrgMembers(accountId: string | undefined) {
   const canLeave = canLeaveOrg(currentUserRole, ownerCount);
 
   const load = useCallback(async () => {
-    if (!accountId || !walletAddress) return;
+    if (!accountId || !walletAddress || !account) return;
 
     try {
       const [membersData, invitesData, role] = await Promise.all([
         fetchMembersWithProfiles(accountId),
-        fetchPendingInvites(accountId),
+        fetchPendingInvites(account, accountId),
         getAccountRole(accountId, walletAddress),
       ]);
 
@@ -38,7 +40,7 @@ export default function useOrgMembers(accountId: string | undefined) {
     } catch (error) {
       console.error('useOrgMembers load error:', error);
     }
-  }, [accountId, walletAddress]);
+  }, [accountId, walletAddress, account]);
 
   useEffect(() => {
     setIsLoading(true);
@@ -53,11 +55,11 @@ export default function useOrgMembers(accountId: string | undefined) {
 
   const removeMember = useCallback(
     async (memberWallet: string) => {
-      if (!accountId) return;
-      await removeMemberDB(accountId, memberWallet);
+      if (!accountId || !account) return;
+      await removeMemberDB(account, accountId, memberWallet);
       await load();
     },
-    [accountId, load]
+    [accountId, account, load]
   );
 
   const changeMemberRole = useCallback(
@@ -71,17 +73,18 @@ export default function useOrgMembers(accountId: string | undefined) {
 
   const revokeInvite = useCallback(
     async (inviteId: string) => {
-      await revokeInviteDB(inviteId);
+      if (!account) return;
+      await revokeInviteDB(account, inviteId);
       await load();
     },
-    [load]
+    [account, load]
   );
 
   const leaveOrg = useCallback(async () => {
-    if (!accountId || !walletAddress) return;
-    await leaveOrgDB(accountId, walletAddress);
+    if (!accountId || !account) return;
+    await leaveOrgDB(account, accountId);
     await refreshAccounts();
-  }, [accountId, walletAddress, refreshAccounts]);
+  }, [accountId, account, refreshAccounts]);
 
   return {
     members,

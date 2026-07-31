@@ -14,6 +14,7 @@ import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { Stack, useRouter } from 'expo-router';
+import { useActiveAccount } from 'thirdweb/react';
 import { useTheme } from '@/context/ThemeContext';
 import { useAccount } from '@/context/AccountContext';
 import { updateAccount } from '@/lib/supabase-accounts';
@@ -70,6 +71,7 @@ export default function EditOrgScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const { activeAccount, isOwnerOf, refreshAccounts } = useAccount();
+  const account = useActiveAccount();
 
   const [name, setName] = useState(activeAccount?.name ?? '');
   const [bio, setBio] = useState(activeAccount?.bio ?? '');
@@ -147,6 +149,10 @@ export default function EditOrgScreen() {
       Alert.alert('Fehler', 'Name darf nicht leer sein.');
       return;
     }
+    if (!account) {
+      Alert.alert('Fehler', 'Keine Wallet verbunden.');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -156,7 +162,7 @@ export default function EditOrgScreen() {
         openingHoursPayload[key] = { open: h.open, close: h.close, closed: h.closed };
       }
 
-      await updateAccount(activeAccount.id, {
+      await updateAccount(account, activeAccount.id, {
         name: name.trim(),
         bio: bio.trim() || null,
         avatar_url: avatarUrl,

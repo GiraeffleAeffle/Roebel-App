@@ -1,5 +1,15 @@
+/**
+ * Account system Supabase operations
+ *
+ * Writes that change membership or account identity (create, update,
+ * remove-owner) go through the org-membership edge function — every such
+ * call is a signed message from the caller's wallet, verified server-side
+ * before anything is written. See apps/expo/lib/org-membership.ts and
+ * apps/expo/supabase/functions/org-membership/index.ts.
+ */
 import { supabase } from './supabase';
-import type { Account, AccountOwner, AccountType, OrgSubType } from './types';
+import type { Account, AccountOwner, OrgSubType } from './types';
+import { callOrgMembership, type SigningAccount } from './org-membership';
 
 export type CreateOrgAccountOptions = {
   /** Mark this org as extern (non-Röbel). Stored as extern_status='pending'. */
@@ -11,33 +21,6 @@ export type CreateOrgAccountOptions = {
   /** Optional bio/description. */
   bio?: string | null;
 };
-
-function generateSlug(input: string): string {
-  return input
-    .toLowerCase()
-    .replace(/ä/g, 'ae')
-    .replace(/ö/g, 'oe')
-    .replace(/ü/g, 'ue')
-    .replace(/ß/g, 'ss')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-async function uniqueAccountSlug(base: string): Promise<string> {
-  const baseSlug = base || 'org';
-  let slug = baseSlug;
-  let n = 1;
-  while (true) {
-    const { data } = await supabase
-      .from('accounts' as any)
-      .select('id')
-      .eq('slug', slug)
-      .limit(1);
-    if (!data || (data as any[]).length === 0) return slug;
-    n += 1;
-    slug = `${baseSlug}-${n}`;
-  }
-}
 
 // ── Fetch ────────────────────────────────────────────────────
 
@@ -114,106 +97,76 @@ export async function isAccountOwner(accountId: string, walletAddress: string): 
 
 // ── Create ───────────────────────────────────────────────────
 
+/**
+ * Create the caller's personal account (first login). Signed by `account`;
+ * the edge function makes the signer the first (and only) owner. The
+ * account row it returns is used as-is — no client-side second insert.
+ */
 export async function createPersonalAccount(
-  walletAddress: string,
+  account: SigningAccount,
   name: string,
   avatarUrl?: string | null
 ): Promise<Account | null> {
-  const normalized = walletAddress.toLowerCase();
+  const normalized = account.address.toLowerCase();
 
-  // Insert the account
-  const { data: account, error: accError } = await supabase
-    .from('accounts' as any)
-    .insert({
-      account_type: 'personal' as AccountType,
-      name,
-      avatar_url: avatarUrl || null,
-    })
-    .select()
-    .single();
+  const res = await callOrgMembership<Account>(account, 'create_account', {
+    accountType: 'personal',
+    name,
+    avatarUrl: avatarUrl ?? undefined,
+  });
 
-  if (accError) {
-    console.error('createPersonalAccount error:', accError);
+  if (!res.ok || !res.data) {
+    console.error('createPersonalAccount error:', res.code, res.message);
     return null;
   }
 
-  const acc = account as Account;
-
-  // Link owner
-  const { error: ownerError } = await supabase
-    .from('account_owners' as any)
-    .insert({
-      account_id: acc.id,
-      wallet_address: normalized,
-    });
-
-  if (ownerError) {
-    console.error('createPersonalAccount owner link error:', ownerError);
-  }
+  const acc = res.data;
 
   // Set as active account
-  await supabase
+  const { error: activeError } = await supabase
     .from('users')
     .update({ active_account_id: acc.id })
     .eq('wallet_address', normalized);
+  if (activeError) {
+    console.error('createPersonalAccount active-account update error:', activeError);
+  }
 
   return acc;
 }
 
+/**
+ * Create a new organisation account. Signed by `account`; the edge function
+ * makes the signer the first owner, generates the slug, and enforces the
+ * self-service sub_type whitelist (restaurant/unternehmen/verein/journalist —
+ * 'stadt'/'fraktion' are administrator-issued only).
+ */
 export async function createOrgAccount(
-  walletAddress: string,
+  account: SigningAccount,
   subType: OrgSubType,
   name: string,
   options: CreateOrgAccountOptions = {}
 ): Promise<Account | null> {
-  const normalized = walletAddress.toLowerCase();
-  const isExtern = !!options.isExtern;
-  const slug = await uniqueAccountSlug(generateSlug(name));
+  const res = await callOrgMembership<Account>(account, 'create_account', {
+    accountType: 'organisation',
+    subType,
+    name,
+    bio: options.bio ?? undefined,
+    contactEmail: options.contactEmail ?? undefined,
+    isExtern: options.isExtern ?? undefined,
+    reason: options.reason ?? undefined,
+  });
 
-  const { data: account, error: accError } = await supabase
-    .from('accounts' as any)
-    .insert({
-      account_type: 'organisation' as AccountType,
-      sub_type: subType,
-      name,
-      slug,
-      bio: options.bio ?? null,
-      contact_email: options.contactEmail ?? null,
-      is_extern: isExtern,
-      extern_status: isExtern ? 'pending' : null,
-      extern_reason: isExtern ? options.reason ?? null : null,
-    })
-    .select()
-    .single();
-
-  if (accError) {
-    console.error('createOrgAccount error:', accError);
+  if (!res.ok || !res.data) {
+    console.error('createOrgAccount error:', res.code, res.message);
     return null;
   }
 
-  const acc = account as Account;
-
-  // Link creator as owner
-  const { error: ownerError } = await supabase
-    .from('account_owners' as any)
-    .insert({
-      account_id: acc.id,
-      wallet_address: normalized,
-    });
-
-  if (ownerError) {
-    console.error('createOrgAccount owner link error:', ownerError);
-  }
-
-  return acc;
+  return res.data;
 }
 
 // ── Switch ───────────────────────────────────────────────────
 
-export async function switchActiveAccount(
-  walletAddress: string,
-  accountId: string
-): Promise<void> {
+export async function switchActiveAccount(walletAddress: string, accountId: string): Promise<void> {
   const { error } = await supabase
     .from('users')
     .update({ active_account_id: accountId })
@@ -225,47 +178,40 @@ export async function switchActiveAccount(
   }
 }
 
-// ── Invite / Remove Owners ───────────────────────────────────
+// ── Remove owner ─────────────────────────────────────────────
 
-export async function inviteOwner(
+/**
+ * Remove a member from an account (owner/admin action, or self-removal).
+ * Signed by `account`. The edge function enforces the owner/admin gate,
+ * the "only an owner can remove an owner" rule, and the last-owner
+ * invariant server-side (via the guarded `delete_owner_guarded` RPC) — no
+ * client-side pre-check needed.
+ */
+export async function removeOwner(
+  account: SigningAccount,
   accountId: string,
-  walletAddress: string,
-  invitedBy: string
+  walletAddress: string
 ): Promise<void> {
-  const { error } = await supabase
-    .from('account_owners' as any)
-    .insert({
-      account_id: accountId,
-      wallet_address: walletAddress.toLowerCase(),
-      invited_by: invitedBy.toLowerCase(),
-    });
+  const res = await callOrgMembership(account, 'remove_member', {
+    accountId,
+    memberWallet: walletAddress,
+  });
 
-  if (error) {
-    console.error('inviteOwner error:', error);
-    throw error;
-  }
-}
-
-export async function removeOwner(accountId: string, walletAddress: string): Promise<void> {
-  // Prevent removing the last owner
-  const owners = await fetchAccountOwners(accountId);
-  if (owners.length <= 1) {
-    throw new Error('Cannot remove the last owner of an account');
-  }
-
-  const { error } = await supabase
-    .from('account_owners' as any)
-    .delete()
-    .eq('account_id', accountId)
-    .eq('wallet_address', walletAddress.toLowerCase());
-
-  if (error) {
-    console.error('removeOwner error:', error);
-    throw error;
+  if (!res.ok) {
+    console.error('removeOwner error:', res.code, res.message);
+    throw new Error(res.message || res.code || 'removeOwner failed');
   }
 }
 
 // ── Delete ───────────────────────────────────────────────────
+// Org self-service deletion — NOT part of the org-membership edge function
+// contract (no `delete_account` action exists there; see
+// apps/expo/supabase/functions/org-membership/index.ts's ACTIONS list).
+// Left as a direct write out of Task 6's scope (the reference web app has
+// no equivalent org-deletion feature at all). This call still relies on
+// pre-lockdown anon-key RLS and will need its own follow-up once
+// supabase/migrations/20260802_account_membership_lockdown.sql closes
+// anon-key writes on `accounts`.
 
 export async function deleteAccount(accountId: string): Promise<void> {
   // .select() forces Supabase to return the deleted rows so we can verify
@@ -291,22 +237,29 @@ export async function deleteAccount(accountId: string): Promise<void> {
 
 // ── Update ───────────────────────────────────────────────────
 
+/**
+ * Update an account's editable fields. Signed by `account`; the edge
+ * function enforces the owner/admin gate and the field whitelist
+ * (name/bio/avatar_url/cover_url/contact_email/opening_hours) server-side.
+ * Uses the updated row the edge function returns directly — no re-fetch,
+ * so this keeps working once the lockdown migration closes anon-key reads.
+ */
 export async function updateAccount(
+  account: SigningAccount,
   accountId: string,
   updates: Partial<
     Pick<Account, 'name' | 'bio' | 'avatar_url' | 'cover_url' | 'opening_hours' | 'contact_email'>
   >
 ): Promise<Account | null> {
-  const { data, error } = await supabase
-    .from('accounts' as any)
-    .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq('id', accountId)
-    .select()
-    .single();
+  const res = await callOrgMembership<Account>(account, 'update_account', {
+    accountId,
+    updates,
+  });
 
-  if (error) {
-    console.error('updateAccount error:', error);
-    throw error;
+  if (!res.ok) {
+    console.error('updateAccount error:', res.code, res.message);
+    throw new Error(res.message || res.code || 'updateAccount failed');
   }
-  return data as Account;
+
+  return res.data ?? (await fetchAccountById(accountId));
 }

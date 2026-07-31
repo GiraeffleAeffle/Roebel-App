@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useActiveAccount } from 'thirdweb/react';
 import { useUser } from '@/context/UserContext';
 import { useAccount } from '@/context/AccountContext';
 import { fetchInviteByToken, acceptInvite as acceptInviteDB, declineInvite as declineInviteDB } from '@/lib/supabase-invites';
@@ -8,6 +9,7 @@ import type { InviteTokenWithAccount } from '@/lib/types';
 export default function useInviteToken(token: string) {
   const { user } = useUser();
   const { refreshAccounts } = useAccount();
+  const account = useActiveAccount();
   const walletAddress = user?.wallet_address;
 
   const [invite, setInvite] = useState<InviteTokenWithAccount | null>(null);
@@ -59,11 +61,11 @@ export default function useInviteToken(token: string) {
   }, [token, walletAddress]);
 
   const accept = useCallback(async () => {
-    if (!invite || !walletAddress) return;
+    if (!invite || !account) return;
 
     setIsAccepting(true);
     try {
-      await acceptInviteDB(invite.id, walletAddress);
+      await acceptInviteDB(account, invite.id);
       setResolved('accepted');
       await refreshAccounts();
     } catch (err: any) {
@@ -71,21 +73,21 @@ export default function useInviteToken(token: string) {
     } finally {
       setIsAccepting(false);
     }
-  }, [invite, walletAddress, refreshAccounts]);
+  }, [invite, account, refreshAccounts]);
 
   const decline = useCallback(async () => {
-    if (!invite) return;
+    if (!invite || !account) return;
 
     setIsDeclining(true);
     try {
-      await declineInviteDB(invite.id);
+      await declineInviteDB(account, invite.id);
       setResolved('declined');
     } catch (err: any) {
       setError(err?.message || 'Fehler beim Ablehnen der Einladung');
     } finally {
       setIsDeclining(false);
     }
-  }, [invite]);
+  }, [invite, account]);
 
   return {
     invite,

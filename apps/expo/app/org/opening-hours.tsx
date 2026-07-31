@@ -12,10 +12,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { Stack, useRouter } from 'expo-router';
+import { useActiveAccount } from 'thirdweb/react';
 import { useTheme } from '@/context/ThemeContext';
 import { useAccount } from '@/context/AccountContext';
 import { useUser } from '@/context/UserContext';
-import { supabase } from '@/lib/supabase';
+import { updateAccount } from '@/lib/supabase-accounts';
 import { fetchMembersWithProfiles } from '@/lib/supabase-member-management';
 import type { OpeningHours } from '@/lib/types';
 import ChevronLeftIcon from '@/assets/icons/chevron-left.svg';
@@ -49,6 +50,7 @@ export default function OrgOpeningHoursScreen() {
   const { colors } = useTheme();
   const { activeAccount, refreshAccounts } = useAccount();
   const { user } = useUser();
+  const account = useActiveAccount();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -115,6 +117,10 @@ export default function OrgOpeningHoursScreen() {
 
   const handleSave = async () => {
     if (!activeAccount || !canEdit) return;
+    if (!account) {
+      Alert.alert('Fehler', 'Keine Wallet verbunden.');
+      return;
+    }
     setSaving(true);
     try {
       const payload: OpeningHours = {};
@@ -122,11 +128,7 @@ export default function OrgOpeningHoursScreen() {
         const h = hours[day.key];
         payload[day.key] = { open: h.open, close: h.close, closed: h.closed };
       }
-      const { error } = await supabase
-        .from('accounts')
-        .update({ opening_hours: payload })
-        .eq('id', activeAccount.id);
-      if (error) throw error;
+      await updateAccount(account, activeAccount.id, { opening_hours: payload });
       await refreshAccounts();
       router.back();
     } catch (err: any) {

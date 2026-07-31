@@ -117,7 +117,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        const userRecord = await upsertUser(account!.address, email, authProvider);
+        const userRecord = await upsertUser(account!.address, email, authProvider, account!);
         setUser(userRecord);
 
         // Record daily activity + device platform for DAU/platform analytics.

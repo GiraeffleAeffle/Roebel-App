@@ -12,12 +12,12 @@ import {
   Alert,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import { useActiveAccount } from 'thirdweb/react';
 import BottomDrawer from '@/components/BottomDrawer';
 import OrgRoleBadge from '@/components/OrgRoleBadge';
 import { useTheme } from '@/context/ThemeContext';
-import { useUser } from '@/context/UserContext';
 import { searchUsersForInvite } from '@/lib/supabase-member-management';
-import { createInAppInvite, createLinkInvite, hasPendingInvite } from '@/lib/supabase-invites';
+import { createInAppInvite, createLinkInvite } from '@/lib/supabase-invites';
 import type { UserRecord, OrgRole } from '@/lib/types';
 
 type Props = {
@@ -39,8 +39,7 @@ const EXPIRY_OPTIONS: ExpiryOption[] = [
 
 export default function InviteDrawer({ visible, onClose, accountId, existingMemberWallets, onInviteSent }: Props) {
   const { colors, isDark } = useTheme();
-  const { user } = useUser();
-  const walletAddress = user?.wallet_address;
+  const account = useActiveAccount();
 
   const [activeTab, setActiveTab] = useState<Tab>('app');
   const [selectedRole, setSelectedRole] = useState<'admin' | 'member'>('member');
@@ -96,19 +95,16 @@ export default function InviteDrawer({ visible, onClose, accountId, existingMemb
   );
 
   const handleSendInAppInvite = async () => {
-    if (!selectedUser || !walletAddress) return;
+    if (!selectedUser || !account) return;
 
     setIsSending(true);
     try {
-      // Check for existing pending invite
-      const exists = await hasPendingInvite(accountId, selectedUser.wallet_address);
-      if (exists) {
-        Alert.alert('Hinweis', 'Dieser Benutzer hat bereits eine ausstehende Einladung.');
-        setIsSending(false);
-        return;
-      }
-
-      await createInAppInvite(accountId, selectedUser.wallet_address, selectedRole, walletAddress);
+      // hasPendingInvite now answers only for the calling wallet (the edge
+      // function doesn't accept an arbitrary wallet to check — that would
+      // leak other wallets' invite status), so there's no client-side
+      // precheck for the invitee anymore. Duplicate pending invites for the
+      // same person are allowed by the schema; create_invite just proceeds.
+      await createInAppInvite(account, accountId, selectedUser.wallet_address, selectedRole);
       onInviteSent();
       handleClose();
     } catch (error: any) {
@@ -119,11 +115,11 @@ export default function InviteDrawer({ visible, onClose, accountId, existingMemb
   };
 
   const handleCreateLink = async () => {
-    if (!walletAddress) return;
+    if (!account) return;
 
     setIsGenerating(true);
     try {
-      const invite = await createLinkInvite(accountId, selectedRole, walletAddress, EXPIRY_OPTIONS[selectedExpiry].days);
+      const invite = await createLinkInvite(account, accountId, selectedRole, EXPIRY_OPTIONS[selectedExpiry].days);
       const link = `https://roebel.app/invite/${invite.token}`;
       setGeneratedLink(link);
       onInviteSent();

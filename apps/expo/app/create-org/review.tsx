@@ -63,7 +63,7 @@ export default function CreateOrgReviewScreen() {
       );
 
       // 2. Store images + opening hours on the account itself
-      const accountUpdates: Parameters<typeof updateAccount>[1] = {};
+      const accountUpdates: Parameters<typeof updateAccount>[2] = {};
       if (state.logoUrl || state.coverImageUrl) {
         accountUpdates.avatar_url = state.logoUrl || null;
         accountUpdates.cover_url = state.coverImageUrl || null;
@@ -72,7 +72,7 @@ export default function CreateOrgReviewScreen() {
         accountUpdates.opening_hours = state.openingHours;
       }
       if (Object.keys(accountUpdates).length > 0) {
-        await updateAccount(orgAccount.id, accountUpdates);
+        await updateAccount(account, orgAccount.id, accountUpdates);
       }
 
       // 3. Store new account ID for success screen
