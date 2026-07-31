@@ -5,7 +5,8 @@ import { createHash } from "node:crypto";
 
 export type OrgAction =
   | "create_invite" | "revoke_invite" | "accept_invite" | "decline_invite"
-  | "leave" | "remove_member" | "update_account";
+  | "leave" | "remove_member" | "update_account"
+  | "create_account" | "list_invites" | "has_pending_invite";
 
 export const MAX_MESSAGE_AGE_SECONDS = 300;
 
