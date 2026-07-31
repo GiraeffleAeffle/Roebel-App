@@ -181,6 +181,17 @@ test("a malformed event fails at its index", () => {
   if (!r.ok) assert.match(r.error, /expected kind/);
 });
 
+test("same-second ties resolve topologically, regardless of input order", () => {
+  const a = hop("idee", "entwurf", 100);
+  const b = hop("entwurf", "diskussion", 100);
+  const forward = validateTransitionTrail([a, b]);
+  assert.equal(forward.ok, true);
+  if (forward.ok) assert.equal(forward.stage, "diskussion");
+  const reversed = validateTransitionTrail([b, a]);
+  assert.equal(reversed.ok, true);
+  if (reversed.ok) assert.equal(reversed.stage, "diskussion");
+});
+
 test("mixed heads are one trail too many", () => {
   const other = {
     kind: DECISION_KINDS.transition,
@@ -208,6 +219,8 @@ test("a meinungsbild result without the advisory tag is invalid, always", () => 
   const base = [["d", "poll:5"]];
   assert.equal(safeParseMeinungsbild(evOf(DECISION_KINDS.meinungsbild, base)).ok, false);
   assert.equal(safeParseMeinungsbild(evOf(DECISION_KINDS.meinungsbild, [...base, ["advisory", "true"]])).ok, true);
+  // presence isn't enough — the value is pinned, since the tag carries legal weight
+  assert.equal(safeParseMeinungsbild(evOf(DECISION_KINDS.meinungsbild, [...base, ["advisory", "false"]])).ok, false);
 });
 
 test("impact summaries bind audience, head ref and d together", () => {
@@ -230,6 +243,11 @@ test("impact summaries bind audience, head ref and d together", () => {
   // no head ref
   const noHead = evOf(DECISION_KINDS.impact, [["d", "impact:proposal:42:gewerbe"], ["audience", "gewerbe"]]);
   assert.equal(safeParseImpact(noHead).ok, false);
+  // d claims proposal 42 but the head ref cites proposal 99 — must not pass
+  const headMismatch = evOf(DECISION_KINDS.impact, [
+    ["d", "impact:proposal:42:gewerbe"], ["a", headAddress(PK, "99"), "", "proposal"], ["audience", "gewerbe"],
+  ]);
+  assert.equal(safeParseImpact(headMismatch).ok, false);
 });
 
 test("a cycle allows at most one headliner and only known stage markers", () => {

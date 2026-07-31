@@ -131,15 +131,49 @@ export function safeParseTransition(
 /**
  * Validate a proposal's full transition trail (spec §3: the audit trail must
  * not be rewritable, so legality is checked over immutable events, sorted by
- * created_at — ties keep input order; NIP-01 id tie-breaks are the caller's
- * concern once events are signed).
+ * created_at). Same-second ties are broken topologically, not by input
+ * order: a validator must give one answer per event set regardless of the
+ * order events arrived in. NIP-01 id tie-breaks are the caller's concern
+ * once events are signed.
  */
 export function validateTransitionTrail(
   events: DecisionEventLike[],
 ): { ok: true; stage: Stage; head: string | null } | { ok: false; index: number; error: string } {
-  const sorted = events
-    .map((ev, i) => ({ ev, i }))
-    .sort((a, b) => a.ev.created_at - b.ev.created_at || a.i - b.i);
+  const withIndex = events.map((ev, i) => ({ ev, i }));
+
+  const byTime = new Map<number, { ev: DecisionEventLike; i: number }[]>();
+  for (const item of withIndex) {
+    const group = byTime.get(item.ev.created_at);
+    if (group) group.push(item);
+    else byTime.set(item.ev.created_at, [item]);
+  }
+  const times = [...byTime.keys()].sort((a, b) => a - b);
+
+  /**
+   * Within a same-created_at group, greedily pick next whichever event's
+   * `from` tag matches the stage reached so far, keeping input order among
+   * equally-eligible candidates. A group that can't be resolved this way
+   * (no eligible candidate left) falls back to input order for its
+   * remainder — the validation loop below then fails at the first of that
+   * leftover, same as before ties were broken topologically.
+   */
+  const sorted: { ev: DecisionEventLike; i: number }[] = [];
+  let provisionalStage = "idee";
+  for (const t of times) {
+    const remaining = [...byTime.get(t)!];
+    while (remaining.length > 0) {
+      const idx = remaining.findIndex(
+        (item) => item.ev.tags.find((tg) => tg[0] === "from")?.[1] === provisionalStage,
+      );
+      if (idx === -1) {
+        sorted.push(...remaining);
+        break;
+      }
+      const [picked] = remaining.splice(idx, 1);
+      sorted.push(picked);
+      provisionalStage = picked.ev.tags.find((tg) => tg[0] === "to")?.[1] ?? provisionalStage;
+    }
+  }
 
   let stage: Stage = "idee";
   let head: string | null = null;
@@ -184,14 +218,20 @@ export function safeParseMeeting(ev: DecisionEventLike): ShapeResult {
 }
 
 /** 32104 — a MACI tally pointer. The advisory tag is not optional decoration:
- * a Meinungsbild that could render as a decision is a legal problem (spec §6). */
+ * a Meinungsbild that could render as a decision is a legal problem (spec §6).
+ * The value is pinned, not just its presence — `["advisory","false"]` must
+ * fail the same as a missing tag; the tag carries legal weight. */
 export function safeParseMeinungsbild(ev: DecisionEventLike): ShapeResult {
   if (ev.kind !== DECISION_KINDS.meinungsbild) return { ok: false, error: "wrong kind" };
   if (!/^poll:.+$/.test(dTag(ev))) return { ok: false, error: "d must be poll:<id>" };
-  return shape(hasTag(ev, "advisory"), "a meinungsbild result must carry the advisory tag");
+  const advisory = ev.tags.find((t) => t[0] === "advisory")?.[1];
+  return shape(advisory === "true", 'the advisory tag must carry the value "true"');
 }
 
-/** 32105 — "Was bedeutet das für dich", one audience per event. */
+/** 32105 — "Was bedeutet das für dich", one audience per event. The proposal
+ * id embedded in `d` must match the id embedded in the cited head address —
+ * otherwise an impact summary could claim one proposal's `d` while pointing
+ * its head ref at another. */
 export function safeParseImpact(ev: DecisionEventLike): ShapeResult {
   if (ev.kind !== DECISION_KINDS.impact) return { ok: false, error: "wrong kind" };
   const d = dTag(ev);
@@ -203,7 +243,9 @@ export function safeParseImpact(ev: DecisionEventLike): ShapeResult {
   }
   if (audience !== m[2]) return { ok: false, error: "audience tag and d suffix disagree" };
   const heads = ev.tags.filter((t) => t[0] === "a" && t[3] === "proposal");
-  return shape(heads.length === 1, "an impact summary cites exactly one proposal head");
+  if (heads.length !== 1) return { ok: false, error: "an impact summary cites exactly one proposal head" };
+  const headProposalId = /:proposal:(.+)$/.exec(heads[0][1] ?? "")?.[1];
+  return shape(headProposalId === m[1], "impact d and head ref disagree");
 }
 
 /** 32106 — the Maßnahmenpaket. One headliner, never two (spec §5). */
