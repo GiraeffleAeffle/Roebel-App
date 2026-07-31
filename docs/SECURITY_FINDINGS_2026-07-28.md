@@ -55,7 +55,12 @@ owner/admin authorization, with last-owner protection enforced by
 FOR-UPDATE-locked SQL guards (`delete_owner_guarded`,
 `set_owner_role_guarded`). Web and expo callers were rewired onto the signed
 path (web: `c3a2aa90`, `3f838fd2`, `ecd70f43`, `aa6693ee`; expo: `beec7214`;
-role changes: `3196d153`). The supporting RPCs/functions ship in
+role changes: `3196d153`). Residual noted at review: the replay check uses
+`Math.abs(now - timestampSec) > 300`, so the accepted window is actually
+±300s around the signed timestamp (effectively 600s wide) and there is no
+per-message nonce — a captured signed request stays replayable for up to
+600s. Accepted as-is; revisit if this endpoint's threat model changes. The
+supporting RPCs/functions ship in
 `supabase/migrations/20260801_membership_functions.sql` (additive, being
 applied to prod now). **The actual `WITH CHECK (true)` policy drop lives in
 `supabase/migrations/20260802_account_membership_lockdown.sql`, and applying

@@ -671,6 +671,13 @@ async function handleUpdateAccount(
     }
   }
 
+  if ('contact_email' in patch && patch.contact_email !== null) {
+    const v = patch.contact_email;
+    if (typeof v !== 'string' || v.length > 254 || !EMAIL_RE.test(v)) {
+      return fail('BAD_REQUEST', 400, 'invalid contact_email');
+    }
+  }
+
   if (Object.keys(patch).length === 0) {
     return fail('BAD_REQUEST', 400, 'no valid fields to update');
   }

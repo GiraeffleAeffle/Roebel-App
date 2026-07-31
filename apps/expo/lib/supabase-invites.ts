@@ -128,6 +128,23 @@ function isRpcMissingError(error: { code?: string } | null): boolean {
   return error.code === 'PGRST202' || error.code === '42883';
 }
 
+/**
+ * Normalize the get_invite_by_token RPC result. The RPC's Postgres function
+ * is declared `returns invite_tokens` — a single composite row, not
+ * SETOF — so an unmatched token comes back as a truthy all-NULL row
+ * (`{"id":null,...}`), never `null` itself. A plain `if (!invite)` guard
+ * never catches that shape, so an unknown token used to render as an
+ * expired invite (new Date(null) => 1970) instead of "not found".
+ * Defensively also unwraps an array, in case the RPC's return type is ever
+ * changed to SETOF invite_tokens.
+ */
+export function normalizeInviteRpcRow(data: unknown): InviteToken | null {
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || typeof row !== 'object') return null;
+  if (!(row as { id?: unknown }).id) return null;
+  return row as InviteToken;
+}
+
 async function fallbackFetchInviteRow(token: string): Promise<InviteToken | null> {
   const { data, error } = await supabase
     .from('invite_tokens' as any)
@@ -213,7 +230,7 @@ export async function fetchInviteByToken(token: string): Promise<InviteTokenWith
 
   const { data, error } = await supabase.rpc('get_invite_by_token' as any, { p_token: token });
   if (!error) {
-    invite = (data as InviteToken | null) ?? null;
+    invite = normalizeInviteRpcRow(data);
   } else if (isRpcMissingError(error)) {
     invite = await fallbackFetchInviteRow(token);
   } else {
