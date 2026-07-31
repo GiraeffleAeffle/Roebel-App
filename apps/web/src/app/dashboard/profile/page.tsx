@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useActiveAccount } from "thirdweb/react";
 import { useAccount } from "@/lib/context/AccountContext";
 import { updateAccount } from "@/lib/supabase-accounts";
 import { ImageUploadDropzone } from "@/components/ui/image-upload-dropzone";
@@ -13,6 +14,7 @@ import { toast } from "sonner";
 
 export default function OrgProfilePage() {
   const { activeAccount, refreshAccounts } = useAccount();
+  const thirdwebAccount = useActiveAccount();
   const [form, setForm] = useState({
     name: "",
     bio: "",
@@ -38,10 +40,14 @@ export default function OrgProfilePage() {
       toast.error("Name darf nicht leer sein");
       return;
     }
+    if (!thirdwebAccount) {
+      toast.error("Wallet nicht verbunden");
+      return;
+    }
     setSaving(true);
     const t = toast.loading("Profil wird gespeichert...");
     try {
-      await updateAccount(activeAccount.id, {
+      await updateAccount(thirdwebAccount, activeAccount.id, {
         name: form.name.trim(),
         bio: form.bio.trim() || null,
         avatar_url: form.avatar_url || null,

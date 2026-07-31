@@ -59,12 +59,16 @@ export function useUserProfile() {
           setUser(existingUser.data);
         } else {
           // Create new user
-          // Create new user profile
-          const newUser = await createOrUpdateUser({
-            wallet_address: account.address,
-            phone_number: undefined, // Will be set by thirdweb if available
-            phone_verified: false,
-          });
+          // Create new user profile — `account` signs the personal-account
+          // creation request (org-membership edge function).
+          const newUser = await createOrUpdateUser(
+            {
+              wallet_address: account.address,
+              phone_number: undefined, // Will be set by thirdweb if available
+              phone_verified: false,
+            },
+            account
+          );
 
           if (newUser.success && newUser.data) {
             // Profile created

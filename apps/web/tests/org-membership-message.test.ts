@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { buildOrgMessage, hashPayload, MAX_MESSAGE_AGE_SECONDS } from "../src/lib/org-membership/message";
+import { requestBody } from "../src/lib/org-membership/client";
 
 describe("org-membership message", () => {
   it("builds the versioned message with lowercased wallet", () => {
@@ -25,4 +26,14 @@ describe("org-membership message", () => {
     const msgManual = buildOrgMessage("leave", "0xABCDEF0000000000000000000000000000000001", 1753900000, Object.fromEntries([["B",2],["a",1]]));
     assert.equal(msg, msgManual);
   });
+});
+
+it("requestBody signs the canonical message and echoes fields", async () => {
+  const fake = { address: "0xABCDEF0000000000000000000000000000000001",
+                 signMessage: async ({ message }: { message: string }) => `sig:${message.slice(0, 20)}` };
+  const body = await requestBody(fake, "leave", { accountId: "a-1" }, 1753900000);
+  assert.equal(body.action, "leave");
+  assert.equal(body.wallet, "0xabcdef0000000000000000000000000000000001");
+  assert.equal(body.timestampSec, 1753900000);
+  assert.match(body.signature, /^sig:roebel-org-v1:leave/);
 });

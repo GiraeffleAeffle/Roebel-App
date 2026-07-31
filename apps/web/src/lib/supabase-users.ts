@@ -9,6 +9,7 @@ import type {
 import { DEFAULT_PRIVACY_SETTINGS } from "./user-types";
 import type { PrivacySettings, VisibilityLevel } from "./user-types";
 import { createPersonalAccount } from "@/lib/supabase-accounts";
+import type { SigningAccount } from "@/lib/org-membership/client";
 
 /**
  * Map a raw DB row (which has `tier` instead of `role`) to a User object
@@ -27,9 +28,16 @@ function mapDbRowToUser(row: Record<string, unknown>): User {
  * Create or update user on login
  * If user exists, updates last_login_at
  * If user doesn't exist, creates new user
+ *
+ * `account` is the caller's thirdweb account (in scope on every client-side
+ * login path) — it signs the org-membership request that creates the new
+ * user's personal account. When absent (e.g. a server-side caller with no
+ * wallet to sign with), the personal account step is skipped; that has
+ * always been non-fatal here, same as an insert failure was before.
  */
 export async function createOrUpdateUser(
-  input: CreateUserInput
+  input: CreateUserInput,
+  account?: SigningAccount
 ): Promise<{ success: boolean; data?: User; error?: string }> {
   console.log("👤 [Supabase Users] Creating/updating user:", input.wallet_address);
 
@@ -80,15 +88,21 @@ export async function createOrUpdateUser(
         return { success: false, error: error.message };
       }
 
-      // Create a personal account for the new user
+      // Create a personal account for the new user (signed by their wallet)
       const walletLower = input.wallet_address.toLowerCase();
       const accountName = walletLower; // Will be updated when user sets a username
-      try {
-        await createPersonalAccount(walletLower, accountName, null);
-        console.log("✅ [Supabase Users] Personal account created for new user");
-      } catch (accountError) {
-        console.error("⚠️ [Supabase Users] Failed to create personal account:", accountError);
-        // Non-fatal: user was still created
+      if (account) {
+        try {
+          await createPersonalAccount(account, accountName, null);
+          console.log("✅ [Supabase Users] Personal account created for new user");
+        } catch (accountError) {
+          console.error("⚠️ [Supabase Users] Failed to create personal account:", accountError);
+          // Non-fatal: user was still created
+        }
+      } else {
+        console.warn(
+          "⚠️ [Supabase Users] No signing account provided — skipping personal account creation"
+        );
       }
 
       console.log("✅ [Supabase Users] User created successfully");

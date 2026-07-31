@@ -15,7 +15,6 @@ import {
   fetchAccountById,
   createOrgAccount as createOrgAccountDB,
   switchActiveAccount as switchActiveAccountDB,
-  inviteOwner as inviteOwnerDB,
   removeOwner as removeOwnerDB,
   type CreateOrgAccountOptions,
 } from "@/lib/supabase-accounts";
@@ -38,7 +37,6 @@ interface AccountContextValue {
     name: string,
     options?: CreateOrgAccountOptions
   ) => Promise<Account>;
-  inviteCitizen: (accountId: string, walletAddress: string) => Promise<void>;
   removeCitizen: (accountId: string, walletAddress: string) => Promise<void>;
   isOwnerOf: (accountId: string | null) => boolean;
   isLoading: boolean;
@@ -156,10 +154,10 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       name: string,
       options?: CreateOrgAccountOptions
     ): Promise<Account> => {
-      if (!walletAddress) throw new Error("No wallet connected");
+      if (!thirdwebAccount) throw new Error("No wallet connected");
 
       const account = await createOrgAccountDB(
-        walletAddress,
+        thirdwebAccount,
         subType,
         name,
         options
@@ -169,22 +167,15 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       setOwnedAccounts((prev) => [...prev, account]);
       return account;
     },
-    [walletAddress]
-  );
-
-  const inviteCitizen = useCallback(
-    async (accountId: string, citizenWallet: string) => {
-      if (!walletAddress) throw new Error("No wallet connected");
-      await inviteOwnerDB(accountId, citizenWallet, walletAddress);
-    },
-    [walletAddress]
+    [thirdwebAccount]
   );
 
   const removeCitizen = useCallback(
     async (accountId: string, citizenWallet: string) => {
-      await removeOwnerDB(accountId, citizenWallet);
+      if (!thirdwebAccount) throw new Error("No wallet connected");
+      await removeOwnerDB(thirdwebAccount, accountId, citizenWallet);
     },
-    []
+    [thirdwebAccount]
   );
 
   const isOwnerOf = useCallback(
@@ -202,7 +193,6 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       roleInActiveAccount,
       switchAccount,
       createOrgAccount,
-      inviteCitizen,
       removeCitizen,
       isOwnerOf,
       isLoading,
@@ -214,7 +204,6 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       roleInActiveAccount,
       switchAccount,
       createOrgAccount,
-      inviteCitizen,
       removeCitizen,
       isOwnerOf,
       isLoading,
