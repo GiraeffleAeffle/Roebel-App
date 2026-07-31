@@ -557,11 +557,13 @@ git commit -m "feat(web): the Arbeitsbereich reaches phones — bottom nav + Dat
 - Modify: `docs/SECURITY_FINDINGS_2026-07-28.md` (§1, §2, §4 → FIXED with commit refs; add the invite_tokens forgery/enumeration corollary as a recorded-and-fixed note), `docs/SOVEREIGN_ARBEITSBEREICH_STATE.md` (honest-limits §2: role-based write DONE, mobile route DONE; §3 launch gate: RLS fix DONE)
 
 - [ ] **Step 1: Update both docs** (repo rule: a State doc that disagrees with reality is a bug — fix in the same change as the code).
-- [ ] **Step 2: Rollout, in this exact order (Supabase MCP; STOP and hand to the user if MCP is unauthenticated):**
-  1. Deploy the `org-membership` edge function; set `GNOSIS_RPC_URL` secret (same var the fixed `delete-user-account` uses).
-  2. Smoke-test against production: accept a link invite in the web app (signature path), edit an org profile in expo dev build.
-  3. **Apply `20260801_account_membership_lockdown.sql`.** Immediately re-test: org creation (RPC), invite create/accept, profile edit, admin approve (service role).
-  4. Resolve the `20260728_workspace_sessions_gc.sql` "NOT APPLIED" contradiction (file header vs state doc) while in the MCP — verify with a `select proname from pg_proc where proname = 'reap_workspace_sessions'`.
+- [ ] **Step 2: Rollout, in this exact order (Supabase MCP; STOP and hand to the user if MCP is unauthenticated). Amended 2026-07-31 — the migration is SPLIT (deploy-order fix from T3 re-review):**
+  1. **Apply `20260801_membership_functions.sql`** (additive: get_invite_by_token + delete_owner_guarded + lower-wallet unique index — safe while old policies still stand).
+  2. Deploy the `org-membership` edge function; set `GNOSIS_RPC_URL` secret (same var the fixed `delete-user-account` uses). Smoke-test: signature verify incl. a never-deployed counterfactual smart account (ERC-6492 path — deferred check from T3 review).
+  3. Smoke-test against production: accept a link invite in the web app (signature path), edit an org profile.
+  4. **Apply `20260802_account_membership_lockdown.sql`** (the 8 policy drops). Immediately re-test: account creation (edge fn), invite create/accept, profile edit, admin approve (service role).
+  5. Resolve the `20260728_workspace_sessions_gc.sql` "NOT APPLIED" contradiction (file header vs state doc) while in the MCP — verify with a `select proname from pg_proc where proname = 'reap_workspace_sessions'`.
+  6. **Prod data repair (surface to user first):** two accounts have ZERO `role='owner'` rows (pre-existing, found during T3 review) — post-lockdown nobody can manage them; propose promoting each account's oldest member via service role and get Max's confirmation of the two account names before writing.
 - [ ] **Step 3: USER-GATED (list verbatim in the final report):**
   - Flip `NEXT_PUBLIC_WORKSPACE_NATIVE_FILES=1` + confirm the nine `REQUIRED` env vars (`apps/web/src/lib/workspace/config.ts:29–39`) on Vercel.
   - Name the two pilot orgs (spec §10 criteria: most-active events Verein + one gastro partner).
