@@ -123,7 +123,11 @@ clearly solved by v3. The prior research docs are corrected by this one.
 - **Pin what exists**: `maci-*@2.5.0` exact pins stay (already exact everywhere, including the
   coordinator Dockerfile); the v2 zkey tarball URL is on PSE's S3 — mirror
   `maci_artifacts_14-9-2-3_prod.tar.gz` (~1.5 GB) to our own storage before that bucket follows
-  PSE into the sunset. Same for a copy of the v3 prod artifacts (hedge for trigger 4/5).
+  PSE into the sunset. **DONE 2026-07-31**: byte-exact mirror at
+  <https://github.com/Roebel-Labs/Roebel-App/releases/tag/maci-zkeys-v2.0.0>
+  (sha256 `d020dcc2388d93d16f54b59c166c97504232f2aebeeedc0c1d2262fb34a38c66`; verified
+  extractable + range-downloadable). Still open: a copy of the v3 prod artifacts (hedge for
+  trigger 4/5).
 - **Fix the stale coordinator env while touching nothing else**: `apps/coordinator/Dockerfile:69`
   still sets `HARDHAT_NETWORK=base` and `hardhat.config.js` defines only a `base` network — the
   stack votes on Gnosis. (Known bug, also flagged in the accounts-service design M1.)
