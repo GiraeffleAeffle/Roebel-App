@@ -63,7 +63,8 @@ Rules carried over from the existing kinds: the record event for a proposal is a
 execution) is on-chain; the event makes them discoverable and joinable. No wallet addresses
 in any tag (the UI rule "never show raw 0x" starts at the record). Menu events are signed by
 the restaurant's derived scope (`org-<account-id>` where the restaurant belongs to an org
-account, else `biz-<id>`); proposals and notices by `town`.
+account, else `resto-<restaurant-id>` — not `biz-`: restaurant ids are not `businesses` ids,
+and scope strings must not collide across tables); proposals and notices by `town`.
 
 ### 3.3 Business profiles
 
