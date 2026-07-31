@@ -168,7 +168,7 @@ export async function buildSpecs(
   if (deps.datasets.includes("news")) {
     const rows = await deps.fetchRows(
       "news_articles",
-      "select=id,slug,title,excerpt,content,cover_image_url,category,published_at,ai_generated,status,updated_at,created_at&status=eq.published",
+      "select=id,slug,title,excerpt,content,cover_image_url,category,published_at,status,updated_at,created_at&status=eq.published",
     );
     for (const row of rows) {
       const spec = newsToSpec(row, htmlToMarkdown);

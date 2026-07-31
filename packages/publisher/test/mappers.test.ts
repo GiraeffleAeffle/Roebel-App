@@ -206,7 +206,13 @@ describe("town news mapping (NIP-23)", () => {
     const tag = (n: string) => spec.tags.find((t) => t[0] === n)?.[1];
     assert.equal(tag("title"), "Stadtfest");
     assert.equal(tag("slug"), "stadtfest-2026");
-    assert.equal(tag("t"), "news");
+    // Verify HTML→Markdown: no HTML tags remain, real Markdown produced (bold as **)
+    assert.match(spec.content, /Hallo \*\*Röbel\*\*/);
+    assert.doesNotMatch(spec.content, /<[a-z]+>/i);
+    // Collect ALL t tags (not just the first) — should have both "news" and category "stadt"
+    const allTags = spec.tags.filter((t) => t[0] === "t").map((t) => t[1]);
+    assert.ok(allTags.includes("news"));
+    assert.ok(allTags.includes("stadt"));
     assert.equal(tag("ai_generated"), "true");
   });
 
@@ -231,6 +237,16 @@ describe("town news mapping (NIP-23)", () => {
     const json = JSON.stringify(spec);
     assert.ok(!json.includes("leak@example.com"));
     assert.ok(!json.includes("0xDEADBEEF"));
+  });
+
+  it("newsToSpec: ai_generated flag is future-proofed (column does not exist on news_articles yet)", () => {
+    // ai_generated exists only on blog_articles; when the schema adds it to news_articles,
+    // the mapper already has the guard ready. Test with synthetic row to pin the intent.
+    const spec = newsToSpec(
+      { id: "n4", slug: "s", title: "T", content: "ok", status: "published", updated_at: "2026-07-02T10:00:00Z", ai_generated: true },
+      htmlToMarkdown,
+    )!;
+    assert.deepEqual(spec.tags.find((t) => t[0] === "ai_generated"), ["ai_generated", "true"]);
   });
 });
 

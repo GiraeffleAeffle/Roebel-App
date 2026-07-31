@@ -322,6 +322,9 @@ export function newsToSpec(row: Row, htmlToMd: (html: string) => string): Publis
   if (publishedAt) tags.push(["published_at", String(Math.floor(Date.parse(publishedAt) / 1000))]);
   const category = str(row, "category");
   if (category && category !== "news") tags.push(["t", category]);
+  // ai_generated does not yet exist on news_articles (only on blog_articles). The guard
+  // is harmless when the field is absent and future-proofs the mapper if the column is
+  // later added, following the pattern of blog_articles migration.
   if (row["ai_generated"] === true) tags.push(["ai_generated", "true"]);
 
   return {
