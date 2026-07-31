@@ -10,7 +10,7 @@ export type OrgAction =
 export const MAX_MESSAGE_AGE_SECONDS = 300;
 
 export function hashPayload(payload: Record<string, unknown>): string {
-  const sorted = Object.fromEntries(Object.entries(payload).sort(([a], [b]) => a.localeCompare(b)));
+  const sorted = Object.fromEntries(Object.entries(payload).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
   return createHash("sha256").update(JSON.stringify(sorted)).digest("hex");
 }
 

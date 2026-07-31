@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { buildOrgMessage, hashPayload, MAX_MESSAGE_AGE_SECONDS } from "../src/lib/org-membership/message";
 
 describe("org-membership message", () => {
@@ -15,5 +16,13 @@ describe("org-membership message", () => {
   });
   it("exports the replay window", () => {
     assert.equal(MAX_MESSAGE_AGE_SECONDS, 300);
+  });
+  it("sorts keys ordinally (byte order), not locale-aware", () => {
+    // Ordinal: "B" (0x42) < "a" (0x61). Locale-aware collation would put "a" first.
+    const expectedHash = createHash("sha256").update('{"B":2,"a":1}').digest("hex");
+    assert.equal(hashPayload({ a: 1, B: 2 }), expectedHash);
+    const msg = buildOrgMessage("leave", "0xABCDEF0000000000000000000000000000000001", 1753900000, { a: 1, B: 2 });
+    const msgManual = buildOrgMessage("leave", "0xABCDEF0000000000000000000000000000000001", 1753900000, Object.fromEntries([["B",2],["a",1]]));
+    assert.equal(msg, msgManual);
   });
 });
