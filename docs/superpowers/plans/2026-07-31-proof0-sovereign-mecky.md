@@ -29,7 +29,7 @@ No code. The human operator must:
 - [ ] DNS: `A gpu.roebel.app → <GEX44 IP>` and `A ai.roebel.app → <node box IP 178.105.19.80>`.
 - [ ] Hetzner Cloud Firewall on the GEX44: allow tcp/80 + tcp/443 from anywhere (ACME + gateway; vLLM itself is additionally key-protected), allow tcp/22 from operator IP.
 - [ ] Append to the **node box** `.env`: `LITELLM_MASTER_KEY=<openssl rand -hex 32>`, `VLLM_API_KEY=<openssl rand -hex 32>`, `ANTHROPIC_API_KEY=<existing key>`.
-- [ ] Create the **GPU box** `.env` (path `/opt/netizen-ai/.env` after first `up --ai-host`): `VLLM_API_KEY=<same value>`.
+- [ ] Create the **GPU box** `.env` (path `/opt/netizen/roebel-ai/.env` after first `up --ai-host` — the executor deploys bundle `<id>-ai` under `/opt/netizen/`): `VLLM_API_KEY=<same value>`.
 
 ---
 
@@ -345,6 +345,7 @@ describe("doctor: sovereign AI", () => {
 
 **Files:**
 - Modify: `packages/protocol/examples/roebel.netizen.json` (the `ai` block)
+- Modify: `packages/cli/test/doctor.test.ts` — the "egress warning present when not self-hosted" test currently uses the roebel example manifest as its non-selfHosted fixture; the flip breaks it. Swap that test to an inline non-selfHosted fixture in the same step as the manifest edit.
 
 - [ ] **Step 1:** Update the block:
 
@@ -705,3 +706,4 @@ and register it wherever the file exports its tool list (the array/map the other
 - [ ] **Step 3:** Update `docs/STATE_OF_THE_NETIZEN_STACK.md`: the AI layer is self-hosted as of the deploy date; Mecky routes through the gateway; corpus contents and visibility; the doctor caveat about `ai.selfHosted:false` is retired. (STATE docs change in the same change as the code — repo rule.)
 - [ ] **Step 4: Commit**: `git pull --rebase && git add docs/SOVEREIGN_AI_OPERATIONS.md scripts/town-corpus/eval-questions.md docs/STATE_OF_THE_NETIZEN_STACK.md && git commit -m "docs: Sovereign Mecky is operated, evaluated, and honestly described — Proof 0 closes" && git push`
 - [ ] **Step 5: Final acceptance check (the Proof 0 definition of done):** `netizen doctor <roebel manifest> --live` fully green; a Ratsprotokoll question in the live app answers with citation from `sovereign-chat`; the Anthropic key is absent from the expo bundle; eval sheet committed with ≥7/10 or a recorded escalation.
+- [ ] **Step 6: Record the deliberate deferrals** in `docs/ROADMAP_AND_DEFERRED.md`: (a) the spec §5.2/§10 "doctor verifies `ai.corpus` declaration matches deployment" check — trigger: Phase B tables live + doctor gains a Supabase probe; (b) `ai.rail` schema block — trigger: Proof 1 (shared rail exists); (c) a declarable third-party embed endpoint (embed is currently shape-coupled to the ai-gpu bundle's `/embed/v1` convention) — trigger: Proof 1 rail-replaceability check. Also note in the spec §5.2 that the shipped visibility enum adds `public` (needed for Ratsprotokolle) to the spec's three classes.
