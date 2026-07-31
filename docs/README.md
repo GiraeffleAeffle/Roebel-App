@@ -70,7 +70,8 @@ operative consequences live in [DSGVO & AI Act compliance](DSGVO_AI_ACT_COMPLIAN
 
 **Runbooks** — operational procedures: [MACI Shamir operations](MACI_SHAMIR_OPERATIONS.md),
 [deployment playbook](DEPLOYMENT_PLAYBOOK.md), [Hetzner setup](HETZNER_SETUP.md),
-[donations operations](DONATIONS_OPERATIONS.md), [Nostr relay setup](NOSTR_RELAY_SETUP.md).
+[donations operations](DONATIONS_OPERATIONS.md), [Nostr relay setup](NOSTR_RELAY_SETUP.md),
+[deletion runbook (Art. 17)](DELETION_RUNBOOK.md).
 
 **Subsystem state** — deeper than the summaries above, for people working in that area:
 [Circles / Röbel Münzen](CIRCLES_ROEBEL_MUENZEN_STATE.md),

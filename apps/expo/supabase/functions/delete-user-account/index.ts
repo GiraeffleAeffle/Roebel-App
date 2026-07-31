@@ -179,17 +179,29 @@ serve(async (req: Request) => {
 
     // 3. Tables with wallet_address but no FK / no CASCADE on users. Must
     //    delete manually before the user row goes. Source: information_schema
-    //    sweep on 2026-05-22.
-    const walletColumnTables: { table: string; column: string }[] = [
+    //    sweep on 2026-05-22; extended 2026-07-31 from the migrations that
+    //    landed since (nostr identity bridge, workspace, muenzen tips, mecky
+    //    conversations/outreach). `nostr_identities` is the wallet↔npub
+    //    bridge — deleting it is what makes the on-chain/Nostr trail
+    //    effectively anonymous (EDPB 02/2025 §103) and drops the npub from
+    //    the relay allow-list on the next sync pass. Rows whose stored case
+    //    may differ from the lowercased claim use ilike.
+    const walletColumnTables: { table: string; column: string; ilike?: boolean }[] = [
       { table: 'citizens_registration', column: 'wallet_address' },
       { table: 'consent_audit_log', column: 'wallet_address' },
       { table: 'conversation_participants', column: 'wallet_address' },
       { table: 'event_interests', column: 'user_wallet' },
       { table: 'event_views', column: 'wallet_address' },
       { table: 'help_requests', column: 'user_wallet' },
+      { table: 'mecky_conversations', column: 'owner_wallet' }, // messages cascade
+      { table: 'mecky_outreach_log', column: 'recipient_wallet' },
+      { table: 'muenzen_tips', column: 'from_wallet' },
+      { table: 'muenzen_tips', column: 'to_wallet' },
+      { table: 'nostr_identities', column: 'wallet_address' },
       { table: 'phone_verification_sessions', column: 'wallet_address' },
       { table: 'poll_votes', column: 'wallet_address' },
       { table: 'proposal_comment_likes', column: 'wallet_address' },
+      { table: 'push_tokens', column: 'wallet_address', ilike: true },
       { table: 'referral_codes', column: 'wallet_address' },
       { table: 'rewards_daily_checkins', column: 'wallet_address' },
       { table: 'rewards_task_completions', column: 'wallet_address' },
@@ -199,15 +211,30 @@ serve(async (req: Request) => {
       { table: 'user_lootbox_rewards', column: 'wallet_address' },
       { table: 'verification_audit_log', column: 'wallet_address' },
       { table: 'vote_history', column: 'wallet_address' },
+      { table: 'workspace_actions', column: 'actor_sub' }, // sub = lowercased wallet
+      { table: 'workspace_sessions', column: 'sub' },
     ];
 
-    for (const { table, column } of walletColumnTables) {
-      const { error } = await db.from(table).delete().eq(column, claimedWallet);
+    for (const { table, column, ilike } of walletColumnTables) {
+      const q = db.from(table).delete();
+      const { error } = ilike
+        ? await q.ilike(column, claimedWallet)
+        : await q.eq(column, claimedWallet);
       if (error) {
         // Skip "table not in PostgREST cache" and similar non-fatal errors,
         // but surface real failures so we can debug.
         console.error(`Failed to clear ${table}.${column}:`, error.message);
       }
+    }
+
+    // 3b. Detach instead of delete: content that legitimately outlives its
+    //     creator (org flyers) keeps the row, loses the person.
+    {
+      const { error } = await db
+        .from('flyers')
+        .update({ created_by_wallet: null })
+        .eq('created_by_wallet', claimedWallet);
+      if (error) console.error('Failed to detach flyers.created_by_wallet:', error.message);
     }
 
     // 4. Delete the user row. CASCADE handles account_owners (incl. the

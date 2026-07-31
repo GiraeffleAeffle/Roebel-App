@@ -154,9 +154,11 @@ gilt die On-Chain-Spur als **effektiv anonymisiert** — das ist unsere Erfüllu
 7. **Protokollieren** (Nachweispflicht Art. 5(2)) und dem Betroffenen bestätigen, inkl.
    Erläuterung, was on-chain verbleibt und warum das anonymisiert ist.
 
-**[TODO]** Diesen Ablauf als Runbook + idealerweise als Admin-Funktion („Konto löschen")
-implementieren und **einmal testweise durchspielen** — ein ungetesteter Löschpfad ist
-keiner.
+**Runbook existiert (2026-07-31):** [DELETION_RUNBOOK.md](DELETION_RUNBOOK.md) — baut auf
+der bestehenden `delete-user-account` Edge Function auf (App-Store-Pflicht 5.1.1(v)),
+deren Tabellen-Sweep am 2026-07-31 um die seit Mai hinzugekommenen Systeme erweitert
+wurde (`nostr_identities`, Workspace, Tips, Mecky-Chats, Push-Tokens).
+**[TODO]** Einmal testweise durchspielen (Testkonto) + GATE: Edge Function neu deployen.
 
 ### 2.2 Transparenz VOR dem Mint (Art. 13/14)
 
@@ -290,7 +292,7 @@ Verwaltungshandeln) vor Launch erneut prüfen.
 |---|---|---|---|
 | 1 | ~~AI-Act-Disclosure + Kennzeichnung~~ **✅ umgesetzt 2026-07-30** (§ 4.2) — **GATES offen:** `generate-menu-image` redeployen, Migration `20260730_blog_articles_ai_generated.sql` anwenden | vor 2026-08-02 | erledigt |
 | 2 | ~~`vote_history`-Klartext-Leak~~ **✅ Code gefixt 2026-07-31** (Klartext-Wahl weder in DB noch PostHog; Teilnahme bleibt) — **GATE: Migration `20260731_vote_history_choice_purge.sql` VOR dem Client-Rollout anwenden** (Spalte nullable + Historie nullen; `record_vote()`-RPC beim Anwenden prüfen) | Gate | erledigt (Code) |
-| 3 | Löschpfad als Runbook + einmal testweise durchspielen (§ 2.1) | Q3 2026 | M |
+| 3 | ~~Löschpfad als Runbook~~ **✅ [DELETION_RUNBOOK.md](DELETION_RUNBOOK.md) 2026-07-31** + Edge-Function-Sweep erweitert — **offen: Testdurchlauf + GATE `delete-user-account` redeployen** | Q3 2026 | Runbook ✅ / Test offen |
 | 4 | Pre-Mint-Aufklärung Citizen-NFT (§ 2.2; Nostr-Seite ✅ via Public-Record-Consent 1.1.0) | Q3 2026 | S |
 | 5 | DPIA formalisieren (aus § 1), AV-Verträge inventarisieren | Q3/Q4 2026 | M |
 | 6 | Governance-Metadaten-Sichtbarkeit minimieren (§ 3.1) | laufend | S |
