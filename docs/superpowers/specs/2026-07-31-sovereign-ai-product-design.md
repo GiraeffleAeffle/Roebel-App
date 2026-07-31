@@ -58,7 +58,7 @@ SMEs and builders who come for private AI and inherit sovereignty.
 | Question | Decision | Why |
 |---|---|---|
 | Product shape | **C: one product, two doors** — the node is the only artifact; an AI-first minimal manifest is the second door | Captures the sovereign-AI wedge without a second product motion; node #2 can arrive through the AI door |
-| "Custom model" | **RAG-first; LoRA fine-tuning reserved and gated** behind AI Act counsel | Corpus access is the value for ~90% of workloads; fine-tuning may flip deployer→provider under the AI Act |
+| "Custom model" | **RAG-first; LoRA fine-tuning committed for the business tier, gated** behind AI Act counsel — the gate decides *when*, not *whether* | Corpus access is the value for ~90% of workloads; fine-tuning may flip deployer→provider under the AI Act |
 | Model policy | **The router is the product**, not any model — multi-model by governed policy | The governed egress policy is the differentiator; models commoditize |
 | Hardware | **Netizen Box = certified BOM via the Assisted tier**, no inventory, no racks | Hardware revenue as setup+support; H4 (rent-first) unviolated; energy-coop container stays Phase 2 |
 | Deliverable | This design doc first; public essay later | Reversals of written decisions must be explicit before they become marketing |
@@ -136,9 +136,12 @@ control in the manifest. The corpus's capability claim stands: local 70B-class
 is frontier-minus-one-generation, and the gap is irrelevant for ~90% of
 town/Mittelstand workloads because the value is corpus access, not raw IQ.
 
-Reserved (gated): **LoRA fine-tuning** on customer data, on tier-4 hardware or
+Committed, gated: **LoRA fine-tuning** on customer data, on tier-4 hardware or
 the rail with compute-to-data discipline (the job goes to the data, only
-weights deltas leave — never the corpus). Gate: §6.3.
+weights deltas leave — never the corpus). This is a roadmap commitment for
+the business/enterprise tier (decided 2026-07-31): businesses will train and
+fine-tune their own models on this stack. The §6.3 gate decides when it
+ships, not whether.
 
 Never: training on citizen data, cross-tenant retrieval, selling the corpus.
 "Sell the answer, never the corpus" (marketplace doc §2.4) binds this product.
