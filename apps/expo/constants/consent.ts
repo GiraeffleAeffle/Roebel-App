@@ -3,7 +3,7 @@
  * policy version, and SecureStore key names.
  */
 
-export const PRIVACY_POLICY_VERSION = '1.0.0';
+export const PRIVACY_POLICY_VERSION = '1.1.0';
 
 export const CONSENT_STORAGE_KEYS = {
   preferences: 'consent.v1.preferences',
@@ -145,6 +145,11 @@ export const ACCEPT_ALL_PREFERENCES: ConsentPreferences = {
 };
 
 export const POLICY_CHANGELOG: Record<string, string[]> = {
+  '1.1.0': [
+    'Neu: der öffentliche Datenbestand von Röbel. Öffentliche Beiträge von Bürger:innen werden mit deinem persönlichen Schlüssel signiert und dauerhaft öffentlich — auch für andere Apps lesbar.',
+    'Eine Löschung kann angefragt, aber nicht überall erzwungen werden. Details in den Einstellungen unter „Nostr-Identität".',
+    'Neu: Kennzeichnung von KI-Inhalten (Mecky, generierte Bilder und Texte).',
+  ],
   '1.0.0': [
     'Erste Version unserer feingranularen Datenschutz-Einstellungen.',
     'Du kannst Statistik, Fehlerprotokollierung, Mecky-KI, Karten und Push einzeln steuern.',

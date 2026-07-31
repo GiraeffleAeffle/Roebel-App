@@ -22,6 +22,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/context/ThemeContext';
 import { useConsent } from '@/context/ConsentContext';
+import { useActiveAccount } from 'thirdweb/react';
+import { useUser } from '@/context/UserContext';
 
 const AGB_URL = 'https://www.roebel.app/agb';
 const DATENSCHUTZ_URL = 'https://www.roebel.app/datenschutz';
@@ -30,9 +32,20 @@ export default function ConsentModalScreen() {
   const { colors } = useTheme();
   const { acceptAll, acceptEssential } = useConsent();
   const router = useRouter();
+  const account = useActiveAccount();
+  const { user } = useUser();
 
   const handleAcceptAll = async () => {
     await acceptAll('first_launch');
+    // Accepting the policy IS the public-record consent (the changelog names
+    // it). Remember it, and enroll verified Citizens silently in the
+    // background; everyone else enrolls via self-heal once verified.
+    void import('@/lib/nostr/enroll')
+      .then(async ({ markPublicRecordConsent, enrollNow }) => {
+        await markPublicRecordConsent();
+        if (user?.is_verified_citizen && account) await enrollNow(account);
+      })
+      .catch(() => {});
     if (router.canGoBack()) router.back();
     else router.replace('/' as any);
   };

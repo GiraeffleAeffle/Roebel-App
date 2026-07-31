@@ -17,12 +17,27 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/context/ThemeContext';
 import { useConsent } from '@/context/ConsentContext';
+import { useActiveAccount } from 'thirdweb/react';
+import { useUser } from '@/context/UserContext';
 import { POLICY_CHANGELOG, PRIVACY_POLICY_VERSION } from '@/constants/consent';
 
 export function ConsentReconsentSheet() {
   const { needsReconsent, confirmReconsent } = useConsent();
   const { colors } = useTheme();
   const router = useRouter();
+  const account = useActiveAccount();
+  const { user } = useUser();
+
+  // Confirming the new policy version IS the public-record consent — the
+  // changelog bullet names it. Enrollment runs silently after.
+  const chainPublicRecord = () => {
+    void import('@/lib/nostr/enroll')
+      .then(async ({ markPublicRecordConsent, enrollNow }) => {
+        await markPublicRecordConsent();
+        if (user?.is_verified_citizen && account) await enrollNow(account);
+      })
+      .catch(() => {});
+  };
   const fade = useRef(new Animated.Value(0)).current;
   const translate = useRef(new Animated.Value(40)).current;
 
@@ -40,10 +55,12 @@ export function ConsentReconsentSheet() {
 
   const handleConfirm = async () => {
     await confirmReconsent();
+    chainPublicRecord();
   };
 
   const handleCustomize = async () => {
     await confirmReconsent();
+    chainPublicRecord();
     router.push('/settings/consent' as any);
   };
 
