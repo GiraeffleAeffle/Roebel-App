@@ -5,58 +5,21 @@
 -- edge function (service role).
 -- ⚠️ APPLY ONLY AFTER the org-membership edge function and rewired clients are live.
 
--- ── RPCs ────────────────────────────────────────────────────────────────────
-create or replace function public.create_account_with_owner(
-  p_wallet text, p_account_type text, p_name text,
-  p_sub_type text default null, p_bio text default null, p_avatar_url text default null
-) returns accounts
-language plpgsql security definer set search_path = public, pg_temp as $$
-declare v_account accounts;
-begin
-  if p_account_type not in ('personal','organisation') then
-    raise exception 'invalid account_type' using errcode = '22023';
-  end if;
-  insert into accounts (account_type, name, sub_type, bio, avatar_url)
-  values (p_account_type, p_name, p_sub_type, p_bio, p_avatar_url)
-  returning * into v_account;
-  insert into account_owners (account_id, wallet_address, role)
-  values (v_account.id, lower(p_wallet), 'owner');
-  return v_account;
-end $$;
-
+-- ── RPC ─────────────────────────────────────────────────────────────────────
+-- The ONLY anon-callable function. Knowledge of the token is the credential
+-- (bearer semantics); it takes no wallet parameter. All other membership
+-- reads/writes go through the signature-verified org-membership edge function
+-- (service role). Rule: no anon-granted function may take a wallet parameter
+-- as an authorization input — owner wallets are public in account_owners, so
+-- such a parameter is attacker-controlled.
 create or replace function public.get_invite_by_token(p_token text)
 returns invite_tokens
 language sql security definer set search_path = public, pg_temp stable as $$
   select * from invite_tokens where token = p_token limit 1;
 $$;
 
-create or replace function public.list_pending_invites(p_account_id uuid, p_wallet text)
-returns setof invite_tokens
-language sql security definer set search_path = public, pg_temp stable as $$
-  select i.* from invite_tokens i
-  where i.account_id = p_account_id and i.status = 'pending'
-    and exists (select 1 from account_owners o
-                where o.account_id = p_account_id
-                  and lower(o.wallet_address) = lower(p_wallet)
-                  and o.role in ('owner','admin'));
-$$;
-
-create or replace function public.has_pending_invite(p_account_id uuid, p_wallet text)
-returns boolean
-language sql security definer set search_path = public, pg_temp stable as $$
-  select exists (select 1 from invite_tokens
-    where account_id = p_account_id and status = 'pending'
-      and lower(coalesce(invited_wallet,'')) = lower(p_wallet));
-$$;
-
-revoke all on function public.create_account_with_owner(text,text,text,text,text,text) from public;
 revoke all on function public.get_invite_by_token(text) from public;
-revoke all on function public.list_pending_invites(uuid,text) from public;
-revoke all on function public.has_pending_invite(uuid,text) from public;
-grant execute on function public.create_account_with_owner(text,text,text,text,text,text) to anon, authenticated;
 grant execute on function public.get_invite_by_token(text) to anon, authenticated;
-grant execute on function public.list_pending_invites(uuid,text) to anon, authenticated;
-grant execute on function public.has_pending_invite(uuid,text) to anon, authenticated;
 
 -- ── Policy lockdown ─────────────────────────────────────────────────────────
 -- accounts: reads stay public; every write becomes service-role/RPC only.
