@@ -58,11 +58,17 @@ const MAX_MESSAGE_AGE_SECONDS = 300;
 
 const WALLET_RE = /^0x[0-9a-fA-F]{40}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const INVITE_ROLES = ['admin', 'member'] as const;
 const ACCOUNT_TYPES = ['personal', 'organisation'] as const;
-const SUB_TYPES = ['restaurant', 'unternehmen', 'verein', 'stadt', 'fraktion', 'journalist'] as const;
+// Self-service sub_types only. 'stadt' and 'fraktion' carry server-enforced
+// write privileges elsewhere in the app (accounts_sub_type_check on the DB
+// allows them, but this endpoint must not let any wallet self-assign them —
+// those accounts are created through admin flows on the service role).
+const SELF_SERVICE_SUB_TYPES = ['restaurant', 'unternehmen', 'verein', 'journalist'] as const;
 const UPDATE_WHITELIST = ['name', 'bio', 'avatar_url', 'cover_url', 'contact_email', 'opening_hours'] as const;
+const URL_FIELDS = ['avatar_url', 'cover_url'] as const;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -118,6 +124,9 @@ function fail(code: string, status: number, message: string) {
 }
 
 // ── Authorization idiom (apps/web/src/app/api/mecky/story-draft/route.ts:89-116) ──
+// wallet_address lookups use ilike (no wildcards in a 0x hex string == exact
+// case-insensitive match) because at least one production account_owners
+// row stores a checksummed address; we fix the query, not the data.
 
 async function requireOwnerOrAdmin(
   admin: Admin,
@@ -128,7 +137,7 @@ async function requireOwnerOrAdmin(
     .from('account_owners')
     .select('role')
     .eq('account_id', accountId)
-    .eq('wallet_address', signer)
+    .ilike('wallet_address', signer)
     .maybeSingle();
   if (error) return fail('INTERNAL', 500, error.message);
   if (!data) return fail('FORBIDDEN', 403, 'not a member of this account');
@@ -137,16 +146,6 @@ async function requireOwnerOrAdmin(
     return fail('FORBIDDEN', 403, 'requires owner or admin role');
   }
   return { role };
-}
-
-async function countOwners(admin: Admin, accountId: string): Promise<number | Response> {
-  const { count, error } = await admin
-    .from('account_owners')
-    .select('wallet_address', { count: 'exact', head: true })
-    .eq('account_id', accountId)
-    .eq('role', 'owner');
-  if (error) return fail('INTERNAL', 500, error.message);
-  return count ?? 0;
 }
 
 // ── Validation helpers ───────────────────────────────────────────────
@@ -159,6 +158,35 @@ function requireUuid(v: unknown, field: string): string | Response {
   const s = asString(v);
   if (!s || !UUID_RE.test(s)) return fail('BAD_REQUEST', 400, `invalid ${field}`);
   return s;
+}
+
+function isHttpsUrl(v: string): boolean {
+  return v.startsWith('https://');
+}
+
+// Mirrors apps/web/src/lib/slug.ts generateSlug / apps/expo/lib/supabase-accounts.ts
+// generateSlug byte-for-byte.
+function baseSlugify(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function randomSlugSuffix(): string {
+  const bytes = new Uint8Array(3);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function isUniqueSlugViolation(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  if (error.code === '23505') return true;
+  return /uq_accounts_slug/i.test(error.message ?? '');
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────
@@ -292,13 +320,27 @@ async function handleAcceptInvite(
     return fail('FORBIDDEN', 403, 'invite is not addressed to this wallet');
   }
   if (new Date(invite.expires_at).getTime() < Date.now()) {
-    await admin.from('invite_tokens').update({ status: 'expired' }).eq('id', inviteId);
+    await admin.from('invite_tokens').update({ status: 'expired' }).eq('id', inviteId).eq('status', 'pending');
     return fail('EXPIRED', 409, 'invite has expired');
   }
 
-  const { error: updErr } = await admin.from('invite_tokens').update({ status: 'accepted' }).eq('id', inviteId);
-  if (updErr) return fail('INTERNAL', 500, updErr.message);
+  // Atomic claim: only flips pending -> accepted if it is STILL pending at
+  // the moment of the write. Closes the double-accept race between the read
+  // above and this update — a concurrent accept can win this update, but
+  // never both.
+  const { data: claimedRows, error: claimErr } = await admin
+    .from('invite_tokens')
+    .update({ status: 'accepted' })
+    .eq('id', inviteId)
+    .eq('status', 'pending')
+    .select();
+  if (claimErr) return fail('INTERNAL', 500, claimErr.message);
+  if (!claimedRows || (claimedRows as unknown[]).length === 0) {
+    return fail('INVITE_GONE', 409, 'invite was already resolved by a concurrent request');
+  }
 
+  // Upsert WITHOUT ignoreDuplicates: an existing member accepting a
+  // higher-role invite must have their role updated, not silently no-op'd.
   const { error: ownerErr } = await admin.from('account_owners').upsert(
     {
       account_id: invite.account_id,
@@ -306,9 +348,14 @@ async function handleAcceptInvite(
       role: invite.role,
       invited_by: invite.invited_by,
     },
-    { onConflict: 'account_id,wallet_address', ignoreDuplicates: true },
+    { onConflict: 'account_id,wallet_address' },
   );
-  if (ownerErr) return fail('INTERNAL', 500, ownerErr.message);
+  if (ownerErr) {
+    // Best-effort revert: don't leave the invite stuck 'accepted' with no
+    // membership to show for it.
+    await admin.from('invite_tokens').update({ status: 'pending' }).eq('id', inviteId).eq('status', 'accepted');
+    return fail('INTERNAL', 500, ownerErr.message);
+  }
 
   if (invite.invited_wallet) {
     await admin
@@ -344,7 +391,7 @@ async function handleDeclineInvite(
     return fail('FORBIDDEN', 403, 'invite is not addressed to this wallet');
   }
   if (new Date(invite.expires_at).getTime() < Date.now()) {
-    await admin.from('invite_tokens').update({ status: 'expired' }).eq('id', inviteId);
+    await admin.from('invite_tokens').update({ status: 'expired' }).eq('id', inviteId).eq('status', 'pending');
     return fail('EXPIRED', 409, 'invite has expired');
   }
 
@@ -373,29 +420,27 @@ async function handleLeave(
   const accountId = requireUuid(payload.accountId, 'accountId');
   if (accountId instanceof Response) return accountId;
 
-  const { data: membership, error } = await admin
-    .from('account_owners')
-    .select('role')
-    .eq('account_id', accountId)
-    .eq('wallet_address', signer)
-    .maybeSingle();
+  // delete_owner_guarded takes a `for update` lock on the account's
+  // account_owners rows before counting owners, so the count-then-delete
+  // check is serialized against any concurrent leave/remove_member on the
+  // same account — no window for two racing calls to both see "owner count
+  // > 1" and both delete.
+  const { data: result, error } = await admin.rpc('delete_owner_guarded', {
+    p_account_id: accountId,
+    p_wallet: signer,
+  });
   if (error) return fail('INTERNAL', 500, error.message);
-  if (!membership) return fail('NOT_FOUND', 404, 'not a member of this account');
 
-  if ((membership as { role: string }).role === 'owner') {
-    const ownerCount = await countOwners(admin, accountId);
-    if (ownerCount instanceof Response) return ownerCount;
-    if (ownerCount <= 1) return fail('LAST_OWNER', 409, 'cannot leave: you are the last owner');
+  switch (result) {
+    case 'not_a_member':
+      return fail('NOT_FOUND', 404, 'not a member of this account');
+    case 'last_owner':
+      return fail('LAST_OWNER', 409, 'cannot leave: you are the last owner');
+    case 'deleted':
+      return ok({ left: true });
+    default:
+      return fail('INTERNAL', 500, 'unexpected result from delete_owner_guarded');
   }
-
-  const { error: delErr } = await admin
-    .from('account_owners')
-    .delete()
-    .eq('account_id', accountId)
-    .eq('wallet_address', signer);
-  if (delErr) return fail('INTERNAL', 500, delErr.message);
-
-  return ok({ left: true });
 }
 
 async function handleRemoveMember(
@@ -415,33 +460,43 @@ async function handleRemoveMember(
   const gate = await requireOwnerOrAdmin(admin, accountId, signer);
   if (gate instanceof Response) return gate;
 
+  // Pre-check the owner-removal-requires-owner rule here (needs the
+  // signer's own role from `gate`, which delete_owner_guarded doesn't know
+  // about) — the guarded RPC below only enforces the last-owner invariant.
   const { data: targetRow, error } = await admin
     .from('account_owners')
     .select('role')
     .eq('account_id', accountId)
-    .eq('wallet_address', memberWallet)
+    .ilike('wallet_address', memberWallet)
     .maybeSingle();
   if (error) return fail('INTERNAL', 500, error.message);
   if (!targetRow) return fail('NOT_FOUND', 404, 'member not found');
   const target = targetRow as { role: string };
 
-  if (target.role === 'owner') {
-    if (gate.role !== 'owner') return fail('FORBIDDEN', 403, 'only an owner can remove an owner');
-    // Covers self-removal too: an owner calling remove_member on their own
-    // wallet must not be able to bypass leave's last-owner protection.
-    const ownerCount = await countOwners(admin, accountId);
-    if (ownerCount instanceof Response) return ownerCount;
-    if (ownerCount <= 1) return fail('LAST_OWNER', 409, 'cannot remove the last owner');
+  if (target.role === 'owner' && gate.role !== 'owner') {
+    return fail('FORBIDDEN', 403, 'only an owner can remove an owner');
   }
 
-  const { error: delErr } = await admin
-    .from('account_owners')
-    .delete()
-    .eq('account_id', accountId)
-    .eq('wallet_address', memberWallet);
-  if (delErr) return fail('INTERNAL', 500, delErr.message);
+  // Covers self-removal too: an owner calling remove_member on their own
+  // wallet must not be able to bypass leave's last-owner protection. The
+  // RPC's `for update` lock also closes the race between two concurrent
+  // remove_member/leave calls against the same account.
+  const { data: result, error: rpcErr } = await admin.rpc('delete_owner_guarded', {
+    p_account_id: accountId,
+    p_wallet: memberWallet,
+  });
+  if (rpcErr) return fail('INTERNAL', 500, rpcErr.message);
 
-  return ok({ removed: true });
+  switch (result) {
+    case 'not_a_member':
+      return fail('NOT_FOUND', 404, 'member not found');
+    case 'last_owner':
+      return fail('LAST_OWNER', 409, 'cannot remove the last owner');
+    case 'deleted':
+      return ok({ removed: true });
+    default:
+      return fail('INTERNAL', 500, 'unexpected result from delete_owner_guarded');
+  }
 }
 
 async function handleUpdateAccount(
@@ -483,6 +538,15 @@ async function handleUpdateAccount(
     }
   }
 
+  for (const urlKey of URL_FIELDS) {
+    if (urlKey in patch && patch[urlKey] !== null) {
+      const v = patch[urlKey];
+      if (typeof v !== 'string' || !isHttpsUrl(v)) {
+        return fail('BAD_REQUEST', 400, `${urlKey} must be an https:// URL`);
+      }
+    }
+  }
+
   if (Object.keys(patch).length === 0) {
     return fail('BAD_REQUEST', 400, 'no valid fields to update');
   }
@@ -509,10 +573,13 @@ async function handleCreateAccount(
   const name = rawName.trim();
   if (name.length < 1 || name.length > 80) return fail('BAD_REQUEST', 400, 'name must be 1-80 chars');
 
+  // Self-service whitelist only — 'stadt'/'fraktion' rejected here even
+  // though the DB CHECK constraint allows them; those sub_types are
+  // administrator-issued via the service role, never self-assigned.
   let subType: string | null = null;
   if (payload.subType !== undefined && payload.subType !== null) {
     const s = asString(payload.subType);
-    if (!s || !(SUB_TYPES as readonly string[]).includes(s)) {
+    if (!s || !(SELF_SERVICE_SUB_TYPES as readonly string[]).includes(s)) {
       return fail('BAD_REQUEST', 400, 'invalid subType');
     }
     subType = s;
@@ -528,15 +595,75 @@ async function handleCreateAccount(
   let avatarUrl: string | null = null;
   if (payload.avatarUrl !== undefined && payload.avatarUrl !== null) {
     const a = asString(payload.avatarUrl);
-    if (a === null) return fail('BAD_REQUEST', 400, 'invalid avatarUrl');
+    if (a === null || !isHttpsUrl(a)) return fail('BAD_REQUEST', 400, 'avatarUrl must be an https:// URL');
     avatarUrl = a;
   }
 
-  const { data: accountRow, error: accountErr } = await admin
-    .from('accounts')
-    .insert({ account_type: accountType, name, sub_type: subType, bio, avatar_url: avatarUrl })
-    .select()
-    .single();
+  // Fields today's client insert sets (apps/expo/lib/supabase-accounts.ts:163-207,
+  // apps/web/src/lib/supabase-accounts.ts:153-190) — replicated here so the
+  // product flow keeps working once anon-key writes are locked down.
+  let contactEmail: string | null = null;
+  if (payload.contactEmail !== undefined && payload.contactEmail !== null) {
+    const c = asString(payload.contactEmail);
+    if (c === null || c.length > 254 || !EMAIL_RE.test(c)) {
+      return fail('BAD_REQUEST', 400, 'invalid contactEmail');
+    }
+    contactEmail = c;
+  }
+
+  let externReason: string | null = null;
+  if (payload.reason !== undefined && payload.reason !== null) {
+    const r = asString(payload.reason);
+    if (r === null || r.length > 1000) return fail('BAD_REQUEST', 400, 'invalid reason');
+    externReason = r;
+  }
+
+  let isExtern = false;
+  if (payload.isExtern !== undefined) {
+    if (typeof payload.isExtern !== 'boolean') return fail('BAD_REQUEST', 400, 'isExtern must be boolean');
+    isExtern = payload.isExtern;
+  }
+  // journalist accounts are always extern — forced server-side regardless
+  // of what the client passed for isExtern.
+  if (subType === 'journalist') isExtern = true;
+
+  // extern_status is NEVER accepted from the client — computed here only,
+  // same as the current client's isExtern ? 'pending' : null.
+  const externStatus = isExtern ? 'pending' : null;
+  const finalExternReason = isExtern ? externReason : null;
+
+  // Organisation accounts get a slug (personal accounts never do — matches
+  // createPersonalAccount, which sets no slug at all).
+  const baseSlug = accountType === 'organisation' ? baseSlugify(name) || 'org' : null;
+
+  const buildInsert = (candidateSlug: string | null) => ({
+    account_type: accountType,
+    name,
+    sub_type: subType,
+    bio,
+    avatar_url: avatarUrl,
+    slug: candidateSlug,
+    contact_email: contactEmail,
+    is_extern: isExtern,
+    extern_status: externStatus,
+    extern_reason: finalExternReason,
+  });
+
+  let accountRow: Record<string, unknown> | null = null;
+  let accountErr: { code?: string; message: string } | null = null;
+  {
+    const { data, error } = await admin.from('accounts').insert(buildInsert(baseSlug)).select().single();
+    accountRow = data as Record<string, unknown> | null;
+    accountErr = error as { code?: string; message: string } | null;
+  }
+  // uq_accounts_slug is a partial unique index on slug WHERE slug IS NOT
+  // NULL — retry once with a short random suffix on conflict.
+  if (accountErr && baseSlug !== null && isUniqueSlugViolation(accountErr)) {
+    const retrySlug = `${baseSlug}-${randomSlugSuffix()}`;
+    const { data, error } = await admin.from('accounts').insert(buildInsert(retrySlug)).select().single();
+    accountRow = data as Record<string, unknown> | null;
+    accountErr = error as { code?: string; message: string } | null;
+  }
   if (accountErr) return fail('INTERNAL', 500, accountErr.message);
   const account = accountRow as { id: string };
 
@@ -586,16 +713,19 @@ async function handleHasPendingInvite(
   const accountId = requireUuid(payload.accountId, 'accountId');
   if (accountId instanceof Response) return accountId;
 
+  // .limit(1) + array check, not .maybeSingle() — duplicates are legal in
+  // this schema (nothing constrains at most one pending invite per
+  // account+wallet), and maybeSingle() throws on more than one row.
   const { data, error } = await admin
     .from('invite_tokens')
     .select('id')
     .eq('account_id', accountId)
     .eq('invited_wallet', signer)
     .eq('status', 'pending')
-    .maybeSingle();
+    .limit(1);
   if (error) return fail('INTERNAL', 500, error.message);
 
-  return ok({ pending: !!data });
+  return ok({ pending: !!data && (data as unknown[]).length > 0 });
 }
 
 // ── Entry point ──────────────────────────────────────────────────────
@@ -605,7 +735,7 @@ serve(async (req: Request) => {
     return new Response('ok', { headers: corsHeaders });
   }
   if (req.method !== 'POST') {
-    return fail('BAD_REQUEST', 405, 'Method not allowed');
+    return fail('METHOD_NOT_ALLOWED', 405, 'Method not allowed');
   }
 
   let body: Body;
@@ -657,13 +787,16 @@ serve(async (req: Request) => {
   if (!verified) {
     try {
       verified = await gnosisClient.verifyMessage({
-        address: wallet as `0x${string}`,
+        address: claimedWallet as `0x${string}`,
         message,
         signature: signature as `0x${string}`,
       });
     } catch (err) {
-      console.error('signature verification failed', err);
-      return fail('BAD_SIGNATURE', 401, 'could not verify signer');
+      // A transport/RPC failure here is NOT a bad-signature verdict — it's
+      // the verifier being unreachable. Conflating the two would make an
+      // RPC outage look like an attack; report it as unavailable instead.
+      console.error('signature verification unavailable (RPC/transport error)', err);
+      return fail('VERIFY_UNAVAILABLE', 503, 'could not reach verification RPC');
     }
   }
   if (!verified) {

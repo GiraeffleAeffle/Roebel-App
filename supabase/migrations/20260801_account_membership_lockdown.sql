@@ -35,3 +35,33 @@ drop policy if exists "account_owners_delete" on account_owners;    -- 005:43
 drop policy if exists "invite_tokens_select" on invite_tokens;      -- 011:58 (enumeration hole)
 drop policy if exists "invite_tokens_insert" on invite_tokens;      -- 011:59 (forgery hole)
 drop policy if exists "invite_tokens_update" on invite_tokens;      -- 011:60
+
+-- ── Guarded owner deletion (fix round 2026-07-31 security review) ──────────
+-- Closes a TOCTOU race in the org-membership edge function's leave/
+-- remove_member handlers: without this, two concurrent calls against the
+-- same account could both read owner_count > 1 and both proceed, leaving
+-- the account with zero owners. `for update` locks the account's
+-- account_owners rows before counting, serializing the count-then-delete
+-- against any other concurrent call on the same account_id. service_role
+-- grant ONLY — the edge function is the only caller, never anon/authenticated
+-- (same wallet-parameter-is-attacker-controlled rule as above, but here the
+-- caller already had to pass signature verification before this runs).
+create or replace function public.delete_owner_guarded(p_account_id uuid, p_wallet text)
+returns text
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_deleted_role text; v_owner_count int;
+begin
+  perform 1 from account_owners where account_id = p_account_id for update;
+  select role into v_deleted_role from account_owners
+    where account_id = p_account_id and lower(wallet_address) = lower(p_wallet);
+  if v_deleted_role is null then return 'not_a_member'; end if;
+  select count(*) into v_owner_count from account_owners
+    where account_id = p_account_id and role = 'owner';
+  if v_deleted_role = 'owner' and v_owner_count <= 1 then return 'last_owner'; end if;
+  delete from account_owners
+    where account_id = p_account_id and lower(wallet_address) = lower(p_wallet);
+  return 'deleted';
+end $$;
+
+revoke all on function public.delete_owner_guarded(uuid,text) from public;
+grant execute on function public.delete_owner_guarded(uuid,text) to service_role;
