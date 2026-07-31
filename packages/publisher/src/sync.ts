@@ -12,11 +12,13 @@ import {
   dealToSpec,
   eventToSpec,
   listingToSpec,
+  menuToSpec,
   movieToSpec,
   newsToSpec,
   noticeToSpec,
   orgPostToSpec,
   orgToSpec,
+  type MenuInput,
   type PublishSpec,
 } from "./mappers.js";
 
@@ -83,8 +85,9 @@ export async function buildSpecs(
 
   // Events need the org set even when org profiles are not published: the
   // "personal accounts stay off the record" rule is enforced against it.
+  // Menus also need it to scope org-owned restaurants correctly.
   let orgRows: Record<string, unknown>[] = [];
-  if (wantsOrgs || wantsEvents) {
+  if (wantsOrgs || wantsEvents || deps.datasets.includes("menus")) {
     orgRows = await deps.fetchRows(
       "accounts",
       "select=id,account_type,name,bio,avatar_url,cover_url,sub_type,opening_hours,slug,updated_at,created_at&account_type=eq.organisation",
@@ -229,6 +232,35 @@ export async function buildSpecs(
     );
     for (const row of announcements) {
       const spec = noticeToSpec(row, "announcement");
+      if (spec) specs.push(spec);
+    }
+  }
+  if (deps.datasets.includes("menus")) {
+    const restaurants = await deps.fetchRows(
+      "restaurants",
+      "select=id,name,slug,description,logo_url,address,account_id,updated_at,created_at",
+    );
+    const cats = await deps.fetchRows(
+      "menu_categories", "select=id,restaurant_id,name,sort_order",
+    );
+    const items = await deps.fetchRows(
+      "menu_items", "select=id,category_id,name,description,price,is_available",
+    );
+    const itemsByCategory = new Map<string, Record<string, unknown>[]>();
+    for (const i of items) {
+      const key = String(i.category_id ?? "");
+      if (!itemsByCategory.has(key)) itemsByCategory.set(key, []);
+      itemsByCategory.get(key)!.push(i);
+    }
+    for (const r of restaurants) {
+      const spec = menuToSpec(
+        {
+          restaurant: r,
+          categories: cats.filter((c) => String(c.restaurant_id) === String(r.id)),
+          itemsByCategory,
+        },
+        orgIds,
+      );
       if (spec) specs.push(spec);
     }
   }

@@ -27,6 +27,7 @@ public datasets onto the relay every 5 minutes — first live pass: 41 events ac
 | **business profiles** — kind 0, each under `biz-<id>` scope (same scope as its deals so profile + offers join by pubkey) | |
 | **blog articles** — NIP-23 `30023`, HTML→Markdown, `ai_generated` label carried onto the record | |
 | **town news** — NIP-23 `30023`, `d=news:<uuid>`, town-signed, slug tag for routing | |
+| **restaurant menus** — kind `32101` (`restaurant:<id>`), one replaceable event per restaurant, prices as raw decimals + EUR | |
 | **civic notices** — kind `32102` (`alert:<id>` or `announcement:<id>`), town-signed, resolved alerts are edits (never deleted) | |
 | **marketplace** — NIP-15 `30018`, seller opt-in gated (unrevoked npub binding), withdrawal-as-edit | |
 | **business deals** — NIP-99 `30402`, offers signed under the business's derived key | |

@@ -582,3 +582,76 @@ export function noticeToSpec(
     createdAt: unixFromUpdatedAt(row),
   };
 }
+
+/** Netizen menu — see the fork-with-fallback spec §3.2. */
+export const KIND_MENU = 32101;
+
+export interface MenuInput {
+  restaurant: Row;
+  categories: Row[];
+  itemsByCategory: Map<string, Row[]>;
+}
+
+/**
+ * A restaurant's whole menu → one parameterised replaceable event.
+ *
+ * One event per restaurant, not per dish: menus change as a unit, and a
+ * single `d = restaurant:<id>` makes every menu edit a clean NIP-01
+ * replacement. Custom kind — no NIP covers menus — documented in
+ * CONSUMING_THE_RECORD.md. Prices publish as raw decimal strings + EUR;
+ * formatting is the client's job.
+ */
+export function menuToSpec(input: MenuInput, orgAccountIds: Set<string>): PublishSpec | null {
+  const row = input.restaurant;
+  const id = str(row, "id");
+  const name = str(row, "name");
+  if (!id || !name) return null;
+
+  const accountId = str(row, "account_id");
+  const scope = accountId && orgAccountIds.has(accountId) ? `org-${accountId}` : `resto-${id}`;
+
+  const sorted = [...input.categories].sort(
+    (a, b) => Number(a["sort_order"] ?? 0) - Number(b["sort_order"] ?? 0),
+  );
+  const categories = sorted.flatMap((cat) => {
+    const catId = str(cat, "id");
+    const catName = str(cat, "name");
+    if (!catId || !catName) return [];
+    const items = (input.itemsByCategory.get(catId) ?? [])
+      .filter((i) => i["is_available"] !== false)
+      .flatMap((i) => {
+        const itemName = str(i, "name");
+        if (!itemName) return [];
+        const item: Record<string, string> = { name: itemName, currency: "EUR" };
+        const desc = str(i, "description");
+        if (desc) item.description = desc;
+        const price = i["price"];
+        if (price !== null && price !== undefined && String(price).trim() !== "") {
+          item.price = String(price);
+        }
+        return [item];
+      });
+    return [{ name: catName, items }];
+  });
+
+  const tags: string[][] = [
+    ["d", `restaurant:${id}`],
+    ["title", name],
+    ["t", "menu"],
+  ];
+  const slug = str(row, "slug");
+  if (slug) tags.push(["slug", slug]);
+  const address = str(row, "address");
+  if (address) tags.push(["location", address]);
+  const image = str(row, "image_url");
+  if (image) tags.push(["image", image]);
+
+  return {
+    scope,
+    kind: KIND_MENU,
+    d: `restaurant:${id}`,
+    content: JSON.stringify({ categories }),
+    tags,
+    createdAt: unixFromUpdatedAt(row),
+  };
+}

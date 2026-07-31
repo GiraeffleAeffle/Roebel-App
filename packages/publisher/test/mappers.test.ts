@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { htmlToMarkdown } from "../src/html-to-md.js";
-import { articleToSpec, berlinToUnix, businessToSpec, dealToSpec, eventToSpec, listingToSpec, MAPPER_VERSION, movieToSpec, newsToSpec, noticeToSpec, orgPostToSpec, orgToSpec } from "../src/mappers.js";
+import { articleToSpec, berlinToUnix, businessToSpec, dealToSpec, eventToSpec, listingToSpec, MAPPER_VERSION, menuToSpec, movieToSpec, newsToSpec, noticeToSpec, orgPostToSpec, orgToSpec } from "../src/mappers.js";
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 const ORGS = new Set([ORG_ID]);
@@ -481,5 +481,44 @@ describe("civic notices (kind 32102)", () => {
     assert.ok(spec);
     assert.equal(spec!.kind, 32102);
     assert.equal(spec!.tags.find((t) => t[0] === "status")?.[1], "resolved");
+  });
+});
+
+describe("menu mapping", () => {
+  it("menuToSpec: a restaurant's menu becomes one replaceable event", () => {
+    const spec = menuToSpec(
+      {
+        restaurant: { id: "r1", name: "Seeblick", slug: "seeblick", address: "Hafen 2",
+          image_url: "https://x/r.jpg", updated_at: "2026-07-02T10:00:00Z" },
+        categories: [
+          { id: "c1", restaurant_id: "r1", name: "Hauptgerichte", sort_order: 1 },
+          { id: "c2", restaurant_id: "r1", name: "Desserts", sort_order: 2 },
+        ],
+        itemsByCategory: new Map([
+          ["c1", [{ id: "i1", name: "Zanderfilet", description: "mit Kartoffeln", price: "18.50", is_available: true },
+                  { id: "i2", name: "Aus", price: "9", is_available: false }]],
+          ["c2", [{ id: "i3", name: "Rote Grütze", price: "6.50", is_available: true }]],
+        ]),
+      },
+      new Set(),
+    );
+    assert.ok(spec);
+    assert.equal(spec!.kind, 32101);
+    assert.equal(spec!.scope, "resto-r1");
+    assert.equal(spec!.d, "restaurant:r1");
+    const menu = JSON.parse(spec!.content);
+    assert.equal(menu.categories.length, 2);
+    assert.equal(menu.categories[0].items.length, 1); // unavailable item absent
+    assert.equal(menu.categories[0].items[0].name, "Zanderfilet");
+    assert.equal(menu.categories[0].items[0].currency, "EUR");
+  });
+
+  it("menuToSpec: org-owned restaurant signs under the org scope", () => {
+    const spec = menuToSpec(
+      { restaurant: { id: "r2", name: "X", account_id: "acc9", updated_at: "2026-07-02T10:00:00Z" },
+        categories: [], itemsByCategory: new Map() },
+      new Set(["acc9"]),
+    );
+    assert.equal(spec!.scope, "org-acc9");
   });
 });

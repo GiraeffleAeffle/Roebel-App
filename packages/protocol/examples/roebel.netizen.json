@@ -208,7 +208,8 @@
         "deals",
         "businesses",
         "news",
-        "notices"
+        "notices",
+        "menus"
       ],
       "intervalSeconds": 300,
       "backfeed": true
