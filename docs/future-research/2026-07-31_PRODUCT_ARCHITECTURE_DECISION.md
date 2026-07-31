@@ -61,6 +61,36 @@ In one sentence: **sell products, ship a protocol, operate a cloud.**
   at exactly the scale that cannot afford it. Voting UIs alone are a dying category — the
   corpus already leads with treasury/compliance/cash-flow value, which is a compound.
 
+## Brand architecture (addendum, same day — Max's follow-up: "Ortis powered by Netizen Labs?")
+
+**Endorsed-brand house: one company, one earned product brand, everything else under Netizen.**
+The test: *a segment earns a brand only when the existing brand would actively hurt the sale* —
+never because the roadmap grew a line.
+
+- **Netizen Labs** — the company, the protocol (NSP), the dev surface: Atlas, `@netizen-labs/*`,
+  Accounts SDK, the operator console. This answers the standing "what is app.netizen" question:
+  **app.netizenlabs = the operator/builder console; the citizen door gets the product brand.**
+  Dev wedge to build here: Accounts as the *agent-installable* SDK (llms.txt + MCP + docs
+  written for AI agents to execute — "tell your AI to add Netizen identity").
+- **"Ortis" (working name), powered by Netizen** — the ONE justified separate brand: the
+  civic/workspace suite (Proton/Workspace/M365-shaped; openDesk alternative-or-extension in
+  Germany, onchain privacy-preserving workspace worldwide). Justified three ways: the standing
+  rule *never frame civic work as a Blockchain-Verwaltungsprojekt* (the Kommune buyer must meet
+  a calm German product, not a crypto lab); the consumer-privacy story rejects crypto branding;
+  "Ortis" (Ort) fits the market. **Gates before the name is real**: EUIPO/DPMA search (an EU
+  "Ortis" mark exists in supplements — different Nice class, verify), domain, and — hard gate —
+  **brand launches when the first non-Röbel customer signs, not before.** Reserve now, build
+  one brand's web presence at a time.
+- **Enterprise = a tier of the suite** (SLA/DPA/audit attachments), never a third brand.
+- **Nohau = the model's name inside both surfaces** (as Gemini inside Workspace) — a component
+  brand, never a company.
+- **Robots / BCI / AR / digital twins / futarchy / RWA** — unnamed R&D under Netizen Labs until
+  a line has a paying customer AND a structural break (hardware capex is the spin-out trigger,
+  per the wealth study). Naming pre-revenue lines is playing company instead of building one.
+- **The invariant thread: the Netizen Account.** "Sign in with Netizen" is identical in Ortis,
+  mini-apps, indie apps, and every future surface — the one brand element that must never fork,
+  because it is both the UX glue and the actual moat.
+
 ## What this changes in practice
 
 - Product specs must state their standalone story AND their manifest module in the same doc
