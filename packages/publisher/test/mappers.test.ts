@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { htmlToMarkdown } from "../src/html-to-md.js";
-import { articleToSpec, berlinToUnix, businessToSpec, dealToSpec, eventToSpec, listingToSpec, MAPPER_VERSION, menuToSpec, movieToSpec, newsToSpec, noticeToSpec, orgPostToSpec, orgToSpec } from "../src/mappers.js";
+import { articleToSpec, berlinToUnix, businessToSpec, dealToSpec, eventToSpec, listingToSpec, MAPPER_VERSION, menuToSpec, movieToSpec, newsToSpec, noticeToSpec, orgPostToSpec, orgToSpec, proposalToSpec } from "../src/mappers.js";
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 const ORGS = new Set([ORG_ID]);
@@ -564,5 +564,35 @@ describe("menu mapping", () => {
     assert.equal(menu.categories.length, 2); // Only the two active categories
     assert.equal(menu.categories[0].name, "Active Cat");
     assert.equal(menu.categories[1].name, "Another Active");
+  });
+});
+
+describe("proposal mapping", () => {
+  it("proposalToSpec: a proposal becomes a discoverable pointer", () => {
+    const spec = proposalToSpec(
+      { id: "p-row-1", proposal_id: "42", blockchain_proposal_id: "0xabc123", proposal_number: 7,
+        title: "Neuer Spielplatz", summary: "Am Hafen", category: "infrastruktur",
+        irys_content_id: "IRYS_TX_1", state: 1, created_at: "2026-07-01T10:00:00Z",
+        updated_at: "2026-07-02T10:00:00Z",
+        proposer_address: "0x5e6528DEADBEEF" },
+      "100:0x5F5e499Dc1872c2Ce19a4b50cd10f680e78E3Ba3",
+    );
+    assert.ok(spec);
+    assert.equal(spec!.kind, 32100);
+    assert.equal(spec!.scope, "town");
+    assert.equal(spec!.d, "proposal:42");
+    assert.equal(spec!.content, "Am Hafen");
+    const tag = (n: string) => spec!.tags.find((t) => t[0] === n)?.[1];
+    assert.equal(tag("title"), "Neuer Spielplatz");
+    assert.equal(tag("governor"), "100:0x5F5e499Dc1872c2Ce19a4b50cd10f680e78E3Ba3");
+    assert.equal(tag("proposal_id"), "0xabc123");
+    assert.equal(tag("irys"), "IRYS_TX_1");
+    assert.equal(tag("status"), "1");
+    // The proposer's wallet must NOT ride on the record event.
+    assert.ok(!JSON.stringify(spec).includes("0x5e6528DEADBEEF"));
+  });
+
+  it("proposalToSpec: no governor configured → nothing publishes", () => {
+    assert.equal(proposalToSpec({ id: "x", proposal_id: "1", title: "t" }, ""), null);
   });
 });

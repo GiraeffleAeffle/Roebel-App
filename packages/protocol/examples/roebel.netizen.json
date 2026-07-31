@@ -209,7 +209,8 @@
         "businesses",
         "news",
         "notices",
-        "menus"
+        "menus",
+        "proposals"
       ],
       "intervalSeconds": 300,
       "backfeed": true

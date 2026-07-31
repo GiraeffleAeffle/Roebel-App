@@ -18,6 +18,7 @@ import {
   noticeToSpec,
   orgPostToSpec,
   orgToSpec,
+  proposalToSpec,
   type MenuInput,
   type PublishSpec,
 } from "./mappers.js";
@@ -64,6 +65,11 @@ export interface PublisherDeps {
    */
   onPubkeys?: (pubkeys: string[]) => Promise<void>;
   log?: (message: string) => void;
+  /**
+   * Governor address for proposals ("100:0x5F5e…" format: chainId:address).
+   * Required if datasets includes "proposals".
+   */
+  governor?: string;
 }
 
 export interface PublishSummary {
@@ -77,7 +83,7 @@ export interface PublishSummary {
 
 /** Build the full spec list for one pass. Exposed for tests. */
 export async function buildSpecs(
-  deps: Pick<PublisherDeps, "datasets" | "fetchRows" | "nodeId">,
+  deps: Pick<PublisherDeps, "datasets" | "fetchRows" | "nodeId" | "governor">,
 ): Promise<PublishSpec[]> {
   const specs: PublishSpec[] = [];
   const wantsOrgs = deps.datasets.includes("orgs");
@@ -261,6 +267,20 @@ export async function buildSpecs(
         },
         orgIds,
       );
+      if (spec) specs.push(spec);
+    }
+  }
+  if (deps.datasets.includes("proposals")) {
+    if (!deps.governor) {
+      // Deliberately loud: a configured dataset that silently publishes nothing is a lie.
+      throw new Error("datasets includes 'proposals' but PROPOSAL_GOVERNOR is not set");
+    }
+    const rows = await deps.fetchRows(
+      "proposals",
+      "select=id,proposal_id,blockchain_proposal_id,proposal_number,title,summary,category,irys_content_id,state,created_at,updated_at",
+    );
+    for (const row of rows) {
+      const spec = proposalToSpec(row, deps.governor);
       if (spec) specs.push(spec);
     }
   }

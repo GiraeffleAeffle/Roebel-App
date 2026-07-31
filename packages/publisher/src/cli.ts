@@ -23,7 +23,7 @@ function required(name: string): string {
   return value;
 }
 
-const VALID_DATASETS = new Set<DatasetName>(["events", "cinema", "orgs", "articles", "marketplace", "deals", "news", "businesses", "notices", "menus"]);
+const VALID_DATASETS = new Set<DatasetName>(["events", "cinema", "orgs", "articles", "marketplace", "deals", "news", "businesses", "notices", "menus", "proposals"]);
 
 async function main(): Promise<void> {
   const nodeId = required("NODE_ID");
@@ -40,7 +40,7 @@ async function main(): Promise<void> {
     .map((d) => d.trim())
     .filter((d): d is DatasetName => VALID_DATASETS.has(d as DatasetName));
   if (datasets.length === 0) {
-    console.error("PUBLISH_DATASETS names no known dataset (events, cinema, orgs, articles, marketplace, deals, news, businesses, notices, menus)");
+    console.error("PUBLISH_DATASETS names no known dataset (events, cinema, orgs, articles, marketplace, deals, news, businesses, notices, menus, proposals)");
     process.exit(2);
   }
 
@@ -53,6 +53,8 @@ async function main(): Promise<void> {
   };
 
   console.log(`publisher for "${nodeId}" -> ${relayUrl}; datasets: ${datasets.join(", ")}`);
+
+  const governor = process.env.PROPOSAL_GOVERNOR;
 
   // Content-addressed media mirror: images referenced by published events are
   // fetched once, stored by sha256 beside a content-type sidecar, and the
@@ -147,6 +149,7 @@ async function main(): Promise<void> {
         datasets,
         fetchRows,
         relayUrl,
+        ...(governor ? { governor } : {}),
         ...(mirrorMedia ? { mirrorMedia } : {}),
         // Announce signing keys BEFORE publishing, atomically — the allow-list
         // syncer reads this file on its own schedule and must never see a half

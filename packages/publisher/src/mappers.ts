@@ -586,6 +586,52 @@ export function noticeToSpec(
 /** Netizen menu — see the fork-with-fallback spec §3.2. */
 export const KIND_MENU = 32101;
 
+/** Netizen proposal metadata — see the fork-with-fallback spec §3.2. */
+export const KIND_PROPOSAL_META = 32100;
+
+/**
+ * A governance proposal → a discoverable pointer on the record.
+ *
+ * The body is already permanent on Irys and the authoritative state (votes,
+ * tallies, execution) lives on-chain; this event makes both findable and
+ * joinable from the record. The `status` tag is a SNAPSHOT for list rendering
+ * — clients needing truth read the Governor. The proposer's wallet is
+ * deliberately absent: it is on-chain for those who need it, and the record
+ * never carries raw addresses.
+ */
+export function proposalToSpec(row: Row, governor: string): PublishSpec | null {
+  if (!governor) return null;
+  const proposalId = str(row, "proposal_id");
+  const title = str(row, "title");
+  if (!proposalId || !title) return null;
+
+  const tags: string[][] = [
+    ["d", `proposal:${proposalId}`],
+    ["title", title],
+    ["governor", governor],
+    ["t", "proposal"],
+  ];
+  const chainId = str(row, "blockchain_proposal_id");
+  if (chainId) tags.push(["proposal_id", chainId]);
+  const irys = str(row, "irys_content_id");
+  if (irys) tags.push(["irys", irys]);
+  const category = str(row, "category");
+  if (category) tags.push(["t", category]);
+  const state = row["state"];
+  if (state !== null && state !== undefined) tags.push(["status", String(state)]);
+  const createdAt = str(row, "created_at");
+  if (createdAt) tags.push(["published_at", String(Math.floor(Date.parse(createdAt) / 1000))]);
+
+  return {
+    scope: TOWN_SCOPE,
+    kind: KIND_PROPOSAL_META,
+    d: `proposal:${proposalId}`,
+    content: str(row, "summary") ?? "",
+    tags,
+    createdAt: unixFromUpdatedAt(row),
+  };
+}
+
 export interface MenuInput {
   restaurant: Row;
   categories: Row[];
