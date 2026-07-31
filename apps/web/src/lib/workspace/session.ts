@@ -97,3 +97,36 @@ export function hasOrgAccess(
   const prefix = `org:${accountId}:`;
   return session.groups.some((group) => group.startsWith(prefix));
 }
+
+/** owner outranks admin outranks member — used to pick a winner when a
+ * session somehow carries more than one role claim for the same org. */
+const ROLE_RANK: Record<OrgRole, number> = { owner: 3, admin: 2, member: 1 };
+
+/**
+ * The citizen's role in a given org, or `null` if they hold no claim for it
+ * at all. When more than one `org:<accountId>:<role>` claim is present for
+ * the same org — which should not normally happen, but the claim is
+ * attacker-adjacent input from a token, not a database row — the highest
+ * role wins rather than the first or last one encountered, so a stale lower
+ * role sitting alongside a fresh higher one can never accidentally narrow
+ * access below what the citizen actually holds.
+ *
+ * This is the source `resolveScope` reads to decide `WorkspaceScope.canWrite`
+ * (owner/admin write, member reads) and, per Task 11, the same mapping
+ * Nextcloud's own ACL applies.
+ */
+export function orgRole(
+  session: WorkspaceSession,
+  accountId: string,
+): OrgRole | null {
+  const prefix = `org:${accountId}:`;
+  let best: OrgRole | null = null;
+  for (const group of session.groups) {
+    if (!group.startsWith(prefix)) continue;
+    const role = group.slice(prefix.length) as OrgRole;
+    if (ORG_ROLES.includes(role) && (!best || ROLE_RANK[role] > ROLE_RANK[best])) {
+      best = role;
+    }
+  }
+  return best;
+}

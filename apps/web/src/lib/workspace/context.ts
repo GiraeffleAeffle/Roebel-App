@@ -17,6 +17,7 @@ import {
   isCitizenSession,
   isExpired,
   orgGroupId,
+  orgRole,
   type WorkspaceSession,
 } from "./session";
 
@@ -115,7 +116,8 @@ export async function resolveScope(params: {
         "the personal workspace is for verified citizens",
       );
     }
-    return { kind: "personal", sub: params.session.sub };
+    // A citizen always owns their own personal home — nothing to narrow.
+    return { kind: "personal", sub: params.session.sub, canWrite: true };
   }
   if (!params.accountId) {
     throw new WorkspaceAuthError("forbidden", "an org scope needs an account id");
@@ -131,6 +133,10 @@ export async function resolveScope(params: {
     sub: params.session.sub,
     accountId: params.accountId,
     folderName: orgFolderMount(params.accountId),
+    // owner/admin write, member reads — the same mapping Task 11 applies to
+    // Nextcloud's own ACL. `hasOrgAccess` above already proved a claim
+    // exists, so `orgRole` cannot be null here.
+    canWrite: orgRole(params.session, params.accountId) !== "member",
   };
 }
 

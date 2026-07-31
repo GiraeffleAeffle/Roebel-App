@@ -22,4 +22,14 @@ export interface WorkspaceScope {
   accountId?: string;
   /** Group folder name, e.g. "Org Feuerwehr". Required when kind === "org". */
   folderName?: string;
+  /**
+   * Whether this scope may write, not just read. A personal scope is always
+   * `true` — a citizen always owns their own home. An org scope is `true`
+   * for owner/admin and `false` for member: identical write access for all
+   * three roles was the gap; this is the field that closes it. The caller
+   * that resolves a scope (`resolveScope` in apps/web) is the only place
+   * that decides this value — it is derived from the session's role claim,
+   * never accepted from the request.
+   */
+  canWrite: boolean;
 }

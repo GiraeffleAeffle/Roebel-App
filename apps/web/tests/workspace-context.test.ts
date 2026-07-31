@@ -16,14 +16,36 @@ describe("resolveScope", () => {
   it("defaults to the citizen's personal scope", async () => {
     assert.deepEqual(
       await resolveScope({ session, scopeKind: null, accountId: null, orgName: null }),
-      { kind: "personal", sub: "0xabc" },
+      { kind: "personal", sub: "0xabc", canWrite: true },
     );
   });
 
   it("builds an org scope, with the folder name derived from accountId alone", async () => {
+    // `session` carries an org:acc-7:member claim — a member reads, does not write.
     assert.deepEqual(
       await resolveScope({ session, scopeKind: "org", accountId: "acc-7", orgName: "Feuerwehr" }),
-      { kind: "org", sub: "0xabc", accountId: "acc-7", folderName: "org-acc-7" },
+      { kind: "org", sub: "0xabc", accountId: "acc-7", folderName: "org-acc-7", canWrite: false },
+    );
+  });
+
+  // Task 10 enforces scope.canWrite on the routes; this is the model it reads.
+  it("org scope for a member is read-only; personal is writable", async () => {
+    const member = await resolveScope({ session, scopeKind: "org", accountId: "acc-7", orgName: null });
+    assert.equal(member.canWrite, false);
+    const personal = await resolveScope({ session, scopeKind: null, accountId: null, orgName: null });
+    assert.equal(personal.canWrite, true);
+  });
+
+  it("org scope for an admin or owner is writable", async () => {
+    const admin = { ...session, groups: ["org:acc-7:admin"] };
+    const owner = { ...session, groups: ["org:acc-7:owner"] };
+    assert.equal(
+      (await resolveScope({ session: admin, scopeKind: "org", accountId: "acc-7", orgName: null })).canWrite,
+      true,
+    );
+    assert.equal(
+      (await resolveScope({ session: owner, scopeKind: "org", accountId: "acc-7", orgName: null })).canWrite,
+      true,
     );
   });
 
@@ -112,7 +134,7 @@ describe("resolveScope", () => {
     const owner = { ...session, groups: ["org:acc-7:owner"] };
     assert.deepEqual(
       await resolveScope({ session: owner, scopeKind: "org", accountId: "acc-7", orgName: null }),
-      { kind: "org", sub: "0xabc", accountId: "acc-7", folderName: "org-acc-7" },
+      { kind: "org", sub: "0xabc", accountId: "acc-7", folderName: "org-acc-7", canWrite: true },
     );
   });
 });
@@ -143,7 +165,7 @@ describe("ensureOrgFolder", () => {
 
   it("does nothing for a personal scope", async () => {
     const { provisioner, ensureGroupCalls, ensureGroupFolderCalls } = fakeProvisioner();
-    const scope: WorkspaceScope = { kind: "personal", sub: "0xabc" };
+    const scope: WorkspaceScope = { kind: "personal", sub: "0xabc", canWrite: true };
     await ensureOrgFolder(ctxWith(provisioner), scope);
     assert.equal(ensureGroupCalls.length, 0);
     assert.equal(ensureGroupFolderCalls.length, 0);
@@ -160,6 +182,7 @@ describe("ensureOrgFolder", () => {
       sub: "0xabc",
       accountId: "acc-ensure-1",
       folderName: "org-acc-ensure-1",
+      canWrite: true,
     };
     await ensureOrgFolder(ctxWith(provisioner), scope);
     assert.deepEqual(ensureGroupCalls, [
@@ -181,6 +204,7 @@ describe("ensureOrgFolder", () => {
       sub: "0xabc",
       accountId: "acc-ensure-2",
       folderName: "org-acc-ensure-2",
+      canWrite: true,
     };
     await ensureOrgFolder(ctxWith(provisioner), scope);
     await ensureOrgFolder(ctxWith(provisioner), scope);
@@ -246,7 +270,7 @@ describe("resolveScope — the citizen gate on the personal scope", () => {
   it("allows it for a session that does carry the claim", async () => {
     assert.deepEqual(
       await resolveScope({ session, scopeKind: null, accountId: null }),
-      { kind: "personal", sub: "0xabc" },
+      { kind: "personal", sub: "0xabc", canWrite: true },
     );
   });
 
@@ -255,9 +279,10 @@ describe("resolveScope — the citizen gate on the personal scope", () => {
   // org:<id>:<role> claim instead — gating requireWorkspace() wholesale would
   // have locked those people out of their own org's shared folder.
   it("does NOT gate the org scope on citizenship — the org claim is that gate", async () => {
+    // notCitizen's only claim is org:acc-7:member — a member, so read-only.
     assert.deepEqual(
       await resolveScope({ session: notCitizen, scopeKind: "org", accountId: "acc-7" }),
-      { kind: "org", sub: "0xabc", accountId: "acc-7", folderName: "org-acc-7" },
+      { kind: "org", sub: "0xabc", accountId: "acc-7", folderName: "org-acc-7", canWrite: false },
     );
   });
 

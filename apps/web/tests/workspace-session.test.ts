@@ -9,6 +9,7 @@ import {
   isExpired,
   newSessionId,
   orgGroupId,
+  orgRole,
   sessionMatchesWallet,
   type WorkspaceSession,
 } from "../src/lib/workspace/session";
@@ -129,6 +130,27 @@ describe("org access", () => {
   // org this citizen belongs to."
   it("does not match an empty-string accountId", () => {
     assert.equal(hasOrgAccess(session, ""), false);
+  });
+});
+
+describe("orgRole", () => {
+  it("picks the highest role and ignores other orgs", () => {
+    const s: WorkspaceSession = {
+      ...session,
+      groups: ["citizen", "org:a-1:member", "org:a-1:admin", "org:b-2:owner"],
+    };
+    assert.equal(orgRole(s, "a-1"), "admin");
+    assert.equal(orgRole(s, "b-2"), "owner");
+    assert.equal(orgRole(s, "c-3"), null);
+  });
+
+  it("returns null for an org the session has no claim for", () => {
+    assert.equal(orgRole(session, "acc-99"), null);
+  });
+
+  it("returns the single role when only one claim exists", () => {
+    const s: WorkspaceSession = { ...session, groups: ["org:acc-7:member"] };
+    assert.equal(orgRole(s, "acc-7"), "member");
   });
 });
 
