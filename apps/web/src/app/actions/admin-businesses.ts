@@ -1,6 +1,7 @@
 "use server"
 
 import { createClient } from "@/lib/supabase/server"
+import { createAdminClient } from "@/lib/supabase/admin"
 import { revalidatePath } from "next/cache"
 import type { Business, BusinessStatus } from "@/types/business"
 import type { OrgSubType, ExternStatus } from "@/types/account"
@@ -130,7 +131,11 @@ async function syncBusinessVerification(
 
   if (matchedIds.length === 0) return
 
-  await supabase
+  // Service-role client: the account-membership lockdown migration drops
+  // anon-key UPDATE policies on `accounts`. The account_owners read above
+  // stays on the caller's anon client — only this write needs the swap.
+  const admin = createAdminClient()
+  await admin
     .from("accounts")
     .update({ is_verified: isVerified, updated_at: new Date().toISOString() })
     .in("id", matchedIds)
@@ -305,7 +310,10 @@ export async function approveOrgRequest(
       update.extern_reviewed_at = new Date().toISOString()
     }
 
-    const { error: updateErr } = await supabase
+    // Service-role client: the account-membership lockdown migration drops
+    // anon-key UPDATE policies on `accounts`.
+    const admin = createAdminClient()
+    const { error: updateErr } = await admin
       .from("accounts")
       .update(update)
       .eq("id", accountId)
@@ -375,7 +383,10 @@ export async function rejectOrgRequest(
 
     // extern_status is the only review-state column on `accounts` today.
     // Widening it to cover non-extern rejections avoids a schema migration.
-    const { error: updateErr } = await supabase
+    // Service-role client: the account-membership lockdown migration drops
+    // anon-key UPDATE policies on `accounts`.
+    const admin = createAdminClient()
+    const { error: updateErr } = await admin
       .from("accounts")
       .update({
         extern_status: "rejected",

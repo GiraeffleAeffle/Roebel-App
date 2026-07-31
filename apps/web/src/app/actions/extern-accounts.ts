@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import { resend, EMAIL_CONFIG } from "@/lib/resend";
 
@@ -22,7 +23,10 @@ export async function approveExtern(
     .eq("id", accountId)
     .maybeSingle();
 
-  const { error } = await supabase
+  // Service-role client: the account-membership lockdown migration drops
+  // anon-key UPDATE policies on `accounts`.
+  const admin = createAdminClient();
+  const { error } = await admin
     .from("accounts")
     .update({
       extern_status: "approved",
@@ -67,7 +71,10 @@ export async function rejectExtern(
     .eq("id", accountId)
     .maybeSingle();
 
-  const { error } = await supabase
+  // Service-role client: the account-membership lockdown migration drops
+  // anon-key UPDATE policies on `accounts`.
+  const admin = createAdminClient();
+  const { error } = await admin
     .from("accounts")
     .update({
       extern_status: "rejected",
