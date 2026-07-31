@@ -624,8 +624,8 @@ export function menuToSpec(input: MenuInput, orgAccountIds: Set<string>): Publis
     const catId = str(cat, "id");
     const catName = str(cat, "name");
     if (!catId || !catName) return [];
-    // Skip inactive categories.
-    if (cat["is_active"] === false) return [];
+    // Skip inactive categories (parity with app's strict .eq("is_active", true)).
+    if (cat["is_active"] !== true) return [];
     const items = (input.itemsByCategory.get(catId) ?? [])
       .filter((i) => i["is_available"] !== false)
       .flatMap((i) => {

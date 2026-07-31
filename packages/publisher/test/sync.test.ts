@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { verifyEvent, type NostrEvent } from "@netizen-labs/nostr";
-import { publishOnce, type DatasetName, type PublisherDeps } from "../src/sync.js";
+import { buildSpecs, publishOnce, type DatasetName, type PublisherDeps } from "../src/sync.js";
 
 const SECRET = "a-node-secret-with-plenty-of-entropy-0123456789";
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
@@ -229,5 +229,95 @@ describe("dataset names", () => {
     assert.ok(knownDatasets.includes("news"));
     assert.ok(knownDatasets.includes("businesses"));
     assert.ok(knownDatasets.includes("notices"));
+  });
+});
+
+describe("query string shape validation", () => {
+  it("restaurants query contains valid PostgREST status filter", async () => {
+    const queryLog: Map<string, string> = new Map();
+    const deps: PublisherDeps = {
+      nodeSecret: SECRET,
+      nodeId: "roebel",
+      datasets: ["menus"],
+      fetchRows: async (table, query) => {
+        queryLog.set(table, query);
+        return TABLES[table] ?? [];
+      },
+      relayUrl: "ws://relay",
+      makeClient: () => ({
+        publish: async () => ({ ok: true, message: "" }),
+        close: () => {},
+      }),
+    };
+
+    await buildSpecs(deps);
+
+    // Verify the query string was captured
+    const restaurantsQuery = queryLog.get("restaurants");
+    assert.ok(restaurantsQuery, "restaurants table should be fetched with a query string");
+
+    // Assert the restaurants query contains the correct PostgREST status filter
+    assert.ok(
+      restaurantsQuery.includes("status=in.(approved,published)"),
+      `restaurants query should include 'status=in.(approved,published)', but got: ${restaurantsQuery}`,
+    );
+
+    // Generic shape check: all filter fragments (non-select parts) should match PostgREST syntax
+    // Pattern: column_name=operator.(value) or column_name=operator.value or column_name=eq.value etc.
+    const queryFragments = restaurantsQuery.split("&");
+    for (const fragment of queryFragments) {
+      if (fragment.startsWith("select=")) {
+        // Skip the select clause — it's not a filter
+        continue;
+      }
+      // Each filter should match: column=operator.value_part or column=operator.(list)
+      const match = fragment.match(/^[A-Za-z_][A-Za-z0-9_]*=[a-z]+\./);
+      assert.ok(
+        match,
+        `Query fragment '${fragment}' does not match PostgREST filter shape (column=operator.value). Full query: ${restaurantsQuery}`,
+      );
+    }
+  });
+});
+
+describe("buildSpecs query string validation across datasets", () => {
+  it("all dataset queries conform to PostgREST filter syntax", async () => {
+    const queryLog: Map<string, string[]> = new Map();
+    const deps: PublisherDeps = {
+      nodeSecret: SECRET,
+      nodeId: "roebel",
+      datasets: ["events", "cinema", "orgs", "articles", "marketplace", "deals", "news", "businesses", "notices", "menus"],
+      fetchRows: async (table, query) => {
+        if (!queryLog.has(table)) queryLog.set(table, []);
+        queryLog.get(table)!.push(query);
+        return TABLES[table] ?? [];
+      },
+      relayUrl: "ws://relay",
+      makeClient: () => ({
+        publish: async () => ({ ok: true, message: "" }),
+        close: () => {},
+      }),
+    };
+
+    await buildSpecs(deps);
+
+    // Verify each table's queries conform to PostgREST syntax
+    for (const [table, queries] of queryLog.entries()) {
+      for (const query of queries) {
+        const queryFragments = query.split("&");
+        for (const fragment of queryFragments) {
+          // Skip select clause
+          if (fragment.startsWith("select=")) {
+            continue;
+          }
+          // Each filter fragment should match: column=operator.value_form
+          const match = fragment.match(/^[A-Za-z_][A-Za-z0-9_]*=[a-z]+(\.|$)/);
+          assert.ok(
+            match,
+            `Table '${table}': fragment '${fragment}' does not match PostgREST syntax. Full query: ${query}`,
+          );
+        }
+      }
+    }
   });
 });

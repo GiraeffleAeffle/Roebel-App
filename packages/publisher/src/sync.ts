@@ -238,7 +238,7 @@ export async function buildSpecs(
   if (deps.datasets.includes("menus")) {
     const restaurants = await deps.fetchRows(
       "restaurants",
-      "select=id,name,slug,description,logo_url,address,account_id,status,updated_at,created_at&in(status,(\"approved\",\"published\"))",
+      "select=id,name,slug,description,logo_url,address,account_id,status,updated_at,created_at&status=in.(approved,published)",
     );
     const cats = await deps.fetchRows(
       "menu_categories", "select=id,restaurant_id,name,sort_order,is_active",
