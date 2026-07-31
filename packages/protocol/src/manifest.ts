@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AUDIENCES, DECISION_KINDS } from "./decisions.js";
 
 /**
  * NSP-0 v2 — the Netizen Node Manifest.
@@ -378,6 +379,53 @@ const Operations = z.object({
   agentReadableHealth: z.boolean().optional(),
 });
 
+/**
+ * NSP-12 — the Public Decision Record: the proposal pipeline as public,
+ * signed events. See docs/superpowers/specs/2026-07-31-nsp12-public-decision-record-design.md §7.
+ *
+ * Agents are referenced by watcher-style slug (identity derived from the node
+ * secret, like `agents.watcher.agent`) — not by raw key, which would be a
+ * second identity scheme in one manifest. Bodies name the publisher SCOPE
+ * their notices are signed under, because notices are org-scope speech.
+ */
+const agentSlug = z.string().regex(/^[a-z0-9-]+$/, "agent name must be a lowercase slug");
+const RecordBlock = z.object({
+  decisions: z.object({
+    kinds: z
+      .object({
+        head: z.number().int().positive().default(DECISION_KINDS.head),
+        transition: z.number().int().positive().default(DECISION_KINDS.transition),
+        meeting: z.number().int().positive().default(DECISION_KINDS.meeting),
+        meinungsbild: z.number().int().positive().default(DECISION_KINDS.meinungsbild),
+        impact: z.number().int().positive().default(DECISION_KINDS.impact),
+        cycle: z.number().int().positive().default(DECISION_KINDS.cycle),
+      })
+      .default({}),
+    agents: z
+      .object({
+        editor: z
+          .object({
+            agent: agentSlug,
+            /** After this many days without activity the editor may park a draft (`ruhend`). */
+            staleAfterDays: z.number().int().positive().default(180),
+          })
+          .optional(),
+        impact: z
+          .object({
+            agent: agentSlug,
+            audiences: z.array(z.enum(AUDIENCES)).min(1).default([...AUDIENCES]),
+          })
+          .optional(),
+      })
+      .optional(),
+    /** Formal decision bodies whose signed notices gate beschlossen/abgelehnt. */
+    bodies: z
+      .array(z.object({ id: z.string().regex(/^[a-z0-9-]+$/), noticeScope: z.string().min(1) }))
+      .optional(),
+    cycle: z.object({ current: z.string().regex(/^[a-z0-9-]+$/) }).optional(),
+  }),
+});
+
 export const NetizenManifestSchema = z.object({
   nsp: z.literal("0"),
   manifestVersion: z.string().regex(/^\d+\.\d+\.\d+$/, "expected semver"),
@@ -427,6 +475,8 @@ export const NetizenManifestSchema = z.object({
   operations: Operations.optional(),
   /** NSP-9 — nodes this one mirrors public events with. Absent means no federation. */
   peers: z.array(Peer).optional(),
+  /** NSP-12 — the public decision record. Absent means the node does not run the pipeline. */
+  record: RecordBlock.optional(),
 
   branding: z
     .object({

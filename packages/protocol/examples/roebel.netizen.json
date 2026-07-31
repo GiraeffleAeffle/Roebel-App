@@ -194,7 +194,12 @@
         30402,
         32100,
         32101,
-        32102
+        32102,
+        2100,
+        32103,
+        32104,
+        32105,
+        32106
       ],
       "ingestIntervalSeconds": 120
     },
@@ -289,6 +294,11 @@
       "why": "Federation test fixture on the same host: proves NSP-9 sync and is the regression fixture for every federation change. Plaintext is safe here because the name resolves only on this machine's docker network."
     }
   ],
+  "record": {
+    "decisions": {
+      "bodies": [{ "id": "stadtvertretung", "noticeScope": "town" }]
+    }
+  },
   "branding": {
     "primary": "#00498B",
     "logo": "/favicon.svg",

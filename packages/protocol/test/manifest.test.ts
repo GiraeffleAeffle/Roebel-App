@@ -105,3 +105,48 @@ test("rejects treasury splits that do not sum to 100", () => {
   const bad = { ...roebel, treasury: { ...roebel.treasury, splits: { reserve: 50, ops: 30, dividend: 10 } } };
   assert.equal(safeParseManifest(bad).success, false);
 });
+
+test("the Röbel manifest adopts the NSP-12 decision record with default kinds", () => {
+  const m = parseManifest(roebel);
+  assert.ok(m.record, "roebel example must declare the record block");
+  assert.equal(m.record!.decisions.kinds.transition, 2100);
+  assert.equal(m.record!.decisions.kinds.cycle, 32106);
+  // adopting the grammar means indexing it — the six kinds are in the indexer set
+  for (const k of [2100, 32100, 32103, 32104, 32105, 32106]) {
+    assert.ok(m.services.indexer!.kinds.includes(k), `indexer must include kind ${k}`);
+  }
+});
+
+test("record agents use watcher-style slugs and default staleAfterDays", () => {
+  const withAgents = {
+    ...roebel,
+    record: {
+      decisions: {
+        agents: { editor: { agent: "mecky-editor" }, impact: { agent: "mecky-impact" } },
+      },
+    },
+  };
+  const m = parseManifest(withAgents);
+  assert.equal(m.record!.decisions.agents!.editor!.staleAfterDays, 180);
+  assert.deepEqual(m.record!.decisions.agents!.impact!.audiences,
+    ["anwohner", "gewerbe", "vereine", "verwaltung"]);
+});
+
+test("a bad audience or an uppercase agent slug is rejected", () => {
+  const badAudience = {
+    ...roebel,
+    record: { decisions: { agents: { impact: { agent: "mecky-impact", audiences: ["touristen"] } } } },
+  };
+  assert.equal(safeParseManifest(badAudience).success, false);
+  const badSlug = {
+    ...roebel,
+    record: { decisions: { agents: { editor: { agent: "Mecky" } } } },
+  };
+  assert.equal(safeParseManifest(badSlug).success, false);
+});
+
+test("a node without a record block still validates — the grammar is optional", () => {
+  const bare = { ...roebel } as Record<string, unknown>;
+  delete bare.record;
+  assert.equal(safeParseManifest(bare).success, true);
+});
