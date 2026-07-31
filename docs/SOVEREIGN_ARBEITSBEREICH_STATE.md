@@ -57,11 +57,17 @@ ever reaches the browser, and an edit outliving the token's hour still saves.
   verified (the build reached page-data collection), and `tsc --noEmit` is clean
   across all workspace files — which matters because `next.config` sets
   `typescript.ignoreBuildErrors: true`, so the build never type-checks anyway.
-- **Mobile has no route to the native files page.** The only link is in a
-  `hidden md:block` sidebar. Fix before flipping the flag.
-- **All three org roles get identical write access.** `ensureOrgFolder` binds
+- ~~Mobile has no route to the native files page. The only link is in a
+  `hidden md:block` sidebar.~~ **DONE:** a mobile bottom nav and a `Dateien`
+  tile now route to `/arbeitsbereich` (`734ba695`, `4a019442`).
+- ~~All three org roles get identical write access. `ensureOrgFolder` binds
   owner/admin/member the same and the editor mints `canWrite: true`
-  unconditionally.
+  unconditionally.~~ **DONE:** write access is now role-based — owner/admin
+  write, member read-only — enforced in the editor/upload/folder/delete
+  routes (`06de78c1`, `9b196341`), with matching Nextcloud per-role
+  permission bitmasks 31/1 (`27bc8958`). Unrecognized roles fail **closed**
+  (`1e4fe6a1` fixed a fail-open `canWrite` for roles the switch didn't
+  recognise).
 - **No React component or route handler is unit-tested.** This repo's harness
   (`tsx --test`) reaches pure modules only. All decisions were pushed into pure
   modules and tested there; the wiring is verified by reading, `tsc` and lint.
@@ -119,9 +125,23 @@ NEXT_PUBLIC_WORKSPACE_NATIVE_FILES=1
 Unset (or `0`/`no`) = the Nextcloud tile and link-out card stay, exactly as
 before this work. Set = the native surface takes over and the tile disappears.
 
-> **Do not flip this until `account_owners_insert WITH CHECK (true)` is fixed.**
-> `hasOrgAccess` is the only gate on org files and the mount point is guessable.
-> See [SECURITY_FINDINGS_2026-07-28.md](SECURITY_FINDINGS_2026-07-28.md) §1.
+> **Findings §1/§2 are code-fixed, not policy-fixed yet — this gates ORG
+> scopes only.** `hasOrgAccess` is the only gate on org files and the mount
+> point is guessable, so the underlying risk was real. All membership and
+> account writes now ride a signature-verified edge function
+> (`org-membership`) instead of the open `WITH CHECK (true)` policies, but
+> the policy drops themselves ship in
+> `supabase/migrations/20260802_account_membership_lockdown.sql`, which is
+> **gated on the next EAS build** (older installed Expo builds still write
+> `account_owners`/`accounts` directly; dropping the policy before they
+> upgrade breaks them). Don't flip the flag for **org** scopes until that
+> migration is applied. The **personal** scope never depended on these
+> findings and is unaffected. Session claims (finding §4) are separately
+> fixed: `workspace_sessions` now re-reads group claims on token refresh
+> (`ec2f19f4`, `6a2304c0`) instead of trusting the login-time snapshot, so an
+> ex-member loses org access at the next refresh, not at the cookie's 14-day
+> `maxAge`. See
+> [SECURITY_FINDINGS_2026-07-28.md](SECURITY_FINDINGS_2026-07-28.md).
 
 ## 4. Where the code is
 

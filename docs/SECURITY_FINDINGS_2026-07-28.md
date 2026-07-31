@@ -12,7 +12,7 @@ migration file.
 
 ---
 
-## 1. Anyone with the anon key can join any organisation — OPEN
+## 1. Anyone with the anon key can join any organisation — FIXED (code); policy drop gated
 
 `supabase/migrations/005_accounts_system.sql:42`
 
@@ -45,7 +45,37 @@ owner/admin of that account, or a signed invite — never `WITH CHECK (true)`.
 There is already an invite path (`apps/web/src/lib/supabase-invites.ts`); the
 policy should enforce what that flow assumes.
 
-## 2. Anyone with the anon key can rename any account — OPEN
+**FIXED 2026-07-31 (code); RLS policy drop still gated.** All membership
+writes — org/personal creation, invite create/accept/decline/revoke, leave,
+remove_member, role changes — now route through a new signature-verified edge
+function, `org-membership`
+(`apps/expo/supabase/functions/org-membership/index.ts`): EOA recovery →
+ERC-1271/6492 verification on Gnosis, a 300s replay window, and per-action
+owner/admin authorization, with last-owner protection enforced by
+FOR-UPDATE-locked SQL guards (`delete_owner_guarded`,
+`set_owner_role_guarded`). Web and expo callers were rewired onto the signed
+path (web: `c3a2aa90`, `3f838fd2`, `ecd70f43`, `aa6693ee`; expo: `beec7214`;
+role changes: `3196d153`). The supporting RPCs/functions ship in
+`supabase/migrations/20260801_membership_functions.sql` (additive, being
+applied to prod now). **The actual `WITH CHECK (true)` policy drop lives in
+`supabase/migrations/20260802_account_membership_lockdown.sql`, and applying
+it is gated on the next EAS build shipping** — older installed Expo builds
+still write `account_owners` directly, and dropping the permissive policy
+before they upgrade would break them. Until that migration lands: the signed
+path is live and is what every current client uses, but the old direct-INSERT
+hole in the database is still technically open. Code-fixed, policy-pending.
+
+**Sub-finding recorded in the same work:** `invite_tokens` had the identical
+shape of hole. Its INSERT policy was also `WITH CHECK (true)` (anyone could
+forge an invite row), and its SELECT policy was open enough to enumerate
+bearer tokens — letting an attacker join any org without ever holding a real
+invite link. Reads now go through the `get_invite_by_token` RPC (bearer
+semantics: token-holder only, no enumeration) plus the signed
+`list_invites`/`has_pending_invite` actions on `org-membership`. Same gate
+applies: the underlying policy drop for `invite_tokens` is also in
+`20260802_account_membership_lockdown.sql`.
+
+## 2. Anyone with the anon key can rename any account — FIXED (code); policy drop gated
 
 `supabase/migrations/005_accounts_system.sql:26`
 
@@ -62,6 +92,18 @@ The Arbeitsbereich no longer depends on this (the folder mount is keyed on
 `accounts.id`, not on any name — see finding 3 below for why that changed), but
 it remains an integrity problem for every other surface that displays an account
 name as identity.
+
+**FIXED 2026-07-31 (code); RLS policy drop still gated.** Client updates to
+accounts now go through the signed `update_account` action on the
+`org-membership` edge function, with a field whitelist and https URL
+validation. Admin server actions were moved onto the service-role client
+(`38f11751`), and the ungated `updateAccountOpeningHours` server action —
+which bypassed everything — was deleted outright, its page rewired onto the
+signed path (`aa6693ee`). As with finding 1, the `accounts_update USING
+(true)` policy itself is only dropped in the gated
+`supabase/migrations/20260802_account_membership_lockdown.sql`; until that
+ships, the signed path is what every client uses, but the permissive policy
+is still live in the database.
 
 ## 3. Cross-org file takeover via a client-supplied folder name — FIXED
 
@@ -89,7 +131,7 @@ folder. `orgFolderName` was deleted rather than left unused, and
 value to another looks like a fix and is not one. Ask what the attacker controls,
 not where the value came from.
 
-## 4. Org membership claims are a login-time snapshot — OPEN, low
+## 4. Org membership claims are a login-time snapshot — FIXED
 
 `workspace_sessions.groups` is written once at the OIDC callback. `SessionStore.update()`
 refreshes only the tokens, and `loadSession` never re-reads claims. So a `citizen`
@@ -102,6 +144,13 @@ design, so the org case is the sharper one.
 
 Fix direction: re-read claims on refresh in `loadSession`, or shorten the session
 TTL for org scopes.
+
+**FIXED 2026-07-31.** Workspace sessions now re-read group claims on token
+refresh instead of trusting the login-time snapshot (`ec2f19f4`, `6a2304c0`),
+with an absent-vs-empty claim distinction and a sub-guard so a missing claims
+response can't be misread as "still a member". An ex-member's session now
+loses org file access at the next refresh instead of surviving to the
+cookie's 14-day `maxAge`.
 
 ---
 
