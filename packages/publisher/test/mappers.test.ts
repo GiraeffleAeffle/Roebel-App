@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { htmlToMarkdown } from "../src/html-to-md.js";
-import { articleToSpec, berlinToUnix, dealToSpec, eventToSpec, listingToSpec, MAPPER_VERSION, movieToSpec, newsToSpec, orgPostToSpec, orgToSpec } from "../src/mappers.js";
+import { articleToSpec, berlinToUnix, businessToSpec, dealToSpec, eventToSpec, listingToSpec, MAPPER_VERSION, movieToSpec, newsToSpec, orgPostToSpec, orgToSpec } from "../src/mappers.js";
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 const ORGS = new Set([ORG_ID]);
@@ -360,5 +360,34 @@ describe("consented personal organisers and the wider record", () => {
 
   it("an inactive deal never publishes", () => {
     assert.equal(dealToSpec({ id: "d-2", business_id: "b", title: "x", status: "active", is_active: false }, new Map()), null);
+  });
+
+  it("businessToSpec: a business becomes a kind-0 profile under its biz scope", () => {
+    const spec = businessToSpec(
+      { id: "b1", name: "Bäckerei Müritz", description: "Brot seit 1904",
+        category: "handwerk", logo_url: "https://x/l.png", cover_image_url: "https://x/c.png",
+        address: "Marktplatz 1", opening_hours: "Mo-Fr 6-18", website_url: "https://baeckerei.example",
+        updated_at: "2026-07-02T10:00:00Z" },
+      "roebel",
+    );
+    assert.ok(spec);
+    assert.equal(spec!.kind, 0);
+    assert.equal(spec!.scope, "biz-b1");
+    assert.equal(spec!.d, "");
+    const profile = JSON.parse(spec!.content);
+    assert.equal(profile.name, "Bäckerei Müritz");
+    assert.equal(profile.category, "business");
+    assert.deepEqual(spec!.tags[0], ["netizen_org", "b1", "roebel"]);
+  });
+
+  it("businessToSpec: planted contact PII never serializes", () => {
+    const spec = businessToSpec(
+      { id: "b2", name: "X", email: "leak@example.com", phone: "01761234567",
+        updated_at: "2026-07-02T10:00:00Z" },
+      "roebel",
+    );
+    const json = JSON.stringify(spec);
+    assert.ok(!json.includes("leak@example.com"));
+    assert.ok(!json.includes("01761234567"));
   });
 });

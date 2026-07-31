@@ -203,6 +203,7 @@
         "articles",
         "marketplace",
         "deals",
+        "businesses",
         "news"
       ],
       "intervalSeconds": 300,

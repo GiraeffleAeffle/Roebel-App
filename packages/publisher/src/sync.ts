@@ -8,6 +8,7 @@ import {
 import { htmlToMarkdown } from "./html-to-md.js";
 import {
   articleToSpec,
+  businessToSpec,
   dealToSpec,
   eventToSpec,
   listingToSpec,
@@ -185,18 +186,31 @@ export async function buildSpecs(
       if (spec) specs.push(spec);
     }
   }
-  if (deps.datasets.includes("deals")) {
-    const businesses = await deps.fetchRows("businesses", "select=id,name");
-    const nameById = new Map(
-      businesses.filter((b) => b.id && typeof b.name === "string").map((b) => [String(b.id), String(b.name)]),
+  const wantsDeals = deps.datasets.includes("deals");
+  const wantsBusinesses = deps.datasets.includes("businesses");
+  if (wantsDeals || wantsBusinesses) {
+    const businesses = await deps.fetchRows(
+      "businesses",
+      "select=id,name,slug,description,category,logo_url,cover_image_url,address,opening_hours,website_url,updated_at,created_at",
     );
-    const rows = await deps.fetchRows(
-      "business_deals",
-      "select=id,business_id,title,description,deal_type,deal_value,image_url,media_urls,start_date,end_date,status,is_active,updated_at,created_at&status=eq.active&is_active=eq.true",
-    );
-    for (const row of rows) {
-      const spec = dealToSpec(row, nameById);
-      if (spec) specs.push(spec);
+    if (wantsBusinesses) {
+      for (const row of businesses) {
+        const spec = businessToSpec(row, deps.nodeId);
+        if (spec) specs.push(spec);
+      }
+    }
+    if (wantsDeals) {
+      const nameById = new Map(
+        businesses.filter((b) => b.id && typeof b.name === "string").map((b) => [String(b.id), String(b.name)]),
+      );
+      const rows = await deps.fetchRows(
+        "business_deals",
+        "select=id,business_id,title,description,deal_type,deal_value,image_url,media_urls,start_date,end_date,status,is_active,updated_at,created_at&status=eq.active&is_active=eq.true",
+      );
+      for (const row of rows) {
+        const spec = dealToSpec(row, nameById);
+        if (spec) specs.push(spec);
+      }
     }
   }
   return specs;

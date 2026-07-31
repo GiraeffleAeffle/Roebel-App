@@ -236,6 +236,45 @@ export function orgToSpec(row: Row, nodeId: string): PublishSpec | null {
   };
 }
 
+/**
+ * A business directory entry → kind-0 profile under its own derived scope.
+ *
+ * The scope is `biz-<id>` — the SAME scope dealToSpec signs that business's
+ * deals with, so a record-mode client joins profile and offers by pubkey,
+ * exactly the rule organisations already follow. Contact PERSONS are personal
+ * data and are never read; the business's own public storefront data is not.
+ */
+export function businessToSpec(row: Row, nodeId: string): PublishSpec | null {
+  const id = str(row, "id");
+  const name = str(row, "name");
+  if (!id || !name) return null;
+
+  const profile: Record<string, string> = { name, category: "business" };
+  const about = str(row, "description");
+  if (about) profile.about = about;
+  const picture = str(row, "logo_url");
+  if (picture) profile.picture = picture;
+  const banner = str(row, "cover_image_url");
+  if (banner) profile.banner = banner;
+  const bizCategory = str(row, "category");
+  if (bizCategory) profile.business_category = bizCategory;
+  const hours = str(row, "opening_hours");
+  if (hours) profile.opening_hours = hours;
+  const website = str(row, "website_url");
+  if (website) profile.website = website;
+  const address = str(row, "address");
+  if (address) profile.address = address;
+
+  return {
+    scope: `biz-${id}`,
+    kind: 0,
+    d: "",
+    content: JSON.stringify(profile),
+    tags: [["netizen_org", str(row, "slug") ?? id, nodeId]],
+    createdAt: unixFromUpdatedAt(row),
+  };
+}
+
 /** NIP-23 long-form article. */
 export const KIND_LONG_FORM = 30023;
 /** NIP-15 product listing. */
