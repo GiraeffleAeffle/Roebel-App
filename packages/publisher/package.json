@@ -20,7 +20,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@netizen-labs/nostr": "workspace:*"
+    "@netizen-labs/nostr": "workspace:*",
+    "@netizen-labs/protocol": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.7.4",

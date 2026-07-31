@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { htmlToMarkdown } from "../src/html-to-md.js";
-import { articleToSpec, berlinToUnix, businessToSpec, dealToSpec, eventToSpec, listingToSpec, MAPPER_VERSION, menuToSpec, movieToSpec, newsToSpec, noticeToSpec, orgPostToSpec, orgToSpec, proposalToSpec } from "../src/mappers.js";
+import { articleToSpec, berlinToUnix, businessToSpec, dealToSpec, eventToSpec, KIND_DECISION_TRANSITION, listingToSpec, MAPPER_VERSION, menuToSpec, movieToSpec, newsToSpec, noticeToSpec, orgPostToSpec, orgToSpec, proposalToSpec, transitionToSpec } from "../src/mappers.js";
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 const ORGS = new Set([ORG_ID]);
@@ -594,5 +594,50 @@ describe("proposal mapping", () => {
 
   it("proposalToSpec: no governor configured → nothing publishes", () => {
     assert.equal(proposalToSpec({ id: "x", proposal_id: "1", title: "t" }, ""), null);
+  });
+});
+
+const PK64 = "a".repeat(64);
+
+describe("decision transition mapping", () => {
+  const base = {
+    scope: "town",
+    proposalId: "42",
+    headPubkey: PK64,
+    from: "idee",
+    to: "entwurf",
+    reason: "Vollständig.",
+    at: 1753970000,
+  };
+
+  it("builds an immutable kind-2100 spec with head ref and from/to tags", () => {
+    const spec = transitionToSpec(base)!;
+    assert.equal(spec.kind, KIND_DECISION_TRANSITION);
+    assert.equal(spec.kind, 2100);
+    assert.equal(spec.scope, "town");
+    assert.equal(spec.d, "");
+    assert.equal(spec.content, "Vollständig.");
+    // immutable: the moment itself, no MAPPER_VERSION offset
+    assert.equal(spec.createdAt, 1753970000);
+    assert.deepEqual(spec.tags, [
+      ["a", `32100:${PK64}:proposal:42`, "", "proposal"],
+      ["from", "idee"],
+      ["to", "entwurf"],
+    ]);
+  });
+
+  it("refuses an illegal hop", () => {
+    assert.equal(transitionToSpec({ ...base, from: "entwurf", to: "beschlossen" }), null);
+  });
+
+  it("beschlossen requires a notice address and carries it as a notice a-tag", () => {
+    const gated = { ...base, from: "beschlussvorlage", to: "beschlossen" };
+    assert.equal(transitionToSpec(gated), null);
+    const spec = transitionToSpec({ ...gated, noticeAddress: `32102:${PK64}:beschluss:1` })!;
+    assert.deepEqual(spec.tags[3], ["a", `32102:${PK64}:beschluss:1`, "", "notice"]);
+  });
+
+  it("refuses a malformed head pubkey", () => {
+    assert.equal(transitionToSpec({ ...base, headPubkey: "0xdeadbeef" }), null);
   });
 });

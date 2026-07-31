@@ -14,6 +14,8 @@
  * id), and the relay treats it as a duplicate.
  */
 
+import { DECISION_KINDS, headAddress, isLegalTransition } from "@netizen-labs/protocol";
+
 export interface PublishSpec {
   /** Identity scope the event is signed under — deriveOrgIdentity(secret, node, scope). */
   scope: string;
@@ -629,6 +631,64 @@ export function proposalToSpec(row: Row, governor: string): PublishSpec | null {
     content: str(row, "summary") ?? "",
     tags,
     createdAt: unixFromUpdatedAt(row),
+  };
+}
+
+/**
+ * NSP-12 decision-record kinds. The numbers live in @netizen-labs/protocol
+ * (DECISION_KINDS) so validation and construction can never drift; these
+ * aliases keep this file readable as the one-stop kind registry.
+ * See docs/superpowers/specs/2026-07-31-nsp12-public-decision-record-design.md §3.
+ */
+export const KIND_DECISION_TRANSITION = DECISION_KINDS.transition; // 2100
+export const KIND_MEETING_RECORD = DECISION_KINDS.meeting; // 32103
+export const KIND_MEINUNGSBILD_RESULT = DECISION_KINDS.meinungsbild; // 32104
+export const KIND_IMPACT_SUMMARY = DECISION_KINDS.impact; // 32105
+export const KIND_DECISION_CYCLE = DECISION_KINDS.cycle; // 32106
+
+export interface TransitionInput {
+  /** Identity scope the transition is signed under — the caller decides:
+   * editor-agent, implementer org, or town (body mirror). */
+  scope: string;
+  proposalId: string;
+  /** 64-hex pubkey the proposal head is published under. */
+  headPubkey: string;
+  from: string;
+  to: string;
+  reason?: string;
+  /** kind-32102 address (`32102:<pubkey>:<d>`) — REQUIRED for beschlossen/abgelehnt. */
+  noticeAddress?: string;
+  /** Unix seconds of the transition moment. */
+  at: number;
+}
+
+/**
+ * A lifecycle move → an IMMUTABLE kind-2100 event. Immutable like org posts:
+ * d = "", createdAt = the moment itself, never MAPPER_VERSION-offset — an
+ * audit trail that re-publishes under new ids is not an audit trail.
+ * Returns null rather than building an event the protocol would reject.
+ */
+export function transitionToSpec(input: TransitionInput): PublishSpec | null {
+  if (!/^[0-9a-f]{64}$/.test(input.headPubkey)) return null;
+  if (!input.proposalId || !isLegalTransition(input.from, input.to)) return null;
+
+  const tags: string[][] = [
+    ["a", headAddress(input.headPubkey, input.proposalId), "", "proposal"],
+    ["from", input.from],
+    ["to", input.to],
+  ];
+  if (input.to === "beschlossen" || input.to === "abgelehnt") {
+    if (!input.noticeAddress || !/^32102:[0-9a-f]{64}:.+$/.test(input.noticeAddress)) return null;
+    tags.push(["a", input.noticeAddress, "", "notice"]);
+  }
+
+  return {
+    scope: input.scope,
+    kind: KIND_DECISION_TRANSITION,
+    d: "",
+    content: input.reason ?? "",
+    tags,
+    createdAt: input.at,
   };
 }
 
