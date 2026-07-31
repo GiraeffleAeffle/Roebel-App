@@ -25,6 +25,12 @@ export interface EventQuery {
   /** Restrict to events this node learned from a particular node (provenance). */
   node?: string;
   limit?: number;
+  /** Events carrying an ["e", <id>] tag — replies/reactions to these ids. */
+  eTags?: string[];
+  /** Events carrying a ["p", <pubkey>] tag — mentions/attributions. */
+  pTags?: string[];
+  /** Parameterised replaceable records by stable identity (the d tag). */
+  dTags?: string[];
 }
 
 export interface BuiltQuery {
@@ -51,6 +57,13 @@ export function buildEventQuery(query: EventQuery): BuiltQuery {
   if (query.authors?.length) {
     where.push(`pubkey = ANY(${bind(query.authors.map((a) => a.toLowerCase()))}::text[])`);
   }
+
+  const tagContain = (name: string, vals: string[]) =>
+    where.push(`tags @> ANY(${bind(vals.map((v) => `[${JSON.stringify([name, v])}]`))}::jsonb[])`);
+  if (query.eTags?.length) tagContain("e", query.eTags.map((v) => v.toLowerCase()));
+  if (query.pTags?.length) tagContain("p", query.pTags.map((v) => v.toLowerCase()));
+  if (query.dTags?.length) where.push(`d_tag = ANY(${bind(query.dTags)}::text[])`);
+
   if (typeof query.since === "number") where.push(`created_at >= ${bind(query.since)}`);
   if (typeof query.until === "number") where.push(`created_at <= ${bind(query.until)}`);
   if (query.node) where.push(`node_id = ${bind(query.node)}`);

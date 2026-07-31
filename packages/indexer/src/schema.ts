@@ -56,6 +56,10 @@ CREATE INDEX IF NOT EXISTS idx_nostr_events_replace   ON nostr_events (pubkey, k
 CREATE INDEX IF NOT EXISTS idx_nostr_events_fts
   ON nostr_events USING GIN (to_tsvector('simple', content));
 
+-- Tag containment (e/p filters): replies, reactions, attributions.
+CREATE INDEX IF NOT EXISTS idx_nostr_events_tags
+  ON nostr_events USING GIN (tags jsonb_path_ops);
+
 -- NIP-09 hide state. Rows here outlive the events they delete, so a deleted
 -- event cannot resurrect when a mirror or slow peer re-serves it. target_id is
 -- the e-tag form; (target_kind, target_d) the a-tag form, bounded by created_at.

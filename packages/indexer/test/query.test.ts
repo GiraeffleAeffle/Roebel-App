@@ -85,6 +85,26 @@ describe("rows carry provenance", () => {
   });
 });
 
+describe("tag filters", () => {
+  it("e filter becomes JSONB containment over ['e', id] pairs", () => {
+    const { text, values } = buildEventQuery({ eTags: ["a".repeat(64)] });
+    assert.match(text, /tags @> ANY\(\$1::jsonb\[\]\)/);
+    assert.deepEqual(values[0], [JSON.stringify(["e", "a".repeat(64)])].map((p) => `[${p}]`));
+  });
+
+  it("d filter uses the d_tag column, not JSONB", () => {
+    const { text, values } = buildEventQuery({ dTags: ["event:123", "news:456"] });
+    assert.match(text, /d_tag = ANY\(\$1::text\[\]\)/);
+    assert.deepEqual(values[0], ["event:123", "news:456"]);
+  });
+
+  it("p filter matches ['p', pubkey] pairs and lowercases", () => {
+    const { text, values } = buildEventQuery({ pTags: ["B".repeat(64)] });
+    assert.match(text, /tags @> ANY\(\$1::jsonb\[\]\)/);
+    assert.deepEqual(values[0], [`[${JSON.stringify(["p", "b".repeat(64)])}]`]);
+  });
+});
+
 describe("url parsing", () => {
   it("reads a full cross-node query off the query string", () => {
     const q = queryFromUrl(

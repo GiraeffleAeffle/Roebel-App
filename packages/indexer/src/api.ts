@@ -79,6 +79,9 @@ export function queryFromUrl(url: URL): EventQuery {
     until: integer(p.get("until")),
     node: p.get("node") ?? undefined,
     limit: integer(p.get("limit")),
+    eTags: strings(p.get("e")),
+    pTags: strings(p.get("p")),
+    dTags: strings(p.get("d")),
   };
 }
 
