@@ -153,6 +153,42 @@ export function mergeRefreshedSession(
 }
 
 /**
+ * Decide whether a refresh's userinfo response carries a fresh, trustworthy
+ * `groups` claim to hand to `mergeRefreshedSession`. `null` means "no usable
+ * answer, keep the previous session's groups"; `[]` is itself a legitimate
+ * answer — the claim is present and empty, e.g. every group was revoked —
+ * and must overwrite.
+ *
+ * Deliberately does NOT delegate the presence check to `groupsFrom`:
+ * `groupsFrom` itself returns `[]` both when `groups` is genuinely present
+ * and empty AND when the key is missing from the payload entirely — it
+ * conflates absent-with-empty by design, which is fine for the login path
+ * (whose caller already treats an empty result as "fall back") but would be
+ * exactly the wrong default here. A keystone variant, or a malformed 200,
+ * that omits the `groups` key must fall back to the old groups, not read as
+ * "revoke everything" — that misreading would be the very lockout this
+ * refresh path exists to prevent. `groupsFrom` itself is left untouched so
+ * the login callback's fallback semantics do not change.
+ *
+ * Same sub-match guard as the login callback (`route.ts`): never take claims
+ * from a userinfo response describing someone else.
+ */
+export function freshGroupsFromUserinfo(
+  info: Record<string, unknown>,
+  sessionSub: string,
+): string[] | null {
+  if (
+    typeof info.sub !== "string" ||
+    info.sub.toLowerCase() !== sessionSub.toLowerCase()
+  ) {
+    return null;
+  }
+  return "groups" in info && Array.isArray(info.groups)
+    ? groupsFrom(info)
+    : null;
+}
+
+/**
  * Load a session by id, refreshing the access token when it is close to expiry
  * and writing the refreshed tokens back to the store.
  *
@@ -190,20 +226,17 @@ export async function loadSession(
       refreshToken: session.refreshToken,
     });
 
-    // Same sub-match guard as the login callback (route.ts) — never take
-    // claims from a userinfo response describing someone else. Best-effort:
-    // a userinfo hiccup degrades to "keep the old groups", not to a failed
-    // refresh.
+    // Best-effort: a userinfo hiccup, a sub mismatch, or an absent `groups`
+    // claim on the response all degrade to "keep the old groups" via
+    // freshGroupsFromUserinfo returning null — never to a failed refresh.
     let freshGroups: string[] | null = null;
     try {
       const info = await fetchUserinfo(cfg.issuer, tokens.access_token);
-      if (
-        typeof info.sub === "string" &&
-        info.sub.toLowerCase() === session.sub.toLowerCase()
-      ) {
-        freshGroups = groupsFrom(info);
-      } else {
-        console.error("[workspace] userinfo sub does not match session sub on refresh");
+      freshGroups = freshGroupsFromUserinfo(info, session.sub);
+      if (freshGroups === null) {
+        console.error(
+          "[workspace] userinfo on refresh had no usable groups claim (absent claim or sub mismatch)",
+        );
       }
     } catch (err) {
       console.error("[workspace] userinfo fetch failed on refresh:", err);
