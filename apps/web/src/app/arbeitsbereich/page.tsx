@@ -197,7 +197,7 @@ function ArbeitsbereichContent() {
             </Link>
             <Link
               href="/arbeitsbereich/dateien"
-              className="bg-card border border-border rounded-xl p-4 hover:bg-accent transition-colors"
+              className="col-span-2 bg-card border border-border rounded-xl p-4 hover:bg-accent transition-colors"
             >
               <p className="font-medium text-foreground text-sm">Dateien & Dokumente</p>
               <p className="text-xs text-muted-foreground mt-0.5">Eigene Ablage</p>
