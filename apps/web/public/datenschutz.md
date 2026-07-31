@@ -1,7 +1,7 @@
 # Datenschutzerklärung
 
-**Letzte Aktualisierung:** 31. Januar 2025
-**Version:** 1.0
+**Letzte Aktualisierung:** 30. Juli 2026
+**Version:** 1.1
 
 ---
 
@@ -15,6 +15,7 @@
 6. [Empfänger und Weitergabe von Daten](#empfänger-und-weitergabe-von-daten)
 7. [Internationale Datentransfers](#internationale-datentransfers)
 8. [Cookies und Tracking-Technologien](#cookies-und-tracking-technologien)
+    - Neu in 1.1: [Öffentlicher Datenbestand (Nostr)](#öffentlicher-datenbestand-nostr) und [Künstliche Intelligenz (KI-Systeme)](#künstliche-intelligenz-ki-systeme)
 9. [Speicherdauer](#speicherdauer)
 10. [Ihre Rechte](#ihre-rechte)
 11. [Beschwerderecht](#beschwerderecht)
