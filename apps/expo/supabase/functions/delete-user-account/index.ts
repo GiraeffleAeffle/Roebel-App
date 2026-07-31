@@ -17,7 +17,8 @@
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
-import { recoverMessageAddress, isAddress } from 'https://esm.sh/viem@2.21.45';
+import { recoverMessageAddress, isAddress, createPublicClient, http } from 'https://esm.sh/viem@2.21.45';
+import { gnosis } from 'https://esm.sh/viem@2.21.45/chains';
 
 type Body = {
   wallet: string;
@@ -41,6 +42,12 @@ const corsHeaders = {
 };
 
 const MAX_MESSAGE_AGE_SECONDS = 300;
+
+// ERC-1271/6492 verification needs the chain the smart account lives on.
+const gnosisClient = createPublicClient({
+  chain: gnosis,
+  transport: http(Deno.env.get('GNOSIS_RPC_URL') ?? 'https://rpc.gnosischain.com'),
+});
 
 function json(status: number, body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
@@ -93,20 +100,35 @@ serve(async (req: Request) => {
     return fail('STALE_MESSAGE', 400, 'message timestamp is outside the allowed window');
   }
 
-  let recovered: string;
+  // Fast path: plain EOA recovery. Smart accounts (ERC-1271/6492) fall through
+  // to viem's universal verifier, which runs the check against the account
+  // contract on Gnosis — the client signs with the smart account, so recovery
+  // alone would yield the enclave admin EOA and always mismatch.
+  let verified = false;
   try {
-    recovered = (
+    const recovered = (
       await recoverMessageAddress({
         message: body.message,
         signature: body.signature as `0x${string}`,
       })
     ).toLowerCase();
-  } catch (err) {
-    console.error('signature recovery failed', err);
-    return fail('BAD_SIGNATURE', 400, 'could not recover signer');
+    verified = recovered === claimedWallet;
+  } catch {
+    // not an EOA signature — try the universal path
   }
-
-  if (recovered !== claimedWallet) {
+  if (!verified) {
+    try {
+      verified = await gnosisClient.verifyMessage({
+        address: body.wallet as `0x${string}`,
+        message: body.message,
+        signature: body.signature as `0x${string}`,
+      });
+    } catch (err) {
+      console.error('signature verification failed', err);
+      return fail('BAD_SIGNATURE', 400, 'could not verify signer');
+    }
+  }
+  if (!verified) {
     return fail('BAD_SIGNATURE', 400, 'signer does not match wallet');
   }
 
