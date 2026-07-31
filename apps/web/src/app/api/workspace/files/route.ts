@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { buildAction, GroupFolderConflictError } from "@netizen-labs/workspace";
 import { ensureOrgFolder, requireWorkspace, resolveScope } from "@/lib/workspace/context";
-import { errorResponse, parseScopeRequest, withWorkspaceRoute } from "@/lib/workspace/request";
+import {
+  errorResponse,
+  parseScopeRequest,
+  readOnlyResponse,
+  withWorkspaceRoute,
+} from "@/lib/workspace/request";
 import { recordWorkspaceAction } from "@/lib/workspace/provenance-sink";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +44,10 @@ export const GET = withWorkspaceRoute(async (request: Request) => {
       }
       console.error("[workspace] ensureOrgFolder failed:", error);
     });
-    return NextResponse.json({ entries: await client.listDirectory(scope, parsed.path) });
+    return NextResponse.json({
+      entries: await client.listDirectory(scope, parsed.path),
+      canWrite: scope.canWrite,
+    });
   } catch (error) {
     return errorResponse(error);
   }
@@ -50,6 +58,7 @@ export const DELETE = withWorkspaceRoute(async (request: Request) => {
     const { session, client } = await requireWorkspace();
     const parsed = parseScopeRequest(new URL(request.url));
     const scope = await resolveScope({ session, ...parsed });
+    if (!scope.canWrite) return readOnlyResponse();
     await client.remove(scope, parsed.path);
     await recordWorkspaceAction(
       buildAction({

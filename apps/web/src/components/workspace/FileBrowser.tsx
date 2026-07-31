@@ -85,6 +85,12 @@ export function FileBrowser({ scope }: { scope: FileScopeParams }) {
   const [unconfigured, setUnconfigured] = useState(false);
   const [authLoop, setAuthLoop] = useState(false);
   const [editor, setEditor] = useState<{ url: string; token: string } | null>(null);
+  // Mirrors the listing response's own `canWrite` (an org member vs.
+  // owner/admin) — server-decided, never inferred client-side. Defaults to
+  // `true` so the affordances don't flash-then-hide while the first load is
+  // still in flight; the very first render is also `loading`, which already
+  // hides them, so this default is never actually shown on its own.
+  const [canWrite, setCanWrite] = useState(true);
 
   /**
    * Start the OIDC hop and record that we did. `errorResponse` maps a
@@ -141,7 +147,9 @@ export function FileBrowser({ scope }: { scope: FileScopeParams }) {
     // The whole chain works, so a later 401 is a genuinely expired session and
     // has earned a fresh hop of its own.
     releaseLoginHop(store);
-    setEntries((await res.json()).entries as DirEntry[]);
+    const body = (await res.json()) as { entries: DirEntry[]; canWrite: boolean };
+    setEntries(body.entries);
+    setCanWrite(body.canWrite);
     setLoading(false);
   }, [scope, path]);
 
@@ -274,23 +282,30 @@ export function FileBrowser({ scope }: { scope: FileScopeParams }) {
           ))}
         </nav>
         <div className="flex items-center gap-2">
-          <button
-            onClick={createFolder}
-            className="inline-flex items-center gap-1.5 text-sm border border-border rounded-lg px-3 py-1.5 hover:bg-accent"
-          >
-            <FolderPlus className="h-4 w-4" /> Ordner
-          </button>
-          <label className="inline-flex items-center gap-1.5 text-sm border border-border rounded-lg px-3 py-1.5 hover:bg-accent cursor-pointer">
-            <Upload className="h-4 w-4" /> Hochladen
-            <input
-              type="file"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void upload(file);
-              }}
-            />
-          </label>
+          {!canWrite && (
+            <span className="text-xs text-muted-foreground">Nur Lesezugriff</span>
+          )}
+          {canWrite && (
+            <>
+              <button
+                onClick={createFolder}
+                className="inline-flex items-center gap-1.5 text-sm border border-border rounded-lg px-3 py-1.5 hover:bg-accent"
+              >
+                <FolderPlus className="h-4 w-4" /> Ordner
+              </button>
+              <label className="inline-flex items-center gap-1.5 text-sm border border-border rounded-lg px-3 py-1.5 hover:bg-accent cursor-pointer">
+                <Upload className="h-4 w-4" /> Hochladen
+                <input
+                  type="file"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void upload(file);
+                  }}
+                />
+              </label>
+            </>
+          )}
           <button
             onClick={() => void load()}
             aria-label="Aktualisieren"

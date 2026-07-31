@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { buildAction } from "@netizen-labs/workspace";
 import { requireWorkspace, resolveScope } from "@/lib/workspace/context";
-import { errorResponse, parseScopeRequest, withWorkspaceRoute } from "@/lib/workspace/request";
+import {
+  errorResponse,
+  parseScopeRequest,
+  readOnlyResponse,
+  withWorkspaceRoute,
+} from "@/lib/workspace/request";
 import { recordWorkspaceAction } from "@/lib/workspace/provenance-sink";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +16,7 @@ export const POST = withWorkspaceRoute(async (request: Request) => {
     const { session, client } = await requireWorkspace();
     const parsed = parseScopeRequest(new URL(request.url));
     const scope = await resolveScope({ session, ...parsed });
+    if (!scope.canWrite) return readOnlyResponse();
     await client.createFolder(scope, parsed.path);
     await recordWorkspaceAction(
       buildAction({

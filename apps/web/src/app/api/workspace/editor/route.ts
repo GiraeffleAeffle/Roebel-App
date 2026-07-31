@@ -52,7 +52,7 @@ export const GET = withWorkspaceRoute(async (request: Request) => {
 
     const fileId = encodeFileId(scope, parsed.path);
     const token = await mintWopiToken(
-      { sub: session.sub, sessionId, scope, path: parsed.path, canWrite: true },
+      { sub: session.sub, sessionId, scope, path: parsed.path, canWrite: scope.canWrite },
       cfg.wopiSecret,
       WOPI_TTL_SECONDS,
     );

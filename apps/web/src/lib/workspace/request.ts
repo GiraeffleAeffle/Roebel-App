@@ -22,6 +22,28 @@ export function unconfiguredResponse(): Response {
 }
 
 /**
+ * The status a write attempt gets when `resolveScope` granted read but not
+ * write for this scope — an org member acting on an owner/admin-only path.
+ * 403, not 401: the citizen IS signed in and the session is fine: this is an
+ * access decision already made, the same reason `WorkspaceAuthError`'s
+ * "forbidden" branch also answers 403 rather than sending the client into the
+ * OIDC hop.
+ */
+export const WORKSPACE_READ_ONLY_STATUS = 403;
+
+/**
+ * The one body shape for "your role only grants read access here". Shared by
+ * upload, folder-create and delete so the three write routes cannot drift on
+ * the shape of a check each of them repeats right after `resolveScope`.
+ */
+export function readOnlyResponse(): Response {
+  return NextResponse.json(
+    { reason: "read-only" },
+    { status: WORKSPACE_READ_ONLY_STATUS },
+  );
+}
+
+/**
  * THE config gate for every route under /api/workspace. One place, not one
  * check per route — a route added later that forgets the check is the failure
  * mode this exists to remove, so wrapping the handler is the only way to
