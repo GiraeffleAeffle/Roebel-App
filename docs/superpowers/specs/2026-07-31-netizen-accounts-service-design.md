@@ -1,241 +1,260 @@
-# Netizen Accounts — the wallet stack as a product
+# Netizen Accounts — the wallet stack as a product (v2)
 
-**Date:** 2026-07-31
-**Status:** Design for review. Supersedes the wallet parts of
-`apps/web/docs/NETIZEN_STACK_ARCHITECTURE_PLAN.md` §L1/§9.3 (2026-06-12, pre-extraction naming).
-**Builds on:** [`2026-07-27-thirdweb-independence.md`](2026-07-27-thirdweb-independence.md) (spec),
-[`2026-07-27-wallet-sovereignty.md`](../plans/2026-07-27-wallet-sovereignty.md) (plan, option B),
+**Date:** 2026-07-31 (v2, same day — revised per review)
+**Status:** Design for review.
+**Supersedes:** v1 of this spec (commit `2afcd25c`) and the wallet parts of
+`apps/web/docs/NETIZEN_STACK_ARCHITECTURE_PLAN.md` §L1/§9.3.
+**Builds on:** [`2026-07-27-thirdweb-independence.md`](2026-07-27-thirdweb-independence.md),
+[`2026-07-27-wallet-sovereignty.md`](../plans/2026-07-27-wallet-sovereignty.md),
 [`2026-07-27_WALLET_SOVEREIGNTY_RESEARCH.md`](../../future-research/2026-07-27_WALLET_SOVEREIGNTY_RESEARCH.md),
 [`2026-07-22_NETIZEN_SOVEREIGN_STACK_RESEARCH.md`](../../future-research/2026-07-22_NETIZEN_SOVEREIGN_STACK_RESEARCH.md),
 [`2026-07-27_NETIZEN_CLOUD_PRODUCT_SPEC.md`](../../future-research/2026-07-27_NETIZEN_CLOUD_PRODUCT_SPEC.md).
 
 ---
 
-## 0. The reframe
+## 0. The product in one line
 
-The 2026-07-27 work treats wallet sovereignty as a **migration problem**: get Röbel off
-thirdweb without breaking a single address. This spec keeps every one of its decisions
-(option B, stages 0–4, custody last, agent-first) and adds the second half of the ask:
+**Each node is its own thirdweb:** a user signs in with Google / Apple / Facebook /
+email / **phone number** through the node's own OIDC keystone, gets **one smart-account
+address that is identical on every supported chain**, every transaction is **gasless
+and silent** (no signing prompts, no passkey ceremonies), the app integrates it through
+a **bottom sheet** (mobile SDK) or a **custom wallet modal** (desktop SDK), and the
+node's operator gets **node-local user analytics**. Röbel is the production proof;
+Netizen Cloud operates it for customers; the manifest is the contract and the exit.
 
-> The wallet stack is not just an exit from a vendor. It is a **product line**. Privy built
-> a company on exactly this feature set. Netizen Cloud customers need embedded wallets,
-> gasless transactions, contract tooling and user analytics — and Netizen cannot resell
-> thirdweb to them.
+## 1. Decision log — what v2 changes and why (review direction, 2026-07-31)
 
-The reframe that unlocks it: **the "custody last / not 2026" rule was a rule about
-migration risk, not about custody itself.** A *new* account carries no migration risk.
-So custody splits into three tiers with different timelines:
-
-| Tier | Who | Custody | When |
-|---|---|---|---|
-| T3 (legacy) | Existing Röbel citizens | thirdweb enclave signer | Now → opt-in re-key, per the 07-27 plan stage 5. Untouched. |
-| T2 (node-held) | **Agents**, orgs, PRF-floor-excluded devices | Node vault key, escrowed to the community | First — agents already need it and hold nothing soulbound |
-| T1 (device-held) | **New** human signups on any node | Passkey (WebAuthn PRF) + Safe passkey module | After T2 has run in production and recovery is designed |
-
-Röbel dogfoods every tier; Netizen customers start at T1/T2 and never touch thirdweb.
-
-## 1. What "the entire thirdweb feature list" actually is — and what we build
-
-From the verified inventory (226 importing files reduce to this):
-
-| thirdweb / Privy capability | Netizen answer | Build? |
+| v1 said | v2 says | Why |
 |---|---|---|
-| Embedded wallet auth (social/email → signer) | Keystone OIDC (live) + passkey signer (T1) + node vault signer (T2) | **Yes — the core** |
-| ERC-4337 factory / deterministic accounts | Safe + Safe4337Module for new accounts; thirdweb default factory kept for legacy addresses | **Yes** |
-| Bundler | Self-hosted Alto, chain-scoped, behind the proven `/api/bundler` seam | **Yes** (mostly done) |
-| Paymaster + sponsorship policy | Per-node verifying paymaster + keystone-signed sponsorship vouchers | **Yes** |
-| SDK + RPC + React bindings | `@netizen-labs/accounts` (viem-first) + react/react-native surfaces | **Yes** |
-| Server wallets / tx infra ("Engine") | T2 agent accounts + Zodiac Roles budgets (already the plan) | **Yes** (= agent path) |
-| Data / analytics ("Insight" + dashboard) | Onchain module in `packages/indexer` (NSP-10) + operator analytics | **Yes** |
-| Auth backend (SIWE verify, JWT) | Already sovereign — consolidate into one `verifyNodeSignature()` | **Consolidate** |
-| Contract deploy platform | Hardhat/Foundry + docs. Not a product. | No |
-| IPFS storage | 3 call sites → node storage / public gateway | No (fold into node) |
-| Fiat / Pay | Monerium rail exists; never compete with the EMI | No |
-| Cross-chain support | Gnosis only. The manifest declares the chain; one chain done well. | No (v1) |
-| Social profile APIs | 1 component (`SocialProfileCard`) → drop or inline | No |
+| Gnosis only, Safe accounts | **Multichain-native**: one address on every enabled EVM chain; account implementation re-selected for cross-chain determinism (§3.3) | Product must match thirdweb's chain coverage model |
+| Default custody = device passkey (T1), signing prompts | **Default = node-held embedded signer, silent signing** — zero per-transaction UX. Passkeys/self-custody demoted to an *optional later upgrade*, out of v1 | The thirdweb UX is the requirement; passkey ceremonies and PRF device floors are friction the product must not have |
+| Recovery = guardian module, "the hard problem" | **Recovery = re-login** (social/email/phone reaches the same key), like thirdweb. Guardian recovery moves to the self-custody upgrade path | Node custody makes recovery trivial; that is precisely the trade being chosen |
+| Auth = social + email | **+ phone number (SMS OTP)** — and phone lands in the Röbel app too | Requested; phone is the lowest-friction civic onboarding |
+| Connect UI unspecified | **Bottom sheet (React Native) + custom wallet modal (web)** as first-class SDK components | Requested |
+| Per-node OIDC keystone | **Unchanged — affirmed.** The keystone is the auth root of everything below | Requested ("yes with the OIDC set up for each node") |
 
-## 2. Approaches considered
+Unchanged from v1: per-node planes over shareable rails (approach C; the central-SaaS
+and pure-toolkit alternatives stay rejected — G2's "never one central Sign in as
+Netizen" still binds), per-node paymaster *policy*, node-local analytics on NSP-10,
+`@netizen-labs/accounts` as the runtime reader of `identity.authBridge`, address
+continuity for existing Röbel citizens (thirdweb adapter until opt-in migration), and
+the agent-first sequencing rule.
 
-**A — Central wallet SaaS (the literal Privy clone).** One Netizen-run custody +
-dashboard service, API keys per customer. **Rejected.** It violates G2's hard rule
-("never one central Sign in as Netizen"), recreates the thirdweb chokepoint one level up
-with Netizen as the honeypot, collapses the sovereignty pitch that is the entire
-differentiator, and drags Netizen toward custody licensing (MiCA-adjacent — counsel
-territory per the Legal Masterplan).
+## 2. Feature parity with thirdweb — what we build
 
-**B — Pure toolkit, no service.** Ship the SDK + manifest sections + installer support;
-every node self-hosts everything; Netizen operates nothing. Cleanest sovereignty, but
-bundler/paymaster ops are real on-call work no Verein can carry, there is no revenue
-surface, and Röbel would wait on perfect self-hosting.
+| thirdweb capability | Netizen answer | Build? |
+|---|---|---|
+| Embedded wallet: social/email/phone → signer, silent signing | Keystone OIDC (live) + **node signer service** (§3.2) | **Yes — the core** |
+| Smart account, same address on all chains | One admin EOA per user + deterministic factory on every enabled chain (§3.3) | **Yes** |
+| Gasless everywhere | Per-chain bundler + paymaster rails, per-node gas budgets (§3.4) | **Yes** |
+| Connect UI (ConnectButton/ConnectEmbed) | Bottom sheet (mobile) + wallet modal (desktop), node-branded, German-first (§3.6) | **Yes** |
+| SDK + RPC + React bindings | `@netizen-labs/accounts` (viem-first) + react / react-native | **Yes** |
+| Server wallets ("Engine") | Agent/org accounts in the same signer service + Zodiac budgets | **Yes** (= agent path) |
+| Data / analytics ("Insight") | Multichain onchain module in `packages/indexer` + operator dashboard (§3.5) | **Yes** |
+| Auth backend (SIWE/JWT verify) | Already sovereign — consolidate into one `verifyNodeSignature()` | **Consolidate** |
+| Key export to the user | `/wallet/reveal` equivalent against the node signer — parity is a sovereignty feature | **Yes** |
+| Contract deploy platform, IPFS storage, fiat/Pay, external-wallet aggregation | Foundry/Hardhat docs; node storage; Monerium; not requested | No |
 
-**C — Federated service (recommended).** Per-node account + policy + data planes;
-chain-scoped shared rails that any node can swap out by URL; the manifest is the
-contract. Netizen Cloud's product is *operating* these planes for customers who don't
-want to — the same split the Cloud spec already makes for every other module ("we run
-the babysitting; you own the keys, the data and the exit").
-
-## 3. Architecture — three planes per node, one shared rail, one SDK
+## 3. Architecture
 
 ```
-┌──────────────────────────── one node (= one customer) ────────────────────────────┐
-│  ACCOUNT PLANE                POLICY PLANE                 DATA PLANE             │
-│  Safe + passkey module        keystone (OIDC, live)        packages/indexer       │
-│  (T1) / node vault (T2)       + sponsorship voucher        + onchain module       │
-│  legacy thirdweb (T3)           signer + rate limits       + operator analytics   │
-│  recovery: guardians          + per-node paymaster         (node-local Postgres)  │
-│  (attester Safe, timelock)      contract, funded caps                             │
-└───────────────┬───────────────────────┬───────────────────────────────────────────┘
-                │ ERC-4337 userOps      │ signed sponsorship vouchers
-                ▼                       ▼
-        ┌──────────────────────────────────────────┐
-        │  CHAIN RAIL (per chain, shareable)       │     manifest identity.authBridge:
-        │  Alto bundler (EP v0.6 legacy +          │     provider · bundlerRpc ·
-        │  v0.7/0.8 Safe) · RPC · Gnosis (100)     │     entryPoint · factory · paymaster
-        └──────────────────────────────────────────┘
+┌────────────────────────────── one node (= one customer) ──────────────────────────────┐
+│  AUTH PLANE                SIGNER PLANE (new core)         POLICY PLANE               │
+│  keystone OIDC (live)      per-user admin EOA,             sponsorship vouchers       │
+│  + Google/Apple/Facebook   envelope-encrypted in the       (membership/agent gate,    │
+│  + email OTP + SMS OTP     node vault; silent signing      rate limits, per-chain     │
+│  "Sign in with <node>"     API; export; audit; kill switch    gas budgets, fail-closed)│
+│                                                                                       │
+│  DATA PLANE: packages/indexer + multichain onchain module + operator analytics        │
+└──────────────┬────────────────────────────────────────────────────────────────────────┘
+               │ userOps (per chain)                  manifest identity.authBridge:
+               ▼                                      provider · chains[] · bundlerRpc ·
+   ┌────────────────────────────────────────┐         factory · paymaster · signer
+   │ CHAIN RAILS (per chain, shareable)     │
+   │ Alto bundler + verifying paymaster     │   Gnosis · Base · … (a manifest list;
+   │ + RPC, one set per enabled chain       │   a node enables chains by config)
+   └────────────────────────────────────────┘
 ```
 
-### 3.1 Account plane
+### 3.1 Auth plane — the keystone grows two strategies
 
-- **New accounts are Safe smart accounts** (Safe4337Module), minted by the node's own
-  factory path. Rationale: already trusted for the treasury, audited passkey module,
-  LGPL, and the 93-claim research found no credible alternative custody vendor.
-- **T1 signer:** passkey via WebAuthn PRF (`react-native-passkeys`), verified onchain by
-  the P-256 precompile (EIP-7951, live on Gnosis since 2026-04). Keys never exist
-  server-side. Floors: iOS 18+ / Android 14+ → below the floor, onboarding falls back
-  to T2 with explicit disclosure ("your community's node holds this key for you").
-- **T2 signer:** derived under the node's vault secret (the `NODE_AGENT_SECRET` pattern
-  already shipped for Nostr agent/org keys), escrowed to the community per
-  `ARCHITECTURE.md`'s custody policy. Used by agents, org accounts, and the PRF
-  fallback. Spending authority always bounded by Zodiac Roles budgets — the onchain
-  policy engine Privy's TEE promises can't match.
-- **T3:** existing thirdweb accounts keep working forever through the same SDK
-  (adapter, below). No forced migration, ever. The individual export path
-  (`/wallet/reveal`) stays advertised as a sovereignty property.
-- **Recovery (the hard problem, now a product):** Safe owner set = passkey + a recovery
-  module whose guardians are the node's **attester Safe** (Röbel: `0x3A08…`) and
-  optionally the keystone. Guardians can only *rotate owners* after a timelock with
-  user-visible notification and veto — never move funds. Key loss additionally has the
-  institutional path no vendor can offer: re-attestation re-establishes membership
-  (soulbound re-mint) even when the money at the old address is gone. Selling line:
-  *"your town can restore your account; nobody can take it."* **Gate:** this module's
-  design is reviewed before any T1 signup ships (07-27 plan §6.1 stands).
+The per-node OIDC keystone (Röbel ID pattern, live) remains the root. Additions:
 
-### 3.2 Policy plane (the keystone grows one job)
+- **Phone number (SMS OTP)** as a first-class auth method (`authMethods: [... , "phone"]`
+  in NSP-1). Needs an SMS provider credential per node (EU provider, e.g. seven.io;
+  secret by reference in the manifest). SIM-swap risk is accepted for civic-tier
+  accounts and mitigated by step-up (email or social re-auth) for sensitive actions
+  (key export, signer rotation).
+- **Per-node social OAuth apps** (Google/Apple/Facebook client IDs are the node's own,
+  so consent screens say the node's name — "Sign in with your node" stays literal).
+  Registration is onboarding friction; the installer documents it and Netizen Cloud's
+  setup agent performs it. **No Netizen-run OAuth broker** — a broker would be exactly
+  the central chokepoint G2 forbids.
+- **Immediate Röbel win, independent of everything else:** thirdweb's `inAppWallet`
+  already supports a `phone` strategy — adding it to the four existing wallet configs
+  gives Röbel phone login *now*, on the current stack, and the future keystone path
+  inherits the same UX expectation.
 
-The paymaster contract is easy; the policy is the product. The node's keystone — which
-already knows who is a citizen, an org, an agent — signs **sponsorship vouchers**:
+### 3.2 Signer plane — the node signs for its members (the honest core)
 
-- eligibility: holds the node's membership NFT, or is a declared agent in the manifest;
-- per-identity rate limits + per-node daily cap, **fail closed**;
-- funded from that node's treasury Safe with an explicit ceiling; burn-rate alerting.
+The thirdweb UX — silent signing, no ceremonies — requires the key to be usable without
+per-transaction user interaction. v2 makes the custody explicit and puts it where the
+sovereignty story wants it: **the community's node holds the key, not a US vendor.**
 
-Per-node paymasters mean one community's abuse or budget exhaustion can never drain
-another's — the multi-tenant isolation decision that makes shared rails safe.
-Sponsorship signing key ≠ OIDC signing key (separate blast radii, both in the node vault,
-both with kill switches following the `app_settings` pattern).
+- **One random admin EOA per user**, generated at first login, **envelope-encrypted**
+  (per-user data key, wrapped by the node's KMS/vault master key). Never derived from a
+  shared master secret: no derivation linkage, and per-user re-encryption on rotation.
+- **Signing API:** after OIDC login the client holds short-lived tokens; signature and
+  userOp requests go to the node's signer service, which signs **silently** server-side
+  and enforces policy first (per-identity rate limits, per-action classes, deny-lists,
+  the node kill switch). Every signature lands in the audit sink.
+- **Sessions and revocation:** refresh-token revocation = signing stops. Losing a phone
+  is recovered by logging in again — same identity, same key, same address.
+- **Export = sovereignty parity:** a user can always export their admin key (the
+  `/wallet/reveal` equivalent, step-up-authenticated). Disclosure text ships with the
+  SDK: *"your community's node holds this key for you; you can take it out any time."*
+- **Rotation property:** because the onchain account is a smart account, a leaked admin
+  EOA can be **rotated** (owner swap on deployed chains) without changing the user's
+  address — an incident-response property plain-EOA custody lacks. Counterfactual
+  (not-yet-deployed) chains still derive the address from the *original* signer, so the
+  factory's salt binds identity, and rotation is recorded per chain.
+- **Agents and orgs are the same service** with a different policy class (Zodiac-bounded
+  budgets, manifest-declared, kill-switchable) — "Engine" falls out for free, and the
+  agent-first rule still applies: agents exercise every new path before humans do.
+- **Optional later upgrade (explicitly out of v1):** self-custody for users who want it
+  — key export today; a passkey/guardian path can be added behind the same account
+  later. It must never reintroduce prompts for users who did not opt in.
 
-### 3.3 Chain rail
+### 3.3 Account layer — one address on every chain
 
-- **Alto** self-hosted per chain (GPL-3.0, verified self-hostable), serving **both**
-  EntryPoint v0.6 (the legacy thirdweb accounts — the code comment at
-  `apps/web/src/app/api/coordinator/proposal-action/[txHash]/route.ts:19` points to
-  v0.6; stage 0 verifies onchain) **and** v0.7/0.8 for new Safe accounts.
-- Every node fronts it with its own `/api/bundler` proxy (production-proven). Netizen
-  Cloud runs the shared Gnosis rail; `identity.authBridge.bundlerRpc` points anywhere —
-  a node can bring its own bundler and lose nothing. The bundler holds no user policy
-  and is reimbursed by each node's paymaster, which is why sharing it is safe.
+An EOA address is chain-independent. That is the anchor: **user address identity comes
+from the admin EOA**, and the smart account on top is deployed **counterfactually at
+the same CREATE2 address on every enabled chain** via one deterministic factory
+(same factory address everywhere, salt = admin EOA).
 
-### 3.4 Data plane — analytics without a tracker
+- **Implementation choice is re-opened** (v1's Safe-first pick was Gnosis-reasoning).
+  Requirements: audited, permissive license, deterministic cross-chain factory,
+  ERC-4337 EntryPoint v0.7+, admin-owner rotation, modularity for later upgrades
+  (ERC-7579 preferred). Candidates to verify (M0): **ZeroDev Kernel** (MIT, multiple
+  audits, wide chain coverage), **Biconomy Nexus** (ERC-7579; verify license/audits),
+  **Safe + Safe4337Module** (kept as candidate; deterministic cross-chain Safe
+  deployment is possible but historically drift-prone — verify). Prior-research claims
+  here were Gnosis-scoped; **nothing in this section is treated as verified for other
+  chains until M0 checks it onchain per chain.**
+- **EIP-7702 track (simplification, not v1):** where 7702 + EntryPoint v0.8 are live,
+  the admin EOA itself becomes the account (address = EOA on every chain, no factory at
+  all). Watch and adopt per chain; the signer plane is unchanged by it.
+- **Röbel continuity is untouched:** existing citizens stay on their thirdweb accounts
+  through the thirdweb adapter (no address changes, ever, without opt-in migration and
+  a signed identity link). New signups and all customer nodes start on the Netizen
+  account layer. The Shamir signature-determinism blocker (attester share keys derive
+  from deterministic thirdweb signatures) still gates any migration of *existing* keys.
 
-The thirdweb-Insight equivalent is an extension of what already exists, not a new
-service. `packages/indexer` (NSP-10) gains an **onchain ingestion module**: viem log
-ingestion of the contracts the node's manifest declares, plus account activity of the
-node's own accounts, into the same node-local Postgres. On top:
+### 3.4 Chain rails — gasless everywhere, budgeted per node
 
-- **Operator analytics** (what Privy/thirdweb dashboards sell): active accounts
-  (D/W/M), new accounts by tier, retention cohorts, transaction and currency volume,
-  sponsored-gas spend against cap, agent-budget utilization.
-- **Privacy is the differentiator, not a constraint:** everything is node-local;
-  the community is the data controller; dashboards show display names and aggregates,
-  never raw addresses (standing rule); no client-side trackers — the explorer's
-  "no tracking" property extends to the whole product. Wallet addresses are treated as
-  personal data (DPIA precedent); retention windows declared in the manifest. No
-  cross-node aggregation exists in v1 — if it ever does, it is opt-in and aggregate-only.
-- Röbel's DPIA/AV-register work becomes the **template** every customer node inherits —
-  S1 revenue, and a moat a Zug protocol shop cannot copy.
+Per enabled chain: an **Alto** bundler + a **verifying paymaster** + RPC. Shareable:
+Netizen Cloud runs one rail set per supported chain serving all its nodes; any node can
+point `bundlerRpc`/`paymaster` at its own deployment instead and lose nothing.
 
-### 3.5 SDK — `@netizen-labs/accounts`
+- **Policy stays per node** (the v1 invariant survives multichain): the node's keystone
+  signs sponsorship vouchers — membership NFT holders and declared agents only,
+  per-identity rate limits, and now **per-chain gas budgets** with a per-node daily cap
+  that **fails closed**. One community's abuse or budget exhaustion can never touch
+  another's.
+- **Funding model:** the paymaster operator (Netizen Cloud for managed nodes, the
+  community for self-hosted) holds prepaid per-node gas balances per chain; nodes top up
+  from their treasury; burn-rate alerting per node per chain. This is the thirdweb
+  dashboard-credits model with the policy moved into the node's own keystone.
+- **Chain enablement is a manifest edit:** `identity.authBridge.chains: ["gnosis",
+  "base", ...]` — v1 rail set: **Gnosis** (Röbel primary) + **Base** (legacy reads,
+  ecosystem reach); more by customer demand. Legacy EntryPoint v0.6 support on Gnosis
+  remains for existing thirdweb accounts (the code points at v0.6; M0 verifies).
+- Sponsoring on expensive chains (mainnet) is a pricing decision per node, not an
+  architecture change.
 
-viem-first core + `accounts-react` / `accounts-react-native`, living in the
-`netizen_labs` monorepo next to its siblings. The SDK is **the runtime reader of the
-manifest flag nothing reads today**: `createNodeAccountClient(manifest)` selects the
-adapter from `identity.authBridge.provider`.
+### 3.5 Data plane — multichain analytics without a tracker
 
-- **Adapter `netizen`:** passkey/vault signer + Safe4337 + node bundler/paymaster.
-- **Adapter `thirdweb`:** wraps the existing `inAppWallet` config — this is what makes
-  the Röbel migration and the SDK build the *same work* instead of parallel work.
-- React surface mirrors what Röbel actually consumes: an app-owned `useAccount()`
-  (replacing ~337 raw `useActiveAccount()` sites), a node-branded `ConnectPanel`
-  (replacing `ConnectButton`/`ConnectEmbed`, German-first, no vendor branding), and the
-  `autoConnectFinished` boot state machine already proven in the expo contexts.
-- EIP-1193 provider export — the mini-app boundary is already thirdweb-free and needs
-  zero changes.
-- **Server: one `verifyNodeSignature()`** (ERC-1271 + ERC-6492 + the multi-convention
-  recovery from `packages/relay-sync`), replacing the six divergent verifier
-  implementations the inventory found. Handles both signing-chain domains (100 + 8453,
-  the standing thirdweb quirk) and, later, P-256 passkey signatures.
+Unchanged in shape from v1, widened per chain: `packages/indexer` (NSP-10) gains an
+onchain ingestion module reading the node's declared contracts **and account cohort on
+every enabled chain** into node-local Postgres. Operator dashboard: active accounts
+(D/W/M), new accounts by auth method, retention cohorts, transaction/currency volume,
+**sponsored-gas spend per chain against budget**, agent-budget utilization. Everything
+node-local; the community is the data controller; no client-side trackers; display
+names never raw addresses; wallet addresses treated as personal data (DPIA precedent
+becomes the customer template). Cross-node aggregation does not exist in v1.
 
-### 3.6 Protocol
+### 3.6 SDK — `@netizen-labs/accounts` (+ react, react-native)
 
-No new NSP number. The service is the completion of two existing specs:
-**NSP-1** (`identity.authBridge` — add `custodyTiers`, `sponsorship` policy refs,
-`recovery` guardian config) and **NSP-10** (`services.indexer` — add the `onchain`
-ingestion block + `analytics` retention declaration). Everything renders through
-`netizen render` and reports through `netizen doctor` — the standing installer rule;
-`doctor`'s existing "provider is thirdweb" sovereignty warning becomes clearable for
-real. Atlas `/conformance` gains the check.
+- **Core (viem-first):** `createNodeAccountClient(manifest)` reads
+  `identity.authBridge` — `provider: "netizen" | "thirdweb"` selects the adapter;
+  `chains[]` scopes multichain use. The thirdweb adapter wraps the existing
+  `inAppWallet` so Röbel's migration and the SDK build stay the same work.
+- **Connect UI, first-class:** **mobile bottom sheet** (React Native; the expo
+  `LoginDrawer` is the seed) and a **custom wallet modal** (web/desktop) — login
+  (social buttons, email, phone), connected state (balances, activity, export, logout),
+  node branding, German-first, no vendor branding. These replace `ConnectButton` /
+  `ConnectEmbed` at all 8 web sites and the expo drawer.
+- **Hooks:** app-owned `useAccount()` (absorbs ~337 raw `useActiveAccount()` sites),
+  `useSendTransaction({ chain })` (routes through signer + rails, always sponsored),
+  boot state machine per the proven `autoConnectFinished` pattern.
+- **EIP-1193 provider export** — mini-apps stay zero-change.
+- **Server:** the single `verifyNodeSignature()` (ERC-1271 + ERC-6492 + multi-convention
+  recovery, both historic signing-chain domains 100/8453), replacing the six divergent
+  verifiers found in the inventory.
 
-## 4. Build order
+### 3.7 Protocol
 
-Milestones extend the 07-27 plan (its stages 0–4 are unchanged and remain the spine);
-each ships independently, reversible by config, Röbel first.
+Still no new NSP. **NSP-1** `identity.authBridge` grows: `chains[]`, `signer`
+(service ref + vault ref), `sponsorship` (voucher policy + per-chain budgets), `phone`
+auth method. **NSP-10** grows the `onchain` ingestion + analytics retention block.
+Everything renders via `netizen render`, reports via `netizen doctor` (the "provider is
+thirdweb" warning becomes clearable for real), and Atlas `/conformance` gains the check.
 
-| # | Milestone | = plan stage | Gate / proof |
-|---|---|---|---|
-| M0 | Onchain truth: factory, EntryPoint, `initialize` behavior of a live citizen account | 0 | Blocks everything (unchanged) |
-| M1 | SDK core: `@netizen-labs/accounts` skeleton, viem reads, `useAccount()` adoption, shared `verifyNodeSignature()`; **fix the two live verifier bugs now** (delete-account ERC-1271 gap; coordinator's stale `BASE_RPC_URL`) | 1 | Röbel screens render identically; deletion flow verified on a real smart account |
-| M2 | Rails: shared Alto (dual EntryPoint) + per-node paymaster + keystone voucher policy, rendered by the installer | 2–3 | Gasless citizen tx on own rails on a real device; non-citizen refused; daily cap fails closed under load |
-| M3 | T2 agent accounts: node-minted Safe + Zodiac budget + audit trail, zero thirdweb | 4 + agent-first rule | An agent transacts gaslessly within budget in production |
-| M4 | T1 passkey signups for **new** humans (Röbel's next citizens + customer nodes); PRF-floor fallback to T2 | new | Recovery design reviewed; device-floor sized; existing citizens untouched |
-| M5 | Data plane: indexer onchain module + operator analytics dashboard | new | Röbel's own dashboard runs on it; zero client-side trackers |
-| M6 | Productization: manifest add-on complete, docs, Atlas conformance, pricing as a Netizen Cloud add-on ("Sovereign Accounts") | new | A second node enables it by manifest edit + `netizen up` |
+## 4. Build order (Röbel dogfoods every step)
 
-**Deliberately not scheduled:** T3 opt-in re-key of existing citizens (07-27 plan stage
-5 — unchanged, gated on recovery + device floor + the **Shamir signature-determinism
-blocker**: attester share keys are derived from RFC-6979-deterministic thirdweb
-signatures, so any signer change requires a share-key re-registration ceremony first).
+| # | Milestone | Gate / proof |
+|---|---|---|
+| M0 | **Onchain truth, now multichain:** live citizen account's factory + EntryPoint on Gnosis (unchanged from the 07-27 plan) **+ account-implementation bake-off** (§3.3 candidates: license, audits, deterministic factory per candidate chain) | Blocks account-layer code; written up as an addendum to the research doc |
+| M1 | **Quick win:** phone auth strategy added to the four existing `inAppWallet` configs (Röbel gets phone login on the current stack) · SDK skeleton + `useAccount()` adoption · shared `verifyNodeSignature()` · **fix the two live verifier bugs** (delete-account ERC-1271 gap; coordinator `BASE_RPC_URL`) | Phone login works on a real device; Röbel screens render identically |
+| M2 | **Rails on Gnosis:** Alto (dual EntryPoint) + verifying paymaster + keystone voucher policy + per-node budget accounting, rendered by the installer | Gasless citizen tx end-to-end on own rails; non-member refused; cap fails closed under load |
+| M3 | **Signer plane + agent accounts:** node signer service (vault, envelope encryption, policy, audit, export) minting **agent** accounts first — zero thirdweb in the agent path | An agent authenticates via `client_credentials`, transacts gaslessly within a Zodiac budget, every action audited |
+| M4 | **Human embedded accounts:** keystone phone/email/social → node signer → smart account, for **new** signups on Röbel + customer nodes; bottom sheet + wallet modal ship with it | A new citizen onboards by phone number, transacts gaslessly, exports their key; existing citizens untouched |
+| M5 | **Multichain enablement:** second chain rail (Base) + counterfactual same-address deployment + per-chain budgets + multichain indexer/analytics | Same address verified byte-identical on both chains; dashboard shows per-chain spend |
+| M6 | **Productization:** manifest add-on complete, docs, Atlas conformance, pricing as a Netizen Cloud add-on | A second node enables it by manifest edit + `netizen up` |
 
-## 5. Security summary
+Not scheduled (unchanged): opt-in migration of existing Röbel citizens off thirdweb
+custody — gated on the Shamir share-key re-registration ceremony and a per-citizen
+consented identity link.
 
-- **Custody:** T1 non-custodial (device passkey); T2 disclosed node custody, community
-  escrow, Zodiac-bounded; T3 vendor custody, shrinking. Netizen-the-company holds keys
-  for **nobody** — the control plane provisions nodes and holds scoped credentials only.
-- **Paymaster abuse:** voucher-gated, rate-limited, fail-closed caps, per-node budgets,
-  treasury-funded ceilings, burn alerting.
-- **Blast radii:** sponsorship key ≠ OIDC key ≠ vault secret; per-node isolation means a
-  compromised node never crosses tenants; kill switches per capability.
-- **Recovery:** guardians rotate owners only, timelocked, vetoable, notified.
-- **Legal (counsel-gated per the Legal Masterplan):** T2 node custody is the
-  *community's* operation with Netizen as processor under a DPA — whether any MiCA/KWG
-  custody duty attaches, and the analytics DPIA template, both go to the Fachanwalt
-  before the service sells. The T1 default exists precisely to keep the answer simple.
+## 5. Security & custody honesty
+
+- **The node is the custodian.** That is the product, stated plainly: a community bank
+  for keys, with export as the exit. Netizen-the-company holds keys for nobody — the
+  signer runs on the customer's box with the customer's vault; Netizen Cloud operates
+  it as processor under a DPA.
+- **Blast radii, separated:** OIDC signing key ≠ sponsorship voucher key ≠ vault master
+  key; per-node isolation; per-capability kill switches (the `app_settings` pattern);
+  signer compromise is bounded by policy classes + rate limits + budget caps, and
+  remedied by admin-EOA rotation without address loss (§3.2).
+- **Paymaster abuse:** voucher-gated, per-identity rate-limited, per-chain budgeted,
+  fail-closed, treasury-funded ceilings, burn alerting.
+- **Phone auth:** SIM-swap accepted at civic tier; step-up required for export/rotation.
+- **Legal (counsel-gated, Legal Masterplan rule, before the service sells):** node-held
+  keys are a custody service by the community/operator — whether MiCA/KWG duties attach
+  to a Verein-run node, and to Netizen Cloud operating it, is the first Fachanwalt
+  question. Key export and the "community as custodian" framing exist partly to keep
+  that answer favorable, but the question must be answered, not assumed. Analytics DPIA
+  template goes in the same review.
 
 ## 6. Open questions for review
 
-1. Naming: "Netizen Accounts" as the add-on name? (Copy rules apply: no em-dashes in
-   public copy, "Onchain", no Optimism.)
-2. Does the recovery guardian set include the keystone by default, or attester Safe
-   only? (Keystone inclusion eases UX, widens its blast radius.)
-3. Analytics pricing: bundled into the base node fee or a separate add-on uplift?
-4. Should M1's `useAccount()` adoption run as its own mechanical PR series before any
-   rails work, given it touches ~337 sites?
+1. **v1 chain list:** Gnosis + Base as proposed, or a third from day one?
+2. **Account implementation:** any prior on Kernel vs Nexus vs Safe before M0's
+   bake-off, or let the verification decide?
+3. **SMS provider:** seven.io (DE) as default? Per-node credential either way.
+4. **Social OAuth app registration** per node is real onboarding friction — acceptable
+   as a documented + agent-automated step, or does a managed interim (Netizen-registered
+   apps, explicitly temporary) exist despite the G2 tension? I recommend against the
+   interim; stating it for the record.
+5. **Pricing:** signer + rails + analytics bundled as one "Accounts" add-on, or rails
+   metered per chain separately?
