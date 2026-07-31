@@ -56,6 +56,10 @@ begin
 end $$;
 
 revoke all on function public.delete_owner_guarded(uuid,text) from public;
+-- Supabase's ALTER DEFAULT PRIVILEGES grants EXECUTE to anon/authenticated on
+-- every new function; revoking from PUBLIC alone does NOT remove those direct
+-- grants (verified against production 2026-07-31). Revoke them explicitly.
+revoke execute on function public.delete_owner_guarded(uuid,text) from anon, authenticated;
 grant execute on function public.delete_owner_guarded(uuid,text) to service_role;
 
 -- ── Guarded owner role change ─────────────────────────────────────────────────
@@ -91,6 +95,7 @@ begin
 end $$;
 
 revoke all on function public.set_owner_role_guarded(uuid,text,text) from public;
+revoke execute on function public.set_owner_role_guarded(uuid,text,text) from anon, authenticated;
 grant execute on function public.set_owner_role_guarded(uuid,text,text) to service_role;
 
 -- ── Case-insensitive wallet uniqueness guard ─────────────────────────────────
