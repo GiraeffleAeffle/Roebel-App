@@ -1,7 +1,10 @@
 # Netizen Accounts — the wallet stack as a product (v2)
 
-**Date:** 2026-07-31 (v2, same day — revised per review)
-**Status:** Design for review.
+**Date:** 2026-07-31 (v2.1 — approved same day with the recovery amendment in §3.2a)
+**Status:** **APPROVED 2026-07-31** (user review). Open questions in §6 resolved to
+their stated defaults unless amended: chains = Gnosis + Base; account implementation
+decided by the M0 bake-off; SMS = seven.io default; per-node OAuth apps accepted (no
+managed interim); pricing deferred to M6.
 **Supersedes:** v1 of this spec (commit `2afcd25c`) and the wallet parts of
 `apps/web/docs/NETIZEN_STACK_ARCHITECTURE_PLAN.md` §L1/§9.3.
 **Builds on:** [`2026-07-27-thirdweb-independence.md`](2026-07-27-thirdweb-independence.md),
@@ -122,8 +125,37 @@ sovereignty story wants it: **the community's node holds the key, not a US vendo
   budgets, manifest-declared, kill-switchable) — "Engine" falls out for free, and the
   agent-first rule still applies: agents exercise every new path before humans do.
 - **Optional later upgrade (explicitly out of v1):** self-custody for users who want it
-  — key export today; a passkey/guardian path can be added behind the same account
-  later. It must never reintroduce prompts for users who did not opt in.
+  — key export today; a passkey path can be added behind the same account later. It
+  must never reintroduce prompts for users who did not opt in.
+
+### 3.2a Recovery layers (amendment, approved 2026-07-31)
+
+Default recovery is **re-login** (any linked auth method reaches the same node-held
+key). Two **opt-in** layers protect against the cases re-login cannot (node vault loss;
+a user who exported and self-custodies):
+
+1. **Netizen Labs backup escrow (opt-in only):** the user's key, encrypted client-side
+   of the escrow boundary (the node wraps it to an escrow public key; Netizen can never
+   read it without the recovery ceremony), stored off-node. Restores a node that lost
+   its vault. Never enabled silently — it is a user choice, disclosed as one.
+2. **Guardian recovery — friends, community attesters, or org officers:** implemented
+   as smart-account **owner rotation**, not key shares. Guardians hold no key material
+   and can never read a key or move funds; a guardian quorum (e.g. the node's attester
+   Safe, a user-chosen friend set, or a company's officers on an org node) can only
+   install a **new** admin signer after a timelock, with notification and user veto.
+   Because rotation is per chain, **the guardian/recovery module must be part of the
+   account's factory init data** so recovery also works on chains where the account has
+   never transacted — this is a hard criterion in the M0 bake-off (§3.3).
+
+### 3.2b Nostr-native identity (recorded answer)
+
+The admin EOA is a secp256k1 key — the same curve Nostr uses (BIP-340 Schnorr). So the
+account anchor is **natively Nostr-compatible**: the shipped derivation
+(`packages/nostr/keys.ts`: wallet signature → deterministic, node-independent npub)
+keeps working unchanged under our own signer (RFC-6979 deterministic ECDSA), and
+agent/org identities can additionally sign Nostr events **directly** with the raw key
+where domain separation is not required (G5's "an agent's smart-account key also signs
+Nostr events"). One key anchor, both rails — onchain accounts and the Nostr record.
 
 ### 3.3 Account layer — one address on every chain
 
