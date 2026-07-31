@@ -216,7 +216,9 @@ export async function removeOwner(
 export async function updateAccount(
   account: SigningAccount,
   accountId: string,
-  updates: Partial<Pick<Account, "name" | "bio" | "avatar_url" | "cover_url">>
+  updates: Partial<
+    Pick<Account, "name" | "bio" | "avatar_url" | "cover_url" | "opening_hours">
+  >
 ): Promise<Account | null> {
   const res = await callOrgMembership<Account>(account, "update_account", {
     accountId,

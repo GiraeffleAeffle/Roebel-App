@@ -1,15 +1,17 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useActiveAccount } from "thirdweb/react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAccount } from "@/lib/context/AccountContext";
 import { OpeningHoursEditor } from "@/components/business/OpeningHoursEditor";
-import { updateAccountOpeningHours } from "@/app/actions/accounts";
+import { updateAccount } from "@/lib/supabase-accounts";
 import type { OpeningHours } from "@/types/business";
 
 export default function OrgOpeningHoursPage() {
   const { activeAccount, refreshAccounts } = useAccount();
+  const thirdwebAccount = useActiveAccount();
   const [hours, setHours] = useState<OpeningHours>({});
   const [saving, setSaving] = useState(false);
 
@@ -20,15 +22,26 @@ export default function OrgOpeningHoursPage() {
   if (!activeAccount) return null;
 
   const handleSave = async () => {
-    setSaving(true);
-    const result = await updateAccountOpeningHours(activeAccount.id, hours);
-    if (result.success) {
-      toast.success("Öffnungszeiten gespeichert.");
-      await refreshAccounts();
-    } else {
-      toast.error(result.error ?? "Fehler beim Speichern.");
+    if (!thirdwebAccount) {
+      toast.error("Wallet nicht verbunden");
+      return;
     }
-    setSaving(false);
+    setSaving(true);
+    try {
+      // Signed write through the org-membership edge function: the server
+      // verifies the caller's signature, checks the owner/admin gate, and
+      // applies the opening_hours field via its own whitelist — no direct
+      // `accounts` table write from the client.
+      await updateAccount(thirdwebAccount, activeAccount.id, { opening_hours: hours });
+      await refreshAccounts();
+      toast.success("Öffnungszeiten gespeichert.");
+    } catch (e) {
+      toast.error("Fehler beim Speichern.", {
+        description: e instanceof Error ? e.message : undefined,
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
