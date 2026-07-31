@@ -44,7 +44,15 @@ function str(row: Row, key: string): string | null {
  * and NIP-01's id tie-break picks the survivor at random — observed live: one
  * org profile stayed stale after gaining its banner.
  */
-export const MAPPER_VERSION = 2;
+export const MAPPER_VERSION = 3;
+
+/** Original wall-clock of an IMMUTABLE record (kind 1): no version offset, ever —
+ * a version bump must not duplicate every historic post under a new id. */
+function unixFromCreatedAt(row: Row): number {
+  const raw = str(row, "created_at");
+  const parsed = raw ? Date.parse(raw) : NaN;
+  return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : 0;
+}
 
 function unixFromUpdatedAt(row: Row): number {
   const raw = str(row, "updated_at") ?? str(row, "created_at");
@@ -90,7 +98,11 @@ export const TOWN_SCOPE = "town";
  * same explicit opt-in the Nostr identity screen uses — until that exists,
  * their events stay off the record).
  */
-export function eventToSpec(row: Row, orgAccountIds: Set<string>): PublishSpec | null {
+export function eventToSpec(
+  row: Row,
+  orgAccountIds: Set<string>,
+  ownerPubkeyByAccount: Map<string, string> = new Map(),
+): PublishSpec | null {
   if (str(row, "status") !== "approved") return null;
   const id = str(row, "id");
   const title = str(row, "title");
@@ -98,8 +110,13 @@ export function eventToSpec(row: Row, orgAccountIds: Set<string>): PublishSpec |
   if (!id || !title || !date) return null;
 
   const accountId = str(row, "account_id");
-  if (accountId && !orgAccountIds.has(accountId)) return null;
-  const scope = accountId ? `org-${accountId}` : TOWN_SCOPE;
+  const isOrg = accountId ? orgAccountIds.has(accountId) : false;
+  // A personal organiser publishes only after consenting (their wallet holds a
+  // binding); the event then carries their npub as attribution while the town
+  // curator signs — the node never signs AS a person.
+  const ownerPubkey = accountId && !isOrg ? ownerPubkeyByAccount.get(accountId) ?? null : null;
+  if (accountId && !isOrg && !ownerPubkey) return null;
+  const scope = isOrg && accountId ? `org-${accountId}` : TOWN_SCOPE;
 
   const start = berlinToUnix(date, str(row, "time"));
   const tags: string[][] = [
@@ -120,6 +137,19 @@ export function eventToSpec(row: Row, orgAccountIds: Set<string>): PublishSpec |
   if (website) tags.push(["r", website]);
   const price = str(row, "ticket_price");
   if (price) tags.push(["price", price]);
+  const address = str(row, "formatted_address");
+  if (address) tags.push(["address", address]);
+  const lat = row["latitude"];
+  const lon = row["longitude"];
+  if (typeof lat === "number" && typeof lon === "number") {
+    tags.push(["latitude", String(lat)], ["longitude", String(lon)]);
+  }
+  const livestream = str(row, "livestream_url");
+  if (livestream) tags.push(["r", livestream]);
+  const maxAttendees = row["max_attendees"];
+  if (typeof maxAttendees === "number") tags.push(["max_attendees", String(maxAttendees)]);
+  if (row["is_recurring"] === true) tags.push(["recurring", "true"]);
+  if (ownerPubkey) tags.push(["p", ownerPubkey]);
   // NIP-52 status values: planned / confirmed / cancelled.
   tags.push(["status", row["is_cancelled"] === true ? "cancelled" : "confirmed"]);
 
@@ -337,4 +367,79 @@ export function listingToSpec(
   });
 
   return { scope, kind: KIND_PRODUCT, d, content, tags, createdAt: unixFromUpdatedAt(row) };
+}
+
+/**
+ * A feed post published under an ORGANISATION account → kind 1 signed by that
+ * org's own node-held key.
+ *
+ * Kind 1 is immutable, so created_at is the post's original wall-clock with NO
+ * mapper-version offset — history must keep its dates, and a version bump must
+ * not re-mint the past. The citizen device deliberately does not mirror these:
+ * a person's key signing an organisation's words would be false attribution.
+ */
+export function orgPostToSpec(row: Row, orgAccountIds: Set<string>): PublishSpec | null {
+  if (str(row, "status") !== "published") return null;
+  const id = str(row, "id");
+  const accountId = str(row, "account_id");
+  if (!id || !accountId || !orgAccountIds.has(accountId)) return null;
+  const body = str(row, "content") ?? "";
+  const media = Array.isArray(row["media_urls"])
+    ? (row["media_urls"] as unknown[]).filter((u): u is string => typeof u === "string" && !!u)
+    : [];
+  const content = media.length ? `${body}\n\n${media.join("\n")}`.trim() : body;
+  if (!content) return null;
+
+  return {
+    scope: `org-${accountId}`,
+    kind: 1,
+    d: "",
+    content,
+    tags: [],
+    createdAt: unixFromCreatedAt(row),
+  };
+}
+
+/**
+ * A business deal ("Angebot") → NIP-99 classified listing (kind 30402).
+ *
+ * Business data end to end: the deal, its window, its imagery. The business's
+ * contact details stay in the node — the app is the contact route.
+ */
+export function dealToSpec(row: Row, businessNameById: Map<string, string>): PublishSpec | null {
+  if (str(row, "status") !== "active" || row["is_active"] !== true) return null;
+  const id = str(row, "id");
+  const businessId = str(row, "business_id");
+  const title = str(row, "title");
+  if (!id || !businessId || !title) return null;
+
+  const tags: string[][] = [
+    ["d", `deal:${id}`],
+    ["title", title],
+    ["status", "active"],
+  ];
+  const dealType = str(row, "deal_type");
+  if (dealType) tags.push(["t", dealType]);
+  const value = str(row, "deal_value");
+  if (value) tags.push(["price", value]);
+  const image = str(row, "image_url");
+  if (image) tags.push(["image", image]);
+  for (const url of Array.isArray(row["media_urls"]) ? (row["media_urls"] as unknown[]) : []) {
+    if (typeof url === "string" && url.trim()) tags.push(["image", url]);
+  }
+  const start = str(row, "start_date");
+  if (start) tags.push(["start", start]);
+  const end = str(row, "end_date");
+  if (end) tags.push(["end", end]);
+  const businessName = businessNameById.get(businessId);
+  if (businessName) tags.push(["business", businessName]);
+
+  return {
+    scope: `biz-${businessId}`,
+    kind: 30402,
+    d: `deal:${id}`,
+    content: str(row, "description") ?? "",
+    tags,
+    createdAt: unixFromUpdatedAt(row),
+  };
 }

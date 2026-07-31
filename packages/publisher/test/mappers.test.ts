@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { htmlToMarkdown } from "../src/html-to-md.js";
-import { articleToSpec, berlinToUnix, eventToSpec, listingToSpec, MAPPER_VERSION, movieToSpec, orgToSpec } from "../src/mappers.js";
+import { articleToSpec, berlinToUnix, dealToSpec, eventToSpec, listingToSpec, MAPPER_VERSION, movieToSpec, orgPostToSpec, orgToSpec } from "../src/mappers.js";
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 const ORGS = new Set([ORG_ID]);
@@ -227,5 +227,70 @@ describe("marketplace mapping (NIP-15) — withdrawal FIRST", () => {
   it("the seller wallet address itself never reaches the record", () => {
     const spec = listingToSpec(LISTING, ORGS, OPTED)!;
     assert.ok(!JSON.stringify(spec).toLowerCase().includes(SELLER));
+  });
+});
+
+describe("consented personal organisers and the wider record", () => {
+  const OWNER_MAP = new Map([["personal-acc-1", "f".repeat(64)]]);
+
+  it("a consented personal organiser's event publishes with npub attribution", () => {
+    const row = { ...EVENT_ROW, account_id: "personal-acc-1" };
+    const spec = eventToSpec(row, ORGS, OWNER_MAP)!;
+    assert.equal(spec.scope, "town");
+    assert.deepEqual(spec.tags.find((t) => t[0] === "p"), ["p", "f".repeat(64)]);
+  });
+
+  it("an unconsented personal organiser stays off the record", () => {
+    const row = { ...EVENT_ROW, account_id: "personal-acc-2" };
+    assert.equal(eventToSpec(row, ORGS, OWNER_MAP), null);
+  });
+
+  it("an org feed post signs under the org's key with its ORIGINAL date", () => {
+    const post = {
+      id: "p-1",
+      account_id: ORG_ID,
+      content: "Vereinsnachricht",
+      media_urls: ["https://cdn/foto.jpg"],
+      status: "published",
+      created_at: "2026-03-02T09:00:00+00:00",
+    };
+    const spec = orgPostToSpec(post, ORGS)!;
+    assert.equal(spec.kind, 1);
+    assert.equal(spec.scope, `org-${ORG_ID}`);
+    // Immutable kind: original wall-clock, NO mapper-version offset.
+    assert.equal(spec.createdAt, Math.floor(Date.parse(post.created_at) / 1000));
+    assert.match(spec.content, /Vereinsnachricht/);
+    assert.match(spec.content, /foto\.jpg/);
+  });
+
+  it("a personal-account post is NOT the node's to publish", () => {
+    const post = { id: "p-2", account_id: "personal-acc-1", content: "x", status: "published", created_at: "2026-03-02T09:00:00+00:00" };
+    assert.equal(orgPostToSpec(post, ORGS), null);
+  });
+
+  it("an active deal maps to NIP-99 under the business's own scope", () => {
+    const deal = {
+      id: "d-1",
+      business_id: "biz-uuid-1",
+      title: "2-für-1 Pizza",
+      description: "Nur diese Woche",
+      deal_type: "rabatt",
+      deal_value: "50%",
+      image_url: "https://cdn/pizza.jpg",
+      start_date: "2026-08-01",
+      end_date: "2026-08-07",
+      status: "active",
+      is_active: true,
+      updated_at: "2026-07-30T10:00:00+00:00",
+    };
+    const spec = dealToSpec(deal, new Map([["biz-uuid-1", "Pizzeria Müritz"]]))!;
+    assert.equal(spec.kind, 30402);
+    assert.equal(spec.scope, "biz-biz-uuid-1");
+    assert.deepEqual(spec.tags.find((t) => t[0] === "business"), ["business", "Pizzeria Müritz"]);
+    assert.deepEqual(spec.tags.find((t) => t[0] === "price"), ["price", "50%"]);
+  });
+
+  it("an inactive deal never publishes", () => {
+    assert.equal(dealToSpec({ id: "d-2", business_id: "b", title: "x", status: "active", is_active: false }, new Map()), null);
   });
 });

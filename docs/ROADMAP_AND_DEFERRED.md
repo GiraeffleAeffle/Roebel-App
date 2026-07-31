@@ -185,6 +185,16 @@ media: calendar data should use NIP-52 kinds rather than invented ones, and medi
 served from a Blossom server next to strfry — NIP-96 is officially deprecated in its
 favour. **Trigger:** publishing the events/cinema/org datasets, or any media, to the relay.
 
+### 13a. Fork-with-fallback: the app reads Nostr when Supabase is absent
+
+The end state of the dual system: someone forks the Röbel web or expo repo, configures no
+Supabase, and the app still shows the whole public record by reading the node's index/relay —
+same data, slightly slower. The pieces exist (every public dataset is on the record, the
+consumer contract is documented in the Netizen repo's CONSUMING_THE_RECORD.md); what is
+missing is a data-layer seam in the apps that falls back from PostgREST to `/events` queries
+per dataset. **Trigger:** the first real fork, or the Atlas proving a full read-only client —
+whichever comes first.
+
 ### 13. ~~The index does not honour replaceable events~~ — DONE 2026-07-30
 
 Found 2026-07-29 during the node-secret rotation (relay held 1 Mecky profile, index returned

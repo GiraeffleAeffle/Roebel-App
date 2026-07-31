@@ -93,10 +93,50 @@ async function publish(
  * write-policy message — an expected state while the syncer catches up, not an
  * error worth showing.
  */
-export async function publishPost(postId: string, content: string): Promise<PublicationStatus> {
+export async function publishPost(
+  postId: string,
+  content: string,
+  createdAtSec?: number,
+): Promise<PublicationStatus> {
   const identity = await loadStoredIdentity();
   if (!identity) return 'pending';
-  return publish(buildNoteEvent(identity.secretKey, content), 'post', postId);
+  // The post's ORIGINAL wall-clock, not "now": a backfilled post from March
+  // must appear in March on every Nostr client, not on the day the sweep ran.
+  return publish(
+    buildNoteEvent(identity.secretKey, content, createdAtSec ? { createdAt: createdAtSec } : {}),
+    'post',
+    postId,
+  );
+}
+
+/**
+ * Make sure this citizen's kind 0 profile exists on the relay, so clients can
+ * show a name instead of a bare key. Publishes once; a kind 0 already on the
+ * relay wins (profile edits go through the Settings screen's explicit path).
+ */
+export async function ensureProfilePublished(walletAddress: string): Promise<void> {
+  const identity = await loadStoredIdentity();
+  if (!identity) return;
+  try {
+    const existing = await readFromRelay([identity.publicKey], [0], 1);
+    if (existing.length > 0) return;
+    const { data: userRow } = await supabase
+      .from('users')
+      .select('username, bio, profile_picture_url')
+      .eq('wallet_address', walletAddress.toLowerCase())
+      .maybeSingle();
+    if (!userRow?.username) return;
+    await publishProfile(
+      {
+        name: userRow.username as string,
+        about: (userRow.bio as string | null) || undefined,
+        picture: (userRow.profile_picture_url as string | null) || undefined,
+      },
+      identity,
+    );
+  } catch {
+    // cosmetic; the next sweep retries
+  }
 }
 
 /** The parent post's event id on the relay, or null if it was never published. */
@@ -383,9 +423,60 @@ export async function readFromRelay(
  * scope-limited by design: only publications the app already attempted, which
  * all happened after consent.
  */
+/**
+ * One-time repair for mirrors published before dates were preserved: an old
+ * post that reached the relay stamped "today" is deleted and republished with
+ * its original wall-clock, and a post the device mis-signed on an ORG account's
+ * behalf is deleted outright (the node republishes those under the org's key).
+ * Ledger rows update automatically through publishPost's upsert.
+ */
+async function repairMisdatedMirrors(identity: NostrIdentity): Promise<void> {
+  try {
+    const { data: ledger } = await supabase
+      .from('nostr_publications')
+      .select('source_id, event_id')
+      .eq('source_type', 'post')
+      .eq('pubkey_hex', identity.publicKey)
+      .eq('status', 'published')
+      .limit(100);
+    if (!ledger?.length) return;
+    const onRelay = new Map(
+      (await readFromRelay([identity.publicKey], [1], 200)).map((e) => [e.id, e.created_at]),
+    );
+    for (const row of ledger) {
+      const eventId = row.event_id as string | null;
+      if (!eventId || !onRelay.has(eventId)) continue;
+      const { data: post } = await supabase
+        .from('posts')
+        .select('id, content, media_urls, created_at, account:account_id(account_type)')
+        .eq('id', row.source_id)
+        .maybeSingle();
+      if (!post?.created_at) continue;
+      const originalSec = Math.floor(Date.parse(post.created_at as string) / 1000);
+      const isOrgPost = (post.account as { account_type?: string } | null)?.account_type === 'organisation';
+      const driftedByADay = Math.abs((onRelay.get(eventId) ?? originalSec) - originalSec) > 86_400;
+      if (!isOrgPost && !driftedByADay) continue;
+      await relay().publish(
+        buildDeletionEvent(identity.secretKey, [eventId], {
+          reason: isOrgPost ? 'Falsche Zuordnung' : 'Datum korrigiert',
+        }),
+      );
+      if (!isOrgPost) {
+        const media = ((post.media_urls as string[] | null) ?? []).join('\n');
+        const content = media ? `${post.content}\n\n${media}` : (post.content as string);
+        await publishPost(post.id as string, content, originalSec);
+      }
+    }
+  } catch {
+    // repair is best-effort; the record stays merely mis-dated, not wrong
+  }
+}
+
 export async function retryPendingPublications(walletAddress?: string): Promise<void> {
   const identity = await loadStoredIdentity();
   if (!identity) return;
+  if (walletAddress) await ensureProfilePublished(walletAddress);
+  await repairMisdatedMirrors(identity);
   try {
     const { data } = await supabase
       .from('nostr_publications')
@@ -405,14 +496,18 @@ export async function retryPendingPublications(walletAddress?: string): Promise<
       // enrollment; the batch cap spreads the backfill over a few sweeps.
       const { data: recent } = await supabase
         .from('posts')
-        .select('id')
+        .select('id, account:account_id(account_type)')
         .eq('wallet_address', walletAddress.toLowerCase())
         .eq('feed_type', 'main')
         .eq('post_type', 'user')
         .eq('status', 'published')
         .order('created_at', { ascending: true })
         .limit(30);
-      const recentIds = (recent ?? []).map((r) => String(r.id));
+      // Organisation-account posts are the NODE's to publish under the org's
+      // own key — a person's key on an organisation's words is false attribution.
+      const recentIds = (recent ?? [])
+        .filter((r) => (r.account as { account_type?: string } | null)?.account_type !== 'organisation')
+        .map((r) => String(r.id));
       if (recentIds.length) {
         const { data: ledgered } = await supabase
           .from('nostr_publications')
@@ -427,13 +522,15 @@ export async function retryPendingPublications(walletAddress?: string): Promise<
     for (const row of [...sourceIds].map((source_id) => ({ source_id }))) {
       const { data: post } = await supabase
         .from('posts')
-        .select('id, content, media_urls')
+        .select('id, content, media_urls, created_at, account:account_id(account_type)')
         .eq('id', row.source_id)
         .maybeSingle();
       if (!post) continue;
+      if ((post.account as { account_type?: string } | null)?.account_type === 'organisation') continue;
       const media = ((post.media_urls as string[] | null) ?? []).join('\n');
       const content = media ? `${post.content}\n\n${media}` : (post.content as string);
-      await publishPost(post.id as string, content);
+      const originalSec = post.created_at ? Math.floor(Date.parse(post.created_at as string) / 1000) : undefined;
+      await publishPost(post.id as string, content, originalSec);
     }
   } catch {
     // Best-effort; the next sweep tries again.

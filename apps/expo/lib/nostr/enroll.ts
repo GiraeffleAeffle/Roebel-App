@@ -42,7 +42,8 @@ export async function enrollNow(account: SigningAccount): Promise<void> {
     const { ensureIdentitySilently, getRegisteredAt } = await import('./identity');
     await ensureIdentitySilently(account);
     if (await getRegisteredAt()) {
-      const { retryPendingPublications } = await import('./publish');
+      const { ensureProfilePublished, retryPendingPublications } = await import('./publish');
+      await ensureProfilePublished(account.address);
       await retryPendingPublications(account.address);
     }
   } catch {

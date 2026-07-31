@@ -449,6 +449,16 @@ export async function createPost(input: CreatePostInput): Promise<PostRecord | n
 /** Publish a post to the relay if this device holds a Nostr identity. Swallows everything. */
 async function mirrorPostToNostr(post: PostRecord): Promise<void> {
   try {
+    // Organisation-account posts are published by the NODE under the org's own
+    // key; a citizen's key must never sign an organisation's words.
+    if (post.account_id) {
+      const { data: acct } = await supabase
+        .from('accounts')
+        .select('account_type')
+        .eq('id', post.account_id)
+        .maybeSingle();
+      if (acct?.account_type === 'organisation') return;
+    }
     const { publishPost, publishRepost } = await import('./nostr/publish');
     if (post.quoted_post_id) {
       // NIP-18: bare repost = kind 6; quote with own words = kind 1 + q tag.
@@ -457,7 +467,8 @@ async function mirrorPostToNostr(post: PostRecord): Promise<void> {
     }
     const media = (post.media_urls ?? []).join('\n');
     const content = media ? `${post.content}\n\n${media}` : post.content;
-    await publishPost(post.id, content);
+    const createdSec = post.created_at ? Math.floor(Date.parse(post.created_at) / 1000) : undefined;
+    await publishPost(post.id, content, createdSec);
   } catch (err) {
     console.warn('[nostr] post mirror skipped', (err as Error)?.message);
   }

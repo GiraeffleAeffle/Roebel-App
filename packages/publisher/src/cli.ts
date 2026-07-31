@@ -23,7 +23,7 @@ function required(name: string): string {
   return value;
 }
 
-const VALID_DATASETS = new Set<DatasetName>(["events", "cinema", "orgs", "articles", "marketplace"]);
+const VALID_DATASETS = new Set<DatasetName>(["events", "cinema", "orgs", "articles", "marketplace", "deals"]);
 
 async function main(): Promise<void> {
   const nodeId = required("NODE_ID");

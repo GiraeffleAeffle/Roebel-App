@@ -190,7 +190,8 @@
         31922,
         31923,
         30018,
-        30023
+        30023,
+        30402
       ],
       "ingestIntervalSeconds": 120
     },
@@ -200,7 +201,8 @@
         "cinema",
         "orgs",
         "articles",
-        "marketplace"
+        "marketplace",
+        "deals"
       ],
       "intervalSeconds": 300,
       "backfeed": true

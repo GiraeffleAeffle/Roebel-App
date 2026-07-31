@@ -8,9 +8,11 @@ import {
 import { htmlToMarkdown } from "./html-to-md.js";
 import {
   articleToSpec,
+  dealToSpec,
   eventToSpec,
   listingToSpec,
   movieToSpec,
+  orgPostToSpec,
   orgToSpec,
   type PublishSpec,
 } from "./mappers.js";
@@ -32,7 +34,7 @@ import {
  * service only mirrors what the app already accepted as public.
  */
 
-export type DatasetName = "events" | "cinema" | "orgs" | "articles" | "marketplace";
+export type DatasetName = "events" | "cinema" | "orgs" | "articles" | "marketplace" | "deals";
 
 export interface PublisherDeps {
   nodeSecret: string;
@@ -85,6 +87,32 @@ export async function buildSpecs(
   }
   const orgIds = new Set(orgRows.map((r) => String(r.id)));
 
+  // Consent lookup: wallet -> npub bindings joined with account ownership, so a
+  // PERSONAL account's content publishes exactly when its owner accepted the
+  // public record. One fetch, shared by events and marketplace.
+  const wantsConsented = wantsEvents || deps.datasets.includes("marketplace");
+  let optedWallets = new Map<string, string>();
+  let ownerPubkeyByAccount = new Map<string, string>();
+  if (wantsConsented) {
+    const bindings = await deps.fetchRows(
+      "nostr_identities",
+      "select=wallet_address,pubkey_hex,revoked_at&revoked_at=is.null",
+    );
+    optedWallets = new Map(
+      bindings
+        .filter((b) => typeof b.wallet_address === "string" && typeof b.pubkey_hex === "string")
+        .map((b) => [String(b.wallet_address).toLowerCase(), String(b.pubkey_hex)]),
+    );
+    const owners = await deps.fetchRows(
+      "account_owners",
+      "select=account_id,wallet_address",
+    );
+    for (const o of owners) {
+      const pk = optedWallets.get(String(o.wallet_address ?? "").toLowerCase());
+      if (pk && o.account_id) ownerPubkeyByAccount.set(String(o.account_id), pk);
+    }
+  }
+
   if (wantsOrgs) {
     for (const row of orgRows) {
       const spec = orgToSpec(row, deps.nodeId);
@@ -97,7 +125,7 @@ export async function buildSpecs(
       "select=id,account_id,title,description,date,time,end_time,location,formatted_address,category,image_url,website_url,ticket_price,is_cancelled,status,updated_at,created_at&status=eq.approved",
     );
     for (const row of rows) {
-      const spec = eventToSpec(row, orgIds);
+      const spec = eventToSpec(row, orgIds, ownerPubkeyByAccount);
       if (spec) specs.push(spec);
     }
   }
@@ -108,6 +136,19 @@ export async function buildSpecs(
     );
     for (const row of rows) {
       const spec = movieToSpec(row);
+      if (spec) specs.push(spec);
+    }
+  }
+  if (wantsOrgs && orgIds.size) {
+    // Feed posts by organisation accounts, signed by each org's own key. The
+    // citizen device never signs these — a person's key on an organisation's
+    // words would be false attribution.
+    const rows = await deps.fetchRows(
+      "posts",
+      `select=id,account_id,content,media_urls,status,created_at&feed_type=eq.main&status=eq.published&account_id=in.(${[...orgIds].join(",")})`,
+    );
+    for (const row of rows) {
+      const spec = orgPostToSpec(row, orgIds);
       if (spec) specs.push(spec);
     }
   }
@@ -122,23 +163,26 @@ export async function buildSpecs(
     }
   }
   if (deps.datasets.includes("marketplace")) {
-    // The seller opt-in gate: an unrevoked wallet<->npub binding means the
-    // person already chose to be on the public record.
-    const bindings = await deps.fetchRows(
-      "nostr_identities",
-      "select=wallet_address,pubkey_hex,revoked_at&revoked_at=is.null",
-    );
-    const opted = new Map(
-      bindings
-        .filter((b) => typeof b.wallet_address === "string" && typeof b.pubkey_hex === "string")
-        .map((b) => [String(b.wallet_address).toLowerCase(), String(b.pubkey_hex)]),
-    );
     const rows = await deps.fetchRows(
       "marketplace_listings",
       "select=id,account_id,title,description,price,price_type,category,condition,media_urls,neighborhood,listing_type,seller_wallet_address,status,updated_at,created_at",
     );
     for (const row of rows) {
-      const spec = listingToSpec(row, orgIds, opted);
+      const spec = listingToSpec(row, orgIds, optedWallets);
+      if (spec) specs.push(spec);
+    }
+  }
+  if (deps.datasets.includes("deals")) {
+    const businesses = await deps.fetchRows("businesses", "select=id,name");
+    const nameById = new Map(
+      businesses.filter((b) => b.id && typeof b.name === "string").map((b) => [String(b.id), String(b.name)]),
+    );
+    const rows = await deps.fetchRows(
+      "business_deals",
+      "select=id,business_id,title,description,deal_type,deal_value,image_url,media_urls,start_date,end_date,status,is_active,updated_at,created_at&status=eq.active&is_active=eq.true",
+    );
+    for (const row of rows) {
+      const spec = dealToSpec(row, nameById);
       if (spec) specs.push(spec);
     }
   }
