@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { htmlToMarkdown } from "../src/html-to-md.js";
-import { articleToSpec, berlinToUnix, dealToSpec, eventToSpec, listingToSpec, MAPPER_VERSION, movieToSpec, orgPostToSpec, orgToSpec } from "../src/mappers.js";
+import { articleToSpec, berlinToUnix, dealToSpec, eventToSpec, listingToSpec, MAPPER_VERSION, movieToSpec, newsToSpec, orgPostToSpec, orgToSpec } from "../src/mappers.js";
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 const ORGS = new Set([ORG_ID]);
@@ -179,6 +179,58 @@ describe("article mapping (NIP-23)", () => {
 
   it("refuses personal-account articles — a byline needs opt-in", () => {
     assert.equal(articleToSpec({ ...ARTICLE, account_id: "someone-personal" }, ORGS, htmlToMarkdown), null);
+  });
+});
+
+describe("town news mapping (NIP-23)", () => {
+  const NEWS = {
+    id: "n1",
+    slug: "stadtfest-2026",
+    title: "Stadtfest",
+    excerpt: "Kurz",
+    content: "<p>Hallo <b>Röbel</b></p>",
+    cover_image_url: "https://x/img.jpg",
+    category: "stadt",
+    published_at: "2026-07-01T10:00:00Z",
+    status: "published",
+    updated_at: "2026-07-02T10:00:00Z",
+    ai_generated: true,
+  };
+
+  it("newsToSpec: published article becomes NIP-23 under the town scope", () => {
+    const spec = newsToSpec(NEWS, htmlToMarkdown)!;
+    assert.ok(spec);
+    assert.equal(spec.kind, 30023);
+    assert.equal(spec.scope, "town");
+    assert.equal(spec.d, "news:n1");
+    const tag = (n: string) => spec.tags.find((t) => t[0] === n)?.[1];
+    assert.equal(tag("title"), "Stadtfest");
+    assert.equal(tag("slug"), "stadtfest-2026");
+    assert.equal(tag("t"), "news");
+    assert.equal(tag("ai_generated"), "true");
+  });
+
+  it("newsToSpec: drafts stay off the record", () => {
+    assert.equal(newsToSpec({ id: "n2", title: "x", status: "draft" }, htmlToMarkdown), null);
+  });
+
+  it("newsToSpec: planted PII cannot appear in the serialized event", () => {
+    const spec = newsToSpec(
+      {
+        id: "n3",
+        slug: "s",
+        title: "T",
+        content: "ok",
+        status: "published",
+        updated_at: "2026-07-02T10:00:00Z",
+        author_email: "leak@example.com",
+        author_wallet: "0xDEADBEEF",
+      },
+      htmlToMarkdown,
+    )!;
+    const json = JSON.stringify(spec);
+    assert.ok(!json.includes("leak@example.com"));
+    assert.ok(!json.includes("0xDEADBEEF"));
   });
 });
 

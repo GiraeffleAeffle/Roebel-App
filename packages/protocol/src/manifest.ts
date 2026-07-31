@@ -198,7 +198,7 @@ const Services = z.object({
    */
   publisher: z
     .object({
-      datasets: z.array(z.enum(["events", "cinema", "orgs", "articles", "marketplace", "deals"])).min(1),
+      datasets: z.array(z.enum(["events", "cinema", "orgs", "articles", "marketplace", "deals", "news", "businesses", "notices", "menus", "proposals"])).min(1),
       intervalSeconds: z.number().int().positive().optional(),
       /**
        * The reverse direction: posts and interactions signed by bound citizens

@@ -202,7 +202,8 @@
         "orgs",
         "articles",
         "marketplace",
-        "deals"
+        "deals",
+        "news"
       ],
       "intervalSeconds": 300,
       "backfeed": true

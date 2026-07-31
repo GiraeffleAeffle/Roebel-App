@@ -294,6 +294,47 @@ export function articleToSpec(
 }
 
 /**
+ * A published town news article → NIP-23 long-form content.
+ *
+ * News is town-curated (admin-authored), so it signs under the town scope and
+ * needs no per-owner consent gate. The d prefix `news:` keeps it distinct from
+ * org blog articles (`article:`); the `slug` tag lets a record-mode client
+ * resolve /news/[slug] routes. The Art. 50 label rides along where present.
+ */
+export function newsToSpec(row: Row, htmlToMd: (html: string) => string): PublishSpec | null {
+  if (str(row, "status") !== "published") return null;
+  const id = str(row, "id");
+  const title = str(row, "title");
+  if (!id || !title) return null;
+
+  const tags: string[][] = [
+    ["d", `news:${id}`],
+    ["title", title],
+    ["t", "news"],
+  ];
+  const slug = str(row, "slug");
+  if (slug) tags.push(["slug", slug]);
+  const excerpt = str(row, "excerpt");
+  if (excerpt) tags.push(["summary", excerpt]);
+  const cover = str(row, "cover_image_url");
+  if (cover) tags.push(["image", cover]);
+  const publishedAt = str(row, "published_at");
+  if (publishedAt) tags.push(["published_at", String(Math.floor(Date.parse(publishedAt) / 1000))]);
+  const category = str(row, "category");
+  if (category && category !== "news") tags.push(["t", category]);
+  if (row["ai_generated"] === true) tags.push(["ai_generated", "true"]);
+
+  return {
+    scope: TOWN_SCOPE,
+    kind: KIND_LONG_FORM,
+    d: `news:${id}`,
+    content: htmlToMd(str(row, "content") ?? ""),
+    tags,
+    createdAt: unixFromUpdatedAt(row),
+  };
+}
+
+/**
  * A marketplace listing → NIP-15 product, or its withdrawal.
  *
  * Sellers are usually private individuals, so the gate is their own opt-in:

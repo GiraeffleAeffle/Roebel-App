@@ -12,6 +12,7 @@ import {
   eventToSpec,
   listingToSpec,
   movieToSpec,
+  newsToSpec,
   orgPostToSpec,
   orgToSpec,
   type PublishSpec,
@@ -34,7 +35,9 @@ import {
  * service only mirrors what the app already accepted as public.
  */
 
-export type DatasetName = "events" | "cinema" | "orgs" | "articles" | "marketplace" | "deals";
+export type DatasetName =
+  | "events" | "cinema" | "orgs" | "articles" | "marketplace" | "deals"
+  | "news" | "businesses" | "notices" | "menus" | "proposals";
 
 export interface PublisherDeps {
   nodeSecret: string;
@@ -159,6 +162,16 @@ export async function buildSpecs(
     );
     for (const row of rows) {
       const spec = articleToSpec(row, orgIds, htmlToMarkdown);
+      if (spec) specs.push(spec);
+    }
+  }
+  if (deps.datasets.includes("news")) {
+    const rows = await deps.fetchRows(
+      "news_articles",
+      "select=id,slug,title,excerpt,content,cover_image_url,category,published_at,ai_generated,status,updated_at,created_at&status=eq.published",
+    );
+    for (const row of rows) {
+      const spec = newsToSpec(row, htmlToMarkdown);
       if (spec) specs.push(spec);
     }
   }

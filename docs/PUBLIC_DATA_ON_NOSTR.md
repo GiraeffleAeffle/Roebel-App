@@ -25,6 +25,7 @@ public datasets onto the relay every 5 minutes — first live pass: 41 events ac
 | **cinema programme** — NIP-52 `31923`, signed by the cinema's own key | |
 | **organisation profiles** — kind 0, each org under its own derived key | |
 | **blog articles** — NIP-23 `30023`, HTML→Markdown, `ai_generated` label carried onto the record | |
+| **town news** — NIP-23 `30023`, `d=news:<uuid>`, town-signed, slug tag for routing | |
 | **marketplace** — NIP-15 `30018`, seller opt-in gated (unrevoked npub binding), withdrawal-as-edit | |
 | **images** — mirrored content-addressed at `/media/<sha256>` (Blossom-shaped reads); the hash in the signed event is the integrity check | |
 | **the manifest** — `/manifest` on the index: chain id + every contract address, so governance and Münzen are discoverable on-chain without asking anyone | |
