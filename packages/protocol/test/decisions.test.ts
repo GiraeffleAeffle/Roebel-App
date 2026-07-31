@@ -8,6 +8,7 @@ import {
   DECISION_KINDS,
   headAddress,
   safeParseTransition,
+  validateTransitionTrail,
 } from "../src/decisions.js";
 
 const PK = "a".repeat(64);
@@ -124,4 +125,63 @@ test("beschlossen without a civic-notice citation fails; with one it passes", ()
 test("abgelehnt requires the citation too", () => {
   const base = [["a", HEAD, "", "proposal"], ["from", "beschlussvorlage"], ["to", "abgelehnt"]];
   assert.equal(safeParseTransition(transition({ tags: base })).ok, false);
+});
+
+function hop(from: string, to: string, at: number, extra: string[][] = []) {
+  return {
+    kind: DECISION_KINDS.transition,
+    tags: [["a", HEAD, "", "proposal"], ["from", from], ["to", to], ...extra],
+    content: "",
+    created_at: at,
+  };
+}
+const NOTICE = ["a", `32102:${PK}:beschluss:1`, "", "notice"];
+
+test("an empty trail is a proposal at idee", () => {
+  assert.deepEqual(validateTransitionTrail([]), { ok: true, stage: "idee", head: null });
+});
+
+test("a full happy-path trail lands on umgesetzt, order-independent input", () => {
+  const trail = [
+    hop("beschlussvorlage", "beschlossen", 500, [NOTICE]),
+    hop("idee", "entwurf", 100),
+    hop("beschlossen", "umgesetzt", 600),
+    hop("diskussion", "meinungsbild", 300),
+    hop("entwurf", "diskussion", 200),
+    hop("meinungsbild", "beschlussvorlage", 400),
+  ];
+  assert.deepEqual(validateTransitionTrail(trail), { ok: true, stage: "umgesetzt", head: HEAD });
+});
+
+test("a trail must depart from idee", () => {
+  const r = validateTransitionTrail([hop("entwurf", "diskussion", 100)]);
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.index, 0);
+});
+
+test("a broken chain reports the offending index after sorting", () => {
+  const r = validateTransitionTrail([
+    hop("idee", "entwurf", 100),
+    hop("diskussion", "meinungsbild", 200), // from ≠ current stage (entwurf)
+  ]);
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.index, 1);
+});
+
+test("a malformed event fails at its index", () => {
+  const bad = { ...hop("idee", "entwurf", 100), kind: 1 };
+  const r = validateTransitionTrail([bad]);
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.match(r.error, /expected kind/);
+});
+
+test("mixed heads are one trail too many", () => {
+  const other = {
+    kind: DECISION_KINDS.transition,
+    tags: [["a", headAddress("b".repeat(64), "7"), "", "proposal"], ["from", "idee"], ["to", "entwurf"]],
+    content: "",
+    created_at: 200,
+  };
+  const r = validateTransitionTrail([hop("idee", "entwurf", 100), other]);
+  assert.equal(r.ok, false);
 });

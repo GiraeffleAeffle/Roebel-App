@@ -127,3 +127,32 @@ export function safeParseTransition(
     value: { head, from: from.data, to: to.data, notice, reason: ev.content, createdAt: ev.created_at },
   };
 }
+
+/**
+ * Validate a proposal's full transition trail (spec §3: the audit trail must
+ * not be rewritable, so legality is checked over immutable events, sorted by
+ * created_at — ties keep input order; NIP-01 id tie-breaks are the caller's
+ * concern once events are signed).
+ */
+export function validateTransitionTrail(
+  events: DecisionEventLike[],
+): { ok: true; stage: Stage; head: string | null } | { ok: false; index: number; error: string } {
+  const sorted = events
+    .map((ev, i) => ({ ev, i }))
+    .sort((a, b) => a.ev.created_at - b.ev.created_at || a.i - b.i);
+
+  let stage: Stage = "idee";
+  let head: string | null = null;
+  for (let n = 0; n < sorted.length; n++) {
+    const parsed = safeParseTransition(sorted[n].ev);
+    if (!parsed.ok) return { ok: false, index: n, error: parsed.error };
+    const t = parsed.value;
+    if (head === null) head = t.head;
+    else if (t.head !== head) return { ok: false, index: n, error: `trail mixes heads ${head} and ${t.head}` };
+    if (t.from !== stage) {
+      return { ok: false, index: n, error: `expected departure from ${stage}, got ${t.from}` };
+    }
+    stage = t.to;
+  }
+  return { ok: true, stage, head };
+}
