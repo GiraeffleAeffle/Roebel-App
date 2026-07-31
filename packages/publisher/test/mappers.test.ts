@@ -367,6 +367,7 @@ describe("consented personal organisers and the wider record", () => {
       { id: "b1", name: "Bäckerei Müritz", description: "Brot seit 1904",
         category: "handwerk", logo_url: "https://x/l.png", cover_image_url: "https://x/c.png",
         address: "Marktplatz 1", opening_hours: "Mo-Fr 6-18", website_url: "https://baeckerei.example",
+        status: "published",
         updated_at: "2026-07-02T10:00:00Z" },
       "roebel",
     );
@@ -380,9 +381,41 @@ describe("consented personal organisers and the wider record", () => {
     assert.deepEqual(spec!.tags[0], ["netizen_org", "b1", "roebel"]);
   });
 
+  it("businessToSpec: refuses unpublished businesses — status is the moderation gate", () => {
+    assert.equal(businessToSpec(
+      { id: "b3", name: "Hidden", status: "pending", updated_at: "2026-07-02T10:00:00Z" },
+      "roebel",
+    ), null);
+    assert.equal(businessToSpec(
+      { id: "b4", name: "Rejected", status: "rejected", updated_at: "2026-07-02T10:00:00Z" },
+      "roebel",
+    ), null);
+  });
+
+  it("businessToSpec: opening_hours accepts both string and JSONB object forms", () => {
+    const stringHours = businessToSpec(
+      { id: "b5", name: "Cafe", status: "published", opening_hours: "Mo-Fr 8-20",
+        updated_at: "2026-07-02T10:00:00Z" },
+      "roebel",
+    )!;
+    const stringProfile = JSON.parse(stringHours.content);
+    assert.equal(stringProfile.opening_hours, "Mo-Fr 8-20");
+
+    const objectHours = businessToSpec(
+      { id: "b6", name: "Restaurant", status: "published",
+        opening_hours: { montag: { open: "09:00", close: "22:00" }, dienstag: { open: "09:00", close: "22:00" } },
+        updated_at: "2026-07-02T10:00:00Z" },
+      "roebel",
+    )!;
+    const objectProfile = JSON.parse(objectHours.content);
+    const hoursObj = JSON.parse(objectProfile.opening_hours);
+    assert.deepEqual(hoursObj.montag, { open: "09:00", close: "22:00" });
+  });
+
   it("businessToSpec: planted contact PII never serializes", () => {
     const spec = businessToSpec(
       { id: "b2", name: "X", email: "leak@example.com", phone: "01761234567",
+        status: "published",
         updated_at: "2026-07-02T10:00:00Z" },
       "roebel",
     );

@@ -37,6 +37,38 @@ const TABLES: Record<string, Record<string, unknown>[]> = {
       updated_at: "2026-07-29T08:00:00+00:00",
     },
   ],
+  businesses: [
+    {
+      id: "biz-1",
+      name: "Bäckerei Müritz",
+      slug: "baeckerei",
+      description: "Brot seit 1904",
+      category: "handwerk",
+      logo_url: "https://cdn/logo.png",
+      cover_image_url: "https://cdn/cover.png",
+      address: "Marktplatz 1",
+      opening_hours: "Mo-Fr 6-18",
+      website_url: "https://baeckerei.example",
+      status: "published",
+      updated_at: "2026-07-28T10:00:00+00:00",
+    },
+  ],
+  business_deals: [
+    {
+      id: "deal-1",
+      business_id: "biz-1",
+      title: "2-für-1 Brot",
+      description: "Diese Woche",
+      deal_type: "rabatt",
+      deal_value: "50%",
+      image_url: "https://cdn/deal.png",
+      start_date: "2026-08-01",
+      end_date: "2026-08-07",
+      status: "active",
+      is_active: true,
+      updated_at: "2026-07-30T10:00:00+00:00",
+    },
+  ],
 };
 
 function harness(result: { ok: boolean; message: string } = { ok: true, message: "" }) {
@@ -113,5 +145,61 @@ describe("a publish pass", () => {
     const summary = await publishOnce(h.deps);
     assert.equal(summary.rejected, 3);
     assert.equal(summary.accepted, 0);
+  });
+});
+
+describe("businesses dataset and buildSpecs fetch efficiency", () => {
+  it("datasets [businesses] alone: fetches businesses once, builds kind-0 profile specs", async () => {
+    let fetchCount = 0;
+    const deps: PublisherDeps = {
+      nodeSecret: SECRET,
+      nodeId: "roebel",
+      datasets: ["businesses"],
+      fetchRows: async (table) => {
+        if (table === "businesses") fetchCount++;
+        return TABLES[table] ?? [];
+      },
+      relayUrl: "ws://relay",
+      makeClient: () => ({
+        publish: async () => ({ ok: true, message: "" }),
+        close: () => {},
+      }),
+    };
+    const summary = await publishOnce(deps);
+
+    // One fetch for businesses (status filter applied server-side via query string)
+    assert.equal(fetchCount, 1);
+    // One business spec built
+    assert.equal(summary.built, 1);
+    assert.equal(summary.accepted, 1);
+  });
+
+  it("datasets [deals, businesses] together: fetches businesses once, builds both deal and profile specs", async () => {
+    const fetchLog: string[] = [];
+    const deps: PublisherDeps = {
+      nodeSecret: SECRET,
+      nodeId: "roebel",
+      datasets: ["deals", "businesses"],
+      fetchRows: async (table) => {
+        fetchLog.push(table);
+        return TABLES[table] ?? [];
+      },
+      relayUrl: "ws://relay",
+      makeClient: () => ({
+        publish: async () => ({ ok: true, message: "" }),
+        close: () => {},
+      }),
+    };
+    const summary = await publishOnce(deps);
+
+    // Businesses fetched once, business_deals fetched once
+    const businessesFetches = fetchLog.filter((t) => t === "businesses").length;
+    const dealsFetches = fetchLog.filter((t) => t === "business_deals").length;
+    assert.equal(businessesFetches, 1, "businesses table should be fetched exactly once");
+    assert.equal(dealsFetches, 1, "business_deals table should be fetched exactly once");
+
+    // Both a business profile spec and a deal spec are built (2 total)
+    assert.equal(summary.built, 2);
+    assert.equal(summary.accepted, 2);
   });
 });

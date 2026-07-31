@@ -243,8 +243,14 @@ export function orgToSpec(row: Row, nodeId: string): PublishSpec | null {
  * deals with, so a record-mode client joins profile and offers by pubkey,
  * exactly the rule organisations already follow. Contact PERSONS are personal
  * data and are never read; the business's own public storefront data is not.
+ *
+ * Only published businesses show on the record; pending/rejected entries stay
+ * private (the app uses status as the moderation gate). This mirrors the
+ * eventToSpec guard and ensures deals from unpublished businesses don't leak
+ * their names via the deals feed.
  */
 export function businessToSpec(row: Row, nodeId: string): PublishSpec | null {
+  if (str(row, "status") !== "published") return null;
   const id = str(row, "id");
   const name = str(row, "name");
   if (!id || !name) return null;
@@ -258,8 +264,15 @@ export function businessToSpec(row: Row, nodeId: string): PublishSpec | null {
   if (banner) profile.banner = banner;
   const bizCategory = str(row, "category");
   if (bizCategory) profile.business_category = bizCategory;
-  const hours = str(row, "opening_hours");
-  if (hours) profile.opening_hours = hours;
+  // opening_hours is JSONB; handle both string and object forms.
+  const hoursRaw = row["opening_hours"];
+  if (hoursRaw) {
+    if (typeof hoursRaw === "string" && hoursRaw.trim()) {
+      profile.opening_hours = hoursRaw;
+    } else if (hoursRaw && typeof hoursRaw === "object") {
+      profile.opening_hours = JSON.stringify(hoursRaw);
+    }
+  }
   const website = str(row, "website_url");
   if (website) profile.website = website;
   const address = str(row, "address");

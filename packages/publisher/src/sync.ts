@@ -191,7 +191,7 @@ export async function buildSpecs(
   if (wantsDeals || wantsBusinesses) {
     const businesses = await deps.fetchRows(
       "businesses",
-      "select=id,name,slug,description,category,logo_url,cover_image_url,address,opening_hours,website_url,updated_at,created_at",
+      "select=id,name,slug,description,category,logo_url,cover_image_url,address,opening_hours,website_url,status,updated_at,created_at&status=eq.published",
     );
     if (wantsBusinesses) {
       for (const row of businesses) {
