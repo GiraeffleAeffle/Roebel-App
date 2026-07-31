@@ -353,6 +353,21 @@ export async function requireWorkspace(): Promise<WorkspaceContext> {
 const orgFoldersEnsured = new Set<string>();
 
 /**
+ * Task 11's role→bitmask map, applied to Nextcloud's own groupfolder ACL as
+ * defense in depth alongside the API layer's `canWrite` enforcement (Task
+ * 10, `resolveScope` above). Bitmask: read=1, update=2, create=4, delete=8,
+ * share=16, all=31. Mirrors `resolveScope`'s `canWrite: role !== "member"` —
+ * owner and admin get full access, member gets read-only — so a caller that
+ * ever reached Nextcloud directly, bypassing this codebase's routes
+ * entirely, would still hit the same read-only wall a member hits here.
+ */
+const ORG_FOLDER_PERMISSIONS: Record<(typeof ORG_ROLES)[number], number> = {
+  owner: 31,
+  admin: 31,
+  member: 1,
+};
+
+/**
  * Ensure the org's shared folder exists and is bound to every group role
  * `account_owners.role` can hold (`ORG_ROLES` — owner, admin, member; see its
  * doc comment in `./session`). Idempotent and create-if-absent, so it is
@@ -372,7 +387,11 @@ export async function ensureOrgFolder(
   for (const role of ORG_ROLES) {
     const groupId = orgGroupId(scope.accountId, role);
     await ctx.provisioner.ensureGroup(groupId);
-    await ctx.provisioner.ensureGroupFolder({ name: scope.folderName, groupId });
+    await ctx.provisioner.ensureGroupFolder({
+      name: scope.folderName,
+      groupId,
+      permissions: ORG_FOLDER_PERMISSIONS[role],
+    });
   }
   orgFoldersEnsured.add(scope.accountId);
 }

@@ -431,6 +431,137 @@ describe("ensureGroupFolder — cross-org conflict refusal (defence in depth)", 
   });
 });
 
+// Task 11: defense in depth alongside the API layer's canWrite enforcement
+// (Task 10) — Nextcloud's own ACL now agrees with the app's role model
+// instead of leaving every bound group at the groupfolders default of full
+// access. Bitmask: read=1, update=2, create=4, delete=8, share=16, all=31.
+describe("ensureGroupFolder — per-role permissions bitmask", () => {
+  it("binds a new admin group and sets the 31 (all) bitmask", async () => {
+    const { calls, fetchImpl } = stubFetch([
+      { body: ocs(100, { "3": { id: 3, mount_point: "Org Feuerwehr", groups: [] } }) },
+      { body: ocs(100, {}) }, // bind succeeds
+      { body: ocs(100, {}) }, // permissions POST succeeds
+    ]);
+    const result = await provisioner(fetchImpl).ensureGroupFolder({
+      name: "Org Feuerwehr",
+      groupId: "org:acc-7:admin",
+      permissions: 31,
+    });
+    assert.deepEqual(result, { folderId: 3, created: false });
+    assert.equal(calls.length, 3);
+    assert.equal(calls[2].method, "POST");
+    assert.match(
+      calls[2].url,
+      /\/apps\/groupfolders\/folders\/3\/groups\/org%3Aacc-7%3Aadmin\?format=json/,
+    );
+    assert.match(calls[2].body ?? "", /permissions=31/);
+  });
+
+  it("binds a new member group and sets the 1 (read-only) bitmask", async () => {
+    const { calls, fetchImpl } = stubFetch([
+      { body: ocs(100, { "3": { id: 3, mount_point: "Org Feuerwehr", groups: [] } }) },
+      { body: ocs(100, {}) }, // bind succeeds
+      { body: ocs(100, {}) }, // permissions POST succeeds
+    ]);
+    const result = await provisioner(fetchImpl).ensureGroupFolder({
+      name: "Org Feuerwehr",
+      groupId: "org:acc-7:member",
+      permissions: 1,
+    });
+    assert.deepEqual(result, { folderId: 3, created: false });
+    assert.equal(calls.length, 3);
+    assert.match(
+      calls[2].url,
+      /\/apps\/groupfolders\/folders\/3\/groups\/org%3Aacc-7%3Amember\?format=json/,
+    );
+    assert.match(calls[2].body ?? "", /permissions=1/);
+  });
+
+  it("is idempotent: skips both the bind and the permissions POST when the listing already shows the matching bitmask", async () => {
+    const { calls, fetchImpl } = stubFetch([
+      {
+        body: ocs(100, {
+          "3": {
+            id: 3,
+            mount_point: "Org Feuerwehr",
+            groups: { "org:acc-7:admin": 31 },
+          },
+        }),
+      },
+    ]);
+    const result = await provisioner(fetchImpl).ensureGroupFolder({
+      name: "Org Feuerwehr",
+      groupId: "org:acc-7:admin",
+      permissions: 31,
+    });
+    assert.deepEqual(result, { folderId: 3, created: false });
+    assert.equal(
+      calls.length,
+      1,
+      "already bound with the right bitmask — no bind call, no permissions POST",
+    );
+  });
+
+  it("re-POSTs permissions on drift: bind is skipped (already bound) but a stale bitmask is corrected", async () => {
+    const { calls, fetchImpl } = stubFetch([
+      {
+        body: ocs(100, {
+          // stale: member currently carries 31 (full access) instead of 1
+          "3": { id: 3, mount_point: "Org Feuerwehr", groups: { "org:acc-7:member": 31 } },
+        }),
+      },
+      { body: ocs(100, {}) }, // permissions POST corrects it
+    ]);
+    const result = await provisioner(fetchImpl).ensureGroupFolder({
+      name: "Org Feuerwehr",
+      groupId: "org:acc-7:member",
+      permissions: 1,
+    });
+    assert.deepEqual(result, { folderId: 3, created: false });
+    assert.equal(calls.length, 2, "bind skipped, but the bitmask is corrected");
+    assert.equal(calls[1].method, "POST");
+    assert.match(
+      calls[1].url,
+      /\/apps\/groupfolders\/folders\/3\/groups\/org%3Aacc-7%3Amember\?format=json/,
+    );
+    assert.match(calls[1].body ?? "", /permissions=1/);
+  });
+
+  it("throws — rather than reporting success — when the permissions POST genuinely fails", async () => {
+    const { fetchImpl } = stubFetch([
+      { body: ocs(100, { "3": { id: 3, mount_point: "Org Feuerwehr", groups: [] } }) },
+      { body: ocs(100, {}) }, // bind succeeds
+      { body: ocs(997, null) }, // permissions POST fails
+    ]);
+    await assert.rejects(
+      () =>
+        provisioner(fetchImpl).ensureGroupFolder({
+          name: "Org Feuerwehr",
+          groupId: "org:acc-7:admin",
+          permissions: 31,
+        }),
+      (err: unknown) => err instanceof NextcloudError && err.status === 997,
+    );
+  });
+
+  it("leaves the binding's permissions untouched when the caller omits permissions entirely", async () => {
+    // Backward-compatible default: existing callers that never pass
+    // `permissions` must see byte-for-byte the same call sequence as before
+    // Task 11 (already covered above), so this just pins that omitting it
+    // does not spuriously issue a permissions call.
+    const { calls, fetchImpl } = stubFetch([
+      { body: ocs(100, { "3": { id: 3, mount_point: "Org Feuerwehr", groups: [] } }) },
+      { body: ocs(100, {}) }, // bind succeeds
+    ]);
+    const result = await provisioner(fetchImpl).ensureGroupFolder({
+      name: "Org Feuerwehr",
+      groupId: "org:acc-7:member",
+    });
+    assert.deepEqual(result, { folderId: 3, created: false });
+    assert.equal(calls.length, 2, "no permissions call when permissions is omitted");
+  });
+});
+
 describe("ensureGroup", () => {
   it("creates a missing group and tolerates the already-exists code", async () => {
     const { fetchImpl } = stubFetch([{ body: ocs(102, null) }]);

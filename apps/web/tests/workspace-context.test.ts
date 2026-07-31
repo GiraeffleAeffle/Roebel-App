@@ -159,7 +159,11 @@ describe("resolveScope", () => {
 describe("ensureOrgFolder", () => {
   function fakeProvisioner() {
     const ensureGroupCalls: string[] = [];
-    const ensureGroupFolderCalls: Array<{ name: string; groupId: string }> = [];
+    const ensureGroupFolderCalls: Array<{
+      name: string;
+      groupId: string;
+      permissions?: number;
+    }> = [];
     const provisioner: Provisioner = {
       async ensureUser() {
         return { created: false };
@@ -168,7 +172,11 @@ describe("ensureOrgFolder", () => {
         ensureGroupCalls.push(groupId);
         return { created: false };
       },
-      async ensureGroupFolder(params: { name: string; groupId: string }) {
+      async ensureGroupFolder(params: {
+        name: string;
+        groupId: string;
+        permissions?: number;
+      }) {
         ensureGroupFolderCalls.push(params);
         return { folderId: 1, created: false };
       },
@@ -192,7 +200,13 @@ describe("ensureOrgFolder", () => {
   // account_owners.role, and an org's creator holds role "owner" (the DB
   // default) — not "member". Binding only :member left owners locked out of
   // their own org's files. ensureOrgFolder must bind every role.
-  it("binds every org role — owner, admin, member — onto exactly scope.folderName", async () => {
+  //
+  // Task 11: each bind now also carries the role's permission bitmask
+  // (read=1, update=2, create=4, delete=8, share=16, all=31) — owner/admin
+  // get 31 (full access), member gets 1 (read-only) — mirroring the
+  // `canWrite: role !== "member"` split `resolveScope` already enforces at
+  // the API layer, but applied to Nextcloud's own ACL as defense in depth.
+  it("binds every org role — owner, admin, member — onto exactly scope.folderName, with owner/admin writable (31) and member read-only (1)", async () => {
     const { provisioner, ensureGroupCalls, ensureGroupFolderCalls } = fakeProvisioner();
     const scope: WorkspaceScope = {
       kind: "org",
@@ -208,9 +222,9 @@ describe("ensureOrgFolder", () => {
       "org:acc-ensure-1:member",
     ]);
     assert.deepEqual(ensureGroupFolderCalls, [
-      { name: "org-acc-ensure-1", groupId: "org:acc-ensure-1:owner" },
-      { name: "org-acc-ensure-1", groupId: "org:acc-ensure-1:admin" },
-      { name: "org-acc-ensure-1", groupId: "org:acc-ensure-1:member" },
+      { name: "org-acc-ensure-1", groupId: "org:acc-ensure-1:owner", permissions: 31 },
+      { name: "org-acc-ensure-1", groupId: "org:acc-ensure-1:admin", permissions: 31 },
+      { name: "org-acc-ensure-1", groupId: "org:acc-ensure-1:member", permissions: 1 },
     ]);
   });
 

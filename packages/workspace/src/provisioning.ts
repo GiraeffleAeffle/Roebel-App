@@ -26,6 +26,17 @@ export interface Provisioner {
   ensureGroupFolder(params: {
     name: string;
     groupId: string;
+    /**
+     * Optional per-role permission bitmask (read=1, update=2, create=4,
+     * delete=8, share=16, all=31) applied to this group's binding on the
+     * folder. Defense in depth alongside the API layer's `canWrite`
+     * enforcement (Task 10) — Nextcloud's own ACL now agrees with it rather
+     * than leaving every bound group at the groupfolders default of full
+     * access. Omitted entirely, the binding is left exactly as Nextcloud
+     * defaults it (unchanged behaviour for any caller that does not pass
+     * this).
+     */
+    permissions?: number;
   }): Promise<{
     folderId: number;
     created: boolean;
@@ -81,6 +92,20 @@ function isGroupConfirmedBound(
 ): boolean {
   if (!groups || Array.isArray(groups)) return false;
   return Object.prototype.hasOwnProperty.call(groups, groupId);
+}
+
+/** The bitmask the last listing positively showed for `groupId` on this
+ * folder, or `undefined` when the listing does not confirm one (not bound
+ * yet, the PHP `[]`-vs-`{}` quirk, or an older server omitting the field).
+ * Mirrors `isGroupConfirmedBound`'s safe default: an ambiguous reading never
+ * claims a specific bitmask, so the caller falls through to issuing the
+ * (idempotent) permissions POST rather than trusting a guess. */
+function currentPermissions(
+  groups: GroupFolderEntry["groups"],
+  groupId: string,
+): number | undefined {
+  if (!groups || Array.isArray(groups)) return undefined;
+  return groups[groupId];
 }
 
 /** Pull the accountId out of an `org:<accountId>:<role>` group id, or `null`
@@ -208,26 +233,51 @@ export function createProvisioner(opts: ProvisionerOptions): Provisioner {
    * so this should never fire in practice, but if that guarantee is ever
    * weakened by a future change, a real folder collision must be a hard
    * failure here too, not a silent additive bind.
+   *
+   * When `permissions` is given, it is also enforced — independently of
+   * whether the bind itself was needed — against the folder's own ACL for
+   * this group (Task 11: read=1/update=2/create=4/delete=8/share=16/all=31,
+   * owner+admin get 31, member gets 1). This is defense in depth alongside
+   * the API layer's `canWrite` check (Task 10): even a caller that bypasses
+   * this codebase's own routes hits Nextcloud's ACL directly. Skipped when
+   * the listing already shows the exact bitmask, the same idempotency
+   * discipline as the bind itself — this runs on the request path and must
+   * cost nothing beyond the listing on the common, nothing-changed case.
    */
   async function ensureGroupBound(
     folder: { id: number; groups?: GroupFolderEntry["groups"] },
     groupId: string,
+    permissions?: number,
   ): Promise<void> {
-    if (isGroupConfirmedBound(folder.groups, groupId)) return;
-    if (boundToADifferentOrg(folder.groups, groupId)) {
-      throw new GroupFolderConflictError(
-        `refusing to bind ${groupId} onto folder ${folder.id}: already bound to a different org's group`,
+    if (!isGroupConfirmedBound(folder.groups, groupId)) {
+      if (boundToADifferentOrg(folder.groups, groupId)) {
+        throw new GroupFolderConflictError(
+          `refusing to bind ${groupId} onto folder ${folder.id}: already bound to a different org's group`,
+        );
+      }
+      const bound = await ocs<unknown>(
+        "POST",
+        `/apps/groupfolders/folders/${folder.id}/groups?format=json`,
+        { group: groupId },
       );
+      assertOcsOk(bound, `bind group ${groupId} to folder ${folder.id}`, [
+        OCS_SUCCESS,
+        OCS_ALREADY_EXISTS,
+      ]);
     }
-    const bound = await ocs<unknown>(
+
+    if (permissions === undefined) return;
+    if (currentPermissions(folder.groups, groupId) === permissions) return;
+    const updated = await ocs<unknown>(
       "POST",
-      `/apps/groupfolders/folders/${folder.id}/groups?format=json`,
-      { group: groupId },
+      `/apps/groupfolders/folders/${folder.id}/groups/${encodeURIComponent(groupId)}?format=json`,
+      { permissions: String(permissions) },
     );
-    assertOcsOk(bound, `bind group ${groupId} to folder ${folder.id}`, [
-      OCS_SUCCESS,
-      OCS_ALREADY_EXISTS,
-    ]);
+    assertOcsOk(
+      updated,
+      `set permissions ${permissions} for group ${groupId} on folder ${folder.id}`,
+      [OCS_SUCCESS],
+    );
   }
 
   return {
@@ -309,14 +359,14 @@ export function createProvisioner(opts: ProvisionerOptions): Provisioner {
      * folder always has its group binding (re-)ensured, never assumed from
      * its mere presence in the listing.
      */
-    async ensureGroupFolder({ name, groupId }) {
+    async ensureGroupFolder({ name, groupId, permissions }) {
       const matches = (await listGroupFolders()).filter(
         (folder) => folder.mount_point === name,
       );
 
       if (matches.length > 0) {
         const canonical = canonicalFolder(matches);
-        await ensureGroupBound(canonical, groupId);
+        await ensureGroupBound(canonical, groupId, permissions);
         const duplicateFolderIds = matches
           .filter((folder) => folder.id !== canonical.id)
           .map((folder) => folder.id);
@@ -351,7 +401,7 @@ export function createProvisioner(opts: ProvisionerOptions): Provisioner {
       // succeeds. If it fails, throw rather than reporting `created: true`
       // on a folder the group can't reach — the caller must see this as a
       // failure, not a false success, even though a folder row now exists.
-      await ensureGroupBound(canonical, groupId);
+      await ensureGroupBound(canonical, groupId, permissions);
 
       const duplicateFolderIds = afterCreate
         .filter((folder) => folder.id !== canonical.id)
