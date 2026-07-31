@@ -226,8 +226,10 @@ the only line with real COGS discipline required.
   public copy carries the `doctor` honesty caveat.
 - **Proof 1 — the AI door renders.** The minimal manifest
   (`identity + ai + workspace`) renders, comes up with one command, passes
-  `doctor` including the third-party-rail check. AI-first landing narrative
-  on the Netizen Labs site.
+  `doctor` including the third-party-rail check. **Nohau-lite** ships here:
+  a scoped onboarding agent for the minimal manifest only (questions →
+  manifest → provisioned node; see §11.4). AI-first landing narrative on the
+  Netizen Labs site.
 - **Proof 2 — node #2 through the AI door.** A *stranger's* node — the
   roadmap's own next-milestone rule. An SME or community that came for
   private AI, not for civic tech.
@@ -260,14 +262,28 @@ the only line with real COGS discipline required.
   `doctor` confirms it. Röbel's `ai.selfHosted: false` stays visible until
   Proof 0 lands.
 
-## 11. Open questions
+## 11. Resolved questions (decided 2026-07-31, review session)
 
-1. Rail operating entity: Netizen Labs GmbH, or per-jurisdiction partners
-   (Schwarz Digits / IONOS partnership per Cloud spec §4)? Interacts with the
-   "whose Hetzner account" question that defines the company's legal shape.
-2. Box vendor relationships: certified-BOM-only, or a named integrator who
-   ships pre-imaged boxes under their own brand?
-3. GLM-5.2 positioning for public-sector buyers: on the menu with provenance
-   disclosed, or excluded from the Kommune preset entirely?
-4. Does the AI door get its own onboarding agent (Nohau-lite) at Proof 1, or
-   does conversational signup wait for Cloud build-phase P4 as planned?
+1. **Rail operating entity: per-jurisdiction partners first, Netizen Labs
+   GmbH later.** Launch the rail on partner infrastructure (Schwarz Digits /
+   IONOS-class, per Cloud spec §4's "partnership over reselling"); the GmbH
+   takes over rail operation when volume and the company's legal shape (the
+   "whose Hetzner account" question) justify it. Partners-first also keeps
+   the concentration ratio honest from day one.
+2. **Box vendors: certified-BOM-only at launch; named integrator later.**
+   Publishing the BOM costs nothing and violates no rule. A named integrator
+   shipping pre-imaged boxes comes only once assisted-tier demand is proven
+   (roughly: after the first ~3 assisted requests) — and under the
+   integrator's brand and inventory, never Netizen's, so demand-first holds.
+3. **GLM-5.2: on the menu with provenance disclosed; excluded from the
+   Kommune preset by default.** SMEs get the strongest open model on the
+   governed rail. Public-sector presets default to the European-sovereign
+   menu; a Kommune that wants GLM opts in via a manifest edit under its own
+   egress governance — the product's governance mechanism working as
+   designed, not an exception to it.
+4. **Nohau-lite ships with the AI door at Proof 1.** A scoped onboarding
+   agent for the minimal manifest only: a handful of questions → rendered
+   manifest → provisioned node. Full Nohau (every SKU, civic door included)
+   stays at Cloud build-phase P4 as planned. Nohau-lite is the "as easy as
+   Supabase" claim made literal, and its scope is small precisely because
+   the minimal manifest is small.
