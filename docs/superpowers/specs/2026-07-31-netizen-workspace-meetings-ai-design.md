@@ -281,7 +281,7 @@ drift:
 
 | Phase | Ships | Gate/exit test |
 |---|---|---|
-| **W0 — Unblock (days)** | Fix the two RLS findings (`account_owners` INSERT + rename); ship AI-Act Art. 50 disclosure (**legal deadline 2026-08-02**); offsite backups + cloud firewall (user one-liners) | org workspace safe to enable; disclosure live |
+| **W0 — Unblock (days)** | Fix the open RLS findings (`account_owners` INSERT, account rename, stale session claims); offsite backups + cloud firewall (user one-liners). *(AI-Act Art. 50 disclosure: implemented 2026-07-30 in a parallel session; only deploy gates remain.)* | org workspace safe to enable |
 | **W1 — Workspace GA in Röbel** | Flip `NEXT_PUBLIC_WORKSPACE_NATIVE_FILES` for citizens + 2–3 pilot orgs; role-based write access (drop unconditional `canWrite`); mobile route | a Verein stores and co-edits real documents |
 | **W2 — Chat graduation** | Installer renders real Matrix/MAS/Element; org rooms auto-provisioned from `org:` claims; chat tile → native | `netizen up` on a clean box yields working E2EE org chat; node #2 proves it |
 | **W3 — Meetings v1** | `services.meet` rendered (LiveKit + lk-jwt + Element Call); embedded in Arbeitsbereich + Element; E2EE group calls | two orgs hold a real E2EE meeting on the node |
@@ -341,14 +341,25 @@ their documents on the node for a month without us touching the box.**
 > GPU/hardware timing and model choices moved to
 > [sovereign-ai-product-design](2026-07-31-sovereign-ai-product-design.md). Remaining open:
 
-1. **Order: chat graduation (W2) before meetings (W3)** — or accept hand-wired Matrix for a faster
-   meetings demo and graduate afterward? (Recommended: graduate first; node #2 needs it anyway.)
-2. **First dogfood org**: which Verein and which business get W1 access?
-3. **STT choice for German** (Whisper turbo vs Vosk) — decide by bake-off on the node at W4, or
-   pre-commit?
-4. **Does Tier 3 (realtime characters) target Mecky first**, or a neutral per-org assistant persona?
-5. **N-track priority**: does N1 (public feed/events read from the relay) start before or alongside
-   W1? Both are independently unblocked; the question is sequencing your own attention.
+> **Settled 2026-07-31** (recommendations adopted on Max's "recommend answers and continue"):
+
+1. **Chat graduation (W2) comes before meetings (W3).** Meetings stack on a correctly configured
+   Synapse+MAS; a hand-wired demo would be exactly the drift the installer rule forbids; and node #2
+   needs the rendered configs regardless. The demo is one phase later and twice as durable.
+2. **First dogfood orgs — by criteria, Max names the humans**: the Verein most active in the org
+   events dashboard today (an org that already runs events has documents, a board, and meetings),
+   plus one gastro partner already using the AI menu tooling (shortest path to a paying-customer
+   rehearsal). One of each, not more, until the month-untouched metric holds.
+3. **STT: pre-commit Whisper (large-v3-turbo) for Tier 1** post-meeting minutes — best German
+   accuracy, batch fits the CPU budget. The bake-off (vs Vosk / whisper-streaming) applies only to
+   Tier 2 live captions and runs on the node at W5, when latency actually matters.
+4. **Tier 3 ships as Mecky.** Existing brand, existing tools, German voice, and G6 already names
+   Mecky the reference org agent. The persona becomes a per-org-configurable charter field later —
+   a skin, not a second build.
+5. **W-track first in the main working thread; N1 is the designated parallel-session task.**
+   W0→W1 is the path that unblocks everything else, while N1 (public feed/events read from the
+   indexer/relay) touches disjoint code and is independently unblocked — the ideal handoff to a
+   parallel agent.
 
 ---
 
