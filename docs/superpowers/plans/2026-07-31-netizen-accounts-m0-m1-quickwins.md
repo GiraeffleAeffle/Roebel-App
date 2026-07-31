@@ -29,7 +29,7 @@
 **Interfaces:**
 - Produces: verified `factory` address, `entryPoint` address + version, and account-implementation address for the live citizen accounts. The M2 rails plan and the bake-off consume these values verbatim.
 
-- [ ] **Step 1: Resolve a live citizen smart-account address from CitizenNFTv2**
+- [x] **Step 1: Resolve a live citizen smart-account address from CitizenNFTv2**
 
 ```bash
 # CitizenNFTv2 on Gnosis: 0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5; ownerOf(1)
@@ -41,7 +41,7 @@ curl -s https://rpc.gnosischain.com -H 'content-type: application/json' -d '{
 ```
 Expected: a 32-byte-padded address (the citizen's smart account). If it reverts (token 1 burned), try token ids 2..20.
 
-- [ ] **Step 2: Confirm the account has code and read its EntryPoint**
+- [x] **Step 2: Confirm the account has code and read its EntryPoint**
 
 ```bash
 ACCOUNT=0x...   # from step 1
@@ -53,7 +53,7 @@ curl -s https://rpc.gnosischain.com -H 'content-type: application/json' -d '{
 ```
 Expected: non-empty bytecode (a minimal proxy is fine), and EntryPoint = `0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789` (v0.6) or `0x0000000071727De22E5E9d8BAf0edAc6f37da032` (v0.7). Record which.
 
-- [ ] **Step 3: Read the factory**
+- [x] **Step 3: Read the factory**
 
 ```bash
 # factory() selector 0xc45a0155
@@ -62,7 +62,7 @@ curl -s https://rpc.gnosischain.com -H 'content-type: application/json' -d '{
 ```
 Expected: the thirdweb default AccountFactory address on Gnosis. If the call reverts, extract the implementation address from the proxy bytecode in step 2 (bytes 10–29 of an EIP-1167 minimal proxy) and retry `factory()` against the implementation; if it still reverts, find the account's deployment tx via Gnosisscan and read the factory from `sender` — record whichever evidence path succeeded.
 
-- [ ] **Step 4: Append the addendum to the research doc**
+- [x] **Step 4: Append the addendum to the research doc**
 
 Append to `docs/future-research/2026-07-27_WALLET_SOVEREIGNTY_RESEARCH.md`:
 
@@ -79,7 +79,7 @@ Verified against citizen account `<ACCOUNT>` (CitizenNFTv2 token <ID>) on Gnosis
   now answered; item 3 (paymaster audit status) remains open.
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/future-research/2026-07-27_WALLET_SOVEREIGNTY_RESEARCH.md
@@ -101,7 +101,7 @@ git push
 **Interfaces:**
 - Produces: `"phone"` as an enabled `inAppWallet` auth strategy everywhere. thirdweb's ConnectButton/ConnectEmbed render the phone input automatically; the keystone's custom HTML gets the option now and its input UI in the keystone milestone (M4).
 
-- [ ] **Step 1: Add `"phone"` to each auth options array**
+- [x] **Step 1: Add `"phone"` to each auth options array**
 
 In each of the five sites, the auth options array gains `"phone"` after `"email"`. Web (three files, identical shape — example from `wallet-config.ts`):
 
@@ -126,12 +126,12 @@ roebel-id (`login-page.ts`, inside the template string):
     auth: { options: ['google', 'email', 'phone', 'apple', 'facebook'] },
 ```
 
-- [ ] **Step 2: Verify every site changed**
+- [x] **Step 2: Verify every site changed**
 
 Run: `grep -rn "'phone'\|\"phone\"" apps/web/src/lib/wallet-config.ts apps/web/src/components/auth/WalletConnectionStep.tsx apps/web/src/app/wallet/reveal/page.tsx apps/expo/constants/wallets.ts apps/roebel-id/src/interaction/login-page.ts`
 Expected: 6 matches (expo file has two).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add apps/web/src/lib/wallet-config.ts apps/web/src/components/auth/WalletConnectionStep.tsx apps/web/src/app/wallet/reveal/page.tsx apps/expo/constants/wallets.ts apps/roebel-id/src/interaction/login-page.ts
@@ -154,7 +154,7 @@ git push
 
 **Bug:** the client signs with the smart account (`account.signMessage()`), but the function verifies with `recoverMessageAddress`, which yields the enclave admin EOA — never equal to the smart-account address → every legitimate deletion returns `BAD_SIGNATURE`. App Store Guideline 5.1.1(v) makes this a compliance bug, not a nicety.
 
-- [ ] **Step 1: Extend the viem import and add a Gnosis public client**
+- [x] **Step 1: Extend the viem import and add a Gnosis public client**
 
 Replace line 20:
 
@@ -173,7 +173,7 @@ const gnosisClient = createPublicClient({
 });
 ```
 
-- [ ] **Step 2: Replace the recovery block (lines 96–111) with recovery + universal fallback**
+- [x] **Step 2: Replace the recovery block (lines 96–111) with recovery + universal fallback**
 
 ```ts
   // Fast path: plain EOA recovery. Smart accounts (ERC-1271/6492) fall through
@@ -209,12 +209,12 @@ const gnosisClient = createPublicClient({
   }
 ```
 
-- [ ] **Step 3: Sanity-check the module parses**
+- [x] **Step 3: Sanity-check the module parses**
 
 Run: `deno check apps/expo/supabase/functions/delete-user-account/index.ts` if deno is installed; otherwise `node -e "const s=require('fs').readFileSync('apps/expo/supabase/functions/delete-user-account/index.ts','utf8'); if(!s.includes('verifyMessage')||!s.includes('gnosisClient')) process.exit(1)"`.
 Expected: exit 0.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/expo/supabase/functions/delete-user-account/index.ts
@@ -235,7 +235,7 @@ git push
 - Consumes: nothing from other tasks.
 - Produces: `verifySubmissionSignature()` (same signature/behavior) that checks ERC-1271 on **Gnosis first** (where accounts live since 2026-07-27), with Base kept as a legacy fallback.
 
-- [ ] **Step 1: Replace the single-RPC fallback with an ordered multi-chain loop**
+- [x] **Step 1: Replace the single-RPC fallback with an ordered multi-chain loop**
 
 Replace from `// ERC-1271 fallback for smart accounts.` (line 121) through the end of the `catch` closing the function (line 155) with:
 
@@ -283,12 +283,12 @@ Replace from `// ERC-1271 fallback for smart accounts.` (line 121) through the e
 
 Also update the doc comment above the function (lines 88–94): replace the sentence mentioning the fallback with "We fall back to calling isValidSignature(hash, sig) on the smart-account contract, on Gnosis first, then Base (legacy)."
 
-- [ ] **Step 2: Syntax-check**
+- [x] **Step 2: Syntax-check**
 
 Run: `node --check apps/coordinator/scripts/lib/session-manifest.js`
 Expected: no output, exit 0.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add apps/coordinator/scripts/lib/session-manifest.js
