@@ -4,16 +4,8 @@ import { articleToSpec, eventToSpec, movieToSpec, newsToSpec, orgToSpec } from "
 import { deriveOrgIdentity } from "@netizen-labs/nostr";
 import { RecordClient } from "../src/index";
 import { listArticles, listEvents, listMovies, listNews, listOrgs, unixToBerlin } from "../src/datasets";
-import type { PublishSpec } from "@netizen-labs/publisher";
+import { asRecordEvent } from "./helpers";
 
-/** A PublishSpec becomes the IndexedEvent the index would serve (crypto stubbed — parity is about content+tags). */
-function asRecordEvent(spec: PublishSpec, pubkey = "f".repeat(64)) {
-  return {
-    id: "0".repeat(64), pubkey, kind: spec.kind, created_at: spec.createdAt,
-    content: spec.content, tags: [["d", spec.d], ...spec.tags.filter((t) => t[0] !== "d")].filter((t) => t[1] !== ""),
-    sig: "0".repeat(128), node_id: "roebel", source: "test",
-  };
-}
 const clientFor = (events: unknown[]) =>
   new RecordClient("https://i", (async () => new Response(JSON.stringify({ events }))) as unknown as typeof fetch);
 
