@@ -10,6 +10,7 @@ import { updateUserOnboarding } from '@/lib/supabase-users';
 import { slugifyDisplayName, ensureUniqueUsernameSlug } from '@/lib/username-slug';
 import { setNotificationPromptPending, saveCitizenDraft } from '@/lib/onboarding-storage';
 import StoryProgress from '@/components/StoryProgress';
+import ChainRecordNotice from '@/components/consent/ChainRecordNotice';
 import { useCreateCitizenRequest, REQUEST_STAGE_LABEL, DEFAULT_CITIZEN_REASON } from '@/hooks/useVerification';
 import { useVerificationContext } from '@/context/VerificationContext';
 import { useSnackbar } from '@/context/SnackbarContext';
@@ -202,6 +203,14 @@ export default function WelcomeConsentScreen() {
             <Text style={[styles.link, { color: colors.primary }]}>Datenschutz</Text>
           </Pressable>
         </View>
+
+        {/* Accepting on the Bürger path auto-fires the citizen request (the
+            on-chain mint), so the Art.-13/14 permanence notice must be read
+            HERE, before that accept — not only on the manual form. */}
+        {state.preferredRole === 'buerger' &&
+          !!state.citizenData &&
+          !hasCitizenNFT &&
+          !activePendingRequest && <ChainRecordNotice />}
       </ScrollView>
 
       <View style={[styles.footer, { borderTopColor: colors.border }]}>

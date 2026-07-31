@@ -17,6 +17,7 @@ import { loadCitizenDraft, clearCitizenDraft } from '@/lib/onboarding-storage';
 import { useVerificationContext } from '@/context/VerificationContext';
 import { useTheme } from '@/context/ThemeContext';
 import ErrorDrawer from '@/components/ErrorDrawer';
+import ChainRecordNotice from '@/components/consent/ChainRecordNotice';
 import { InformationCircleIcon } from '@/components/Icons';
 const DEFAULT_PICKER_DATE = new Date(1990, 0, 1);
 const MIN_BIRTHDATE = new Date(1900, 0, 1);
@@ -266,6 +267,10 @@ export default function RequestCitizenScreen() {
             Nach dem Antrag erhalten Sie einen QR-Code um Signaturen einzusammeln.
           </Text>
         </View>
+
+        {/* Art. 13/14: the permanence of the on-chain record must be understood
+            BEFORE the request is submitted — submitting is the consent moment. */}
+        <ChainRecordNotice />
       </KeyboardAwareScrollView>
 
       <View style={styles.footer}>

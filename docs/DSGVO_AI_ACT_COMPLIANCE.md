@@ -168,10 +168,17 @@ Full-Screen-Public-Record-Consent in der App, verkettet ins eine Consent-System
 in Datenschutzerklärung 1.1 mit Dauerhaftigkeits-Hinweis und Widerrufsweg; Nachweis der
 Einwilligung = wallet-signierte Registrierung.
 
-**[TODO — verbleibend]** Derselbe Aufklärungsschritt vor der **Citizen-NFT-Attestierung**
-(Mint): (a) pseudonyme Blockchain-Spur, technisch nicht löschbar, (b) bei Austritt löschen
-wir die Verknüpfung zur Person vollständig, (c) Attestierung durch andere Einwohner
-(soziale Kenntnisnahme). Das Public-Record-Consent-Muster ist die Vorlage.
+**Citizen-NFT-Seite erledigt (2026-07-31):** `ChainRecordNotice`
+(`apps/expo/components/consent/ChainRecordNotice.tsx`) zeigt die drei Punkte —
+(a) pseudonyme Blockchain-Spur, technisch nicht löschbar, (b) bei Kontolöschung entfernen
+wir die Personen-Verknüpfung vollständig, (c) Attestierung durch andere Bürger:innen —
+unumgehbar an **beiden** Antragspfaden: im manuellen Formular
+(`verification/request-citizen/form.tsx`, über dem Submit) und im Welcome-Wizard
+(`welcome/consent.tsx`, dessen „Akzeptieren" auf dem Bürger-Pfad den Antrag auto-feuert).
+Kein zweiter Dialog — der Einwilligungsmoment bleibt der Antrag selbst, der Hinweis macht
+ihn informiert; Nachweis = wallet-initiierter Antrag von einem Screen, der ohne den
+Hinweis nicht erreichbar ist. Die Datenschutzerklärung trägt die Permanenz in
+„Blockchain und Unveränderlichkeit" (§ 5).
 
 ### 2.3 Was bewusst NICHT gelöscht wird
 
@@ -292,8 +299,8 @@ Verwaltungshandeln) vor Launch erneut prüfen.
 |---|---|---|---|
 | 1 | ~~AI-Act-Disclosure + Kennzeichnung~~ **✅ umgesetzt 2026-07-30** (§ 4.2) — **GATES offen:** `generate-menu-image` redeployen, Migration `20260730_blog_articles_ai_generated.sql` anwenden | vor 2026-08-02 | erledigt |
 | 2 | ~~`vote_history`-Klartext-Leak~~ **✅ Code gefixt 2026-07-31** (Klartext-Wahl weder in DB noch PostHog; Teilnahme bleibt) — **GATE: Migration `20260731_vote_history_choice_purge.sql` VOR dem Client-Rollout anwenden** (Spalte nullable + Historie nullen; `record_vote()`-RPC beim Anwenden prüfen) | Gate | erledigt (Code) |
-| 3 | ~~Löschpfad als Runbook~~ **✅ [DELETION_RUNBOOK.md](DELETION_RUNBOOK.md) 2026-07-31** + Edge-Function-Sweep erweitert — **offen: Testdurchlauf + GATE `delete-user-account` redeployen** | Q3 2026 | Runbook ✅ / Test offen |
-| 4 | Pre-Mint-Aufklärung Citizen-NFT (§ 2.2; Nostr-Seite ✅ via Public-Record-Consent 1.1.0) | Q3 2026 | S |
+| 3 | ~~Löschpfad als Runbook~~ **✅ [DELETION_RUNBOOK.md](DELETION_RUNBOOK.md) 2026-07-31**, erweiterte Edge Function **deployed 2026-07-31** — **offen: Testdurchlauf mit Testkonto** | Q3 2026 | Runbook ✅ / Test offen |
+| 4 | ~~Pre-Mint-Aufklärung Citizen-NFT~~ **✅ 2026-07-31** `ChainRecordNotice` an beiden Antragspfaden (§ 2.2; Nostr-Seite via Public-Record-Consent 1.1.0) | erledigt | ✅ |
 | 5 | DPIA formalisieren (aus § 1), AV-Verträge inventarisieren | Q3/Q4 2026 | M |
 | 6 | Governance-Metadaten-Sichtbarkeit minimieren (§ 3.1) | laufend | S |
 | 7 | Relay: NIP-09/62 → echte LMDB-Löschung (auch Mirror) + DSA-Meldeweg/Abuse-Kontakt (§ 2.1 Nr. 4) | Q3 2026 | S–M |
