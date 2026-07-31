@@ -9,7 +9,7 @@ import { inAppWallet } from "thirdweb/wallets";
 const wallets = [
   inAppWallet({
     auth: {
-      options: ["email", "google", "apple", "facebook"],
+      options: ["email", "phone", "google", "apple", "facebook"],
     },
     smartAccount: {
       chain: activeChain, // Base mainnet

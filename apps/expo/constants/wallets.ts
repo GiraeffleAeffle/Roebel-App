@@ -8,7 +8,7 @@ export const redirectUrl = Linking.createURL('/profile');
 export const wallets = [
   inAppWallet({
     auth: {
-      options: ['email', 'google', 'facebook', 'apple'],
+      options: ['email', 'phone', 'google', 'facebook', 'apple'],
       redirectUrl,
     },
     smartAccount: {
@@ -24,7 +24,7 @@ export const wallets = [
 // sponsorship policy) → fully gasless, no xDAI seeding needed.
 export const gnosisWallet = inAppWallet({
   auth: {
-    options: ['email', 'google', 'facebook', 'apple'],
+    options: ['email', 'phone', 'google', 'facebook', 'apple'],
     redirectUrl,
   },
   smartAccount: {

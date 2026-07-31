@@ -51,7 +51,7 @@ export function renderLoginPage(uid: string, thirdwebClientId: string, chainId: 
   // One shared enclave wallet for every method → deterministic smart-account address that
   // matches the main app (recovers the visitor's existing Röbel identity).
   const wallet = inAppWallet({
-    auth: { options: ['google', 'email', 'apple', 'facebook'] },
+    auth: { options: ['google', 'email', 'phone', 'apple', 'facebook'] },
     smartAccount: { chain: defineChain(${chainId}), sponsorGas: true },
   })
 
