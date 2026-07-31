@@ -57,9 +57,13 @@ Likes, Punkte, Stempelkarten …).
 **Automatisiert (sobald deployed):** Die Vanish-Pipeline des Installers (`vanish-scan` +
 `vanish-exec`, seit 2026-07-31 auf `main`) verarbeitet NIP-62-„Request to Vanish"- und
 Mirror-seitige NIP-09-Anfragen automatisch zu echter LMDB-Löschung auf beiden Stores.
-Für einen Löschantrag heißt das: Ein im Namen des Nutzers publiziertes kind-62-Event
-(Relay-Tag `ALL_RELAYS` oder unsere Relay-URL) erledigt diesen Schritt — die manuellen
-Befehle unten bleiben der Fallback und der Weg, solange die Pipeline nicht deployed ist.
+Für einen Löschantrag heißt das: **Die App publiziert das kind-62 bei der Kontolöschung
+automatisch** (seit 2026-07-31, `requestNostrErasure` in
+`apps/expo/lib/supabase-account-deletion.ts` — kind-62 an `ALL_RELAYS` für den
+Voll-Purge bei uns, plus kind-5 mit den gerätebekannten IDs für Fremd-Relays, beides
+bevor der Schlüssel gelöscht wird). Die manuellen Befehle unten bleiben der Fallback —
+und der Weg, solange die Pipeline nicht deployed ist oder der Nutzer den Antrag ohne
+App-Zugang stellt.
 
 Manuell auf der Hetzner-Box (beide LMDB-Stores — Authoring-Relay **und** Föderations-Mirror):
 

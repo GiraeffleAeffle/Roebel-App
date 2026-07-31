@@ -6,6 +6,7 @@ import {
   buildDeletionEvent,
   buildNoteEvent,
   buildProfileEvent,
+  buildVanishEvent,
   eventId,
   signEvent,
   verifyEvent,
@@ -120,6 +121,23 @@ describe("event builders", () => {
       ["a".repeat(64), "b".repeat(64)],
     );
     assert.ok(verifyEvent(event));
+  });
+
+  it("builds a kind 62 vanish request addressed to ALL_RELAYS", () => {
+    const event = buildVanishEvent(SECRET_KEY, "ALL_RELAYS", {
+      createdAt: CREATED_AT,
+      reason: "Konto gelöscht",
+    });
+    assert.equal(event.kind, KIND.vanish);
+    assert.deepEqual(
+      event.tags.filter((t) => t[0] === "relay").map((t) => t[1]),
+      ["ALL_RELAYS"],
+    );
+    assert.ok(verifyEvent(event));
+  });
+
+  it("a vanish request must address at least one relay", () => {
+    assert.throws(() => buildVanishEvent(SECRET_KEY, []));
   });
 
   it("stamps the derived pubkey as the author", () => {

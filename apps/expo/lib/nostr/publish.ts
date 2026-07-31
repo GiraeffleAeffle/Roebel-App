@@ -5,6 +5,7 @@ import {
   RelayClient,
   buildDeletionEvent,
   buildEvent,
+  buildVanishEvent,
   buildNoteEvent,
   buildProfileEvent,
 } from '@netizen-labs/nostr';
@@ -250,6 +251,27 @@ export async function publishDeletions(eventIds: string[], reason = 'Konto gelö
   try {
     const result = await relay().publish(
       buildDeletionEvent(identity.secretKey, eventIds, { reason }),
+    );
+    return result.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * NIP-62 "request to vanish" — the account-deletion signal. Unlike the kind-5
+ * above it is not limited to the ids THIS device remembers: it asks for every
+ * event of this key, other devices included. Addressed to ALL_RELAYS so any
+ * NIP-62-aware relay may honour it; on our own relay the vanish pipeline turns
+ * it into real LMDB deletion (authoring store AND federation mirror), which is
+ * the erasure the Datenschutzerklärung promises for our own systems.
+ */
+export async function publishVanishRequest(reason = 'Konto gelöscht'): Promise<boolean> {
+  const identity = await loadStoredIdentity();
+  if (!identity) return false;
+  try {
+    const result = await relay().publish(
+      buildVanishEvent(identity.secretKey, 'ALL_RELAYS', { reason }),
     );
     return result.ok;
   } catch {

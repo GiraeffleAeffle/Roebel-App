@@ -157,6 +157,12 @@ export default function ImpressumPage() {
             Datenschutzerklärung
           </Link>
           <Link
+            href="/inhalte-melden"
+            className="text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            Inhalte melden (DSA)
+          </Link>
+          <Link
             href="/privacy"
             className="text-blue-600 dark:text-blue-400 hover:underline"
           >

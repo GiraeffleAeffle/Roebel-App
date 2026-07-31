@@ -309,5 +309,5 @@ Verwaltungshandeln) vor Launch erneut prüfen.
 | 4 | ~~Pre-Mint-Aufklärung Citizen-NFT~~ **✅ 2026-07-31** `ChainRecordNotice` an beiden Antragspfaden (§ 2.2; Nostr-Seite via Public-Record-Consent 1.1.0) | erledigt | ✅ |
 | 5 | ~~DPIA formalisieren~~ **✅ [DPIA_ROEBEL_APP.md](DPIA_ROEBEL_APP.md) v1.0-ENTWURF 2026-07-31** inkl. AV-Inventar — **offen: AVV-/Transfer-Nachweise einsammeln (alle ☐), Regionen verifizieren, Kanzlei-Review** | Q3/Q4 2026 | Entwurf ✅ |
 | 6 | Governance-Metadaten-Sichtbarkeit minimieren (§ 3.1) | laufend | S |
-| 7 | ~~Relay: NIP-09/62 → echte LMDB-Löschung~~ **✅ Vanish-Pipeline im Installer 2026-07-31** (§ 2.1 Nr. 4) — **offen: auf der Box deployen (`netizen render/up`), `strfry delete`-Support verifizieren; DSA-Meldeweg/Abuse-Kontakt (Impressum) weiterhin offen** | Q3 2026 | Code ✅ |
+| 7 | ~~Relay: NIP-09/62 → echte LMDB-Löschung~~ **✅ Vanish-Pipeline im Installer 2026-07-31** (§ 2.1 Nr. 4); App publiziert kind-62 bei Kontolöschung automatisch; **✅ DSA-Meldeweg live: `/inhalte-melden`** (Art.-16-Meldeverfahren + Art.-11/12-Kontaktstelle, verlinkt im Impressum) — **offen: Pipeline auf der Box deployen (`netizen render/up`), `strfry delete`-Support verifizieren; NIP-11-`contact`-Feld braucht ein Manifest-Feld (an Schema-Session übergeben)** | Q3 2026 | Code ✅ |
 | 8 | Semaphore-Teilnahmenachweise (§ 3.3) | Trigger: ZK-Roadmap | L |

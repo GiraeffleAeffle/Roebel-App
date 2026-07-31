@@ -8,6 +8,8 @@ export const KIND = {
   profile: 0,
   note: 1,
   deletion: 5,
+  /** NIP-62 request to vanish — full author purge, enforced by our own relay. */
+  vanish: 62,
   /** NIP-78 application-specific data — carries the wallet↔npub binding. */
   appData: 30078,
 } as const;
@@ -136,4 +138,26 @@ export function buildDeletionEvent(
 ): NostrEvent {
   const tags = [...eventIds.map((id) => ["e", id]), ...(options.tags ?? [])];
   return buildEvent(secretKey, KIND.deletion, options.reason ?? "", { ...options, tags });
+}
+
+/**
+ * kind 62 — NIP-62 "request to vanish": delete EVERYTHING this key published
+ * up to the request's own timestamp, on the addressed relays.
+ *
+ * Stronger than kind 5 in exactly the way account deletion needs: it is not a
+ * list of ids one device happens to remember, it covers every event of the
+ * author — other devices included. On foreign relays it is as advisory as any
+ * deletion; on OUR relay the vanish pipeline turns it into real LMDB deletion
+ * (see packages/relay-sync/src/vanish.ts), which is what the
+ * Datenschutzerklärung promises.
+ */
+export function buildVanishEvent(
+  secretKey: Uint8Array,
+  relays: string[] | "ALL_RELAYS",
+  options: BuildOptions & { reason?: string } = {},
+): NostrEvent {
+  const targets = relays === "ALL_RELAYS" ? ["ALL_RELAYS"] : relays;
+  if (targets.length === 0) throw new Error("a vanish request must address at least one relay");
+  const tags = [...targets.map((r) => ["relay", r]), ...(options.tags ?? [])];
+  return buildEvent(secretKey, KIND.vanish, options.reason ?? "", { ...options, tags });
 }

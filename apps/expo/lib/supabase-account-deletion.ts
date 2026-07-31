@@ -28,14 +28,23 @@ export class DeleteAccountError extends Error {
 }
 
 /**
- * Best-effort NIP-09 erasure request for everything this device published, then
- * forget the Nostr key locally. Never throws — a relay problem must not block a
- * user from deleting their account.
+ * Best-effort erasure request before the key is gone, then forget the Nostr key
+ * locally. Two signals, deliberately both:
+ *  - kind 62 (NIP-62 "request to vanish") covers EVERY event of this key —
+ *    other devices included — and our own vanish pipeline turns it into real
+ *    LMDB deletion on relay and mirror;
+ *  - kind 5 (NIP-09) lists the ids this device remembers, for foreign relays
+ *    that honour per-id deletes but not NIP-62.
+ * Never throws — a relay problem must not block a user from deleting their
+ * account (the Supabase-side purge is the part that severs the person link).
  */
 async function requestNostrErasure(): Promise<void> {
   try {
-    const [{ publishDeletions, publishedEventIds, closeRelay }, { clearIdentity }] =
-      await Promise.all([import('./nostr/publish'), import('./nostr/identity')]);
+    const [
+      { publishDeletions, publishVanishRequest, publishedEventIds, closeRelay },
+      { clearIdentity },
+    ] = await Promise.all([import('./nostr/publish'), import('./nostr/identity')]);
+    await publishVanishRequest('Konto gelöscht');
     const ids = await publishedEventIds();
     if (ids.length > 0) await publishDeletions(ids, 'Konto gelöscht');
     closeRelay();

@@ -23,6 +23,7 @@ export {
   buildEvent,
   buildNoteEvent,
   buildProfileEvent,
+  buildVanishEvent,
   eventId,
   signEvent,
   verifyEvent,
