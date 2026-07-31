@@ -600,12 +600,19 @@ export interface MenuInput {
  * replacement. Custom kind — no NIP covers menus — documented in
  * CONSUMING_THE_RECORD.md. Prices publish as raw decimal strings + EUR;
  * formatting is the client's job.
+ *
+ * Returns null for restaurants that are not publicly visible (pending/rejected/unpublished).
  */
 export function menuToSpec(input: MenuInput, orgAccountIds: Set<string>): PublishSpec | null {
   const row = input.restaurant;
   const id = str(row, "id");
   const name = str(row, "name");
   if (!id || !name) return null;
+
+  // Gate: only publish menus for approved or published restaurants.
+  // Matches apps/web/src/app/karte/page.tsx:29 which uses .in("status", ["approved", "published"]).
+  const status = str(row, "status");
+  if (status && !["approved", "published"].includes(status)) return null;
 
   const accountId = str(row, "account_id");
   const scope = accountId && orgAccountIds.has(accountId) ? `org-${accountId}` : `resto-${id}`;
@@ -617,6 +624,8 @@ export function menuToSpec(input: MenuInput, orgAccountIds: Set<string>): Publis
     const catId = str(cat, "id");
     const catName = str(cat, "name");
     if (!catId || !catName) return [];
+    // Skip inactive categories.
+    if (cat["is_active"] === false) return [];
     const items = (input.itemsByCategory.get(catId) ?? [])
       .filter((i) => i["is_available"] !== false)
       .flatMap((i) => {
@@ -643,7 +652,7 @@ export function menuToSpec(input: MenuInput, orgAccountIds: Set<string>): Publis
   if (slug) tags.push(["slug", slug]);
   const address = str(row, "address");
   if (address) tags.push(["location", address]);
-  const image = str(row, "image_url");
+  const image = str(row, "logo_url");
   if (image) tags.push(["image", image]);
 
   return {

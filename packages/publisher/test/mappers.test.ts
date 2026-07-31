@@ -485,14 +485,14 @@ describe("civic notices (kind 32102)", () => {
 });
 
 describe("menu mapping", () => {
-  it("menuToSpec: a restaurant's menu becomes one replaceable event", () => {
+  it("menuToSpec: a restaurant's menu becomes one replaceable event (using real column names from the select query)", () => {
     const spec = menuToSpec(
       {
         restaurant: { id: "r1", name: "Seeblick", slug: "seeblick", address: "Hafen 2",
-          image_url: "https://x/r.jpg", updated_at: "2026-07-02T10:00:00Z" },
+          logo_url: "https://x/r.jpg", status: "published", updated_at: "2026-07-02T10:00:00Z" },
         categories: [
-          { id: "c1", restaurant_id: "r1", name: "Hauptgerichte", sort_order: 1 },
-          { id: "c2", restaurant_id: "r1", name: "Desserts", sort_order: 2 },
+          { id: "c1", restaurant_id: "r1", name: "Hauptgerichte", sort_order: 1, is_active: true },
+          { id: "c2", restaurant_id: "r1", name: "Desserts", sort_order: 2, is_active: true },
         ],
         itemsByCategory: new Map([
           ["c1", [{ id: "i1", name: "Zanderfilet", description: "mit Kartoffeln", price: "18.50", is_available: true },
@@ -511,14 +511,58 @@ describe("menu mapping", () => {
     assert.equal(menu.categories[0].items.length, 1); // unavailable item absent
     assert.equal(menu.categories[0].items[0].name, "Zanderfilet");
     assert.equal(menu.categories[0].items[0].currency, "EUR");
+    // Image tag populated from logo_url (the real select column)
+    assert.deepEqual(spec!.tags.find((t) => t[0] === "image"), ["image", "https://x/r.jpg"]);
   });
 
   it("menuToSpec: org-owned restaurant signs under the org scope", () => {
     const spec = menuToSpec(
-      { restaurant: { id: "r2", name: "X", account_id: "acc9", updated_at: "2026-07-02T10:00:00Z" },
+      { restaurant: { id: "r2", name: "X", account_id: "acc9", status: "published", updated_at: "2026-07-02T10:00:00Z" },
         categories: [], itemsByCategory: new Map() },
       new Set(["acc9"]),
     );
     assert.equal(spec!.scope, "org-acc9");
+  });
+
+  it("menuToSpec: REFUSES pending restaurants — status gate blocks unpublished records", () => {
+    const spec = menuToSpec(
+      { restaurant: { id: "r3", name: "Pending Place", status: "pending", updated_at: "2026-07-02T10:00:00Z" },
+        categories: [], itemsByCategory: new Map() },
+      new Set(),
+    );
+    assert.equal(spec, null);
+  });
+
+  it("menuToSpec: REFUSES rejected restaurants — status gate blocks unpublished records", () => {
+    const spec = menuToSpec(
+      { restaurant: { id: "r4", name: "Bad Restaurant", status: "rejected", updated_at: "2026-07-02T10:00:00Z" },
+        categories: [], itemsByCategory: new Map() },
+      new Set(),
+    );
+    assert.equal(spec, null);
+  });
+
+  it("menuToSpec: inactive categories are skipped (absent from event, not present with empty items)", () => {
+    const spec = menuToSpec(
+      {
+        restaurant: { id: "r5", name: "Mixed Status", status: "published", updated_at: "2026-07-02T10:00:00Z" },
+        categories: [
+          { id: "c3", restaurant_id: "r5", name: "Active Cat", sort_order: 1, is_active: true },
+          { id: "c4", restaurant_id: "r5", name: "Inactive Cat", sort_order: 2, is_active: false },
+          { id: "c5", restaurant_id: "r5", name: "Another Active", sort_order: 3, is_active: true },
+        ],
+        itemsByCategory: new Map([
+          ["c3", [{ id: "i4", name: "Item A", price: "10", is_available: true }]],
+          ["c4", [{ id: "i5", name: "Item B (never published)", price: "20", is_available: true }]],
+          ["c5", [{ id: "i6", name: "Item C", price: "15", is_available: true }]],
+        ]),
+      },
+      new Set(),
+    );
+    assert.ok(spec);
+    const menu = JSON.parse(spec!.content);
+    assert.equal(menu.categories.length, 2); // Only the two active categories
+    assert.equal(menu.categories[0].name, "Active Cat");
+    assert.equal(menu.categories[1].name, "Another Active");
   });
 });

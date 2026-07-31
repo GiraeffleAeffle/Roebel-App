@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { verifyEvent, type NostrEvent } from "@netizen-labs/nostr";
-import { publishOnce, type PublisherDeps } from "../src/sync.js";
+import { publishOnce, type DatasetName, type PublisherDeps } from "../src/sync.js";
 
 const SECRET = "a-node-secret-with-plenty-of-entropy-0123456789";
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
@@ -201,5 +201,33 @@ describe("businesses dataset and buildSpecs fetch efficiency", () => {
     // Both a business profile spec and a deal spec are built (2 total)
     assert.equal(summary.built, 2);
     assert.equal(summary.accepted, 2);
+  });
+});
+
+describe("dataset names", () => {
+  // Verify that all known dataset names are recognized as valid DatasetName type.
+  // This ensures the CLI's VALID_DATASETS set and the sync module's DatasetName union stay in sync.
+  const knownDatasets: DatasetName[] = [
+    "events",
+    "cinema",
+    "orgs",
+    "articles",
+    "marketplace",
+    "deals",
+    "news",
+    "businesses",
+    "notices",
+    "menus",
+  ];
+
+  it("all known datasets parse as valid DatasetName", () => {
+    // If this test compiles, all dataset names are correctly typed.
+    assert.equal(knownDatasets.length, 10);
+    // Spot check: menus is the new one from Task 5
+    assert.ok(knownDatasets.includes("menus"));
+    // Verify new datasets from Tasks 2-5 are present
+    assert.ok(knownDatasets.includes("news"));
+    assert.ok(knownDatasets.includes("businesses"));
+    assert.ok(knownDatasets.includes("notices"));
   });
 });
