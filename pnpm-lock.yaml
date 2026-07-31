@@ -1096,6 +1096,9 @@ importers:
 
   packages/record-client:
     devDependencies:
+      '@netizen-labs/nostr':
+        specifier: workspace:*
+        version: link:../nostr
       '@netizen-labs/publisher':
         specifier: workspace:*
         version: link:../publisher

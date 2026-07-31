@@ -41,6 +41,15 @@ export interface EventRow {
   ticket_price: string | null;
   status: "approved";
   account_id: string | null;
+  /**
+   * The signing pubkey — NOT in the brief's original interface block, added
+   * per review: org-owned events carry no `p` tag (eventToSpec sets
+   * ownerPubkey null whenever isOrg is true), so the signing pubkey is the
+   * ONLY signal a record-mode client has to join "this org's events" back to
+   * its OrgRow.pubkey, per CONSUMING_THE_RECORD.md's "the org's pubkey is
+   * its identity" rule.
+   */
+  pubkey: string;
 }
 
 export interface MovieRow {
@@ -55,6 +64,9 @@ export interface MovieRow {
   status: "published";
   created_at: string;
   updated_at: string;
+  /** The signing pubkey — cinema screenings are signed by the cinema's own
+   * key; carried for the same org↔content join events/articles use. */
+  pubkey: string;
 } // matches apps/web actions/movies.ts Movie
 
 export interface ArticleRow {
@@ -67,6 +79,9 @@ export interface ArticleRow {
   category: string | null;
   published_at: string | null;
   ai_generated: boolean;
+  /** The signing pubkey — org blog articles are signed by that org's own
+   * key; joins back to OrgRow.pubkey per CONSUMING_THE_RECORD.md. */
+  pubkey: string;
 }
 
 export interface OrgRow {
@@ -117,7 +132,13 @@ function toEventRow(ev: RecordEvent): EventRow | null {
     location: tagValue(ev, "location"),
     category: tagValue(ev, "t"),
     image_url: tagValue(ev, "image"),
-    // eventToSpec pushes website_url's "r" tag before livestream_url's — first wins.
+    // eventToSpec pushes website_url's "r" tag before livestream_url's, so the
+    // first "r" tag wins when both are present. KNOWN LIMITATION: for a
+    // livestream-only event (no website_url set), the single "r" tag IS the
+    // livestream URL and will be misreported as website_url here — the wire
+    // format has one tag name ("r") for website/trailer/livestream alike
+    // (CONSUMING_THE_RECORD.md kind 31923), so a reader cannot tell them
+    // apart without a distinguishing marker the mapper does not emit.
     website_url: tagValues(ev, "r")[0] ?? null,
     ticket_price: tagValue(ev, "price"),
     status: "approved",
@@ -125,6 +146,7 @@ function toEventRow(ev: RecordEvent): EventRow | null {
     // privacy boundary drops the Supabase account id on purpose; a keyless
     // fork has no way to recover it.
     account_id: null,
+    pubkey: ev.pubkey,
   };
 }
 
@@ -183,11 +205,35 @@ export async function listMovies(client: RecordClient, opts?: { limit?: number }
       // mappers.ts unixFromUpdatedAt) is the only edit-time signal on the wire.
       created_at: editedAt,
       updated_at: editedAt,
+      pubkey: ev.pubkey,
     });
   }
   return rows;
 }
 
+/**
+ * KNOWN LIMITATION (org articles only — marker === null): `articleToSpec`
+ * (mappers.ts) tags a formal category the SAME way it tags free-form topics
+ * — both are `["t", <value>]`, with the category (when set) pushed first and
+ * topics appended after, and NO third field or separate tag name to tell
+ * them apart. `newsToSpec` sidesteps this with an explicit `["t","news"]`
+ * marker (stripped out here via `marker`), but org articles have no such
+ * marker.
+ *
+ * Consequence: this function returns the FIRST `t` value unconditionally.
+ * When a formal category IS set, that is the correct value (it's always
+ * pushed before any topic). When NO formal category is set but topic tags
+ * exist, the first TOPIC is returned as though it were the category — an
+ * actively wrong value, not merely a missing one. This is pinned and
+ * documented, not fixed, because fixing it (e.g. always returning `null` for
+ * org articles) would just move the wrongness the other way: it would also
+ * discard every LEGITIMATE category, which is the more common case an org
+ * actually sets one. See test/parity.test.ts "listArticles: no formal
+ * category" for the pinned, visible wrong-case assertion. A real fix needs a
+ * wire-format change on the publish side (a distinct tag name or a marker
+ * tag for "this t is the category"), which is out of scope for a read-only
+ * dataset reader.
+ */
 function articleCategory(ev: RecordEvent, marker: string | null): string | null {
   const ts = tagValues(ev, "t");
   if (marker) return ts.find((t) => t !== marker) ?? null;
@@ -206,6 +252,7 @@ function toArticleRow(ev: RecordEvent, id: string, marker: string | null): Artic
     category: articleCategory(ev, marker),
     published_at: publishedAt !== null ? new Date(Number(publishedAt) * 1000).toISOString() : null,
     ai_generated: tagValue(ev, "ai_generated") === "true",
+    pubkey: ev.pubkey,
   };
 }
 

@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@netizen-labs/nostr": "workspace:*",
     "@netizen-labs/publisher": "workspace:*",
     "@types/node": "^22.7.4",
     "tsx": "^4.19.2",
