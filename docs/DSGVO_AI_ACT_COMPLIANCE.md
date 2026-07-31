@@ -32,9 +32,10 @@ Zusätzlich akut: **AI Act Art. 50 gilt ab 2026-08-02** (Abschnitt 4).
 ## 1. DPIA (Datenschutz-Folgenabschätzung) — Arbeitsentwurf
 
 Nach Art. 35 DSGVO + EDPB §§ 97–99 als **laufende** DPIA zu führen (bei jeder neuen
-On-Chain-Verarbeitung fortschreiben). Dieser Abschnitt ist der inhaltliche Rohbau. **[TODO:
-in ein formales DPIA-Dokument des Vereins überführen, Verantwortlichen benennen, Datum,
-Unterschrift.]**
+On-Chain-Verarbeitung fortschreiben). Dieser Abschnitt war der Rohbau — **das formale
+Dokument existiert seit 2026-07-31: [DPIA_ROEBEL_APP.md](DPIA_ROEBEL_APP.md)** (v1.0-ENTWURF,
+inkl. AV-Inventar und Risikomatrix; offen: AVV-Nachweise einsammeln, Kanzlei-Review).
+Änderungen dort pflegen; die Tabellen hier bleiben als Kurzreferenz.
 
 ### 1.1 Systematische Beschreibung der Verarbeitung
 
@@ -301,7 +302,7 @@ Verwaltungshandeln) vor Launch erneut prüfen.
 | 2 | ~~`vote_history`-Klartext-Leak~~ **✅ Code gefixt 2026-07-31** (Klartext-Wahl weder in DB noch PostHog; Teilnahme bleibt) — **GATE: Migration `20260731_vote_history_choice_purge.sql` VOR dem Client-Rollout anwenden** (Spalte nullable + Historie nullen; `record_vote()`-RPC beim Anwenden prüfen) | Gate | erledigt (Code) |
 | 3 | ~~Löschpfad als Runbook~~ **✅ [DELETION_RUNBOOK.md](DELETION_RUNBOOK.md) 2026-07-31**, erweiterte Edge Function **deployed 2026-07-31** — **offen: Testdurchlauf mit Testkonto** | Q3 2026 | Runbook ✅ / Test offen |
 | 4 | ~~Pre-Mint-Aufklärung Citizen-NFT~~ **✅ 2026-07-31** `ChainRecordNotice` an beiden Antragspfaden (§ 2.2; Nostr-Seite via Public-Record-Consent 1.1.0) | erledigt | ✅ |
-| 5 | DPIA formalisieren (aus § 1), AV-Verträge inventarisieren | Q3/Q4 2026 | M |
+| 5 | ~~DPIA formalisieren~~ **✅ [DPIA_ROEBEL_APP.md](DPIA_ROEBEL_APP.md) v1.0-ENTWURF 2026-07-31** inkl. AV-Inventar — **offen: AVV-/Transfer-Nachweise einsammeln (alle ☐), Regionen verifizieren, Kanzlei-Review** | Q3/Q4 2026 | Entwurf ✅ |
 | 6 | Governance-Metadaten-Sichtbarkeit minimieren (§ 3.1) | laufend | S |
 | 7 | Relay: NIP-09/62 → echte LMDB-Löschung (auch Mirror) + DSA-Meldeweg/Abuse-Kontakt (§ 2.1 Nr. 4) | Q3 2026 | S–M |
 | 8 | Semaphore-Teilnahmenachweise (§ 3.3) | Trigger: ZK-Roadmap | L |
