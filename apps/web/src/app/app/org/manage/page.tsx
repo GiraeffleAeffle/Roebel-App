@@ -158,8 +158,8 @@ export default function OrgManagePage() {
   }
 
   const handleChangeRole = async (wallet: string, newRole: OrgRole) => {
-    if (!accountId) return
-    await updateMemberRole(accountId, wallet, newRole as AccountRole)
+    if (!accountId || !thirdwebAccount) return
+    await updateMemberRole(thirdwebAccount, accountId, wallet, newRole as AccountRole)
     setMenuOpen(null)
     await load()
   }

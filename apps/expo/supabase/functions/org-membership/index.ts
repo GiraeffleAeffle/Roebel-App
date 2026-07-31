@@ -41,6 +41,7 @@ const ACTIONS = [
   'decline_invite',
   'leave',
   'remove_member',
+  'update_member_role',
   'update_account',
   'create_account',
   'list_invites',
@@ -71,6 +72,7 @@ const SIGNATURE_SHAPE_RE = /^0x[0-9a-fA-F]+$/;
 const ROLE_RANK: Record<string, number> = { owner: 3, admin: 2, member: 1 };
 
 const INVITE_ROLES = ['admin', 'member'] as const;
+const MEMBER_ROLES = ['owner', 'admin', 'member'] as const;
 const ACCOUNT_TYPES = ['personal', 'organisation'] as const;
 // Self-service sub_types only. 'stadt' and 'fraktion' carry server-enforced
 // write privileges elsewhere in the app (accounts_sub_type_check on the DB
@@ -154,6 +156,31 @@ async function requireOwnerOrAdmin(
   const role = (data as { role: string }).role;
   if (role !== 'owner' && role !== 'admin') {
     return fail('FORBIDDEN', 403, 'requires owner or admin role');
+  }
+  return { role };
+}
+
+// Stricter sibling of requireOwnerOrAdmin: changing a member's role —
+// including promoting someone TO owner — is an ownership decision, so
+// admins may not do it, only owners. Deliberately not a call to
+// requireOwnerOrAdmin followed by an extra check: that would still hit the
+// DB with an admin-permitting query path, easy to accidentally loosen later.
+async function requireOwner(
+  admin: Admin,
+  accountId: string,
+  signer: string,
+): Promise<{ role: string } | Response> {
+  const { data, error } = await admin
+    .from('account_owners')
+    .select('role')
+    .eq('account_id', accountId)
+    .ilike('wallet_address', signer)
+    .maybeSingle();
+  if (error) return fail('INTERNAL', 500, error.message);
+  if (!data) return fail('FORBIDDEN', 403, 'not a member of this account');
+  const role = (data as { role: string }).role;
+  if (role !== 'owner') {
+    return fail('FORBIDDEN', 403, 'requires owner role');
   }
   return { role };
 }
@@ -548,6 +575,54 @@ async function handleRemoveMember(
   }
 }
 
+async function handleUpdateMemberRole(
+  admin: Admin,
+  signer: string,
+  payload: Record<string, unknown>,
+): Promise<Response> {
+  const accountId = requireUuid(payload.accountId, 'accountId');
+  if (accountId instanceof Response) return accountId;
+
+  const rawMemberWallet = asString(payload.memberWallet);
+  if (!rawMemberWallet || !WALLET_RE.test(rawMemberWallet)) {
+    return fail('BAD_REQUEST', 400, 'invalid memberWallet');
+  }
+  const memberWallet = rawMemberWallet.toLowerCase();
+
+  const role = asString(payload.role);
+  if (!role || !(MEMBER_ROLES as readonly string[]).includes(role)) {
+    return fail('BAD_REQUEST', 400, 'role must be "owner", "admin", or "member"');
+  }
+
+  // Strict on purpose: only an owner may change roles — admins may not,
+  // even another admin's own role (see requireOwner above).
+  const gate = await requireOwner(admin, accountId, signer);
+  if (gate instanceof Response) return gate;
+
+  // set_owner_role_guarded takes a `for update` lock on the account's
+  // account_owners rows before checking the owner count, so this is
+  // serialized against any concurrent leave/remove_member/update_member_role
+  // on the same account — no window for a demote to race a departure and
+  // leave the account with zero owners.
+  const { data: result, error: rpcErr } = await admin.rpc('set_owner_role_guarded', {
+    p_account_id: accountId,
+    p_wallet: memberWallet,
+    p_role: role,
+  });
+  if (rpcErr) return fail('INTERNAL', 500, rpcErr.message);
+
+  switch (result) {
+    case 'not_a_member':
+      return fail('NOT_FOUND', 404, 'member not found');
+    case 'last_owner':
+      return fail('LAST_OWNER', 409, 'cannot demote the last owner');
+    case 'updated':
+      return ok({ updated: true });
+    default:
+      return fail('INTERNAL', 500, 'unexpected result from set_owner_role_guarded');
+  }
+}
+
 async function handleUpdateAccount(
   admin: Admin,
   signer: string,
@@ -881,6 +956,8 @@ serve(async (req: Request) => {
         return await handleLeave(admin, signer, payloadObj);
       case 'remove_member':
         return await handleRemoveMember(admin, signer, payloadObj);
+      case 'update_member_role':
+        return await handleUpdateMemberRole(admin, signer, payloadObj);
       case 'update_account':
         return await handleUpdateAccount(admin, signer, payloadObj);
       case 'create_account':

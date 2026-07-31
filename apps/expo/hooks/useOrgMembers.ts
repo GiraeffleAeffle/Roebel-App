@@ -64,11 +64,11 @@ export default function useOrgMembers(accountId: string | undefined) {
 
   const changeMemberRole = useCallback(
     async (memberWallet: string, newRole: OrgRole) => {
-      if (!accountId) return;
-      await updateMemberRole(accountId, memberWallet, newRole as AccountRole);
+      if (!accountId || !account) return;
+      await updateMemberRole(account, accountId, memberWallet, newRole as AccountRole);
       await load();
     },
-    [accountId, load]
+    [accountId, account, load]
   );
 
   const revokeInvite = useCallback(

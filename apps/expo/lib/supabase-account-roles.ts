@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { callOrgMembership, type SigningAccount } from './org-membership';
 
 export type AccountRole = 'owner' | 'admin' | 'member';
 
@@ -39,15 +40,26 @@ export function canLeaveOrg(role: AccountRole | null, ownerCount: number): boole
   return true;
 }
 
-/** Update a member's role in an account. */
+/**
+ * Update a member's role in an account. Signed by `account`; the edge
+ * function enforces that only an owner may change roles (admins may not —
+ * see apps/expo/supabase/functions/org-membership/index.ts requireOwner) and
+ * that the sole remaining owner cannot be demoted away.
+ */
 export async function updateMemberRole(
+  account: SigningAccount,
   accountId: string,
   walletAddress: string,
   newRole: AccountRole
 ): Promise<void> {
-  await supabase
-    .from('account_owners')
-    .update({ role: newRole })
-    .eq('account_id', accountId)
-    .eq('wallet_address', walletAddress.toLowerCase());
+  const res = await callOrgMembership(account, 'update_member_role', {
+    accountId,
+    memberWallet: walletAddress,
+    role: newRole,
+  });
+
+  if (!res.ok) {
+    console.error('updateMemberRole error:', res.code, res.message);
+    throw new Error(res.message || res.code || 'updateMemberRole failed');
+  }
 }

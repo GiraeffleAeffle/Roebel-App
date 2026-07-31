@@ -27,6 +27,7 @@ export type OrgAction =
   | 'decline_invite'
   | 'leave'
   | 'remove_member'
+  | 'update_member_role'
   | 'update_account'
   | 'create_account'
   | 'list_invites'
