@@ -352,6 +352,7 @@ describe("doctor: sovereign AI", () => {
 "ai": {
   "gateway": "litellm",
   "selfHosted": true,
+  "gatewayHost": "ai.roebel.app",
   "gpuHost": "gpu.roebel.app",
   "models": {
     "reason": "anthropic/claude-opus-4-8",
