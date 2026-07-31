@@ -2,11 +2,13 @@
  * Supabase Edge Function: org-membership
  *
  * The ONLY write path for org membership once
- * 20260801_account_membership_lockdown.sql is applied: creating/revoking
- * invites, accepting/declining them, leaving an org, removing a member,
- * updating account fields, and creating a new account. Also serves two
- * privileged reads (list_invites, has_pending_invite) that the lockdown
- * migration closes off from anon-key access.
+ * supabase/migrations/20260802_account_membership_lockdown.sql is applied
+ * (which itself requires 20260801_membership_functions.sql to already be
+ * live — see that migration's header): creating/revoking invites,
+ * accepting/declining them, leaving an org, removing a member, updating
+ * account fields, and creating a new account. Also serves two privileged
+ * reads (list_invites, has_pending_invite) that the lockdown migration
+ * closes off from anon-key access.
  *
  * Auth: every request carries a signed message
  * ("roebel-org-v1:<action>:<wallet>:<timestampSec>:<payloadHash>") signed
@@ -59,6 +61,14 @@ const MAX_MESSAGE_AGE_SECONDS = 300;
 const WALLET_RE = /^0x[0-9a-fA-F]{40}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Loose shape check, not a real signature parse: 0x + even-length hex,
+// at least 65 bytes (132 chars total — a plain ECDSA sig; ERC-6492-wrapped
+// smart-account sigs are longer). Used to reject garbage BEFORE calling any
+// verifier, so a malformed signature reads as 401 BAD_SIGNATURE, never a
+// 503 that implies the RPC itself is the problem.
+const SIGNATURE_SHAPE_RE = /^0x[0-9a-fA-F]+$/;
+
+const ROLE_RANK: Record<string, number> = { owner: 3, admin: 2, member: 1 };
 
 const INVITE_ROLES = ['admin', 'member'] as const;
 const ACCOUNT_TYPES = ['personal', 'organisation'] as const;
@@ -162,6 +172,14 @@ function requireUuid(v: unknown, field: string): string | Response {
 
 function isHttpsUrl(v: string): boolean {
   return v.startsWith('https://');
+}
+
+function isWellFormedSignature(sig: string): boolean {
+  if (!SIGNATURE_SHAPE_RE.test(sig)) return false;
+  const hexLen = sig.length - 2; // strip '0x'
+  if (hexLen % 2 !== 0) return false;
+  if (sig.length < 132) return false;
+  return true;
 }
 
 // Mirrors apps/web/src/lib/slug.ts generateSlug / apps/expo/lib/supabase-accounts.ts
@@ -339,22 +357,53 @@ async function handleAcceptInvite(
     return fail('INVITE_GONE', 409, 'invite was already resolved by a concurrent request');
   }
 
-  // Upsert WITHOUT ignoreDuplicates: an existing member accepting a
-  // higher-role invite must have their role updated, not silently no-op'd.
-  const { error: ownerErr } = await admin.from('account_owners').upsert(
-    {
+  // Never demote. Invites only ever carry role admin|member — a blind
+  // upsert of invite.role would let an owner who mistakenly (or an admin
+  // who deliberately) re-accepts a stray member-invite get knocked down to
+  // 'member', potentially zeroing the account's owner count and letting an
+  // admin engineer a way around the owner-removal rule. Read the signer's
+  // existing membership first (case-insensitive — a checksummed row may
+  // still exist at rest) and only ever raise the role, never lower it.
+  const { data: existingRow, error: existingErr } = await admin
+    .from('account_owners')
+    .select('role')
+    .eq('account_id', invite.account_id)
+    .ilike('wallet_address', signer)
+    .maybeSingle();
+  if (existingErr) {
+    await admin.from('invite_tokens').update({ status: 'pending' }).eq('id', inviteId).eq('status', 'accepted');
+    return fail('INTERNAL', 500, existingErr.message);
+  }
+
+  if (!existingRow) {
+    const { error: insertErr } = await admin.from('account_owners').insert({
       account_id: invite.account_id,
       wallet_address: signer,
       role: invite.role,
       invited_by: invite.invited_by,
-    },
-    { onConflict: 'account_id,wallet_address' },
-  );
-  if (ownerErr) {
-    // Best-effort revert: don't leave the invite stuck 'accepted' with no
-    // membership to show for it.
-    await admin.from('invite_tokens').update({ status: 'pending' }).eq('id', inviteId).eq('status', 'accepted');
-    return fail('INTERNAL', 500, ownerErr.message);
+    });
+    if (insertErr) {
+      // Best-effort revert: don't leave the invite stuck 'accepted' with no
+      // membership to show for it.
+      await admin.from('invite_tokens').update({ status: 'pending' }).eq('id', inviteId).eq('status', 'accepted');
+      return fail('INTERNAL', 500, insertErr.message);
+    }
+  } else {
+    const existingRank = ROLE_RANK[(existingRow as { role: string }).role] ?? 0;
+    const inviteRank = ROLE_RANK[invite.role] ?? 0;
+    if (inviteRank > existingRank) {
+      const { error: updateErr } = await admin
+        .from('account_owners')
+        .update({ role: invite.role })
+        .eq('account_id', invite.account_id)
+        .ilike('wallet_address', signer);
+      if (updateErr) {
+        await admin.from('invite_tokens').update({ status: 'pending' }).eq('id', inviteId).eq('status', 'accepted');
+        return fail('INTERNAL', 500, updateErr.message);
+      }
+    }
+    // else: existing role already outranks or equals the invite role —
+    // leave it untouched. The invite is still consumed (stays 'accepted').
   }
 
   if (invite.invited_wallet) {
@@ -758,6 +807,12 @@ serve(async (req: Request) => {
   }
   if (typeof signature !== 'string' || signature.length === 0) {
     return fail('BAD_REQUEST', 400, 'signature required');
+  }
+  // Shape-check BEFORE calling any verifier: a malformed signature is a bad
+  // request, not a verifier outage — reject it as 401 here so it never
+  // reaches the try/catch below and gets misread as 503 VERIFY_UNAVAILABLE.
+  if (!isWellFormedSignature(signature)) {
+    return fail('BAD_SIGNATURE', 401, 'signature malformed');
   }
 
   const ts = Number(timestampSec);
