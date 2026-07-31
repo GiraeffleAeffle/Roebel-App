@@ -29,3 +29,18 @@ test("mediaUrl is content-addressed on the base", () => {
   const c = new RecordClient("https://index.example/");
   assert.equal(c.mediaUrl("ff".repeat(32)), `https://index.example/media/${"ff".repeat(32)}`);
 });
+
+test("a 200 with an unparseable body becomes RecordUnavailableError", async () => {
+  const fetchFn = (async () =>
+    new Response("<html>502 Bad Gateway</html>", { status: 200 })) as unknown as typeof fetch;
+  const c = new RecordClient("https://index.example", fetchFn);
+  await assert.rejects(c.events({ kinds: [1] }), RecordUnavailableError);
+});
+
+test("a fetch that throws becomes RecordUnavailableError", async () => {
+  const fetchFn = (async () => {
+    throw new TypeError("network down");
+  }) as unknown as typeof fetch;
+  const c = new RecordClient("https://index.example", fetchFn);
+  await assert.rejects(c.events({ kinds: [1] }), RecordUnavailableError);
+});

@@ -86,6 +86,10 @@ export class RecordClient {
       throw new RecordUnavailableError(`index unreachable: ${String(err)}`);
     }
     if (!res.ok) throw new RecordUnavailableError(`index answered ${res.status} for ${path}`);
-    return res.json();
+    try {
+      return await res.json();
+    } catch (err) {
+      throw new RecordUnavailableError(`index returned unparseable JSON for ${path}: ${String(err)}`);
+    }
   }
 }
