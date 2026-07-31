@@ -143,9 +143,14 @@ gilt die On-Chain-Spur als **effektiv anonymisiert** — das ist unsere Erfüllu
    durchsetzbar und damit geschuldet: Events des npub aus der LMDB des Authoring-Relays
    **und des Föderations-Mirrors** löschen (`strfry delete`/Policy-Workflow), Eintrag in
    `nostr_identities` entfernen (Allow-List-Sync entzieht Schreibrecht im nächsten Pass).
-   **[TODO]** NIP-62 („Request to Vanish") serverseitig unterstützen — die Spec ist
-   ausdrücklich für rechtsverbindliche Löschpflichten geschrieben; strfry hat dafür keinen
-   nativen Support, also per Plugin/Cron abbilden. Gegenüber dem Betroffenen transparent
+   **Automatisiert seit 2026-07-31 (Code auf `main`):** Die **Vanish-Pipeline** im
+   Installer — `vanish-scan` (Node: JSON-Parsing, NIP-62-Adressierung, NIP-09-Ownership-
+   Prüfung) + `vanish-exec` (strfry-Image: Hex-Revalidierung → `strfry delete`, beide
+   Stores) — verarbeitet kind-62-„Request to Vanish"- und Mirror-seitige kind-5-Anfragen
+   zu echter LMDB-Löschung. Gerendert von `netizen render`, Queue auf benanntem Volume.
+   **GATE: auf der Box deployen** (`netizen render/up`) und beim ersten Lauf prüfen, ob
+   die installierte strfry-Version `delete` unterstützt (das Skript loggt es laut).
+   Gegenüber dem Betroffenen transparent
    machen: Kopien auf fremden Relays/Peer-Nodes liegen außerhalb unserer Kontrolle
    (dokumentiert bereits die UI, vgl. [STATE_OF_NOSTR §4](STATE_OF_NOSTR.md)).
 5. **Dritte anstoßen:** thirdweb-Konto-Löschung (E-Mail↔Wallet-Mapping beim Prozessor!),
@@ -304,5 +309,5 @@ Verwaltungshandeln) vor Launch erneut prüfen.
 | 4 | ~~Pre-Mint-Aufklärung Citizen-NFT~~ **✅ 2026-07-31** `ChainRecordNotice` an beiden Antragspfaden (§ 2.2; Nostr-Seite via Public-Record-Consent 1.1.0) | erledigt | ✅ |
 | 5 | ~~DPIA formalisieren~~ **✅ [DPIA_ROEBEL_APP.md](DPIA_ROEBEL_APP.md) v1.0-ENTWURF 2026-07-31** inkl. AV-Inventar — **offen: AVV-/Transfer-Nachweise einsammeln (alle ☐), Regionen verifizieren, Kanzlei-Review** | Q3/Q4 2026 | Entwurf ✅ |
 | 6 | Governance-Metadaten-Sichtbarkeit minimieren (§ 3.1) | laufend | S |
-| 7 | Relay: NIP-09/62 → echte LMDB-Löschung (auch Mirror) + DSA-Meldeweg/Abuse-Kontakt (§ 2.1 Nr. 4) | Q3 2026 | S–M |
+| 7 | ~~Relay: NIP-09/62 → echte LMDB-Löschung~~ **✅ Vanish-Pipeline im Installer 2026-07-31** (§ 2.1 Nr. 4) — **offen: auf der Box deployen (`netizen render/up`), `strfry delete`-Support verifizieren; DSA-Meldeweg/Abuse-Kontakt (Impressum) weiterhin offen** | Q3 2026 | Code ✅ |
 | 8 | Semaphore-Teilnahmenachweise (§ 3.3) | Trigger: ZK-Roadmap | L |

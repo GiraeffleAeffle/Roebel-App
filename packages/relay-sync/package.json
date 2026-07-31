@@ -15,7 +15,7 @@
   "files": ["src"],
   "scripts": {
     "sync": "tsx src/cli.ts",
-    "build": "esbuild src/cli.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/relay-sync.cjs",
+    "build": "esbuild src/cli.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/relay-sync.cjs && esbuild src/vanish-cli.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/vanish-scan.cjs",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

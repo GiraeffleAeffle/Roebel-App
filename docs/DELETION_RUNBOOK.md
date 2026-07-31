@@ -54,7 +54,14 @@ Likes, Punkte, Stempelkarten …).
 
 ## Schritt 3 — Nostr: eigenes Relay, Mirror und Index bereinigen
 
-Auf der Hetzner-Box (beide LMDB-Stores — Authoring-Relay **und** Föderations-Mirror):
+**Automatisiert (sobald deployed):** Die Vanish-Pipeline des Installers (`vanish-scan` +
+`vanish-exec`, seit 2026-07-31 auf `main`) verarbeitet NIP-62-„Request to Vanish"- und
+Mirror-seitige NIP-09-Anfragen automatisch zu echter LMDB-Löschung auf beiden Stores.
+Für einen Löschantrag heißt das: Ein im Namen des Nutzers publiziertes kind-62-Event
+(Relay-Tag `ALL_RELAYS` oder unsere Relay-URL) erledigt diesen Schritt — die manuellen
+Befehle unten bleiben der Fallback und der Weg, solange die Pipeline nicht deployed ist.
+
+Manuell auf der Hetzner-Box (beide LMDB-Stores — Authoring-Relay **und** Föderations-Mirror):
 
 ```bash
 # Events des Autors löschen (Syntax vor erstem Einsatz gegen die installierte
@@ -101,7 +108,9 @@ ist sie nur bei uns, und genau das sagt die Datenschutzerklärung (1.1) auch.
 - Storage-Buckets (Avatare, Post-Bilder): Objekte des Nutzers löschen — nicht Teil der
   Edge Function.
 - `notifications`-Tabelle (Push-Hub): Zeilen mit Empfänger-/Absender-Wallet.
-- **NIP-62-Support serverseitig** (strfry-Plugin/Cron) — siehe Compliance-Prioritäten.
+- ~~NIP-62-Support serverseitig~~ **Code geliefert 2026-07-31** (Vanish-Pipeline im
+  Installer) — offen: Deploy auf der Box + `strfry delete`-Support der installierten
+  Version verifizieren.
 - **GATE:** Die erweiterte `delete-user-account`-Funktion muss neu deployed werden
   (`supabase functions deploy delete-user-account`), sonst läuft produktiv noch der
   Stand vom 2026-05-22 ohne `nostr_identities`.

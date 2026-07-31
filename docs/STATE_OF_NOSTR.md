@@ -250,7 +250,12 @@ architecture and produced a short adoption list:
   events, Blossom for any Nostr-side media (NIP-96 is officially deprecated).
 - **Deletion is now a duty, not a courtesy:** on our own relay NIP-09/NIP-62 requests must
   become real LMDB deletion, mirror included — the obligation and procedure live in
-  [DSGVO_AI_ACT_COMPLIANCE](DSGVO_AI_ACT_COMPLIANCE.md) §2.1.
+  [DSGVO_AI_ACT_COMPLIANCE](DSGVO_AI_ACT_COMPLIANCE.md) §2.1. **Built 2026-07-31, not yet
+  deployed:** the installer now renders a vanish pipeline — `vanish-scan` (node: JSON
+  parsing, NIP-62 addressing, NIP-09 ownership verification) feeding `vanish-exec`
+  (strfry image: hex re-validation → `strfry delete`, both stores) over a durable queue
+  volume. Ships with the next `netizen render/up`; the first run must confirm the
+  installed strfry supports `delete` (the script logs it loudly).
 - **No other municipality runs its own relay** as far as a targeted search could find —
   worth telling in funding applications.
 - Nostr's network-wide usage is flat (~17k DAU): treat the relay as sovereignty

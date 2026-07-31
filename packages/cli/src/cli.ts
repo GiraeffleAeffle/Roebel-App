@@ -17,6 +17,7 @@ function writeBundle(bundle: Bundle, outDir: string): void {
     writeFileSync(full, content);
   }
   copyRelaySyncBundle(bundle, outDir);
+  copyVanishScanBundle(bundle, outDir);
 }
 
 /**
@@ -40,6 +41,28 @@ function copyRelaySyncBundle(bundle: Bundle, outDir: string): void {
     return;
   }
   const dest = join(outDir, "relay-sync", "relay-sync.cjs");
+  mkdirSync(dirname(dest), { recursive: true });
+  copyFileSync(built, dest);
+}
+
+/**
+ * The vanish scanner ships the same way as the allow-list syncer, and for the
+ * same reason: a real program (WebSocket client, JSON verification), not
+ * config. Without it the executor idles on an empty queue — deletion requests
+ * would be silently ignored, which is exactly what the Datenschutzerklärung
+ * says we do not do. Hence the loud warning.
+ */
+function copyVanishScanBundle(bundle: Bundle, outDir: string): void {
+  if (!bundle.files["docker-compose.yml"]?.includes("vanish-scan:")) return;
+  const built = fileURLToPath(new URL("../../relay-sync/dist/vanish-scan.cjs", import.meta.url));
+  if (!existsSync(built)) {
+    console.warn(
+      "warning: vanish-scan is declared but dist/vanish-scan.cjs is missing — NIP-62/NIP-09 deletion requests will NOT be honoured.\n" +
+        "         build it first: pnpm --filter @netizen-labs/relay-sync build",
+    );
+    return;
+  }
+  const dest = join(outDir, "vanish", "vanish-scan.cjs");
   mkdirSync(dirname(dest), { recursive: true });
   copyFileSync(built, dest);
 }
