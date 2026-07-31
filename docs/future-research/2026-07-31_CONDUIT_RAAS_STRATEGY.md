@@ -257,8 +257,12 @@ milestones already committed. The Conduit findings re-order and sharpen, they do
 
 ## 7. Open questions carried forward
 
-- MACI v3: audit status + does the tooling accept an externally reconstructed (Shamir) coordinator
-  key? (Blocks §3.5 and inherits the share-key re-registration ceremony constraint.)
+- ~~MACI v3: audit status + does the tooling accept an externally reconstructed (Shamir)
+  coordinator key?~~ **Answered 2026-07-31** — see
+  [`2026-07-31_MACI_V3_MIGRATION_DECISION.md`](2026-07-31_MACI_V3_MIGRATION_DECISION.md): yes on
+  both (HashCloak audit; `generateProofs -k` keeps the pass-the-key flow), verdict is still
+  **stay on v2.5** (orphaned 6-week-old release, zero production users, full-rebuild cost); note
+  §3.5's "v3 eliminates deploy-per-vote" premise is refuted there.
 - EntryPoint v0.7/0.8 canonical addresses + verifying-paymaster audit status on Gnosis (blocks M2).
 - Factory chain scope: deploy templates on Gnosis only at first, or design salts/registry to be
   chain-portable from day one? (Recommendation: chain-portable salts, Gnosis-only execution.)
