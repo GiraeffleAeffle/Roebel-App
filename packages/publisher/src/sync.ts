@@ -14,6 +14,7 @@ import {
   listingToSpec,
   movieToSpec,
   newsToSpec,
+  noticeToSpec,
   orgPostToSpec,
   orgToSpec,
   type PublishSpec,
@@ -211,6 +212,24 @@ export async function buildSpecs(
         const spec = dealToSpec(row, nameById);
         if (spec) specs.push(spec);
       }
+    }
+  }
+  if (deps.datasets.includes("notices")) {
+    const alerts = await deps.fetchRows(
+      "service_alerts",
+      "select=id,title,description,severity,status,updated_at,created_at",
+    );
+    for (const row of alerts) {
+      const spec = noticeToSpec(row, "service_alert");
+      if (spec) specs.push(spec);
+    }
+    const announcements = await deps.fetchRows(
+      "announcements",
+      "select=id,title,content,is_active,updated_at,created_at",
+    );
+    for (const row of announcements) {
+      const spec = noticeToSpec(row, "announcement");
+      if (spec) specs.push(spec);
     }
   }
   return specs;

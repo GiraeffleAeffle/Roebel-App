@@ -539,3 +539,43 @@ export function dealToSpec(row: Row, businessNameById: Map<string, string>): Pub
     createdAt: unixFromUpdatedAt(row),
   };
 }
+
+/** Netizen civic notice — see the fork-with-fallback spec §3.2. */
+export const KIND_CIVIC_NOTICE = 32102;
+
+/**
+ * A service alert or town announcement → civic notice.
+ *
+ * Deliberately replaceable: a resolved alert is an EDIT carrying
+ * status=resolved, because a civic record where warnings silently vanish is
+ * worse than one where they visibly end. Town-signed; alerts and
+ * announcements are town speech, not personal speech.
+ */
+export function noticeToSpec(
+  row: Row,
+  source: "service_alert" | "announcement",
+): PublishSpec | null {
+  const id = str(row, "id");
+  const title = str(row, "title");
+  if (!id || !title) return null;
+
+  const d = `${source === "service_alert" ? "alert" : "announcement"}:${id}`;
+  const active = source === "service_alert" ? row["status"] === "active" : row["is_active"] === true;
+  const tags: string[][] = [
+    ["d", d],
+    ["title", title],
+    ["t", source],
+    ["status", active ? "active" : "resolved"],
+  ];
+  const severity = str(row, "severity");
+  if (severity) tags.push(["severity", severity]);
+
+  return {
+    scope: TOWN_SCOPE,
+    kind: KIND_CIVIC_NOTICE,
+    d,
+    content: str(row, "description") ?? str(row, "content") ?? "",
+    tags,
+    createdAt: unixFromUpdatedAt(row),
+  };
+}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { htmlToMarkdown } from "../src/html-to-md.js";
-import { articleToSpec, berlinToUnix, businessToSpec, dealToSpec, eventToSpec, listingToSpec, MAPPER_VERSION, movieToSpec, newsToSpec, orgPostToSpec, orgToSpec } from "../src/mappers.js";
+import { articleToSpec, berlinToUnix, businessToSpec, dealToSpec, eventToSpec, listingToSpec, MAPPER_VERSION, movieToSpec, newsToSpec, noticeToSpec, orgPostToSpec, orgToSpec } from "../src/mappers.js";
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 const ORGS = new Set([ORG_ID]);
@@ -422,5 +422,44 @@ describe("consented personal organisers and the wider record", () => {
     const json = JSON.stringify(spec);
     assert.ok(!json.includes("leak@example.com"));
     assert.ok(!json.includes("01761234567"));
+  });
+});
+
+describe("civic notices (kind 32102)", () => {
+  it("noticeToSpec: an active alert publishes as kind 32102", () => {
+    const spec = noticeToSpec(
+      { id: "a1", title: "Wasserrohrbruch", description: "Marktstraße gesperrt",
+        severity: "warning", status: "active", updated_at: "2026-07-02T10:00:00Z" },
+      "service_alert",
+    );
+    assert.ok(spec);
+    assert.equal(spec!.kind, 32102);
+    assert.equal(spec!.scope, "town");
+    assert.equal(spec!.d, "alert:a1");
+    assert.equal(spec!.content, "Marktstraße gesperrt");
+    const tag = (n: string) => spec!.tags.find((t) => t[0] === n)?.[1];
+    assert.equal(tag("status"), "active");
+    assert.equal(tag("severity"), "warning");
+    assert.equal(tag("t"), "service_alert");
+  });
+
+  it("noticeToSpec: a resolved alert is an EDIT with status resolved, not null", () => {
+    const spec = noticeToSpec(
+      { id: "a1", title: "Wasserrohrbruch", description: "behoben", status: "resolved",
+        updated_at: "2026-07-03T10:00:00Z" },
+      "service_alert",
+    );
+    assert.ok(spec);
+    assert.equal(spec!.tags.find((t) => t[0] === "status")?.[1], "resolved");
+  });
+
+  it("noticeToSpec: announcements use their own d prefix", () => {
+    const spec = noticeToSpec(
+      { id: "n1", title: "Bürgersprechstunde", content: "Donnerstag 16 Uhr",
+        is_active: true, updated_at: "2026-07-02T10:00:00Z" },
+      "announcement",
+    );
+    assert.equal(spec!.d, "announcement:n1");
+    assert.equal(spec!.content, "Donnerstag 16 Uhr");
   });
 });

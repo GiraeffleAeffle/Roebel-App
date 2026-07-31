@@ -191,7 +191,10 @@
         31923,
         30018,
         30023,
-        30402
+        30402,
+        32100,
+        32101,
+        32102
       ],
       "ingestIntervalSeconds": 120
     },
@@ -204,7 +207,8 @@
         "marketplace",
         "deals",
         "businesses",
-        "news"
+        "news",
+        "notices"
       ],
       "intervalSeconds": 300,
       "backfeed": true
