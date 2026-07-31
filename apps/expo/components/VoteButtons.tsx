@@ -569,22 +569,22 @@ export default function VoteButtons({
       // ---- Committed. The slow publish + mirror + claim run detached, with retry. ----
       const settle = async () => {
         const receipt = await sendTransaction({ transaction: tx, account: gAccount });
+        // Participation only — the CHOICE never leaves the device in plaintext
+        // (MACI encrypts it on-chain; mirroring it to analytics would undo that).
         track(Events.PROPOSAL_VOTED, {
           proposal_id: proposalId.toString(),
           poll_id: pid.toString(),
-          vote_type: VoteType[support] ?? String(support),
           nonce: nonce.toString(),
           tx_hash: receipt.transactionHash,
           encrypted: true,
         });
         // Persist the choice locally so the LastVoteCard can show it.
         await recordVote(pollAddr, support, nonce, receipt.transactionHash);
-        // Mirror to Supabase first so the claim-reward verifier finds the vote,
-        // then claim the payout (it lands in the balance via the reconcile).
+        // Mirror participation to Supabase first so the claim-reward verifier
+        // finds the vote, then claim the payout (it lands via the reconcile).
         await recordVoteToSupabase({
           walletAddress: voterAddress,
           proposalId: proposalId.toString(),
-          voteType: support,
           transactionHash: receipt.transactionHash,
         });
         await claimReward(voterAddress, 'proposal_vote', proposalId.toString()).catch(() => {});

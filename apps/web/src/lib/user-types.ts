@@ -452,7 +452,9 @@ export interface VoteHistory {
   blockchain_proposal_id: string; // Numeric ID
   proposal_number: number | null;
   proposal_title: string | null;
-  vote_type: 0 | 1 | 2; // 0=Against, 1=For, 2=Abstain
+  /** Always null since 2026-07-31: participation is recorded, the choice never
+   *  is (MACI privacy; migration 20260731_vote_history_choice_purge.sql). */
+  vote_type: 0 | 1 | 2 | null;
   voting_power: bigint;
   points_earned: bigint;
   streak_at_vote: bigint;
@@ -470,7 +472,8 @@ export interface RecordVoteInput {
   blockchain_proposal_id: string;
   proposal_number: number;
   proposal_title: string;
-  vote_type: 0 | 1 | 2;
+  /** Deprecated: accepted for backwards compatibility, never stored. */
+  vote_type?: 0 | 1 | 2;
   voting_power: bigint;
   transaction_hash: string;
   block_number: bigint;

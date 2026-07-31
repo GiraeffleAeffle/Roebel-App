@@ -1,22 +1,26 @@
 import { supabase } from './supabase';
-import type { VoteType } from './governance-types';
 
 /**
- * Mirror of governance votes for gamification/profile stats.
+ * Mirror of governance PARTICIPATION for gamification/profile stats.
  *
- * Governance voting itself happens on-chain (Base Governor / MACI poll); this
+ * Governance voting itself happens on-chain (MACI poll / legacy Governor); this
  * table is a best-effort Supabase cache so a user's "Abstimmungen" count can be
- * shown on their profile. The `vote_history` table already exists with a unique
- * constraint on (wallet_address, proposal_id) and only INSERT/SELECT RLS
- * policies — so we insert with ON CONFLICT DO NOTHING (one row per proposal per
- * wallet). Re-voting/changing a vote keeps the existing row → the count stays
- * "proposals voted on", which is exactly what the stat shows.
+ * shown on their profile and the claim-reward verifier can confirm a vote
+ * exists. It records THAT a wallet voted, never WHAT it voted: MACI encrypts
+ * the choice on-chain at real cost, and mirroring it here in plaintext was the
+ * leak the 2026-07-09 ZK assessment said to fix first (`vote_type` is nulled by
+ * migration 20260731_vote_history_choice_purge.sql and no longer sent).
+ *
+ * The `vote_history` table has a unique constraint on (wallet_address,
+ * proposal_id) and only INSERT/SELECT RLS policies — so we insert with ON
+ * CONFLICT DO NOTHING (one row per proposal per wallet). Re-voting/changing a
+ * vote keeps the existing row → the count stays "proposals voted on", which is
+ * exactly what the stat shows.
  */
 export async function recordVote(args: {
   walletAddress: string;
   /** On-chain proposal id (numeric, as string). Used for both the dedup key and the chain id column. */
   proposalId: string;
-  voteType: VoteType; // 0=against, 1=for, 2=abstain
   votingPower?: number;
   proposalNumber?: number;
   proposalTitle?: string;
@@ -28,7 +32,6 @@ export async function recordVote(args: {
         wallet_address: args.walletAddress,
         proposal_id: args.proposalId,
         blockchain_proposal_id: args.proposalId,
-        vote_type: args.voteType,
         voting_power: args.votingPower ?? 1,
         proposal_number: args.proposalNumber ?? null,
         proposal_title: args.proposalTitle ?? null,

@@ -88,12 +88,12 @@ export default function VoteButtonsEnhanced({
         account,
       });
 
-      // Best-effort mirror to Supabase so the voter's profile "Abstimmungen"
-      // count reflects this vote. Fire-and-forget; never blocks the success UX.
+      // Best-effort mirror of PARTICIPATION to Supabase so the voter's profile
+      // "Abstimmungen" count reflects this vote — never the choice.
+      // Fire-and-forget; never blocks the success UX.
       void recordVoteToSupabase({
         walletAddress: account.address,
         proposalId: proposalId.toString(),
-        voteType: voteTypeMap[selectedVote],
       });
 
       // Reward participation in Röbel Münzen (once per proposal, never the choice).

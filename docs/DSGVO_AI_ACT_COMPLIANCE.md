@@ -160,11 +160,16 @@ keiner.
 
 ### 2.2 Transparenz VOR dem Mint (Art. 13/14)
 
-**[TODO]** Onboarding-Schritt vor der Citizen-Attestierung ergänzen: verständlicher
-deutscher Hinweis, dass (a) eine pseudonyme Blockchain-Spur entsteht, die technisch nicht
-gelöscht werden kann, (b) wir bei Austritt die Verknüpfung zur Person vollständig löschen,
-(c) Attestierung durch andere Einwohner erfolgt (soziale Kenntnisnahme). Gleicher Text in
-die Datenschutzerklärung.
+**Teilweise erledigt (2026-07-31):** Für die **Nostr-Publikation** existiert der Pfad —
+Full-Screen-Public-Record-Consent in der App, verkettet ins eine Consent-System
+(Policy-Version 1.1.0, Re-Consent), plus Abschnitt „Öffentlicher Datenbestand (Nostr)"
+in Datenschutzerklärung 1.1 mit Dauerhaftigkeits-Hinweis und Widerrufsweg; Nachweis der
+Einwilligung = wallet-signierte Registrierung.
+
+**[TODO — verbleibend]** Derselbe Aufklärungsschritt vor der **Citizen-NFT-Attestierung**
+(Mint): (a) pseudonyme Blockchain-Spur, technisch nicht löschbar, (b) bei Austritt löschen
+wir die Verknüpfung zur Person vollständig, (c) Attestierung durch andere Einwohner
+(soziale Kenntnisnahme). Das Public-Record-Consent-Muster ist die Vorlage.
 
 ### 2.3 Was bewusst NICHT gelöscht wird
 
@@ -283,10 +288,10 @@ Verwaltungshandeln) vor Launch erneut prüfen.
 
 | # | Aktion | Frist | Aufwand |
 |---|---|---|---|
-| 1 | AI-Act-Disclosure Mecky + Kennzeichnung generierter Inhalte (§ 4.2) | **2026-08-02** | S–M |
-| 2 | `vote_history`-Klartext-Leak fixen | kurzfristig | S |
+| 1 | ~~AI-Act-Disclosure + Kennzeichnung~~ **✅ umgesetzt 2026-07-30** (§ 4.2) — **GATES offen:** `generate-menu-image` redeployen, Migration `20260730_blog_articles_ai_generated.sql` anwenden | vor 2026-08-02 | erledigt |
+| 2 | ~~`vote_history`-Klartext-Leak~~ **✅ Code gefixt 2026-07-31** (Klartext-Wahl weder in DB noch PostHog; Teilnahme bleibt) — **GATE: Migration `20260731_vote_history_choice_purge.sql` VOR dem Client-Rollout anwenden** (Spalte nullable + Historie nullen; `record_vote()`-RPC beim Anwenden prüfen) | Gate | erledigt (Code) |
 | 3 | Löschpfad als Runbook + einmal testweise durchspielen (§ 2.1) | Q3 2026 | M |
-| 4 | Pre-Mint-Aufklärung im Onboarding + Datenschutzerklärung (§ 2.2) | Q3 2026 | S |
+| 4 | Pre-Mint-Aufklärung Citizen-NFT (§ 2.2; Nostr-Seite ✅ via Public-Record-Consent 1.1.0) | Q3 2026 | S |
 | 5 | DPIA formalisieren (aus § 1), AV-Verträge inventarisieren | Q3/Q4 2026 | M |
 | 6 | Governance-Metadaten-Sichtbarkeit minimieren (§ 3.1) | laufend | S |
 | 7 | Relay: NIP-09/62 → echte LMDB-Löschung (auch Mirror) + DSA-Meldeweg/Abuse-Kontakt (§ 2.1 Nr. 4) | Q3 2026 | S–M |
