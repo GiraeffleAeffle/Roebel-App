@@ -1,0 +1,16 @@
+{
+  "$comment": "Röbel's entry in the Gnosis CommunityRegistry. contracts mirror the node manifest's contracts block (netizen_labs packages/protocol/examples/roebel.netizen.json — no circlesGroup declared there, so none here). Controller = Attester Safe for bootstrap (decision 2026-07-31); hand to the Timelock later via setController.",
+  "slug": "roebel",
+  "registry": "0x1c4B243a5f72248aEFcd6F11caf0d3cFAe9fF889",
+  "manifestURI": "https://index.roebel.app/manifest",
+  "controller": "0x3A08c86Efc5ff38CC35d850F1D4d564e497bFDEa",
+  "contracts": {
+    "citizenNft": "0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5",
+    "attesterNft": "0xC587F383696D3c9DF7A6eE03A9160E40Ae1cdb82",
+    "governor": "0x5F5e499Dc1872c2Ce19a4b50cd10f680e78E3Ba3",
+    "timelock": "0x5b358A77E89FF3d699607b4fC235b381d67f3d05",
+    "maci": "0x6663eDC8650276fe264710B1A2ba46eB8bd0bF1D",
+    "safe": "0x3A08c86Efc5ff38CC35d850F1D4d564e497bFDEa",
+    "gatekeeper": "0xc4B9E45F0e84BC0CDe930CE888E4D0e38184f277"
+  }
+}

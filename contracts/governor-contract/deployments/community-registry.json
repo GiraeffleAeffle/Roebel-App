@@ -7,5 +7,15 @@
   "deployer": "0xd5028284017A32C672CbD73Fe35aCD897bA874cf",
   "creationTx": "0xb548c68ed3c518966e563426bfda37c81a66285aeacaa6a34968fcc537c02702",
   "verified": "https://gnosis.blockscout.com/address/0x1c4B243a5f72248aEFcd6F11caf0d3cFAe9fF889",
+  "registered": [
+    {
+      "slug": "roebel",
+      "communityId": "0x12e14f56a4871bacf17e1af72e96ac7d75134e907e67b79f7fee1065b13455b7",
+      "registeredAt": "2026-07-31",
+      "tx": "0x8039891f1fedf9b447ed0c8cdf10617dbad13709c551c1876896352ec9d9e732",
+      "controller": "0x3A08c86Efc5ff38CC35d850F1D4d564e497bFDEa",
+      "record": "roebel-registry-record.json"
+    }
+  ],
   "note": "Unowned, admin-free community address book — one per chain. FCFS bytes32 ids (keccak256 of the community slug); each record is writable only by its own controller (the community's timelock/Safe). A phone book, not a root of trust. Registered by community-factory.cjs stage C; consumed by netizen deploy --merge, Atlas, and any indexer. Spec: docs/superpowers/specs/2026-07-31-community-registry-and-manifest-presets-design.md."
 }
