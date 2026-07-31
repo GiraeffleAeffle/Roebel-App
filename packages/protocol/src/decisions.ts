@@ -56,3 +56,74 @@ export const STAGE_MOVERS: Record<Stage, readonly Role[]> = {
   ruhend: ["editor-agent"],
   zurueckgezogen: ["author"],
 };
+
+/** NSP-12 kind numbers, claimed. The publisher's mappers.ts aliases these —
+ * one registry, no drifting literals. Spec §3. */
+export const DECISION_KINDS = {
+  head: 32100, transition: 2100, meeting: 32103,
+  meinungsbild: 32104, impact: 32105, cycle: 32106,
+} as const;
+
+const HEX64 = /^[0-9a-f]{64}$/;
+
+/** Canonical addressable reference to a proposal head. Addresses, never event
+ * ids: replaceable-event id links go stale (spec §3, hard rule). */
+export function headAddress(pubkeyHex: string, proposalId: string): string {
+  return `${DECISION_KINDS.head}:${pubkeyHex}:proposal:${proposalId}`;
+}
+
+export interface DecisionEventLike {
+  kind: number;
+  tags: string[][];
+  content: string;
+  created_at: number;
+}
+
+export interface ParsedTransition {
+  head: string;
+  from: Stage;
+  to: Stage;
+  /** Address of the kind-32102 civic notice this transition mirrors. */
+  notice: string | null;
+  reason: string;
+  createdAt: number;
+}
+
+const headAddressPattern = new RegExp(`^${DECISION_KINDS.head}:[0-9a-f]{64}:proposal:.+$`);
+const noticeAddressPattern = /^32102:[0-9a-f]{64}:.+$/;
+
+/** Stages a proposal may only enter by citing the formal body's signed notice (spec §2). */
+const NOTICE_GATED: readonly Stage[] = ["beschlossen", "abgelehnt"];
+
+export function safeParseTransition(
+  ev: DecisionEventLike,
+): { ok: true; value: ParsedTransition } | { ok: false; error: string } {
+  if (ev.kind !== DECISION_KINDS.transition) {
+    return { ok: false, error: `expected kind ${DECISION_KINDS.transition}, got ${ev.kind}` };
+  }
+  const heads = ev.tags.filter((t) => t[0] === "a" && t[3] === "proposal");
+  if (heads.length !== 1) return { ok: false, error: `expected exactly one proposal a-tag, got ${heads.length}` };
+  const head = heads[0][1] ?? "";
+  if (!headAddressPattern.test(head)) return { ok: false, error: `malformed head address: ${head}` };
+
+  const tag = (name: string) => ev.tags.find((t) => t[0] === name)?.[1];
+  const from = StageSchema.safeParse(tag("from"));
+  const to = StageSchema.safeParse(tag("to"));
+  if (!from.success || !to.success) return { ok: false, error: "from/to must be valid stages" };
+  if (!isLegalTransition(from.data, to.data)) {
+    return { ok: false, error: `illegal transition ${from.data} → ${to.data}` };
+  }
+
+  const noticeTag = ev.tags.find((t) => t[0] === "a" && t[3] === "notice");
+  const notice = noticeTag?.[1] ?? null;
+  if (NOTICE_GATED.includes(to.data)) {
+    if (!notice || !noticeAddressPattern.test(notice)) {
+      return { ok: false, error: `${to.data} requires a kind-32102 civic-notice citation` };
+    }
+  }
+
+  return {
+    ok: true,
+    value: { head, from: from.data, to: to.data, notice, reason: ev.content, createdAt: ev.created_at },
+  };
+}

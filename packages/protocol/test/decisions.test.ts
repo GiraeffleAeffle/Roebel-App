@@ -5,7 +5,23 @@ import {
   isLegalTransition,
   STAGE_MOVERS,
   STAGES,
+  DECISION_KINDS,
+  headAddress,
+  safeParseTransition,
 } from "../src/decisions.js";
+
+const PK = "a".repeat(64);
+const HEAD = headAddress(PK, "42");
+
+function transition(over: Partial<{ tags: string[][]; kind: number; content: string; created_at: number }>) {
+  return {
+    kind: DECISION_KINDS.transition,
+    tags: [["a", HEAD, "", "proposal"], ["from", "idee"], ["to", "entwurf"]],
+    content: "Vollständig: Problem, Vorschlag, Betroffene benannt.",
+    created_at: 1753970000,
+    ...over,
+  };
+}
 
 test("the lifecycle has exactly the ten spec stages", () => {
   assert.deepEqual(
@@ -52,4 +68,60 @@ test("who may move a proposal into each stage matches spec §2", () => {
   assert.deepEqual(STAGE_MOVERS["ruhend"], ["editor-agent"]);
   assert.deepEqual(STAGE_MOVERS["zurueckgezogen"], ["author"]);
   assert.deepEqual(STAGE_MOVERS["idee"], []); // initial stage — nothing transitions into it
+});
+
+test("kind numbers are the spec's provisional set, now claimed", () => {
+  assert.deepEqual(DECISION_KINDS, {
+    head: 32100, transition: 2100, meeting: 32103,
+    meinungsbild: 32104, impact: 32105, cycle: 32106,
+  });
+});
+
+test("headAddress builds the canonical a-tag address", () => {
+  assert.equal(HEAD, `32100:${PK}:proposal:42`);
+});
+
+test("a well-formed transition parses", () => {
+  const r = safeParseTransition(transition({}));
+  assert.equal(r.ok, true);
+  if (r.ok) {
+    assert.equal(r.value.head, HEAD);
+    assert.equal(r.value.from, "idee");
+    assert.equal(r.value.to, "entwurf");
+    assert.equal(r.value.notice, null);
+    assert.equal(r.value.reason, "Vollständig: Problem, Vorschlag, Betroffene benannt.");
+  }
+});
+
+test("wrong kind, missing head ref, or unknown stage all fail", () => {
+  assert.equal(safeParseTransition(transition({ kind: 1 })).ok, false);
+  assert.equal(safeParseTransition(transition({ tags: [["from", "idee"], ["to", "entwurf"]] })).ok, false);
+  assert.equal(safeParseTransition(transition({ tags: [["a", HEAD, "", "proposal"], ["from", "idee"], ["to", "banana"]] })).ok, false);
+});
+
+test("an illegal hop fails even when both stages exist", () => {
+  const r = safeParseTransition(transition({ tags: [["a", HEAD, "", "proposal"], ["from", "entwurf"], ["to", "beschlossen"]] }));
+  assert.equal(r.ok, false);
+});
+
+test("two head refs are ambiguous and fail", () => {
+  const other = headAddress("b".repeat(64), "7");
+  const r = safeParseTransition(transition({
+    tags: [["a", HEAD, "", "proposal"], ["a", other, "", "proposal"], ["from", "idee"], ["to", "entwurf"]],
+  }));
+  assert.equal(r.ok, false);
+});
+
+test("beschlossen without a civic-notice citation fails; with one it passes", () => {
+  const base = [["a", HEAD, "", "proposal"], ["from", "beschlussvorlage"], ["to", "beschlossen"]];
+  assert.equal(safeParseTransition(transition({ tags: base })).ok, false);
+  const notice = ["a", `32102:${PK}:alert:9`, "", "notice"];
+  const r = safeParseTransition(transition({ tags: [...base, notice] }));
+  assert.equal(r.ok, true);
+  if (r.ok) assert.equal(r.value.notice, `32102:${PK}:alert:9`);
+});
+
+test("abgelehnt requires the citation too", () => {
+  const base = [["a", HEAD, "", "proposal"], ["from", "beschlussvorlage"], ["to", "abgelehnt"]];
+  assert.equal(safeParseTransition(transition({ tags: base })).ok, false);
 });
