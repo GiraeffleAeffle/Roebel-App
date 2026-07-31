@@ -17,8 +17,17 @@
 > **What is NEW in this spec:** (1) the **meetings plane decision** — the one workspace pillar with no
 > prior decision (Jitsi exists only as a scaffold the installer cannot render); (2) **AI members in
 > E2EE meetings** — transcripts and realtime AI characters, with consent-by-membership; (3) the
-> **per-node sovereign model registry** (the "Sarvam pattern"); (4) the **productization + Röbel
-> dogfood build order** that assembles the already-shipped pieces into one sellable workspace.
+> **two-plane architecture** — public Nostr plane / private workspace plane, agents native in both;
+> (4) the **productization + Röbel dogfood build order** that assembles the already-shipped pieces
+> into one sellable workspace.
+>
+> **Revision 2026-07-31 (same day):** direction **affirmed by Max** (meetings plane, consent model,
+> dogfood order). The AI-plane section (§4) was written in parallel with — and now **defers to** —
+> [sovereign-ai-product-design](2026-07-31-sovereign-ai-product-design.md), which settles product
+> shape, model policy ("the router is the product"), tiers and hardware; §4 here keeps only the
+> *requirements the meetings plane feeds into that spec*. §3b (two-plane architecture) added from
+> Max's direction: *public Nostr data for everything Expo users see; private sovereign org
+> workspaces; AI agents native in both.*
 
 ## 1. What we're building, in one paragraph
 
@@ -138,44 +147,91 @@ listens.**
   channels remain gated on NIP-29 + NIP-42 (unchanged roadmap). **No cross-protocol message bridge** —
   the prohibition stands.
 
-## 4. Netizen AI — the per-node sovereign model registry (the "Sarvam pattern")
+## 3b. The two-plane architecture — public Nostr, private workspace, agents in both
 
-Sarvam-105B/30B (India, open weights, Feb 2026), **Soofi S 30B-A3B (German/English MoE, open weights
-July 2026, ~3.2B active params — the research doc's named upgrade trigger has FIRED)**, EuroLLM-22B
-(Apache-2.0): the world now ships *regional sovereign models*. Netizen's move is not to pick one — it
-is to make the model **a manifest field with regional presets**:
+Max's framing, adopted as the structural rule of the whole product:
 
-```jsonc
-"ai": {
-  "gateway": "litellm",                 // the one seam — already the declared rule
-  "selfHosted": true,
-  "models": {
-    "reason":  "soofi-s-30b-a3b",       // preset de: Soofi S · preset eu: EuroLLM-22B
-    "chat":    "soofi-s-30b-a3b",       // preset in: sarvam-30b / sarvam-105b
-    "classify":"local-small",
-    "stt":     "whisper-large-v3-turbo",// NEW role: meetings transcription
-    "tts":     "local-tts",             // NEW role: AI characters' voice
-    "frontier":"claude"                 // fallback, egress-gated
-  },
-  "sovereignty": { "dataEgressPolicy": "local-first" }
-}
-```
+> *Everything app users see publicly is Nostr data. Orgs (and individuals) get private sovereign
+> workspaces. AI agents are native to both planes.*
 
-Deployment realities (from the verified research): a 30B-A3B MoE serves on a **Hetzner GEX44
-(€232.30/mo)** class GPU box; GEX131 (€1,197.30/mo) for bigger models; nodes without a GPU declare
-`selfHosted: false` and get frontier-via-gateway with **egress logged**. Two hard rules this spec
-adds:
+### The public plane — the Expo app's public surface becomes Nostr-native
 
-1. **The gateway lands before any local model.** LiteLLM on the node in front of Claude first — that
-   turns `dataEgressPolicy` from a field into a control (route by data-class, log every egress) and
-   gives per-citizen quotas (the Intelligence Dividend metering LiteLLM does natively).
-2. **Meeting audio never leaves the node.** STT is local from Tier 1 — Whisper runs fine on the CPU
-   class we have for post-meeting batch; live captions size the first GPU purchase, not the last.
+Target state: **feed posts, events, articles, org profiles — every public thing in the app — is a
+signed Nostr event on the node's relay**, mirrored by federation (NSP-9), queryable across nodes
+(NSP-10), rendered by Atlas, and portable because the author's npub is node-independent (the
+identity bridge). Concretely, the kinds we standardize on: kind 1 (feed notes), NIP-23 `30023`
+(articles — the story engine's output), NIP-52 `31922/31923` (calendar events), NIP-53 (live
+activities, incl. public meetings from §3.4), kind 0 (profiles), NIP-05 (name mapping).
 
-This is also the honest answer to "AI for everyone using Netizen": most nodes will start with
-`selfHosted: false` + logged egress + quotas, and *graduate* to their regional model when the
-community funds the GPU — the manifest documents which state a node is in, and `netizen doctor`
-says it out loud.
+The path is a **strangler, not a rewrite** — Supabase stays the system of record while each public
+read/write moves over:
+
+1. **Write path outbound (mostly exists):** the publisher already mirrors public datasets to the
+   relay under node-held org identities; the vanish pipeline (NIP-62/09) already makes deletion
+   real, and account deletion already speaks NIP-62.
+2. **Read path (the next slice):** the Expo public feed and events tabs read from the node's
+   indexer/relay instead of Supabase views. Exit test: a *second* client (or Atlas) shows the same
+   feed with no Supabase access.
+3. **Write path native:** citizens author posts/events signed with their **client-held npub**
+   (identity-bridge slices 2–4) instead of the node publishing on their behalf.
+4. **Media:** images/video for public posts move to **Blossom** (the already-named adopt candidate);
+   until then media URLs point at existing storage.
+
+Two hard rules keep this honest: **only genuinely public data touches the relay** — no NIP-42 means
+everything published is world-readable forever, so the relay's write-gate + the pre-publish
+disclosure are the boundary, and anything personal/private/paid stays off it until NIP-42/NIP-29
+land (unchanged roadmap). And **public-plane features must work from the relay alone** — if a
+"public" feature needs a Supabase call, it is not yet on the public plane.
+
+### The private plane — the sovereign workspace
+
+Everything in §5: Nextcloud files, Collabora docs, Matrix chat, MatrixRTC meetings — E2EE or
+SSO-gated, never on the relay, ACL'd by the one `groups` claim. Private for orgs AND for
+individuals (G6: every user gets a sovereign workspace). The only thing that crosses from private
+to public is the **signed provenance fact** (the two-tier split) or an explicit publish action
+(a Verein posts its event: drafted in the workspace, published as NIP-52 on the relay).
+
+### Agents native in both planes — same member, two behaviors
+
+The same agent identity (smart account → derived npub → OIDC client-credentials) acts on both
+planes under one charter:
+
+| | Public plane | Private plane |
+|---|---|---|
+| Identity | npub, NIP-24 `bot: true` + `netizen_agent` tag | keystone `actor_type: agent` → MAS → Matrix member; workspace `Actor` seam |
+| What it does | posts stories/events, answers mentions (watcher), A2A with peer-node agents | drafts docs, files minutes, joins meetings, proposes (never executes) treasury actions |
+| Bounds | `agents.a2a.relayPubkeys` + watcher rate bounds | Agent Charter scopes, Zodiac budget, `act` delegation, audit sink |
+| Visibility | labeled event, world-readable | visible member, kickable, kill switch |
+
+The flow that shows the whole product in one sentence: **a Verein's agent attends the board meeting
+(private, E2EE, invited), files the minutes to Nextcloud with provenance, drafts the public event
+announcement, and publishes it as a signed NIP-52 event on the relay — where every federated node
+and any Nostr client can see it.**
+
+## 4. Netizen AI — meetings-plane requirements (defers to the Sovereign-AI product spec)
+
+**Ownership note (2026-07-31):** product shape, tiers, hardware, model policy and presets are
+settled in [sovereign-ai-product-design](2026-07-31-sovereign-ai-product-design.md) ("one product,
+two doors"; **the router is the product**; RAG-first; Netizen Box via Assisted tier). This section
+now states only what the *workspace/meetings plane requires from* that AI plane — kept here so the
+requirements have one home:
+
+1. **`ai.models` grows two roles**: `stt` (meetings transcription) and `tts` (AI characters'
+   voice). The router spec owns which engines fill them per tier; the workspace only requires that
+   the roles exist in the manifest and resolve through the gateway.
+2. **The gateway lands before any local model** (W4 depends on it): LiteLLM on the node in front of
+   the frontier model, so `dataEgressPolicy` becomes a control (route by data-class, log every
+   egress) and per-citizen quotas apply to workspace AI from day one.
+3. **Meeting audio never leaves the node.** STT is local from Tier 1 — post-meeting Whisper batch
+   runs on the CPU class we have; live captions (Tier 2) are a stated input to the AI spec's
+   hardware sizing, not a reason to ship audio off-box.
+4. **Meeting/workspace agent calls carry the actor context** (`act` principal, org scope) so the
+   router can apply the governed egress policy per data-class — a Vereins-protokoll is private-tier
+   by definition.
+5. **The regional-model story ("Sarvam pattern")** — a German node running Soofi S, an Indian node
+   Sarvam, an EU node EuroLLM — is marketing-true through the AI spec's preset/tier design; this
+   spec only requires that swapping the preset never touches the workspace integration (the roles
+   are the interface).
 
 ## 5. What "full workspace" means — and what we still refuse to build
 
@@ -211,8 +267,8 @@ drift:
    and Element config from `services.chat.matrix` — importing every hand-won setting from the live
    node ([WORKSPACE_SSO_SETUP.md](../../WORKSPACE_SSO_SETUP.md)) so node #2 inherits them. This
    closes the known crash-loop trap.
-3. **`ai.models` grows `stt` + `tts` roles**; regional presets `de|eu|in` ship as manifest templates
-   (the Conduit-strategy "presets = templates" move, applied to AI).
+3. **`ai.models` grows `stt` + `tts` roles** (regional presets and tiers are owned by
+   [sovereign-ai-product-design](2026-07-31-sovereign-ai-product-design.md)).
 4. **`agents.workers[]` gains a `meetings` capability** declaring which agent may be invited to calls
    and under which charter (per-org allow, recording announcement text, retention days for audio =
    **0 by default** — transcript survives, audio does not).
@@ -235,6 +291,13 @@ drift:
 
 W1–W4 are justified by Röbel alone. W5 is the differentiator demo. W6 generalizes — gated, as
 always, on a real second deployment.
+
+**The public plane (§3b) runs as a parallel N-track**, paced by the identity-bridge slices rather
+than the W-phases: **N1** Expo public feed + events read from the indexer/relay (exit test: a second
+client renders the same feed with zero Supabase access) → **N2** citizens author kind-1/NIP-52
+events under client-held npubs (identity-bridge slices 2–4) → **N3** public media on Blossom.
+N1 needs nothing from the W-track and can start immediately; the AI-plane work runs in its own
+spec's track.
 
 ## 8. Dogfooding in Röbel — real community, real businesses
 
@@ -272,16 +335,20 @@ their documents on the node for a month without us touching the box.**
 
 ## 10. Decisions for Max
 
-1. **Meetings plane = MatrixRTC/Element Call + self-hosted LiveKit** (drop the Jitsi stub) — confirm.
-2. **AI-in-meetings consent model = membership** (agent must be invited, announces itself, audio
-   retention 0 by default) — confirm.
-3. **Order: chat graduation (W2) before meetings (W3)** — or accept hand-wired Matrix for a faster
+> **Affirmed 2026-07-31 (Max):** the meetings plane (MatrixRTC/Element Call + self-hosted LiveKit,
+> Jitsi stub dropped), the consent-by-membership model, the dogfood direction, and the two-plane
+> architecture (§3b — public Nostr / private workspace / agents in both, from Max's own framing).
+> GPU/hardware timing and model choices moved to
+> [sovereign-ai-product-design](2026-07-31-sovereign-ai-product-design.md). Remaining open:
+
+1. **Order: chat graduation (W2) before meetings (W3)** — or accept hand-wired Matrix for a faster
    meetings demo and graduate afterward? (Recommended: graduate first; node #2 needs it anyway.)
-4. **First dogfood org**: which Verein and which business get W1 access?
-5. **GPU timing**: buy the GEX44-class box at W5 (Soofi S live) or defer until a node co-funds it?
-6. **STT choice for German** (Whisper turbo vs Vosk) — decide by bake-off on the node at W4, or
+2. **First dogfood org**: which Verein and which business get W1 access?
+3. **STT choice for German** (Whisper turbo vs Vosk) — decide by bake-off on the node at W4, or
    pre-commit?
-7. **Does Tier 3 (realtime characters) target Mecky first**, or a neutral per-org assistant persona?
+4. **Does Tier 3 (realtime characters) target Mecky first**, or a neutral per-org assistant persona?
+5. **N-track priority**: does N1 (public feed/events read from the relay) start before or alongside
+   W1? Both are independently unblocked; the question is sequencing your own attention.
 
 ---
 
