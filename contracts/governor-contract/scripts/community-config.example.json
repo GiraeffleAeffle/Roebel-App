@@ -1,0 +1,38 @@
+{
+  "$comment": "Community Factory input. deployPlan = getPreset(id).deploy from @netizen-labs/protocol, verbatim. Run: COMMUNITY_CONFIG=path/to/this.json npx hardhat run scripts/community-factory.cjs --network gnosis  (dry-run: --network hardhat with skipVk true). Docs: docs/superpowers/specs/2026-07-31-community-factory-design.md",
+  "slug": "example-town",
+  "name": "Example Town",
+  "manifestURI": "https://example-town.example/.well-known/netizen.json",
+  "deployPlan": {
+    "membership": {
+      "attestationAttester": [3000, 2, 7],
+      "attestationCitizen": [0, 1, 1],
+      "revocationAttester": [6700, 3, 65535],
+      "revocationCitizen": [0, 1, 1],
+      "rejectionAttester": [2500, 2, 5],
+      "rejectionCitizen": [2500, 2, 5],
+      "attesterBands": { "approval": [5000, 3, 7], "rejection": [5000, 3, 7] },
+      "validityPeriodSeconds": 0
+    },
+    "governance": {
+      "engine": "maci",
+      "coordinator": "shamir",
+      "quorumBps": 400,
+      "quorumAbsolute": 2,
+      "timelockMinDelaySeconds": 3600
+    },
+    "treasury": { "safeThreshold": 3, "safeOwners": 5, "splits": { "dividend": 50, "endowment": 30, "reinvest": 20 } },
+    "registry": true
+  },
+  "attesterFounders": ["0x0000000000000000000000000000000000000001", "0x0000000000000000000000000000000000000002", "0x0000000000000000000000000000000000000003"],
+  "citizenFounders": ["0x0000000000000000000000000000000000000001", "0x0000000000000000000000000000000000000004", "0x0000000000000000000000000000000000000005"],
+  "safe": "0x0000000000000000000000000000000000000006",
+  "coordinator": {
+    "address": "0x0000000000000000000000000000000000000007",
+    "pubKey": { "x": "<Poll coordinator pubkey x>", "y": "<Poll coordinator pubkey y>" }
+  },
+  "votingPeriodSeconds": 3600,
+  "tallyGracePeriodSeconds": 604800,
+  "registry": "<CommunityRegistry address on the target chain>",
+  "skipVk": false
+}
