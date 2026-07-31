@@ -364,6 +364,24 @@ git commit -m "fix(expo): membership and account writes ride the signed edge fun
 
 ---
 
+### Task 6b: `update_member_role` — the action the lockdown would otherwise break
+
+*(Added 2026-07-31 during execution. Task 6's review found `updateMemberRole` in `apps/web/src/lib/supabase-account-roles.ts` and `apps/expo/lib/supabase-account-roles.ts` writing `account_owners.role` directly on BOTH platforms. The edge function has no role-change action, so once the lockdown drops the open policies, changing a member's role silently fails. Load-bearing: must land before Task 13.)*
+
+**Files:**
+- Modify: `apps/expo/supabase/functions/org-membership/index.ts` (add the action), `apps/web/src/lib/org-membership/message.ts` + `apps/expo/lib/org-membership.ts` (add to `OrgAction`/action list), `apps/web/src/lib/supabase-account-roles.ts`, `apps/expo/lib/supabase-account-roles.ts`, plus their call sites (grep `updateMemberRole(`)
+
+**Interfaces:**
+- New action `update_member_role` `{ accountId, memberWallet, role: "owner"|"admin"|"member" }`. Authorization: signer must be `owner` of `accountId` (admins may NOT change roles — promoting to owner is an ownership decision; keep it strict). Refuse when the target is the last `owner` and the new role is not `owner` (reuse the owner-count invariant — call the same guarded path or re-check under the `delete_owner_guarded`-style lock; simplest correct option: add a sibling SECURITY DEFINER `set_owner_role_guarded(p_account_id uuid, p_wallet text, p_role text)` to `20260801_membership_functions.sql` that takes the same `for update` lock, refuses to demote the last owner, and returns `'updated' | 'last_owner' | 'not_a_member'`). Wallet lookups case-insensitive (`lower()`/`.ilike`). Writes stay lowercase.
+
+- [ ] **Step 1: Add the SQL guard** to `supabase/migrations/20260801_membership_functions.sql` (the additive, apply-first file), mirroring `delete_owner_guarded`'s lock + `search_path` + `revoke all from public` + `grant execute to service_role` shape.
+- [ ] **Step 2: Add the edge-fn action** with the authorization rules above; extend both `OrgAction` unions/action arrays.
+- [ ] **Step 3: Rewire both `supabase-account-roles.ts` files** to `callOrgMembership(account, "update_member_role", …)` with the account threaded from every call site; no direct `account_owners` role write remains (`git grep -n 'from("account_owners")' apps/web/src apps/expo | grep -i update` → empty).
+- [ ] **Step 4: Verify** — `pnpm test:web` green; greps clean.
+- [ ] **Step 5: Commit** — `feat(edge): role changes join the signed path — the last owner cannot be demoted away`, push.
+
+---
+
 ### Task 7: Admin server actions switch to the service-role client
 
 **Files:**
