@@ -349,6 +349,13 @@ export async function requireWorkspace(): Promise<WorkspaceContext> {
  * created a second, differently-named folder for the same org. It no longer
  * can — `orgFolderMount(accountId)` does not read the org's name at all, so
  * a rename cannot change which folder this cache (or reality) points at.
+ *
+ * This also gates the Task 11 permission-bitmask correction below: once an
+ * account is in this set, `ensureGroupFolder` is never called again for it
+ * on this process, so a warm instance will not notice or repair a bitmask
+ * that has since drifted from `ORG_FOLDER_PERMISSIONS`. Fixing that requires
+ * a cold start (deploy, or the process recycling) or evicting the entry —
+ * there is no in-process TTL or manual-clear path today.
  */
 const orgFoldersEnsured = new Set<string>();
 
@@ -360,6 +367,13 @@ const orgFoldersEnsured = new Set<string>();
  * owner and admin get full access, member gets read-only — so a caller that
  * ever reached Nextcloud directly, bypassing this codebase's routes
  * entirely, would still hit the same read-only wall a member hits here.
+ *
+ * Changing these values does not retroactively fix already-provisioned
+ * folders on a warm instance: `ensureOrgFolder` only re-checks an account's
+ * bitmask when it re-runs the provisioner, which `orgFoldersEnsured` (above)
+ * skips once an account is marked done. A role-map edit takes effect only
+ * after a cold start / cache eviction — until then, live instances keep
+ * enforcing the old bitmask for accounts already in the set.
  */
 const ORG_FOLDER_PERMISSIONS: Record<(typeof ORG_ROLES)[number], number> = {
   owner: 31,
