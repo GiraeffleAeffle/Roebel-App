@@ -156,3 +156,66 @@ export function validateTransitionTrail(
   }
   return { ok: true, stage, head };
 }
+
+export const AUDIENCES = ["anwohner", "gewerbe", "vereine", "verwaltung"] as const;
+export type Audience = (typeof AUDIENCES)[number];
+export const CYCLE_STAGES = ["vorgeschlagen", "in-pruefung", "eingeplant", "nicht-aufgenommen"] as const;
+export type CycleStage = (typeof CYCLE_STAGES)[number];
+
+type ShapeResult = { ok: true } | { ok: false; error: string };
+
+function dTag(ev: DecisionEventLike): string {
+  return ev.tags.find((t) => t[0] === "d")?.[1] ?? "";
+}
+function hasTag(ev: DecisionEventLike, name: string): boolean {
+  return ev.tags.some((t) => t[0] === name);
+}
+function shape(cond: boolean, error: string): ShapeResult {
+  return cond ? { ok: true } : { ok: false, error };
+}
+
+/** 32103 — a body's meeting: agenda before, minutes/transcript pointers after. */
+export function safeParseMeeting(ev: DecisionEventLike): ShapeResult {
+  if (ev.kind !== DECISION_KINDS.meeting) return { ok: false, error: "wrong kind" };
+  if (!/^meeting:[a-z0-9-]+:\d{4}-\d{2}-\d{2}$/.test(dTag(ev))) {
+    return { ok: false, error: "d must be meeting:<body>:<YYYY-MM-DD>" };
+  }
+  return shape(hasTag(ev, "title"), "a meeting record needs a title tag");
+}
+
+/** 32104 — a MACI tally pointer. The advisory tag is not optional decoration:
+ * a Meinungsbild that could render as a decision is a legal problem (spec §6). */
+export function safeParseMeinungsbild(ev: DecisionEventLike): ShapeResult {
+  if (ev.kind !== DECISION_KINDS.meinungsbild) return { ok: false, error: "wrong kind" };
+  if (!/^poll:.+$/.test(dTag(ev))) return { ok: false, error: "d must be poll:<id>" };
+  return shape(hasTag(ev, "advisory"), "a meinungsbild result must carry the advisory tag");
+}
+
+/** 32105 — "Was bedeutet das für dich", one audience per event. */
+export function safeParseImpact(ev: DecisionEventLike): ShapeResult {
+  if (ev.kind !== DECISION_KINDS.impact) return { ok: false, error: "wrong kind" };
+  const d = dTag(ev);
+  const m = /^impact:proposal:(.+):([a-z]+)$/.exec(d);
+  if (!m) return { ok: false, error: "d must be impact:proposal:<id>:<audience>" };
+  const audience = ev.tags.find((t) => t[0] === "audience")?.[1];
+  if (!audience || !(AUDIENCES as readonly string[]).includes(audience)) {
+    return { ok: false, error: "audience must be one of the four groups" };
+  }
+  if (audience !== m[2]) return { ok: false, error: "audience tag and d suffix disagree" };
+  const heads = ev.tags.filter((t) => t[0] === "a" && t[3] === "proposal");
+  return shape(heads.length === 1, "an impact summary cites exactly one proposal head");
+}
+
+/** 32106 — the Maßnahmenpaket. One headliner, never two (spec §5). */
+export function safeParseCycle(ev: DecisionEventLike): ShapeResult {
+  if (ev.kind !== DECISION_KINDS.cycle) return { ok: false, error: "wrong kind" };
+  if (!/^cycle:[a-z0-9-]+$/.test(dTag(ev))) return { ok: false, error: "d must be cycle:<slug>" };
+  const entries = ev.tags.filter((t) => t[0] === "a");
+  for (const e of entries) {
+    if (!e[3] || !(CYCLE_STAGES as readonly string[]).includes(e[3])) {
+      return { ok: false, error: `cycle entry marker must be a cycle stage, got "${e[3] ?? ""}"` };
+    }
+  }
+  const headliners = ev.tags.filter((t) => t[0] === "headliner");
+  return shape(headliners.length <= 1, "at most one headliner per cycle");
+}

@@ -2,17 +2,23 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   ALLOWED_TRANSITIONS,
+  AUDIENCES, CYCLE_STAGES,
   isLegalTransition,
   STAGE_MOVERS,
   STAGES,
   DECISION_KINDS,
   headAddress,
   safeParseTransition,
+  safeParseCycle, safeParseImpact, safeParseMeeting, safeParseMeinungsbild,
   validateTransitionTrail,
 } from "../src/decisions.js";
 
 const PK = "a".repeat(64);
 const HEAD = headAddress(PK, "42");
+
+function evOf(kind: number, tags: string[][]) {
+  return { kind, tags, content: "", created_at: 1753970000 };
+}
 
 function transition(over: Partial<{ tags: string[][]; kind: number; content: string; created_at: number }>) {
   return {
@@ -184,4 +190,62 @@ test("mixed heads are one trail too many", () => {
   };
   const r = validateTransitionTrail([hop("idee", "entwurf", 100), other]);
   assert.equal(r.ok, false);
+});
+
+test("audience and cycle-stage vocabularies match the spec", () => {
+  assert.deepEqual([...AUDIENCES], ["anwohner", "gewerbe", "vereine", "verwaltung"]);
+  assert.deepEqual([...CYCLE_STAGES], ["vorgeschlagen", "in-pruefung", "eingeplant", "nicht-aufgenommen"]);
+});
+
+test("meeting records need a well-formed d and a title", () => {
+  const ok = evOf(DECISION_KINDS.meeting, [["d", "meeting:stadtvertretung:2026-09-02"], ["title", "Sitzung 09/26"]]);
+  assert.equal(safeParseMeeting(ok).ok, true);
+  assert.equal(safeParseMeeting(evOf(DECISION_KINDS.meeting, [["d", "meeting:stadtvertretung:2026-09-02"]])).ok, false);
+  assert.equal(safeParseMeeting(evOf(DECISION_KINDS.meeting, [["d", "stadtvertretung"], ["title", "x"]])).ok, false);
+});
+
+test("a meinungsbild result without the advisory tag is invalid, always", () => {
+  const base = [["d", "poll:5"]];
+  assert.equal(safeParseMeinungsbild(evOf(DECISION_KINDS.meinungsbild, base)).ok, false);
+  assert.equal(safeParseMeinungsbild(evOf(DECISION_KINDS.meinungsbild, [...base, ["advisory", "true"]])).ok, true);
+});
+
+test("impact summaries bind audience, head ref and d together", () => {
+  const good = evOf(DECISION_KINDS.impact, [
+    ["d", "impact:proposal:42:gewerbe"],
+    ["a", HEAD, "", "proposal"],
+    ["audience", "gewerbe"],
+  ]);
+  assert.equal(safeParseImpact(good).ok, true);
+  // audience outside the vocabulary
+  const badAud = evOf(DECISION_KINDS.impact, [
+    ["d", "impact:proposal:42:touristen"], ["a", HEAD, "", "proposal"], ["audience", "touristen"],
+  ]);
+  assert.equal(safeParseImpact(badAud).ok, false);
+  // audience tag disagrees with d suffix
+  const drift = evOf(DECISION_KINDS.impact, [
+    ["d", "impact:proposal:42:gewerbe"], ["a", HEAD, "", "proposal"], ["audience", "vereine"],
+  ]);
+  assert.equal(safeParseImpact(drift).ok, false);
+  // no head ref
+  const noHead = evOf(DECISION_KINDS.impact, [["d", "impact:proposal:42:gewerbe"], ["audience", "gewerbe"]]);
+  assert.equal(safeParseImpact(noHead).ok, false);
+});
+
+test("a cycle allows at most one headliner and only known stage markers", () => {
+  const entry = (id: string, marker: string) => ["a", headAddress(PK, id), "", marker];
+  const good = evOf(DECISION_KINDS.cycle, [
+    ["d", "cycle:massnahmen-2027"],
+    entry("1", "eingeplant"), entry("2", "vorgeschlagen"),
+    ["headliner", headAddress(PK, "1")],
+  ]);
+  assert.equal(safeParseCycle(good).ok, true);
+  const twoHeadliners = evOf(DECISION_KINDS.cycle, [
+    ["d", "cycle:massnahmen-2027"],
+    entry("1", "eingeplant"),
+    ["headliner", headAddress(PK, "1")], ["headliner", headAddress(PK, "2")],
+  ]);
+  assert.equal(safeParseCycle(twoHeadliners).ok, false);
+  const badMarker = evOf(DECISION_KINDS.cycle, [["d", "cycle:massnahmen-2027"], entry("1", "wunschliste")]);
+  assert.equal(safeParseCycle(badMarker).ok, false);
 });
