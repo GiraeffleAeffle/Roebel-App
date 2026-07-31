@@ -150,8 +150,8 @@ export default function OrgManagePage() {
   }
 
   const handleRemoveMember = async (wallet: string, name: string) => {
-    if (!accountId || !confirm(`${name} wirklich entfernen?`)) return
-    await removeMemberDB(accountId, wallet)
+    if (!accountId || !thirdwebAccount || !confirm(`${name} wirklich entfernen?`)) return
+    await removeMemberDB(thirdwebAccount, accountId, wallet)
     await load()
   }
 
@@ -163,9 +163,9 @@ export default function OrgManagePage() {
   }
 
   const handleLeave = async () => {
-    if (!accountId || !walletAddress) return
+    if (!accountId || !thirdwebAccount) return
     if (!confirm(`${activeAccount?.name || "Organisation"} wirklich verlassen?`)) return
-    await leaveOrgDB(accountId, walletAddress)
+    await leaveOrgDB(thirdwebAccount, accountId)
     await refreshAccounts()
     router.push("/app")
   }
