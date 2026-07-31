@@ -1,6 +1,6 @@
 # Netizen Accounts — the wallet stack as a product (v2)
 
-**Date:** 2026-07-31 (v2.1 — approved same day with the recovery amendment in §3.2a)
+**Date:** 2026-07-31 (v2.2 — adds §3.8 deployment modes and the M0 bake-off decision in §3.3)
 **Status:** **APPROVED 2026-07-31** (user review). Open questions in §6 resolved to
 their stated defaults unless amended: chains = Gnosis + Base; account implementation
 decided by the M0 bake-off; SMS = seven.io default; per-node OAuth apps accepted (no
@@ -23,7 +23,12 @@ address that is identical on every supported chain**, every transaction is **gas
 and silent** (no signing prompts, no passkey ceremonies), the app integrates it through
 a **bottom sheet** (mobile SDK) or a **custom wallet modal** (desktop SDK), and the
 node's operator gets **node-local user analytics**. Röbel is the production proof;
-Netizen Cloud operates it for customers; the manifest is the contract and the exit.
+the manifest is the contract and the exit.
+
+**Netizen Account is a full service and product of Netizen Labs, available hosted or
+sovereign** — one codebase, one SDK, one manifest block; what changes between the modes
+is who runs the box and who holds the master key, and exit between them is a supported
+operation that changes no member's address. See §3.8.
 
 ## 1. Decision log — what v2 changes and why (review direction, 2026-07-31)
 
@@ -164,18 +169,34 @@ from the admin EOA**, and the smart account on top is deployed **counterfactuall
 the same CREATE2 address on every enabled chain** via one deterministic factory
 (same factory address everywhere, salt = admin EOA).
 
-- **Implementation choice is re-opened** (v1's Safe-first pick was Gnosis-reasoning).
-  Requirements: audited, permissive license, deterministic cross-chain factory,
-  ERC-4337 EntryPoint v0.7+, admin-owner rotation, modularity for later upgrades
-  (ERC-7579 preferred). Candidates to verify (M0): **ZeroDev Kernel** (MIT, multiple
-  audits, wide chain coverage), **Biconomy Nexus** (ERC-7579; verify license/audits),
-  **Safe + Safe4337Module** (kept as candidate; deterministic cross-chain Safe
-  deployment is possible but historically drift-prone — verify). Prior-research claims
-  here were Gnosis-scoped; **nothing in this section is treated as verified for other
-  chains until M0 checks it onchain per chain.**
-- **EIP-7702 track (simplification, not v1):** where 7702 + EntryPoint v0.8 are live,
-  the admin EOA itself becomes the account (address = EOA on every chain, no factory at
-  all). Watch and adopt per chain; the signer plane is unchanged by it.
+- **DECIDED 2026-07-31 (M0 bake-off, onchain-verified): ZeroDev Kernel v3.x** — MIT,
+  ERC-7579-native, EntryPoint v0.7, and the deciding property: `initialize(...,
+  bytes[] initConfig)` self-calls install a 7579 recovery module **inside the CREATE2
+  initcode**, so guardians exist at genesis and can rotate owners on chains where the
+  account has never transacted (§3.2a's hard requirement). Factories and
+  implementations verified live at **identical addresses on Gnosis and Base**. Use
+  v3.1 for full audit coverage, v3.3 for 7702 forward-compatibility. Runner-up:
+  **Biconomy Nexus v1.2.0** (best-audited current version; repo momentum slower).
+  Conservative fallback: **Safe 1.4.1 + Safe4337Module 0.3.0 + Candide
+  SocialRecoveryModule** (all pieces byte-verified on both chains; LGPL/GPL).
+  **Eliminated:** Alchemy Modular Account (empty bytecode at all four published
+  addresses on Gnosis), Coinbase Smart Wallet (EntryPoint v0.6 only).
+  **Open caveat before contracts are written:** no published audit covers the Kernel
+  v3.2/v3.3 deltas (latest audited: v3.1, 2024) — ask ZeroDev, or pin v3.1.
+  Evidence: [`2026-07-31_ACCOUNT_IMPL_BAKEOFF.md`](../../future-research/2026-07-31_ACCOUNT_IMPL_BAKEOFF.md).
+- **The legacy thirdweb factory is ours to drive** (same report, verified onchain):
+  `initialize(admin, data)` binds only the creation salt, one admin, and a callback
+  into the factory itself — **no thirdweb-owned registry, roles, or hooks**, and
+  `createAccount` is permissionless with identical addresses across chains. So our own
+  bundler can service existing citizen accounts indefinitely. It is still unfit for
+  *new* accounts: EntryPoint v0.6 and exactly one admin at init, so no
+  guardian-at-genesis.
+- **EIP-7702 stays an additive track, not the account model** (bake-off finding): 7702
+  and EntryPoint v0.8 are verified live on **both** Gnosis (Pectra, 2025-04-30) and Base
+  (Isthmus, 2025-05-09), and Kernel v3.3 doubles as a 7702 delegate. But under 7702 the
+  EOA key remains root authority and **can never be removed**, which directly
+  contradicts guardian recovery over a service-held key. Adopt it for convenience cases,
+  never as the custody model.
 - **Röbel continuity is untouched:** existing citizens stay on their thirdweb accounts
   through the thirdweb adapter (no address changes, ever, without opt-in migration and
   a signed identity link). New signups and all customer nodes start on the Netizen
@@ -242,17 +263,57 @@ auth method. **NSP-10** grows the `onchain` ingestion + analytics retention bloc
 Everything renders via `netizen render`, reports via `netizen doctor` (the "provider is
 thirdweb" warning becomes clearable for real), and Atlas `/conformance` gains the check.
 
+### 3.8 Deployment modes — hosted or sovereign (product direction, 2026-07-31)
+
+**Netizen Account is a full service and product of Netizen Labs, sold in two modes over
+one codebase.** The modes are not two products and not two code paths: the same
+`@netizen-labs/signer`, the same `@netizen-labs/accounts` SDK, the same manifest block,
+the same `netizen render` output. What differs is **who runs the box and who holds the
+master key** — and the manifest records which, so `doctor` can state it honestly.
+
+| | **Hosted** (Netizen Labs operates) | **Sovereign** (the community operates) |
+|---|---|---|
+| Signer service | on a Netizen-operated node | on the customer's node |
+| Vault master key | in Netizen's KMS for that node, one key per customer, never shared | generated and held by the community; Netizen never sees it |
+| Chain rails | shared per-chain Alto + paymaster Netizen runs | their own, or point `bundlerRpc` at ours |
+| Gas budget | prepaid balance we top up and meter | their treasury funds their own paymaster |
+| Analytics | node-local Postgres we operate for them | node-local, ours to never see |
+| Legal shape | Netizen = processor under a DPA; community = controller | community = controller and operator |
+| What Netizen sells | operations, on-call, patching, restore drills, budget management | the software (open), plus support, setup, and audits |
+
+Three properties keep the modes honest, and they are the product:
+
+1. **Mode is a manifest fact, not a fork.** A hosted node and a sovereign node differ by
+   where secrets resolve from and who owns the host. Nothing in the SDK or the app knows
+   which mode it is talking to.
+2. **Exit is a supported operation, not a favor.** Hosted → sovereign is: hand over the
+   manifest, the box (or a restore), and re-wrap the vault to a community-held master key
+   — each per-user key is re-encrypted, and **no member's address changes**, because the
+   admin EOA is preserved (§3.2's envelope design exists partly for this). The reverse
+   direction works the same way. This must be a documented, drilled runbook before the
+   first hosted customer signs, and `netizen doctor` should be able to assert that a
+   node's declared mode matches reality.
+3. **Netizen Labs holds keys for no one in sovereign mode, and holds them per-customer in
+   hosted mode — never pooled.** One customer's compromise never crosses to another,
+   which is why the vault master key is per node and the sponsorship key is separate from
+   both the vault key and the OIDC signing key.
+
+Both modes are gated on the same legal answer (§5): node-held keys are a custody
+operation, so the MiCA/KWG read and the DPA template must land before hosted mode sells.
+Sovereign mode ships first because it has no processor question — Röbel is sovereign mode
+by definition, which makes the dogfood path also the lower-risk path.
+
 ## 4. Build order (Röbel dogfoods every step)
 
 | # | Milestone | Gate / proof |
 |---|---|---|
-| M0 | **Onchain truth, now multichain:** live citizen account's factory + EntryPoint on Gnosis (unchanged from the 07-27 plan) **+ account-implementation bake-off** (§3.3 candidates: license, audits, deterministic factory per candidate chain) | Blocks account-layer code; written up as an addendum to the research doc |
-| M1 | **Quick win:** phone auth strategy added to the four existing `inAppWallet` configs (Röbel gets phone login on the current stack) · SDK skeleton + `useAccount()` adoption · shared `verifyNodeSignature()` · **fix the two live verifier bugs** (delete-account ERC-1271 gap; coordinator `BASE_RPC_URL`) | Phone login works on a real device; Röbel screens render identically |
-| M2 | **Rails on Gnosis:** Alto (dual EntryPoint) + verifying paymaster + keystone voucher policy + per-node budget accounting, rendered by the installer | Gasless citizen tx end-to-end on own rails; non-member refused; cap fails closed under load |
-| M3 | **Signer plane + agent accounts:** node signer service (vault, envelope encryption, policy, audit, export) minting **agent** accounts first — zero thirdweb in the agent path | An agent authenticates via `client_credentials`, transacts gaslessly within a Zodiac budget, every action audited |
+| M0 | ✅ **DONE 2026-07-31.** Onchain truth (factory `0x85e2…DF00`, EntryPoint **v0.6**, impl `0xf221…a346`) **+ the account-implementation bake-off** | Both written up: research addendum + [bake-off report](../../future-research/2026-07-31_ACCOUNT_IMPL_BAKEOFF.md); §3.3 now names a decision |
+| M1 | ✅ **DONE 2026-07-31.** Phone auth in all five `inAppWallet` configs · the two live verifier bugs fixed · **and the new stack's first half shipped instead of an SDK skeleton**: `@netizen-labs/signer` (vault, policy, audit, OIDC API) + `@netizen-labs/accounts` (SDK core, Nostr identity) + NSP-1 signer block + installer rendering | Suites green; installer renders the signer; `useAccount()` adoption deferred to the app-migration tranche |
+| M2 | **Rails:** ✅ policy half done (typed error codes · EIP-712 sponsorship vouchers · fail-closed per-chain budgets behind `/v1/sponsor` · Alto rendered per declared chain). **Remaining: the verifying paymaster contract** that consumes the voucher, plus voucher settlement/nonce consumption | Gasless citizen tx end-to-end on own rails; non-member refused; cap fails closed under load |
+| M3 | **Signer plane + agent accounts:** ✅ signer plane shipped in M1; remaining is the **Kernel v3 smart-account wrapper** (§3.3) + minting **agent** accounts first — zero thirdweb in the agent path | An agent authenticates via `client_credentials`, transacts gaslessly within a Zodiac budget, every action audited |
 | M4 | **Human embedded accounts:** keystone phone/email/social → node signer → smart account, for **new** signups on Röbel + customer nodes; bottom sheet + wallet modal ship with it | A new citizen onboards by phone number, transacts gaslessly, exports their key; existing citizens untouched |
 | M5 | **Multichain enablement:** second chain rail (Base) + counterfactual same-address deployment + per-chain budgets + multichain indexer/analytics | Same address verified byte-identical on both chains; dashboard shows per-chain spend |
-| M6 | **Productization:** manifest add-on complete, docs, Atlas conformance, pricing as a Netizen Cloud add-on | A second node enables it by manifest edit + `netizen up` |
+| M6 | **Productization in both modes (§3.8):** manifest add-on complete, docs, Atlas conformance, pricing; **the hosted↔sovereign migration runbook written and drilled**; `doctor` asserts declared mode matches reality | A second node enables it by manifest edit + `netizen up`; a hosted node is handed over to sovereign operation with no address changes |
 
 Not scheduled (unchanged): opt-in migration of existing Röbel citizens off thirdweb
 custody — gated on the Shamir share-key re-registration ceremony and a per-citizen
@@ -261,9 +322,11 @@ consented identity link.
 ## 5. Security & custody honesty
 
 - **The node is the custodian.** That is the product, stated plainly: a community bank
-  for keys, with export as the exit. Netizen-the-company holds keys for nobody — the
-  signer runs on the customer's box with the customer's vault; Netizen Cloud operates
-  it as processor under a DPA.
+  for keys, with export as the exit. In **sovereign** mode Netizen-the-company holds keys
+  for nobody — the signer runs on the community's box with the community's vault. In
+  **hosted** mode Netizen operates that node and holds its vault master key **per
+  customer, never pooled**, as processor under a DPA (§3.8). Both modes must say which
+  one they are, out loud, in `doctor` and in the member-facing disclosure.
 - **Blast radii, separated:** OIDC signing key ≠ sponsorship voucher key ≠ vault master
   key; per-node isolation; per-capability kill switches (the `app_settings` pattern);
   signer compromise is bounded by policy classes + rate limits + budget caps, and
