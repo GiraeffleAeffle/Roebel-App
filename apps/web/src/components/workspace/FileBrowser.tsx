@@ -87,10 +87,13 @@ export function FileBrowser({ scope }: { scope: FileScopeParams }) {
   const [editor, setEditor] = useState<{ url: string; token: string } | null>(null);
   // Mirrors the listing response's own `canWrite` (an org member vs.
   // owner/admin) — server-decided, never inferred client-side. Defaults to
-  // `true` so the affordances don't flash-then-hide while the first load is
-  // still in flight; the very first render is also `loading`, which already
-  // hides them, so this default is never actually shown on its own.
-  const [canWrite, setCanWrite] = useState(true);
+  // `false`, fail-closed: the toolbar that renders these buttons is NOT
+  // gated by `loading` (only the entries list below it is), so a `true`
+  // default would let a read-only member see clickable Ordner/Hochladen
+  // buttons for one frame before the first `load()` response flips this to
+  // its real value. `load()` sets the real value on every successful
+  // listing; a writer sees the buttons appear a frame later, not vanish.
+  const [canWrite, setCanWrite] = useState(false);
 
   /**
    * Start the OIDC hop and record that we did. `errorResponse` maps a
