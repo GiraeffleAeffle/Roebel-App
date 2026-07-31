@@ -559,6 +559,9 @@ export function noticeToSpec(
   const title = str(row, "title");
   if (!id || !title) return null;
 
+  // Draft service alerts do not publish — resolved alerts are edits, not filtered.
+  if (source === "service_alert" && str(row, "status") === "draft") return null;
+
   const d = `${source === "service_alert" ? "alert" : "announcement"}:${id}`;
   const active = source === "service_alert" ? row["status"] === "active" : row["is_active"] === true;
   const tags: string[][] = [

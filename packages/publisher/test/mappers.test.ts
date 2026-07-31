@@ -462,4 +462,24 @@ describe("civic notices (kind 32102)", () => {
     assert.equal(spec!.d, "announcement:n1");
     assert.equal(spec!.content, "Donnerstag 16 Uhr");
   });
+
+  it("noticeToSpec: draft service alerts do NOT publish — returns null", () => {
+    const spec = noticeToSpec(
+      { id: "a2", title: "Entwurf", description: "Noch nicht bereit",
+        severity: "warning", status: "draft", updated_at: "2026-07-02T10:00:00Z" },
+      "service_alert",
+    );
+    assert.equal(spec, null);
+  });
+
+  it("noticeToSpec: resolved service alerts DO publish as edits — not filtered", () => {
+    const spec = noticeToSpec(
+      { id: "a3", title: "Gelöst", description: "Behoben",
+        severity: "warning", status: "resolved", updated_at: "2026-07-02T10:00:00Z" },
+      "service_alert",
+    );
+    assert.ok(spec);
+    assert.equal(spec!.kind, 32102);
+    assert.equal(spec!.tags.find((t) => t[0] === "status")?.[1], "resolved");
+  });
 });

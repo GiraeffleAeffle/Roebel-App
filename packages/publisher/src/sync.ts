@@ -217,7 +217,7 @@ export async function buildSpecs(
   if (deps.datasets.includes("notices")) {
     const alerts = await deps.fetchRows(
       "service_alerts",
-      "select=id,title,description,severity,status,updated_at,created_at",
+      "select=id,title,description,severity,status,updated_at,created_at&status=neq.draft",
     );
     for (const row of alerts) {
       const spec = noticeToSpec(row, "service_alert");
