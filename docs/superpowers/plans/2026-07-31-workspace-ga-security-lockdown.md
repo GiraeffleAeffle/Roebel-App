@@ -132,9 +132,9 @@ git commit -m "feat(web): org-membership message spec — the signed contract fo
 - Create: `supabase/migrations/20260801_account_membership_lockdown.sql`
 
 **Interfaces:**
-- Produces RPCs: `create_account_with_owner(p_wallet text, p_account_type text, p_name text, p_sub_type text default null, p_bio text default null, p_avatar_url text default null) returns accounts`, `get_invite_by_token(p_token text) returns invite_tokens`, `list_pending_invites(p_account_id uuid, p_wallet text) returns setof invite_tokens`, `has_pending_invite(p_account_id uuid, p_wallet text) returns boolean`. Tasks 4 and 6 call these via `supabase.rpc(...)`.
+- Produces ONE anon-callable RPC: `get_invite_by_token(p_token text) returns invite_tokens` (Tasks 5/6 call it via `supabase.rpc(...)`). Account creation and every other invite read are edge-function actions (Task 3) — NOT RPCs.
 
-Design notes baked in: `create_account_with_owner` only ever creates a NEW account with `p_wallet` as its first owner — it cannot touch an existing org, so the trusted-wallet posture is safe here. `get_invite_by_token` makes knowledge-of-token the credential (closes the enumeration hole that `invite_tokens_select USING (true)` is today). Everything else becomes deny-by-default; the edge function writes with service role.
+Design notes (amended after task review, 2026-07-31): the v1 draft granted `create_account_with_owner`, `list_pending_invites` and `has_pending_invite` to anon with a client-supplied `p_wallet` — the reviewer showed that leaks bearer tokens (owner wallets are public in `account_owners`, so anyone can impersonate an owner parameter) and lets anon attach any registered wallet as owner of a new account. **Rule: no anon-granted function may take a wallet parameter as an authorization input.** `get_invite_by_token` survives because knowledge-of-token IS the credential (closes the enumeration hole that `invite_tokens_select USING (true)` is today). Everything else is deny-by-default; the signature-verified edge function reads/writes with service role.
 
 - [ ] **Step 1: Write the migration**
 
@@ -146,58 +146,21 @@ Design notes baked in: `create_account_with_owner` only ever creates a NEW accou
 -- edge function (service role).
 -- ⚠️ APPLY ONLY AFTER the org-membership edge function and rewired clients are live.
 
--- ── RPCs ────────────────────────────────────────────────────────────────────
-create or replace function public.create_account_with_owner(
-  p_wallet text, p_account_type text, p_name text,
-  p_sub_type text default null, p_bio text default null, p_avatar_url text default null
-) returns accounts
-language plpgsql security definer set search_path = public, pg_temp as $$
-declare v_account accounts;
-begin
-  if p_account_type not in ('personal','organisation') then
-    raise exception 'invalid account_type' using errcode = '22023';
-  end if;
-  insert into accounts (account_type, name, sub_type, bio, avatar_url)
-  values (p_account_type, p_name, p_sub_type, p_bio, p_avatar_url)
-  returning * into v_account;
-  insert into account_owners (account_id, wallet_address, role)
-  values (v_account.id, lower(p_wallet), 'owner');
-  return v_account;
-end $$;
-
+-- ── RPC ─────────────────────────────────────────────────────────────────────
+-- The ONLY anon-callable function. Knowledge of the token is the credential
+-- (bearer semantics); it takes no wallet parameter. All other membership
+-- reads/writes go through the signature-verified org-membership edge function
+-- (service role). Rule: no anon-granted function may take a wallet parameter
+-- as an authorization input — owner wallets are public in account_owners, so
+-- such a parameter is attacker-controlled.
 create or replace function public.get_invite_by_token(p_token text)
 returns invite_tokens
 language sql security definer set search_path = public, pg_temp stable as $$
   select * from invite_tokens where token = p_token limit 1;
 $$;
 
-create or replace function public.list_pending_invites(p_account_id uuid, p_wallet text)
-returns setof invite_tokens
-language sql security definer set search_path = public, pg_temp stable as $$
-  select i.* from invite_tokens i
-  where i.account_id = p_account_id and i.status = 'pending'
-    and exists (select 1 from account_owners o
-                where o.account_id = p_account_id
-                  and lower(o.wallet_address) = lower(p_wallet)
-                  and o.role in ('owner','admin'));
-$$;
-
-create or replace function public.has_pending_invite(p_account_id uuid, p_wallet text)
-returns boolean
-language sql security definer set search_path = public, pg_temp stable as $$
-  select exists (select 1 from invite_tokens
-    where account_id = p_account_id and status = 'pending'
-      and lower(coalesce(invited_wallet,'')) = lower(p_wallet));
-$$;
-
-revoke all on function public.create_account_with_owner(text,text,text,text,text,text) from public;
 revoke all on function public.get_invite_by_token(text) from public;
-revoke all on function public.list_pending_invites(uuid,text) from public;
-revoke all on function public.has_pending_invite(uuid,text) from public;
-grant execute on function public.create_account_with_owner(text,text,text,text,text,text) to anon, authenticated;
 grant execute on function public.get_invite_by_token(text) to anon, authenticated;
-grant execute on function public.list_pending_invites(uuid,text) to anon, authenticated;
-grant execute on function public.has_pending_invite(uuid,text) to anon, authenticated;
 
 -- ── Policy lockdown ─────────────────────────────────────────────────────────
 -- accounts: reads stay public; every write becomes service-role/RPC only.
@@ -242,6 +205,11 @@ git commit -m "feat(db): membership lockdown migration — RPCs in, USING(true) 
   - `leave` `{ accountId }` — deletes signer's own `account_owners` row; refuses when signer is the LAST owner (`role='owner'` count would drop to 0).
   - `remove_member` `{ accountId, memberWallet }` — signer owner/admin; cannot remove an `owner` unless signer is `owner`; deletes the row.
   - `update_account` `{ accountId, updates }` — signer owner/admin; `updates` filtered to `name, bio, avatar_url, cover_url, contact_email, opening_hours`; stamps `updated_at`.
+  - `create_account` `{ accountType: "personal"|"organisation", name, subType?, bio?, avatarUrl? }` — creates the account and inserts the SIGNER (never a passed wallet) as its first `owner` row, atomically (insert account, then owner; on owner-insert failure delete the account row). Validate: `name` 1–80 chars after trim, `bio` ≤ 500 chars, `accountType` in the two values, `subType` (when set) in `('restaurant','unternehmen','verein','stadt','fraktion','journalist')`. Returns the account row. (Amended 2026-07-31: replaces the withdrawn `create_account_with_owner` RPC — creation requires the creator's signature so no one can attach a stranger's wallet as owner.)
+  - `list_invites` `{ accountId }` — signer owner/admin of `accountId`; returns pending invite rows (incl. tokens — the signer is entitled to them). (Amended: replaces the withdrawn `list_pending_invites` RPC.)
+  - `has_pending_invite` `{ accountId }` — returns `{ pending: boolean }` for the SIGNER's wallet only. (Amended: replaces the withdrawn RPC.)
+
+Extend the `ACTIONS` array and `OrgAction` union (here and in Task 1's module) with `create_account`, `list_invites`, `has_pending_invite` — the Task 1 test file is the contract; update it in the same commit as the module.
 
 - [ ] **Step 1: Implement the function.** Skeleton (verify + dispatch; each handler is a small service-role query following the checks above — write them all, they are listed exhaustively in the Interfaces block):
 
@@ -337,7 +305,7 @@ it("requestBody signs the canonical message and echoes fields", async () => {
 - [ ] **Step 2: Run to verify fail** — `pnpm test:web` → FAIL (no `requestBody`).
 
 - [ ] **Step 3: Implement `client.ts`** — `requestBody(account, action, payload, timestampSec = Math.floor(Date.now()/1000))` builds `{action, wallet, timestampSec, payload, signature}` via `buildOrgMessage` + `account.signMessage`; `callOrgMembership` wraps it in `fetch`. Then rewire `supabase-accounts.ts`:
-  - `createPersonalAccount` / `createOrgAccount`: replace the two-step insert (:163–177 + :187–190) with `supabase.rpc("create_account_with_owner", { p_wallet, p_account_type, p_name, p_sub_type, p_bio, p_avatar_url })` (returns the account row; keep the existing return shapes).
+  - `createPersonalAccount(account, …)` / `createOrgAccount(account, …)`: replace the two-step insert (:163–177 + :187–190) with `callOrgMembership(account, "create_account", { accountType, name, subType, bio, avatarUrl })` (amended 2026-07-31 — creation is signature-verified; the signer becomes first owner; keep the existing return shapes by re-fetching or using the returned row). Update the call chains: `apps/web/src/lib/supabase-users.ts:87` (first-login personal account — the thirdweb account object is in scope there) and `AccountContext.createOrgAccount` (`apps/web/src/lib/context/AccountContext.tsx:153,161`).
   - `updateAccount(account, accountId, updates)`: `callOrgMembership(account, "update_account", { accountId, updates })`, then re-fetch the row via the (still open) `accounts_select` for the return value.
   - `removeOwner(account, accountId, wallet)`: `callOrgMembership(account, "remove_member", { accountId, memberWallet: wallet })`.
   - Delete `inviteOwner` entirely (it is the bypass path finding §1 warns about); update `AccountContext.tsx` accordingly.
@@ -361,7 +329,7 @@ git commit -m "fix(web): account creation moves to the atomic RPC, account updat
 
 **Interfaces:**
 - Consumes: Task 4's `callOrgMembership`; Task 2 RPCs.
-- Produces (changed signatures, expo mirrors them in Task 6): `createInAppInvite(account, accountId, invitedWallet, role, expiresInDays?)`, `createLinkInvite(account, accountId, role, expiresInDays?)`, `acceptInvite(account, inviteId)`, `declineInvite(account, inviteId)`, `revokeInvite(account, inviteId)`, `leaveOrg(account, accountId)` — `invitedBy` is now derived server-side from the verified signer, so the parameter disappears. Reads: `fetchInviteByToken(token)` → `supabase.rpc("get_invite_by_token", { p_token })`, `fetchPendingInvites(accountId, wallet)` → `rpc("list_pending_invites", …)`, `hasPendingInvite(accountId, wallet)` → `rpc("has_pending_invite", …)`.
+- Produces (changed signatures, expo mirrors them in Task 6): `createInAppInvite(account, accountId, invitedWallet, role, expiresInDays?)`, `createLinkInvite(account, accountId, role, expiresInDays?)`, `acceptInvite(account, inviteId)`, `declineInvite(account, inviteId)`, `revokeInvite(account, inviteId)`, `leaveOrg(account, accountId)` — `invitedBy` is now derived server-side from the verified signer, so the parameter disappears. Reads (amended 2026-07-31): `fetchInviteByToken(token)` → `supabase.rpc("get_invite_by_token", { p_token })` (the one anon RPC); `fetchPendingInvites(account, accountId)` → `callOrgMembership(account, "list_invites", { accountId })`; `hasPendingInvite(account, accountId)` → `callOrgMembership(account, "has_pending_invite", { accountId })` (answers for the signer only).
 
 - [ ] **Step 1: Rewire each export** to the contract above (writes → `callOrgMembership`; reads → RPCs). Update every call site the exploration listed: `apps/web/src/app/invite/[token]/page.tsx:67,80` plus any `fetchPendingInvites` dashboards (`git grep -n "fetchPendingInvites\|createInAppInvite\|createLinkInvite" apps/web/src` and fix all hits).
 - [ ] **Step 2: Verify** — `pnpm test:web` still green; `git grep -n 'from("invite_tokens")' apps/web/src` returns ZERO hits (every touchpoint goes through RPC/edge fn now); same for `.from("account_owners").insert` and `.from("accounts").update`.
@@ -612,4 +580,4 @@ git commit -m "docs: findings 1, 2 and 4 close — the workspace launch gate lif
 
 - **Spec coverage:** W0 = Tasks 1–8 + 13 (findings §1 §2 §4, invite corollary; offsite backups + firewall stay user one-liners, listed in Task 13). W1 = Tasks 9–12 + 13 (role-based write, mobile route, flag flip). AI-Act disclosure: already shipped 2026-07-30 (parallel session) — excluded on purpose.
 - **Ordering constraint restated:** Tasks 3–7 MUST be live in production before the Task 2 migration is applied. The plan encodes this by deferring application to Task 13.
-- **Known accepted risks:** (1) old Expo builds break on membership writes after the lockdown until the EAS build ships — coordinated in Task 13; (2) `create_account_with_owner` keeps the repo's trusted-wallet posture for NEW accounts only (documented in Task 2); (3) `list_pending_invites` is read-only trusted-wallet (mild exposure: invited wallets/roles of one org).
+- **Known accepted risks:** (1) old Expo builds break on membership writes after the lockdown until the EAS build ships — coordinated in Task 13; (2) `get_invite_by_token` is bearer-semantics by design — anyone holding a link token can read that one invite row (that IS the link-invite product behavior). (Amendment 2026-07-31: the v1 trusted-wallet RPCs `create_account_with_owner` / `list_pending_invites` / `has_pending_invite` were withdrawn after task review showed the wallet parameter is attacker-controlled; those flows are signature-verified edge-fn actions now.)
