@@ -195,6 +195,13 @@ function ArbeitsbereichContent() {
               <p className="font-medium text-foreground text-sm">Röbel Card</p>
               <p className="text-xs text-muted-foreground mt-0.5">Punkte & Münzen</p>
             </Link>
+            <Link
+              href="/arbeitsbereich/dateien"
+              className="bg-card border border-border rounded-xl p-4 hover:bg-accent transition-colors"
+            >
+              <p className="font-medium text-foreground text-sm">Dateien & Dokumente</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Eigene Ablage</p>
+            </Link>
           </div>
           <VotingActivityCard user={user} walletAddress={walletAddress} />
           <DAOContributionsCard user={user} walletAddress={walletAddress} />

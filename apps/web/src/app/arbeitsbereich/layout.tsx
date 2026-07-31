@@ -7,6 +7,7 @@ import { AuthGuard } from "@/components/app/AuthGuard";
 import { AccountProvider } from "@/lib/context/AccountContext";
 import { AppModeProvider } from "@/lib/context/AppModeContext";
 import { WorkspaceSidebar } from "@/components/workspace/WorkspaceSidebar";
+import { WorkspaceMobileNav } from "@/components/workspace/WorkspaceMobileNav";
 
 /**
  * `WorkspaceSessionGuard` used to be mounted here. It now lives inside
@@ -49,11 +50,12 @@ export default function ArbeitsbereichLayout({
             </header>
             <div className="flex-1 md:flex md:items-stretch">
               <WorkspaceSidebar />
-              <main className="flex-1 px-4 py-6 md:px-8 md:py-8 max-w-6xl w-full">
+              <main className="flex-1 px-4 py-6 md:px-8 md:py-8 max-w-6xl w-full pb-16 md:pb-0">
                 {children}
               </main>
             </div>
           </div>
+          <WorkspaceMobileNav />
         </AccountProvider>
       </AppModeProvider>
     </AuthGuard>
