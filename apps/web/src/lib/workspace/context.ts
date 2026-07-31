@@ -13,7 +13,6 @@ import { fetchUserinfo, groupsFrom, refreshTokens } from "./oidc";
 import { createSessionStore } from "./session-store";
 import {
   ORG_ROLES,
-  hasOrgAccess,
   isCitizenSession,
   isExpired,
   orgGroupId,
@@ -122,7 +121,18 @@ export async function resolveScope(params: {
   if (!params.accountId) {
     throw new WorkspaceAuthError("forbidden", "an org scope needs an account id");
   }
-  if (!hasOrgAccess(params.session, params.accountId)) {
+  // Resolved once, and used as the sole gate: `orgRole` returns null both
+  // when there is no `org:<accountId>:*` claim at all AND when a claim is
+  // present but its role suffix is not one of ORG_ROLES (e.g. a stale or
+  // malformed "org:acc-7:contractor"). The former used to be caught by
+  // `hasOrgAccess`, which checks the prefix alone and does not validate the
+  // suffix — so an unrecognized role passed that gate, fell through to
+  // `orgRole(...) !== "member"`, and got `canWrite: true` from a role this
+  // codebase does not otherwise recognise. Gating on `role === null` instead
+  // fails closed for that case too: an unparseable role loses read access as
+  // well as write, deliberately, rather than defaulting to either.
+  const role = orgRole(params.session, params.accountId);
+  if (role === null) {
     throw new WorkspaceAuthError(
       "forbidden",
       `no group claim for org ${params.accountId}`,
@@ -134,9 +144,9 @@ export async function resolveScope(params: {
     accountId: params.accountId,
     folderName: orgFolderMount(params.accountId),
     // owner/admin write, member reads — the same mapping Task 11 applies to
-    // Nextcloud's own ACL. `hasOrgAccess` above already proved a claim
-    // exists, so `orgRole` cannot be null here.
-    canWrite: orgRole(params.session, params.accountId) !== "member",
+    // Nextcloud's own ACL. `role` is proven non-null above, so this is
+    // exactly an owner/admin allow-list.
+    canWrite: role !== "member",
   };
 }
 

@@ -10,7 +10,7 @@ import {
 import type { WorkspaceScope } from "../src/types";
 
 const SUB = "0xabc";
-const scope: WorkspaceScope = { kind: "personal", sub: SUB };
+const scope: WorkspaceScope = { kind: "personal", sub: SUB, canWrite: true };
 
 const LISTING = `<?xml version="1.0"?>
 <d:multistatus xmlns:d="DAV:">

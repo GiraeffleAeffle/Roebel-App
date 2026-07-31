@@ -16,7 +16,7 @@ import type { DirEntry } from "../src/propfind";
 import type { WorkspaceScope } from "../src/types";
 
 const SECRET = new Uint8Array(32).fill(7);
-const scope: WorkspaceScope = { kind: "personal", sub: "0xabc" };
+const scope: WorkspaceScope = { kind: "personal", sub: "0xabc", canWrite: true };
 const claims: WopiClaims = {
   sub: "0xabc",
   sessionId: "sess-1",
@@ -46,6 +46,7 @@ describe("file ids", () => {
       sub: "0xabc",
       accountId: "acct-1",
       folderName: "Org Feuerwehr",
+      canWrite: true,
     };
     const trickyPath = "Elternbeirat (Grundschule)/Bericht #1 Prüfbericht Müritz.odt";
     const decoded = decodeFileId(encodeFileId(orgScope, trickyPath));

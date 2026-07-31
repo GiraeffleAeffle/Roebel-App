@@ -13,6 +13,7 @@ const scope: WorkspaceScope = {
   sub: "0xabc",
   accountId: "acc-7",
   folderName: "Org Feuerwehr",
+  canWrite: true,
 };
 
 describe("buildAction", () => {
@@ -53,7 +54,7 @@ describe("buildAction", () => {
     const action = buildAction({
       actor: { kind: "human", sub: "0xabc" },
       kind: "delete",
-      scope: { kind: "personal", sub: "0xabc" },
+      scope: { kind: "personal", sub: "0xabc", canWrite: true },
       path: "alt.odt",
       now: new Date("2026-07-28T09:00:00Z"),
     });

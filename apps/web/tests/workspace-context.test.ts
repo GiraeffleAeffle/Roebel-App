@@ -91,7 +91,24 @@ describe("resolveScope", () => {
     );
   });
 
-  // resolveScope delegates the ACL check to hasOrgAccess, so the same
+  // THE FAIL-OPEN REGRESSION: orgRole is the sole gate now, precisely because
+  // it validates the role suffix and a prefix-only check does not. A claim
+  // with a role outside ORG_ROLES must be refused entirely — not granted
+  // read via the old prefix check and then write via `role !== "member"`,
+  // which is what happened when resolveScope gated on hasOrgAccess (prefix
+  // only) and computed canWrite from orgRole (suffix-validating) separately:
+  // hasOrgAccess passed, orgRole returned null, and `null !== "member"` was
+  // true — an unrecognized role got write access.
+  it("refuses (not read, not write) a claim whose role is not in ORG_ROLES", async () => {
+    const contractor = { ...session, groups: ["org:acc-7:contractor"] };
+    await assert.rejects(
+      () => resolveScope({ session: contractor, scopeKind: "org", accountId: "acc-7", orgName: null }),
+      (err: unknown) => err instanceof WorkspaceAuthError && err.reason === "forbidden",
+    );
+  });
+
+  // resolveScope's org branch now gates on `orgRole` (which validates the
+  // role suffix, not just the "org:<accountId>:" prefix), so the same
   // trailing-colon property has to hold one layer up: a claim for org
   // "acc-70" must not unlock the scope for org "acc-7".
   it("refuses an org whose claim is a numeric prefix of the requested id (acc-70 claim vs acc-7 request)", async () => {

@@ -9,12 +9,13 @@ import {
 } from "../src/scope";
 
 const SUB = "0x1111111111111111111111111111111111111111";
-const personal: WorkspaceScope = { kind: "personal", sub: SUB };
+const personal: WorkspaceScope = { kind: "personal", sub: SUB, canWrite: true };
 const org: WorkspaceScope = {
   kind: "org",
   sub: SUB,
   accountId: "acc-7",
   folderName: "Org Feuerwehr",
+  canWrite: true,
 };
 
 describe("scopeRoot", () => {
@@ -31,7 +32,7 @@ describe("scopeRoot", () => {
 
   it("refuses an org scope with no folder name rather than falling back to the home", () => {
     assert.throws(
-      () => scopeRoot({ kind: "org", sub: SUB, accountId: "acc-7" }),
+      () => scopeRoot({ kind: "org", sub: SUB, accountId: "acc-7", canWrite: true }),
       ScopeViolationError,
     );
   });
@@ -153,7 +154,7 @@ describe("scopeRoot — component validation", () => {
   for (const badSub of badComponents) {
     it(`rejects a sub of ${JSON.stringify(badSub)}`, () => {
       assert.throws(
-        () => scopeRoot({ kind: "personal", sub: badSub }),
+        () => scopeRoot({ kind: "personal", sub: badSub, canWrite: true }),
         ScopeViolationError,
       );
     });
@@ -177,6 +178,7 @@ describe("scopeRoot — component validation", () => {
             sub: SUB,
             accountId: "acc-7",
             folderName: badFolderName,
+            canWrite: true,
           }),
         ScopeViolationError,
       );
@@ -193,7 +195,7 @@ describe("resolvePath — component validation", () => {
   for (const badSub of badComponents) {
     it(`rejects a sub of ${JSON.stringify(badSub)} before resolving any path`, () => {
       assert.throws(
-        () => resolvePath({ kind: "personal", sub: badSub }, "Dokumente/Antrag.odt"),
+        () => resolvePath({ kind: "personal", sub: badSub, canWrite: true }, "Dokumente/Antrag.odt"),
         ScopeViolationError,
       );
     });
@@ -203,7 +205,7 @@ describe("resolvePath — component validation", () => {
     assert.throws(
       () =>
         resolvePath(
-          { kind: "org", sub: SUB, accountId: "acc-7", folderName: ".." },
+          { kind: "org", sub: SUB, accountId: "acc-7", folderName: "..", canWrite: true },
           "Protokolle/2026.odt",
         ),
       ScopeViolationError,
@@ -219,6 +221,7 @@ describe("resolvePath — component validation", () => {
             sub: SUB,
             accountId: "acc-7",
             folderName: "../../other-citizen/Privat",
+            canWrite: true,
           },
           "steuer.odt",
         ),

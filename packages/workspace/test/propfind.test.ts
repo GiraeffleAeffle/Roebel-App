@@ -227,7 +227,7 @@ describe("parsePropfind", () => {
 // It did not: it decoded a second time, so a name containing "%" either threw
 // or resolved to a different file. These pin the round trip end to end.
 describe("propfind -> resolvePath round trip (the encoding contract)", () => {
-  const scope: WorkspaceScope = { kind: "personal", sub: "0xabc" };
+  const scope: WorkspaceScope = { kind: "personal", sub: "0xabc", canWrite: true };
 
   function listingOf(...encodedNames: string[]): string {
     const rows = encodedNames
