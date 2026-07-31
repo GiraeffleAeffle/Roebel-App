@@ -1224,6 +1224,42 @@ Sie können Ihre Einwilligung jederzeit mit Wirkung für die Zukunft widerrufen 
 
 ---
 
+## Öffentlicher Datenbestand (Nostr)
+
+### Beschreibung und Zweck
+
+Röbel betreibt einen eigenen, offenen Datenbestand für öffentliche Beiträge (ein sogenanntes
+Nostr-Relay mit öffentlichem Index unter index.roebel.app). Verifizierte Bürger:innen können
+daran teilnehmen: Ihre öffentlichen Beiträge werden mit einem persönlichen, aus ihrer Wallet
+abgeleiteten Schlüssel signiert und sind dadurch überprüfbar — auch für andere Anwendungen
+außerhalb der Röbel App.
+
+### Verarbeitete Daten
+
+- Öffentliche Beiträge, Kommentare und Reaktionen (Inhalt, Zeitpunkt, Signatur)
+- Der öffentliche Signaturschlüssel (Pseudonym); die Zuordnung zwischen Wallet und Schlüssel
+  wird nicht veröffentlicht, sondern in einem zugriffsbeschränkten Register geführt
+- Öffentliche Profilangaben (Anzeigename, Profilbild), sofern vorhanden
+
+### Rechtsgrundlage und Einwilligung
+
+Die Teilnahme erfolgt ausschließlich auf Grundlage Ihrer Einwilligung (Art. 6 Abs. 1 lit. a
+DSGVO), die Sie in der App erteilen. Der Nachweis der Einwilligung wird durch die von Ihrer
+eigenen Wallet signierte Registrierung erbracht.
+
+### Wichtiger Hinweis zur Dauerhaftigkeit
+
+Veröffentlichte Beiträge werden dauerhaft öffentlich und können von Dritten kopiert werden.
+Eine Löschung kann technisch angefragt (NIP-09), aber außerhalb unserer eigenen Systeme nicht
+erzwungen werden. Veröffentlichen Sie daher nur Inhalte, die dauerhaft öffentlich bleiben
+dürfen. In unseren eigenen Systemen (Relay und Index) werden Löschanfragen umgesetzt.
+
+### Widerruf
+
+Sie können Ihre Einwilligung jederzeit mit Wirkung für die Zukunft widerrufen (in den
+Einstellungen unter „Nostr-Identität"); ab dann werden keine neuen Beiträge mehr
+veröffentlicht.
+
 ## Künstliche Intelligenz (KI-Systeme)
 
 ### Eingesetzte KI-Systeme und Zwecke
