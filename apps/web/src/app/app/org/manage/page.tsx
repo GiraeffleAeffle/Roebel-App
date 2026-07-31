@@ -22,7 +22,6 @@ import {
   revokeInvite as revokeInviteDB,
   createInAppInvite,
   createLinkInvite,
-  hasPendingInvite,
 } from "@/lib/supabase-invites"
 import type {
   MemberWithProfile,
@@ -84,16 +83,16 @@ export default function OrgManagePage() {
   const canLeave = canLeaveOrg(currentRole, ownerCount)
 
   const load = useCallback(async () => {
-    if (!accountId || !walletAddress) return
+    if (!accountId || !walletAddress || !thirdwebAccount) return
     const [membersData, invitesData, role] = await Promise.all([
       fetchMembersWithProfiles(accountId),
-      fetchPendingInvites(accountId),
+      fetchPendingInvites(thirdwebAccount, accountId),
       getAccountRole(accountId, walletAddress),
     ])
     setMembers(membersData)
     setPendingInvites(invitesData)
     setCurrentRole(role)
-  }, [accountId, walletAddress])
+  }, [accountId, walletAddress, thirdwebAccount])
 
   useEffect(() => {
     setIsLoading(true)
@@ -112,12 +111,15 @@ export default function OrgManagePage() {
   }
 
   const handleSendInvite = async () => {
-    if (!selectedUser || !walletAddress || !accountId) return
+    if (!selectedUser || !thirdwebAccount || !accountId) return
     setIsSending(true)
     try {
-      const exists = await hasPendingInvite(accountId, selectedUser.wallet_address)
-      if (exists) { alert("Dieser Benutzer hat bereits eine ausstehende Einladung."); return }
-      await createInAppInvite(accountId, selectedUser.wallet_address, inviteRole, walletAddress)
+      // hasPendingInvite now answers only for the calling wallet (the edge
+      // function doesn't accept an arbitrary wallet to check — that would
+      // leak other wallets' invite status), so there's no client-side
+      // precheck for the invitee anymore. Duplicate pending invites for the
+      // same person are allowed by the schema; create_invite just proceeds.
+      await createInAppInvite(thirdwebAccount, accountId, selectedUser.wallet_address, inviteRole)
       setShowInvite(false)
       setSelectedUser(null)
       setSearchQuery("")
@@ -130,10 +132,10 @@ export default function OrgManagePage() {
   }
 
   const handleCreateLink = async () => {
-    if (!walletAddress || !accountId) return
+    if (!thirdwebAccount || !accountId) return
     setIsSending(true)
     try {
-      const invite = await createLinkInvite(accountId, inviteRole, walletAddress, expiryDays)
+      const invite = await createLinkInvite(thirdwebAccount, accountId, inviteRole, expiryDays)
       setGeneratedLink(`https://roebel.app/invite/${invite.token}`)
       await load()
     } catch (e: any) {
@@ -144,8 +146,8 @@ export default function OrgManagePage() {
   }
 
   const handleRevoke = async (inviteId: string) => {
-    if (!confirm("Einladung wirklich widerrufen?")) return
-    await revokeInviteDB(inviteId)
+    if (!thirdwebAccount || !confirm("Einladung wirklich widerrufen?")) return
+    await revokeInviteDB(thirdwebAccount, inviteId)
     await load()
   }
 

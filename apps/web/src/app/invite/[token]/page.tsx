@@ -61,10 +61,10 @@ export default function InviteTokenPage() {
   }, [token, walletAddress])
 
   const handleAccept = async () => {
-    if (!invite || !walletAddress) return
+    if (!invite || !thirdwebAccount) return
     setIsAccepting(true)
     try {
-      await acceptInvite(invite.id, walletAddress)
+      await acceptInvite(thirdwebAccount, invite.id)
       setResolved("accepted")
     } catch (err: any) {
       setError(err?.message || "Fehler beim Annehmen")
@@ -74,10 +74,10 @@ export default function InviteTokenPage() {
   }
 
   const handleDecline = async () => {
-    if (!invite) return
+    if (!invite || !thirdwebAccount) return
     setIsDeclining(true)
     try {
-      await declineInvite(invite.id)
+      await declineInvite(thirdwebAccount, invite.id)
       setResolved("declined")
     } catch (err: any) {
       setError(err?.message || "Fehler beim Ablehnen")

@@ -23,12 +23,14 @@ import {
   type OrgSubType,
 } from "@/types/account";
 
+// Self-service sub_types only — the org-membership edge function's
+// create_account action rejects 'stadt'/'fraktion' (administrator-issued
+// only, via the service role), so offering them here would just produce a
+// BAD_REQUEST for anyone who picks them.
 const ORG_SUB_TYPES: OrgSubType[] = [
   "unternehmen",
   "restaurant",
   "verein",
-  "stadt",
-  "fraktion",
   "journalist",
 ];
 

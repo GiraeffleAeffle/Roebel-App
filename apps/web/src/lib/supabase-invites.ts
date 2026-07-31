@@ -1,204 +1,180 @@
 /**
  * Invite token management — mirrors apps/expo/lib/supabase-invites.ts
+ *
+ * Writes (create/revoke/accept/decline) go through the org-membership edge
+ * function (apps/expo/supabase/functions/org-membership/index.ts): a signed
+ * message from the caller's wallet, verified server-side before anything is
+ * written. See apps/web/src/lib/org-membership/client.ts.
+ *
+ * Reads prefer the same edge function / a dedicated RPC, with a read-only
+ * fallback to the direct invite_tokens query for the deploy window before
+ * supabase/migrations/20260802_account_membership_lockdown.sql lands (see
+ * the "Fallback" section below). Writes NEVER fall back — they require the
+ * edge function, full stop.
  */
 
 import { supabase } from "./supabase";
+import { callOrgMembership, type SigningAccount } from "./org-membership/client";
 import type {
   InviteToken,
   InviteTokenWithUser,
   InviteTokenWithAccount,
-  UserNotification,
   Account,
-  OrgRole,
 } from "@/types/account";
+
+const ERROR_MESSAGES_DE: Record<string, string> = {
+  EXPIRED: "Diese Einladung ist abgelaufen",
+  CONFLICT: "Diese Einladung ist nicht mehr gültig",
+  NOT_FOUND: "Einladung nicht gefunden",
+  FORBIDDEN: "Diese Einladung ist nicht für diese Wallet bestimmt",
+  INVITE_GONE: "Diese Einladung wurde bereits bearbeitet",
+};
+
+function orgErrorMessage(res: { code?: string; message?: string }, fallback: string): string {
+  return (res.code && ERROR_MESSAGES_DE[res.code]) || res.message || res.code || fallback;
+}
 
 // ── Create ──────────────────────────────────────────────────────────
 
-/** Create an in-app invite: inserts invite_tokens + notifications rows. */
+/**
+ * Create an in-app invite (notifies `invitedWallet`). Signed by `account`;
+ * `invitedBy` is derived server-side from the verified signer, so it's no
+ * longer a parameter. The edge function inserts invite_tokens + a
+ * notification row and enforces the owner/admin gate.
+ */
 export async function createInAppInvite(
+  account: SigningAccount,
   accountId: string,
   invitedWallet: string,
   role: "admin" | "member",
-  invitedBy: string,
-  expiresInDays = 7
-): Promise<{ invite: InviteToken; notification: UserNotification }> {
-  const normalized = invitedWallet.toLowerCase();
-  const inviterNormalized = invitedBy.toLowerCase();
-
-  const { data: account } = await supabase
-    .from("accounts")
-    .select("name")
-    .eq("id", accountId)
-    .single();
-
-  const orgName = (account as any)?.name || "Organisation";
-  const roleLabel = role === "admin" ? "Admin" : "Mitglied";
-
-  const { data: invite, error: inviteError } = await supabase
-    .from("invite_tokens")
-    .insert({
-      account_id: accountId,
-      role,
-      invited_by: inviterNormalized,
-      invited_wallet: normalized,
-      expires_at: new Date(
-        Date.now() + expiresInDays * 24 * 60 * 60 * 1000
-      ).toISOString(),
-    })
-    .select()
-    .single();
-
-  if (inviteError) throw inviteError;
-
-  const inviteData = invite as InviteToken;
-
-  const { data: notification, error: notifError } = await supabase
-    .from("notifications")
-    .insert({
-      recipient_wallet: normalized,
-      type: "org_invite",
-      title: `Einladung von ${orgName}`,
-      body: `Du wurdest als ${roleLabel} eingeladen`,
-      metadata: {
-        account_id: accountId,
-        role,
-        invitation_id: inviteData.id,
-      },
-    })
-    .select()
-    .single();
-
-  if (notifError) throw notifError;
-
-  return { invite: inviteData, notification: notification as UserNotification };
-}
-
-/** Create a link invite: inserts invite_tokens row, returns token for URL. */
-export async function createLinkInvite(
-  accountId: string,
-  role: "admin" | "member",
-  invitedBy: string,
   expiresInDays = 7
 ): Promise<InviteToken> {
-  const { data, error } = await supabase
-    .from("invite_tokens")
-    .insert({
-      account_id: accountId,
-      role,
-      invited_by: invitedBy.toLowerCase(),
-      invited_wallet: null,
-      expires_at: new Date(
-        Date.now() + expiresInDays * 24 * 60 * 60 * 1000
-      ).toISOString(),
-    })
-    .select()
-    .single();
+  const res = await callOrgMembership<InviteToken>(account, "create_invite", {
+    accountId,
+    role,
+    invitedWallet: invitedWallet.toLowerCase(),
+    expiresInDays,
+  });
 
-  if (error) throw error;
-  return data as InviteToken;
+  if (!res.ok || !res.data) {
+    throw new Error(orgErrorMessage(res, "Fehler beim Senden der Einladung"));
+  }
+  return res.data;
+}
+
+/**
+ * Create a link invite (no target wallet — returns the token for the share
+ * URL). Signed by `account`; same edge-function path as createInAppInvite
+ * with `invitedWallet: null`, which skips the notification insert.
+ */
+export async function createLinkInvite(
+  account: SigningAccount,
+  accountId: string,
+  role: "admin" | "member",
+  expiresInDays = 7
+): Promise<InviteToken> {
+  const res = await callOrgMembership<InviteToken>(account, "create_invite", {
+    accountId,
+    role,
+    invitedWallet: null,
+    expiresInDays,
+  });
+
+  if (!res.ok || !res.data) {
+    throw new Error(orgErrorMessage(res, "Fehler beim Erstellen des Links"));
+  }
+  return res.data;
 }
 
 // ── Resolve ─────────────────────────────────────────────────────────
 
-/** Accept an invite. */
-export async function acceptInvite(
-  inviteId: string,
-  acceptingWallet: string
-): Promise<void> {
-  const normalized = acceptingWallet.toLowerCase();
+/** Accept an invite. Signed by `account` — the edge function verifies the
+ * invite is addressed to the signer (or unaddressed link invite), atomically
+ * claims it, and raises the signer's role without ever demoting it. */
+export async function acceptInvite(account: SigningAccount, inviteId: string): Promise<void> {
+  const res = await callOrgMembership(account, "accept_invite", { inviteId });
+  if (!res.ok) {
+    throw new Error(orgErrorMessage(res, "Fehler beim Annehmen"));
+  }
+}
 
-  const { data: invite, error: fetchErr } = await supabase
+/** Decline an invite. Signed by `account` — the edge function verifies the
+ * invite is addressed to the signer before marking it declined. */
+export async function declineInvite(account: SigningAccount, inviteId: string): Promise<void> {
+  const res = await callOrgMembership(account, "decline_invite", { inviteId });
+  if (!res.ok) {
+    throw new Error(orgErrorMessage(res, "Fehler beim Ablehnen"));
+  }
+}
+
+/** Revoke a pending invite (owner/admin action). Signed by `account`. */
+export async function revokeInvite(account: SigningAccount, inviteId: string): Promise<void> {
+  const res = await callOrgMembership(account, "revoke_invite", { inviteId });
+  if (!res.ok) {
+    throw new Error(orgErrorMessage(res, "Fehler beim Widerrufen"));
+  }
+}
+
+// ── Fallback (read-only) ───────────────────────────────────────────
+// The edge-function actions and the get_invite_by_token RPC above are only
+// live once supabase/migrations/20260801_membership_functions.sql (the RPC)
+// and the org-membership edge function are both deployed. Until then, direct
+// queries against invite_tokens still work under the pre-lockdown RLS
+// policies. These three helpers are the ONLY places in this file allowed to
+// touch invite_tokens directly, and only for reads — writes never fall back,
+// they require the edge function. Once
+// supabase/migrations/20260802_account_membership_lockdown.sql closes
+// anon-key reads on invite_tokens, these fallbacks stop working (by design,
+// per that migration's header) and should be deleted.
+
+function isRpcMissingError(error: { code?: string } | null): boolean {
+  if (!error) return false;
+  // PGRST202: PostgREST "no matching function" (schema cache miss).
+  // 42883: Postgres "undefined function" (function genuinely doesn't exist).
+  return error.code === "PGRST202" || error.code === "42883";
+}
+
+async function fallbackFetchInviteRow(token: string): Promise<InviteToken | null> {
+  const { data, error } = await supabase
     .from("invite_tokens")
     .select("*")
-    .eq("id", inviteId)
-    .single();
-
-  if (fetchErr || !invite) throw new Error("Einladung nicht gefunden");
-
-  const inv = invite as InviteToken;
-
-  if (inv.status !== "pending")
-    throw new Error("Diese Einladung ist nicht mehr gültig");
-
-  if (new Date(inv.expires_at) < new Date()) {
-    await supabase
-      .from("invite_tokens")
-      .update({ status: "expired" })
-      .eq("id", inviteId);
-    throw new Error("Diese Einladung ist abgelaufen");
-  }
-
-  await supabase
-    .from("invite_tokens")
-    .update({ status: "accepted" })
-    .eq("id", inviteId);
-
-  const { error: ownerErr } = await supabase
-    .from("account_owners")
-    .insert({
-      account_id: inv.account_id,
-      wallet_address: normalized,
-      role: inv.role,
-      invited_by: inv.invited_by,
-    });
-
-  if (ownerErr) throw ownerErr;
-
-  if (inv.invited_wallet) {
-    await supabase
-      .from("notifications")
-      .update({ is_read: true })
-      .eq("type", "org_invite")
-      .contains("metadata", { invitation_id: inviteId } as any);
-  }
+    .eq("token", token)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as InviteToken;
 }
 
-/** Decline an invite. */
-export async function declineInvite(inviteId: string): Promise<void> {
-  await supabase
-    .from("invite_tokens")
-    .update({ status: "declined" })
-    .eq("id", inviteId);
-
-  await supabase
-    .from("notifications")
-    .update({ is_read: true })
-    .eq("type", "org_invite")
-    .contains("metadata", { invitation_id: inviteId } as any);
-}
-
-/** Revoke a pending invite (owner action). */
-export async function revokeInvite(inviteId: string): Promise<void> {
-  await supabase
-    .from("invite_tokens")
-    .update({ status: "revoked" })
-    .eq("id", inviteId);
-
-  await supabase
-    .from("notifications")
-    .delete()
-    .eq("type", "org_invite")
-    .contains("metadata", { invitation_id: inviteId } as any);
-}
-
-// ── Queries ─────────────────────────────────────────────────────────
-
-/** Fetch pending invites for an account. */
-export async function fetchPendingInvites(
-  accountId: string
-): Promise<InviteTokenWithUser[]> {
+async function fallbackFetchPendingInvites(accountId: string): Promise<InviteToken[]> {
   const { data, error } = await supabase
     .from("invite_tokens")
     .select("*")
     .eq("account_id", accountId)
     .eq("status", "pending")
     .order("created_at", { ascending: false });
-
   if (error) return [];
+  return data as InviteToken[];
+}
 
-  const invites = data as InviteToken[];
+async function fallbackHasPendingInvite(
+  accountId: string,
+  walletAddress: string
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("invite_tokens")
+    .select("id")
+    .eq("account_id", accountId)
+    .eq("invited_wallet", walletAddress.toLowerCase())
+    .eq("status", "pending")
+    .maybeSingle();
+  return !!data;
+}
 
-  const enriched: InviteTokenWithUser[] = await Promise.all(
+// ── Queries ─────────────────────────────────────────────────────────
+
+async function enrichInvitesWithUsers(
+  invites: InviteToken[]
+): Promise<InviteTokenWithUser[]> {
+  return Promise.all(
     invites.map(async (inv) => {
       if (!inv.invited_wallet) return inv;
 
@@ -211,23 +187,54 @@ export async function fetchPendingInvites(
       return { ...inv, invited_user: userData || undefined } as InviteTokenWithUser;
     })
   );
-
-  return enriched;
 }
 
-/** Fetch an invite by its token. */
+/**
+ * Fetch pending invites for an account (owner/admin action). Signed by
+ * `account`; prefers the edge function's "list_invites" action, which
+ * enforces the owner/admin gate server-side. Falls back to the direct query
+ * only when the edge function is unreachable/not deployed yet.
+ */
+export async function fetchPendingInvites(
+  account: SigningAccount,
+  accountId: string
+): Promise<InviteTokenWithUser[]> {
+  const res = await callOrgMembership<InviteToken[]>(account, "list_invites", { accountId });
+
+  if (res.ok) {
+    return enrichInvitesWithUsers(res.data ?? []);
+  }
+
+  if (res.code === "NETWORK_ERROR") {
+    return enrichInvitesWithUsers(await fallbackFetchPendingInvites(accountId));
+  }
+
+  console.error("fetchPendingInvites error:", res.code, res.message);
+  return [];
+}
+
+/**
+ * Fetch an invite by its bearer token. NOT signed — knowledge of the token
+ * is the credential, matching the anon-callable get_invite_by_token RPC
+ * (the one RPC in this pair of migrations that takes no wallet parameter).
+ * Falls back to the direct query if the RPC hasn't been deployed yet.
+ */
 export async function fetchInviteByToken(
   token: string
 ): Promise<InviteTokenWithAccount | null> {
-  const { data, error } = await supabase
-    .from("invite_tokens")
-    .select("*")
-    .eq("token", token)
-    .single();
+  let invite: InviteToken | null = null;
 
-  if (error || !data) return null;
+  const { data, error } = await supabase.rpc("get_invite_by_token", { p_token: token });
+  if (!error) {
+    invite = (data as InviteToken | null) ?? null;
+  } else if (isRpcMissingError(error)) {
+    invite = await fallbackFetchInviteRow(token);
+  } else {
+    console.error("fetchInviteByToken rpc error:", error);
+    return null;
+  }
 
-  const invite = data as InviteToken;
+  if (!invite) return null;
 
   const { data: account } = await supabase
     .from("accounts")
@@ -248,18 +255,27 @@ export async function fetchInviteByToken(
   };
 }
 
-/** Check if user already has a pending invite for this account. */
+/**
+ * Check if the SIGNER already has a pending invite for this account (answers
+ * for the signer only — the edge function does not accept an arbitrary
+ * wallet to check, which would otherwise leak other wallets' invite status).
+ * Signed by `account`. Falls back to the direct query only when the edge
+ * function is unreachable/not deployed yet.
+ */
 export async function hasPendingInvite(
-  accountId: string,
-  walletAddress: string
+  account: SigningAccount,
+  accountId: string
 ): Promise<boolean> {
-  const { data } = await supabase
-    .from("invite_tokens")
-    .select("id")
-    .eq("account_id", accountId)
-    .eq("invited_wallet", walletAddress.toLowerCase())
-    .eq("status", "pending")
-    .maybeSingle();
+  const res = await callOrgMembership<{ pending: boolean }>(account, "has_pending_invite", {
+    accountId,
+  });
 
-  return !!data;
+  if (res.ok) return !!res.data?.pending;
+
+  if (res.code === "NETWORK_ERROR") {
+    return fallbackHasPendingInvite(accountId, account.address);
+  }
+
+  console.error("hasPendingInvite error:", res.code, res.message);
+  return false;
 }
