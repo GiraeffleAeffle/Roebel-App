@@ -18,6 +18,40 @@ function writeBundle(bundle: Bundle, outDir: string): void {
   }
   copyRelaySyncBundle(bundle, outDir);
   copyVanishScanBundle(bundle, outDir);
+  // The other three node programs shipped by hand-scp until 2026-08-01 — which
+  // meant every `netizen up` (rsync --delete) would have ERASED them from the
+  // box. Carrying them in the bundle like relay-sync closes that trap for good.
+  copyBuiltArtifact(bundle, outDir, "publisher:", "../../publisher/dist/publisher.cjs", "publisher/publisher.cjs", "the public datasets will NOT publish");
+  copyBuiltArtifact(bundle, outDir, "indexer:", "../../indexer/dist/indexer.cjs", "indexer/indexer.cjs", "cross-node queries will NOT work");
+  copyBuiltArtifact(bundle, outDir, "agent-watcher:", "../../agent-watcher/dist/agent-watcher.cjs", "agent-watcher/agent-watcher.cjs", "the mention-answering agent will NOT run");
+}
+
+/**
+ * Generic form of copyRelaySyncBundle for the remaining pre-built programs.
+ * Missing artifact is a WARNING, not a failure — same reasoning as relay-sync:
+ * the rest of the node is fine without it, but silence would hide the reason
+ * a service never started.
+ */
+function copyBuiltArtifact(
+  bundle: Bundle,
+  outDir: string,
+  composeMarker: string,
+  builtRelPath: string,
+  destRel: string,
+  consequence: string,
+): void {
+  if (!bundle.files["docker-compose.yml"]?.includes(composeMarker)) return;
+  const built = fileURLToPath(new URL(builtRelPath, import.meta.url));
+  if (!existsSync(built)) {
+    console.warn(
+      `warning: ${composeMarker.replace(":", "")} is declared but ${builtRelPath} is missing — ${consequence}.\n` +
+        `         build it first: pnpm --filter @netizen-labs/${composeMarker.replace(":", "")} build`,
+    );
+    return;
+  }
+  const dest = join(outDir, destRel);
+  mkdirSync(dirname(dest), { recursive: true });
+  copyFileSync(built, dest);
 }
 
 /**
