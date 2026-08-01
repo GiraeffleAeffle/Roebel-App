@@ -24,7 +24,7 @@ const nextConfig = {
   // @netizen-labs/workspace happens to be transpiled today even without being
   // listed — but only as a side effect of this array being non-empty for an
   // unrelated package. Naming it removes that dependency on a coincidence.
-  transpilePackages: ["@netizen-labs/miniapp-sdk", "@netizen-labs/workspace"],
+  transpilePackages: ["@netizen-labs/miniapp-sdk", "@netizen-labs/workspace", "@netizen-labs/record-client"],
   // Keep heavy server-only packages OUT of the webpack bundle (loaded from
   // node_modules at runtime instead). @safe-global/protocol-kit pulls in
   // @safe-global/safe-deployments — multi-MB of all-chain Safe contract JSON —

@@ -9,18 +9,33 @@ import type {
 } from "./proposal-types";
 
 // Supabase client configuration
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("Missing Supabase environment variables");
+/** True when this deployment has a Supabase backend. A keyless fork runs in
+ * record mode: public reads come from the node index, everything else is
+ * hidden or fails loudly at the point of use — never silently. */
+export const hasSupabase = Boolean(supabaseUrl && supabaseAnonKey);
+
+/** In record mode any ACCESS of the client throws with a clear message, so an
+ * unported private-data path surfaces as a visible error, not an empty page. */
+function keylessProxy(): SupabaseClient {
+  return new Proxy({} as SupabaseClient, {
+    get(_t, prop) {
+      throw new Error(
+        `Supabase ist nicht konfiguriert (record mode) — '${String(prop)}' ist ohne Backend nicht verfügbar.`,
+      );
+    },
+  });
 }
 
 /**
  * Supabase client singleton
  * Used for client-side and server-side operations
  */
-export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase: SupabaseClient = hasSupabase
+  ? createClient(supabaseUrl!, supabaseAnonKey!)
+  : keylessProxy();
 
 /**
  * Database schema types
