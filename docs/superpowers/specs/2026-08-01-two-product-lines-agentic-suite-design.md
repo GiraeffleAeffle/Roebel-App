@@ -165,19 +165,21 @@ operating experience, not speculation. German-institution GTM stays on line A th
   (days-weeks, not months) and line A's W-track continues on its own schedule.
 - ACP/Claude-Code harness quality for OUR agents is unproven — B1 validates it early.
 
-## 9. Decisions for Max
+## 9. Decisions
 
-1. **Fork-last confirmed?** Deploy stock Buzz (B0) instead of starting a "Netizen Buzz clone" —
-   the recommendation of this spec. (A clone forfeits upstream; Apache-2.0 makes forking possible
-   LATER at exactly the seams that prove necessary.)
-2. **Line B naming** — "Netizen Suite"? (Copy rules apply: no em-dash, "Onchain", community as
-   agent.)
-3. **Fileverse relationship** — silent adoption, or reach out (partnership/contribution)? Their
-   MCP door suggests openness; an early upstream relationship beats a cold fork of AGPL code.
-4. **B0 target node** — Röbel Genesis node (dogfood-first, 2.1 GiB headroom says yes) or a fresh
-   box for isolation?
-5. **Which session builds B-track** — spawn now against this spec, or after W2 (Matrix graduation)
-   lands so the shared core is one slice further?
+> **Settled 2026-08-01** (Max approved the recommendations — "okay good continue"):
+
+1. **Fork-last CONFIRMED.** B0 deploys stock Buzz; no clone, no source patches in B0–B4; fork
+   scope decided at B5 from operating experience.
+2. **Line B naming: OPEN** — plans use the working name "Netizen Suite" without locking branding
+   (copy rules apply when it goes public).
+3. **Fileverse: adopt via public API/MCP now; Max reaches out to the Fileverse team in parallel**
+   (an upstream relationship beats a cold AGPL fork; nothing in B2 requires waiting for a reply).
+4. **B0 target = the Röbel Genesis node** (dogfood-first; 2.1 GiB used of 16 GB, 11 GB disk of
+   320 GB — headroom confirmed).
+5. **B-track spawns now** as a parallel session against
+   [the B0+B1 plan](../plans/2026-08-01-buzz-b0-b1-deploy-and-identity.md); line A's W-track
+   continues independently in its own sessions.
 
 ---
 
