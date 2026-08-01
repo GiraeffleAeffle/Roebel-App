@@ -150,3 +150,49 @@ test("a node without a record block still validates — the grammar is optional"
   delete bare.record;
   assert.equal(safeParseManifest(bare).success, true);
 });
+
+// ---- services.buzz (line B: the agentic workspace, stock block/buzz) ----
+
+const buzzBlock = {
+  url: "https://buzz.roebel.app",
+  imageTag: "sha-3e48f1b",
+  ownerPubkey: "a".repeat(64),
+  agentPubkeys: ["b".repeat(64)],
+  secrets: {
+    postgresPassword: "$BUZZ_POSTGRES_PASSWORD",
+    redisPassword: "$BUZZ_REDIS_PASSWORD",
+    s3AccessKey: "$BUZZ_S3_ACCESS_KEY",
+    s3SecretKey: "$BUZZ_S3_SECRET_KEY",
+    relayPrivateKey: "$BUZZ_RELAY_PRIVATE_KEY",
+    gitHookHmac: "$BUZZ_GIT_HOOK_HMAC_SECRET",
+  },
+};
+
+test("a buzz-declaring manifest validates", () => {
+  const withBuzz = { ...roebel, services: { ...roebel.services, buzz: buzzBlock } };
+  const m = parseManifest(withBuzz);
+  assert.equal(m.services.buzz!.imageTag, "sha-3e48f1b");
+});
+
+test("buzz refuses an unpinned image tag — main would make every deploy a different Buzz", () => {
+  const bad = { ...roebel, services: { ...roebel.services, buzz: { ...buzzBlock, imageTag: "main" } } };
+  assert.equal(safeParseManifest(bad).success, false);
+  const alsoBad = { ...roebel, services: { ...roebel.services, buzz: { ...buzzBlock, imageTag: "v0.5.2" } } };
+  assert.equal(safeParseManifest(alsoBad).success, false);
+});
+
+test("buzz refuses an inline secret and an npub owner", () => {
+  const inline = {
+    ...roebel,
+    services: { ...roebel.services, buzz: { ...buzzBlock, secrets: { ...buzzBlock.secrets, redisPassword: "hunter2" } } },
+  };
+  assert.equal(safeParseManifest(inline).success, false);
+  const npubOwner = { ...roebel, services: { ...roebel.services, buzz: { ...buzzBlock, ownerPubkey: "npub1" + "a".repeat(59) } } };
+  assert.equal(safeParseManifest(npubOwner).success, false);
+});
+
+test("buzz without its secrets block is rejected — it would crash-loop on first boot", () => {
+  const { secrets: _drop, ...noSecrets } = buzzBlock;
+  const bad = { ...roebel, services: { ...roebel.services, buzz: noSecrets } };
+  assert.equal(safeParseManifest(bad).success, false);
+});

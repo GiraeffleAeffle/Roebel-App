@@ -134,3 +134,49 @@ test("the human report shows a sovereignty score an operator can watch move", ()
   assert.match(text, /✗ identity-keys: thirdweb/);
   assert.match(text, /✓ workspace: self/);
 });
+
+// ---- services.buzz in the doctor report ----
+
+test("a declared buzz workspace is an endpoint, counts for comms, and nags about agent keys", () => {
+  const withBuzz = {
+    ...roebel,
+    services: {
+      ...roebel.services,
+      buzz: {
+        url: "https://buzz.roebel.app",
+        imageTag: "sha-3e48f1b",
+        ownerPubkey: "a".repeat(64),
+        secrets: {
+          postgresPassword: "$BUZZ_POSTGRES_PASSWORD",
+          redisPassword: "$BUZZ_REDIS_PASSWORD",
+          s3AccessKey: "$BUZZ_S3_ACCESS_KEY",
+          s3SecretKey: "$BUZZ_S3_SECRET_KEY",
+          relayPrivateKey: "$BUZZ_RELAY_PRIVATE_KEY",
+          gitHookHmac: "$BUZZ_GIT_HOOK_HMAC_SECRET",
+        },
+      },
+    },
+  };
+  const report = doctor(withBuzz);
+  assert.ok(report.endpoints.some((e) => e.name === "buzz" && e.url === "https://buzz.roebel.app"));
+  const comms = report.sovereignty.find((l) => l.layer === "comms")!;
+  assert.equal(comms.sovereign, true);
+  assert.match(comms.note, /agentic workspace relay at https:\/\/buzz\.roebel\.app/);
+  // No agentPubkeys declared -> the human-only warning fires.
+  assert.ok(report.warnings.some((w) => w.includes("buzz declared without agentPubkeys")));
+
+  // With agents declared the warning goes away.
+  const withAgents = {
+    ...withBuzz,
+    services: {
+      ...withBuzz.services,
+      buzz: { ...withBuzz.services.buzz, agentPubkeys: ["b".repeat(64)] },
+    },
+  };
+  assert.ok(!doctor(withAgents).warnings.some((w) => w.includes("buzz declared without")));
+
+  // Undeclared -> no buzz endpoint, comms note unchanged.
+  const plain = doctor(roebel);
+  assert.ok(!plain.endpoints.some((e) => e.name === "buzz"));
+  assert.doesNotMatch(plain.sovereignty.find((l) => l.layer === "comms")!.note, /workspace relay/);
+});

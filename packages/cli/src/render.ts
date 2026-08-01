@@ -104,6 +104,7 @@ export function renderWebEnv(m: NetizenManifest): string {
     ["NEXT_PUBLIC_VIDEO_BASE_URL", ws?.video],
     ["NEXT_PUBLIC_PROJECT_BASE_URL", ws?.project],
     ["NEXT_PUBLIC_AGENTS_BASE_URL", ws?.portal],
+    ["NEXT_PUBLIC_BUZZ_BASE_URL", m.services.buzz?.url],
   ];
   const lines = [header(m, "web app env").trimEnd()];
   for (const [key, value] of pairs) if (value) lines.push(`${key}=${value}`);
@@ -440,6 +441,9 @@ export function renderCaddyfile(m: NetizenManifest): string {
   // question, and everything in it came off world-readable relays.
   const indexUrl = m.services.indexer?.publicRead;
   if (indexUrl) blocks.push(`${hostname(indexUrl)} {\n  reverse_proxy indexer:8080\n}`);
+  // One vhost carries Buzz's WebSocket, REST and media — Caddy upgrades WS
+  // transparently, so no extra directives (upstream's own Caddyfile is this line).
+  add(m.services.buzz?.url, "buzz:3000");
   return header(m, "Caddy reverse proxy (auto TLS)") + "\n" + blocks.join("\n\n") + "\n";
 }
 
@@ -812,6 +816,125 @@ ${aliases.map((alias, i) => `      aliasgroup${i + 1}: "${alias}"`).join("\n")}
     );
   }
 
+  // ---- Line B: the agentic workspace (stock block/buzz, upstream's own bundle
+  // shape — deploy/compose/ at the pinned tag). Sidecars carry a buzz- prefix
+  // because `postgres` already names the node's shared database on this compose
+  // network, and Buzz's Postgres is 17 while the shared one is 16. Data lives in
+  // named volumes, so `netizen up`'s rsync --delete never touches it.
+  const buzz = m.services.buzz;
+  if (buzz) {
+    const bhost = hostname(buzz.url);
+    // Compose-side interpolation resolves the manifest's own ref name; vault:
+    // refs have no compose story and must fail at render time, not on the box.
+    const bref = (ref: string, what: string): string => {
+      if (!ref.startsWith("$"))
+        throw new Error(`services.buzz.secrets.${what}: the compose renderer needs a $ENV_VAR ref (vault refs are not resolvable in docker-compose)`);
+      return ref.slice(1);
+    };
+    const pg = bref(buzz.secrets.postgresPassword, "postgresPassword");
+    const redis = bref(buzz.secrets.redisPassword, "redisPassword");
+    const s3a = bref(buzz.secrets.s3AccessKey, "s3AccessKey");
+    const s3s = bref(buzz.secrets.s3SecretKey, "s3SecretKey");
+    const relayKey = bref(buzz.secrets.relayPrivateKey, "relayPrivateKey");
+    const hmac = bref(buzz.secrets.gitHookHmac, "gitHookHmac");
+    svc.push(
+      `  buzz:                    # line B agentic workspace — stock block/buzz relay
+    image: ghcr.io/block/buzz:${buzz.imageTag}
+    restart: unless-stopped
+    environment:
+      BUZZ_BIND_ADDR: "0.0.0.0:3000"
+      BUZZ_HEALTH_PORT: "8080"
+      BUZZ_METRICS_PORT: "9102"
+      DATABASE_URL: "postgres://buzz:\${${pg}}@buzz-postgres:5432/buzz"
+      REDIS_URL: "redis://:\${${redis}}@buzz-redis:6379"
+      BUZZ_S3_ENDPOINT: "http://buzz-minio:9000"
+      # Docker DNS resolves \`buzz-minio\`, not \`<bucket>.buzz-minio\` — path style.
+      BUZZ_S3_ADDRESSING_STYLE: "path"
+      BUZZ_S3_ACCESS_KEY: "\${${s3a}}"
+      BUZZ_S3_SECRET_KEY: "\${${s3s}}"
+      BUZZ_S3_BUCKET: "buzz-media"
+      BUZZ_GIT_REPO_PATH: "/data/git"
+      # Embedded SQLx migrations run at boot — first boot creates the schema,
+      # later boots no-op. Without this a fresh node needs a hand-run migrate.
+      BUZZ_AUTO_MIGRATE: "true"
+      BUZZ_DOMAIN: "${bhost}"
+      RELAY_URL: "wss://${bhost}"
+      BUZZ_MEDIA_BASE_URL: "https://${bhost}/media"
+      BUZZ_MEDIA_SERVER_DOMAIN: "${bhost}"
+      BUZZ_CORS_ORIGINS: "https://${bhost}"
+      # Closed-relay mode: the relay IS the membership boundary (NIP-42 + NIP-43).
+      BUZZ_REQUIRE_AUTH_TOKEN: "true"
+      BUZZ_REQUIRE_RELAY_MEMBERSHIP: "true"
+      BUZZ_ALLOW_NIP_OA_AUTH: "true"
+      RELAY_OWNER_PUBKEY: "${buzz.ownerPubkey}"
+      BUZZ_RELAY_PRIVATE_KEY: "\${${relayKey}}"
+      BUZZ_GIT_HOOK_HMAC_SECRET: "\${${hmac}}"
+    volumes: ["buzz_git_data:/data/git"]
+    expose: ["3000"]
+    depends_on:
+      buzz-postgres: { condition: service_healthy }
+      buzz-redis: { condition: service_healthy }
+      buzz-minio-init: { condition: service_completed_successfully }
+    # Probe /_readiness over /dev/tcp — the runtime image has bash but no curl.
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/8080; printf \\"GET /_readiness HTTP/1.1\\\\r\\\\nHost: 127.0.0.1\\\\r\\\\nConnection: close\\\\r\\\\n\\\\r\\\\n\\" >&3; grep -q \\"200 OK\\" <&3'"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s`,
+      `  buzz-postgres:           # Buzz's own database — postgres 17, never the shared 16
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: buzz
+      POSTGRES_USER: buzz
+      POSTGRES_PASSWORD: "\${${pg}}"
+    volumes: ["buzz_pg_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U buzz -d buzz"]
+      interval: 5s
+      timeout: 5s
+      retries: 12`,
+      `  buzz-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "\${${redis}}"]
+    volumes: ["buzz_redis_data:/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \\"\${${redis}}\\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 12`,
+      `  buzz-minio:              # Blossom/S3 media store
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: "\${${s3a}}"
+      MINIO_ROOT_PASSWORD: "\${${s3s}}"
+    volumes: ["buzz_minio_data:/data"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 12`,
+      `  buzz-minio-init:         # one-shot: create the media bucket, deny anonymous
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      buzz-minio: { condition: service_healthy }
+    environment:
+      BUZZ_S3_ACCESS_KEY: "\${${s3a}}"
+      BUZZ_S3_SECRET_KEY: "\${${s3s}}"
+    entrypoint: >
+      /bin/sh -euc '
+        mc alias set local http://buzz-minio:9000 "$\${BUZZ_S3_ACCESS_KEY}" "$\${BUZZ_S3_SECRET_KEY}"
+        mc mb --ignore-existing "local/buzz-media"
+        mc anonymous set none "local/buzz-media"
+      '
+    restart: "no"`,
+    );
+  }
+
   // Postgres backs Matrix, Nextcloud, XWiki and OpenProject — include it if any need it.
   const needsPostgres =
     hasMatrix || !!ws?.nextcloud || !!ws?.wiki || !!ws?.project || !!ws?.mail;
@@ -829,6 +952,9 @@ ${aliases.map((alias, i) => `      aliasgroup${i + 1}: "${alias}"`).join("\n")}
 
   const vols = ["caddy_data:"];
   if (needsPostgres) vols.push("pg_data:");
+  // Buzz's state is entirely in named volumes — that is what lets `netizen up`
+  // rsync --delete the bundle dir without ever touching workspace data.
+  if (buzz) vols.push("buzz_git_data:", "buzz_pg_data:", "buzz_redis_data:", "buzz_minio_data:");
   if (hasNostr) vols.push("strfry_db:");
   // The vanish work queue: scanner writes, executor drains. Named volume so a
   // container restart never loses a pending deletion request.
@@ -909,6 +1035,26 @@ echo "$pk" | grep -qiE '^[0-9a-f]{64}$' || { echo "not a 64-hex nostr pubkey: $p
 f="$(dirname "$0")/members.txt"
 grep -qi "^\${pk}$" "$f" 2>/dev/null || printf '%s\\n' "$pk" >> "$f"
 echo "granted write: $pk"
+`;
+}
+
+/**
+ * Manifest-declared agents → Buzz relay membership. Each declared pubkey becomes
+ * a relay-signed kind:13534 membership event via `buzz-admin add-member` inside
+ * the relay container (which already holds BUZZ_RELAY_PRIVATE_KEY). Declaring the
+ * key in the manifest IS the authorization — a grant or revocation is a
+ * reviewable git diff, the same rule as agents.a2a.relayPubkeys. Idempotent:
+ * re-adding an existing member is a no-op upstream.
+ */
+export function renderBuzzAddMembers(m: NetizenManifest): string {
+  const keys = m.services.buzz?.agentPubkeys ?? [];
+  return `#!/bin/sh
+# Generated by \`netizen render\` — manifest-declared Buzz agent members.
+# Run from the bundle root after the stack is up: sh buzz/add-members.sh
+set -eu
+cd "$(dirname "$0")/.."
+${keys.map((pk) => `docker compose exec -T buzz buzz-admin add-member --pubkey "${pk}"`).join("\n")}
+echo "buzz: ${keys.length} manifest-declared agent member(s) ensured"
 `;
 }
 
@@ -1927,7 +2073,7 @@ export function plan(m: NetizenManifest): Step[] {
   const ws = m.services.workspace;
   const hosts = ["id", ...(ws?.nextcloud ? ["cloud"] : []), ...(m.services.chat?.matrix ? ["matrix", "auth", "chat"] : []),
     ...(m.services.chat?.nostr ? ["relay"] : []), ...(ws?.mail ? ["mail"] : []), ...(ws?.wiki ? ["wiki"] : []),
-    ...(ws?.video ? ["meet"] : []), ...(ws?.project ? ["project"] : [])];
+    ...(ws?.video ? ["meet"] : []), ...(ws?.project ? ["project"] : []), ...(m.services.buzz ? ["buzz"] : [])];
   const steps: Step[] = [];
   steps.push({ id: "dns", phase: "provision", title: `Point DNS at the box for: ${hosts.join(", ")}` });
   steps.push({ id: "secrets", phase: "provision", title: "Place .env on the box with every ref from SECRETS.md" });
@@ -1946,6 +2092,12 @@ export function plan(m: NetizenManifest): Step[] {
   if (ws?.project) steps.push({ id: "project-oidc", phase: "workspace", title: "Enable the OpenProject OIDC provider against the keystone" });
   if (m.services.chat?.matrix) steps.push({ id: "mas-oidc", phase: "chat", title: "Apply mas/config.yaml (upstream = the keystone) and restart MAS" });
   if (m.services.chat?.nostr) steps.push({ id: "nostr-relay", phase: "chat", title: "Nostr relay up behind Caddy, members-only writes (strfry-policy/)" });
+  if (m.services.buzz)
+    steps.push({
+      id: "buzz",
+      phase: "workspace",
+      title: `Agentic workspace (Buzz) up at ${m.services.buzz.url} — closed relay, membership relay-signed (kind:13534)${m.services.buzz.agentPubkeys?.length ? "; run buzz/add-members.sh for the declared agents" : ""}`,
+    });
   if (m.services.indexer && m.services.backend)
     steps.push({
       id: "indexer",
@@ -2026,6 +2178,11 @@ export function renderBundle(m: NetizenManifest): Bundle {
   }
   if (m.ai?.selfHosted) {
     files["ai/litellm.yaml"] = renderLiteLlmConfig(m);
+  }
+  // Only emitted when agents are declared: a buzz block without agentPubkeys is
+  // a human-only workspace and ships no membership machinery at all.
+  if (m.services.buzz?.agentPubkeys?.length) {
+    files["buzz/add-members.sh"] = renderBuzzAddMembers(m);
   }
   if (composeNeedsPostgres(m)) {
     files["postgres/init/01-databases.sh"] = renderPostgresInit(m);

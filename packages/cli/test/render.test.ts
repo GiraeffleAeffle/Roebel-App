@@ -500,3 +500,104 @@ test("a declared publisher becomes a rendered service wired into the allow-list"
   assert.doesNotMatch(plain, /publisher:/);
   assert.doesNotMatch(plain, /EXTRA_KEYS_FILE/);
 });
+
+// ---- Line B: the agentic workspace (services.buzz — stock block/buzz) ----
+
+const buzzNode = {
+  ...roebel,
+  services: {
+    ...roebel.services,
+    buzz: {
+      url: "https://buzz.roebel.app",
+      imageTag: "sha-3e48f1b",
+      ownerPubkey: "a".repeat(64),
+      agentPubkeys: ["b".repeat(64), "c".repeat(64)],
+      secrets: {
+        postgresPassword: "$BUZZ_POSTGRES_PASSWORD",
+        redisPassword: "$BUZZ_REDIS_PASSWORD",
+        s3AccessKey: "$BUZZ_S3_ACCESS_KEY",
+        s3SecretKey: "$BUZZ_S3_SECRET_KEY",
+        relayPrivateKey: "$BUZZ_RELAY_PRIVATE_KEY",
+        gitHookHmac: "$BUZZ_GIT_HOOK_HMAC_SECRET",
+      },
+    },
+  },
+};
+
+test("a declared buzz workspace renders upstream's bundle shape, pinned and closed", () => {
+  const compose = renderComposeYml(buzzNode);
+  // The five services, sidecars buzz- prefixed (postgres already names the shared DB).
+  for (const svc of ["buzz:", "buzz-postgres:", "buzz-redis:", "buzz-minio:", "buzz-minio-init:"]) {
+    assert.match(compose, new RegExp(`^  ${svc}`, "m"));
+  }
+  // Pinned image — never main/latest.
+  assert.match(compose, /image: ghcr\.io\/block\/buzz:sha-3e48f1b/);
+  // Closed-relay mode with the manifest's owner bootstrapped.
+  assert.match(compose, /BUZZ_REQUIRE_RELAY_MEMBERSHIP: "true"/);
+  assert.match(compose, new RegExp(`RELAY_OWNER_PUBKEY: "${"a".repeat(64)}"`));
+  // Secrets stay compose-interpolated references to the box's .env.
+  assert.match(compose, /BUZZ_RELAY_PRIVATE_KEY: "\$\{BUZZ_RELAY_PRIVATE_KEY\}"/);
+  assert.match(compose, /DATABASE_URL: "postgres:\/\/buzz:\$\{BUZZ_POSTGRES_PASSWORD\}@buzz-postgres:5432\/buzz"/);
+  // Never env_file for a third-party container — vars are enumerated.
+  assert.doesNotMatch(compose, /buzz[\s\S]{0,400}env_file/);
+  // Buzz 17-alpine Postgres, isolated from the shared postgres:16.
+  assert.match(compose, /image: postgres:17-alpine/);
+  // State in named volumes so rsync --delete never touches it.
+  for (const vol of ["buzz_git_data:", "buzz_pg_data:", "buzz_redis_data:", "buzz_minio_data:"]) {
+    assert.match(compose, new RegExp(`^  ${vol}`, "m"));
+  }
+});
+
+test("buzz gets its Caddy vhost, dns entry, plan step and web tile", () => {
+  assert.match(renderCaddyfile(buzzNode), /buzz\.roebel\.app \{\n  reverse_proxy buzz:3000\n\}/);
+  const steps = plan(buzzNode);
+  assert.ok(steps.some((s) => s.id === "buzz" && s.phase === "workspace"));
+  assert.match(steps.find((s) => s.id === "dns")!.title, /buzz/);
+  assert.match(renderWebEnv(buzzNode), /NEXT_PUBLIC_BUZZ_BASE_URL=https:\/\/buzz\.roebel\.app/);
+});
+
+test("manifest-declared agent keys become the add-members script; humans-only ships none", () => {
+  const bundle = renderBundle(buzzNode);
+  const script = bundle.files["buzz/add-members.sh"];
+  assert.ok(script);
+  assert.match(script, new RegExp(`add-member --pubkey "${"b".repeat(64)}"`));
+  assert.match(script, new RegExp(`add-member --pubkey "${"c".repeat(64)}"`));
+  // The six refs surface for the operator checklist.
+  for (const ref of [
+    "$BUZZ_POSTGRES_PASSWORD",
+    "$BUZZ_REDIS_PASSWORD",
+    "$BUZZ_S3_ACCESS_KEY",
+    "$BUZZ_S3_SECRET_KEY",
+    "$BUZZ_RELAY_PRIVATE_KEY",
+    "$BUZZ_GIT_HOOK_HMAC_SECRET",
+  ]) {
+    assert.ok(bundle.secretRefs.includes(ref), `missing ${ref}`);
+  }
+  const humansOnly = {
+    ...buzzNode,
+    services: { ...buzzNode.services, buzz: { ...buzzNode.services.buzz, agentPubkeys: [] } },
+  };
+  assert.equal(renderBundle(humansOnly).files["buzz/add-members.sh"], undefined);
+});
+
+test("buzz is config-gated — an undeclared workspace changes nothing", () => {
+  const compose = renderComposeYml(roebel);
+  assert.doesNotMatch(compose, /buzz/i);
+  assert.doesNotMatch(renderCaddyfile(roebel), /buzz/i);
+  assert.equal(renderBundle(roebel).files["buzz/add-members.sh"], undefined);
+  assert.ok(!plan(roebel).some((s) => s.id === "buzz"));
+});
+
+test("a vault: secret ref fails at render time, not on the box", () => {
+  const vaultNode = {
+    ...buzzNode,
+    services: {
+      ...buzzNode.services,
+      buzz: {
+        ...buzzNode.services.buzz,
+        secrets: { ...buzzNode.services.buzz.secrets, redisPassword: "vault:kv/buzz/redis" },
+      },
+    },
+  };
+  assert.throws(() => renderComposeYml(vaultNode), /redisPassword/);
+});

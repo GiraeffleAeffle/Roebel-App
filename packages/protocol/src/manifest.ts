@@ -209,6 +209,53 @@ const Services = z.object({
       backfeed: z.boolean().optional(),
     })
     .optional(),
+  /**
+   * Line B: the agentic workspace — stock `block/buzz`, deployed as upstream's
+   * own bundle (relay + dedicated Postgres 17 + Redis + MinIO). Dedicated on
+   * purpose: upstream pins postgres:17 while the node's shared Postgres is 16,
+   * and isolation keeps a fast-moving v0.5.x upstream away from civic data.
+   * Channels are relay-gated (NIP-42 auth + NIP-43 membership), NOT E2EE —
+   * nothing downstream may claim otherwise. FORK-LAST: this block configures
+   * upstream, it never patches it.
+   */
+  buzz: z
+    .object({
+      /** Public hostname — one vhost serves WebSocket, REST and media. */
+      url: z.string().url(),
+      /**
+       * Build tag on ghcr.io/block/buzz. Upstream publishes no semver image
+       * tags — pin a `sha-<7>` (B0.1 notes record the matching digest);
+       * `main` would make every deploy a different Buzz.
+       */
+      imageTag: z.string().regex(/^sha-[0-9a-f]{7}$/, "pin ghcr.io/block/buzz:sha-<7> — never main/latest"),
+      /**
+       * Bootstrap owner of the closed relay, a 64-hex Nostr pubkey (not npub).
+       * For Röbel this is the operator's wallet-derived key, so relay ownership
+       * is provable against the same identity that owns everything else.
+       */
+      ownerPubkey: z.string().regex(/^[0-9a-f]{64}$/, "owner must be a 64-hex nostr pubkey (hex, not npub)"),
+      /**
+       * Agent members this manifest authorizes on the workspace relay — the
+       * same rule as agents.a2a.relayPubkeys: declaring the key IS the
+       * authorization, and a revocation is a reviewable diff. Applied as
+       * relay-signed kind:13534 membership events (buzz/add-members.sh).
+       */
+      agentPubkeys: z.array(z.string().regex(/^[0-9a-f]{64}$/, "agent keys are 64-hex nostr pubkeys")).optional(),
+      /**
+       * Required by construction: declaring the workspace without its secrets
+       * would render a bundle that crash-loops on first boot. References only.
+       */
+      secrets: z.object({
+        postgresPassword: secretRef,
+        redisPassword: secretRef,
+        s3AccessKey: secretRef,
+        s3SecretKey: secretRef,
+        /** The relay's own signing key — membership events are signed with it. */
+        relayPrivateKey: secretRef,
+        gitHookHmac: secretRef,
+      }),
+    })
+    .optional(),
   // Secret references only (guards the "secrets by reference" rule).
   secrets: z.record(secretRef).optional(),
 });

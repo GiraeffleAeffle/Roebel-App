@@ -106,11 +106,20 @@ export function sovereigntyReport(m: NetizenManifest): SovereigntyLayer[] {
   });
 
   const relay = m.services.chat?.nostr?.relay;
+  // A workspace relay you run yourself counts toward comms sovereignty the same
+  // way the civic relay does — both die with nobody but the community.
+  const buzzUrl = m.services.buzz?.url;
   out.push({
     layer: "comms",
-    provider: relay ? "self" : "none",
-    sovereign: !!relay,
-    note: relay ? `own relay at ${relay}` : "no self-hosted relay declared",
+    provider: relay || buzzUrl ? "self" : "none",
+    sovereign: !!relay || !!buzzUrl,
+    note: relay
+      ? buzzUrl
+        ? `own relay at ${relay} + agentic workspace relay at ${buzzUrl}`
+        : `own relay at ${relay}`
+      : buzzUrl
+        ? `agentic workspace relay at ${buzzUrl} (no public civic relay declared)`
+        : "no self-hosted relay declared",
   });
 
   const aiSelf = m.ai?.selfHosted === true;
@@ -151,6 +160,7 @@ export function doctor(m: NetizenManifest): DoctorReport {
   add("matrix homeserver", m.services.chat?.matrix?.homeserver);
   add("mas", m.services.chat?.matrix?.mas);
   add("element", m.services.chat?.matrix?.element);
+  add("buzz", m.services.buzz?.url);
 
   const warnings: string[] = [];
   if (!m.services.backend) warnings.push("no data backend declared (services.backend) — the community data layer is unmanaged");
@@ -160,6 +170,10 @@ export function doctor(m: NetizenManifest): DoctorReport {
     warnings.push("authBridge.provider is 'thirdweb' — a third-party mints accounts; flip to 'netizen' for full wallet sovereignty");
   if (m.services.chat?.matrix && !m.services.chat?.nostr)
     warnings.push("Matrix present but no Nostr relay — agents-as-members transport unavailable");
+  if (m.services.buzz && !(m.services.buzz.agentPubkeys ?? []).length)
+    warnings.push(
+      "buzz declared without agentPubkeys — a human-only workspace; declare each agent's key to authorize it (the manifest diff IS the grant)",
+    );
   // Durability warnings rank first in severity: everything else is recoverable.
   if (!m.operations?.backup)
     warnings.push("no backups declared (operations.backup) — a node you cannot restore from is less sovereign than the SaaS it replaced");
