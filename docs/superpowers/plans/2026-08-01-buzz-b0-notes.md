@@ -186,3 +186,57 @@ weren't in the original note:
   v0.5.3 as a whole-product version doesn't exist (§1) — only `desktop-v0.5.3`. If B-track work
   depends on agent transcription specifically, re-check `crates/buzz-agent` and the desktop
   transcription pipeline directly rather than assuming it landed with any particular tag.
+
+## 8. B0.3 deploy runbook (written 2026-08-01 — waiting on ONE user gate)
+
+Everything below is ready; the only blocker is the SSH key. DNS is DONE
+(`buzz.roebel.app → 178.105.19.80`, added by Max 2026-08-01). The manifest half is
+committed (`e8992d6f`); render verified locally (33 files, buzz vhost + plan step + 6 refs).
+
+**USER GATE:** in a terminal, run `ssh-add --apple-use-keychain ~/.ssh/id_ed25519` and enter
+the passphrase (the shared launchd agent currently holds no identities — batch SSH is denied).
+After that, any session can run the steps below.
+
+```bash
+# 1. Secrets — generated ON the box, appended to its own .env (never through the CLI)
+ssh root@178.105.19.80 'cd /opt/netizen/roebel && {
+  echo "BUZZ_POSTGRES_PASSWORD=$(openssl rand -hex 24)";
+  echo "BUZZ_REDIS_PASSWORD=$(openssl rand -hex 24)";
+  echo "BUZZ_S3_ACCESS_KEY=$(openssl rand -hex 16)";
+  echo "BUZZ_S3_SECRET_KEY=$(openssl rand -hex 24)";
+  echo "BUZZ_RELAY_PRIVATE_KEY=$(openssl rand -hex 32)";
+  echo "BUZZ_GIT_HOOK_HMAC_SECRET=$(openssl rand -hex 32)";
+} >> .env && chmod 600 .env && grep -c "^BUZZ_" .env'
+# Expect 6. BUZZ_RELAY_PRIVATE_KEY must stay stable forever after (it signs membership).
+
+# 2. Deploy from the Röbel repo copy (the copy the box runs — §6)
+cd packages/cli
+npx tsx src/cli.ts up ../protocol/examples/roebel.netizen.json --dry-run          # review plan
+npx tsx src/cli.ts up ../protocol/examples/roebel.netizen.json --host root@178.105.19.80
+# bootstrap.sh restarts caddy itself (render.ts:2039), so the new vhost gets its cert.
+
+# 3. Membership: owner is bootstrapped by env; the declared agent needs one command
+ssh root@178.105.19.80 'cd /opt/netizen/roebel && sh buzz/add-members.sh'
+
+# 4. Verify
+curl -fsS https://buzz.roebel.app/_liveness && echo OK
+ssh root@178.105.19.80 'docker ps --filter name=buzz --format "{{.Names}} {{.Status}}"'
+npx tsx src/cli.ts doctor ../protocol/examples/roebel.netizen.json
+ssh root@178.105.19.80 'free -m | head -2; df -h / | tail -1'   # record the RAM/disk delta
+
+# 5. The rsync-survival proof (the members.txt lesson): run ONE more unrelated
+#    `netizen up`, then confirm Buzz data survived — its state is entirely in named
+#    docker volumes (buzz_git_data/buzz_pg_data/buzz_redis_data/buzz_minio_data),
+#    which rsync --delete never touches. Check a channel still exists afterwards.
+```
+
+Then B0's exit test: Buzz desktop → `wss://buzz.roebel.app` → sign in as Max (import the key
+via the app's pilot export flow, commit `74b8b2eb`, gate `buzz_workspace_enabled='true'` in
+app_settings) → create a channel → `sh buzz/add-members.sh` has already admitted Mecky's key.
+
+**B1.1 harness note:** upstream ships no buzz-acp image — build ONCE on the box
+(`cargo build --release -p buzz-acp` in a throwaway container, or docker build), tag
+`netizen/buzz-acp:v0.5.2`, record the digest here, and run it with
+`BUZZ_PRIVATE_KEY=<mecky nsec/hex derived from NODE_AGENT_SECRET on the box>` +
+`BUZZ_RELAY_URL=wss://buzz.roebel.app` + `claude-agent-acp` (npm) as the ACP harness.
+Do NOT wire the build into `netizen up` (the installer applies, it does not compile).
