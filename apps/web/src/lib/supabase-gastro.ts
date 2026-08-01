@@ -9,6 +9,8 @@ import {
   fetchMenuItemVoteSummaries,
   type MenuItemVoteSummary,
 } from "./supabase-ratings";
+import { hasSupabase, recordClient } from "@/lib/record";
+import { getMenuBySlug, RecordUnavailableError, type MenuData } from "@netizen-labs/record-client";
 
 export interface MenuItemWithFlags extends MenuItem {
   has_variants: boolean;
@@ -52,9 +54,83 @@ export interface MenuItemDetail extends MenuItemWithFlags {
   vote_summary: MenuItemVoteSummary | null;
 }
 
+/**
+ * `MenuData.categories[].items[]` (menuToSpec's content JSON) carries no
+ * item/category id at all — only name/description/price/currency. Every
+ * record-mode caller here (fetchGastroData, searchMenuItems) needs the SAME
+ * synthetic, position-derived ids so a category/item looked up one way
+ * matches the other within a single request; this is the one place that
+ * derivation happens.
+ */
+function menuDataToCategories(menu: MenuData): CategoryWithItems[] {
+  return menu.categories.map((cat, catIdx) => ({
+    id: `cat-${catIdx}`,
+    restaurant_id: menu.restaurantId,
+    name: cat.name,
+    sort_order: catIdx,
+    is_active: true,
+    created_at: "",
+    items: cat.items.map((item, itemIdx) => ({
+      id: `item-${catIdx}-${itemIdx}`,
+      restaurant_id: menu.restaurantId,
+      category_id: `cat-${catIdx}`,
+      name: item.name,
+      description: item.description ?? null,
+      price: item.price !== undefined && Number.isFinite(Number(item.price)) ? Number(item.price) : 0,
+      image_url: null,
+      is_vegetarian: false,
+      is_vegan: false,
+      is_available: true,
+      sort_order: itemIdx,
+      created_at: "",
+      // menuToSpec publishes no variants/sides at all — genuinely absent,
+      // not merely unmapped (see civic.ts's MenuData doc comment).
+      has_variants: false,
+    })),
+  }));
+}
+
+/** Shared by fetchRestaurantByAccount and fetchGastroData's record branches
+ * so a single getMenuBySlug fetch covers both instead of two round trips. */
+function menuToRestaurant(menu: MenuData): Restaurant {
+  return {
+    id: menu.restaurantId,
+    account_id: null,
+    name: menu.name,
+    slug: menu.slug ?? "",
+    description: null,
+    // menuToSpec's single "image" tag is sourced from logo_url, not
+    // cover_image_url (mappers.ts:762) — no separate cover is published.
+    logo_url: menu.image,
+    cover_image_url: null,
+    background_color: "#ffffff",
+    address: menu.location,
+    phone: null,
+    website_url: null,
+    latitude: null,
+    longitude: null,
+    status: "approved",
+    is_featured: false,
+    sort_order: 0,
+    ai_image_style: null,
+    created_at: "",
+    updated_at: "",
+  };
+}
+
 export async function fetchRestaurantByAccount(
   accountId: string
 ): Promise<Restaurant | null> {
+  if (!hasSupabase) {
+    try {
+      const menu = await getMenuBySlug(recordClient, accountId);
+      return menu ? menuToRestaurant(menu) : null;
+    } catch (error) {
+      if (error instanceof RecordUnavailableError) return null;
+      throw error;
+    }
+  }
+
   const { data, error } = await supabase
     .from("restaurants")
     .select("*")
@@ -67,8 +143,25 @@ export async function fetchRestaurantByAccount(
   return (data as Restaurant) ?? null;
 }
 
-/** Full menu (categories + items + variant flag + vote summaries) for an account. */
+/**
+ * Full menu (categories + items + variant flag + vote summaries) for an
+ * account. Record mode: `accountId` is the org's SLUG (see
+ * supabase-org-content.ts's own doc comment) — `getMenuBySlug` matches
+ * directly on it, no pubkey join needed. voteSummaries is always {} — no
+ * thumbs-up/down data exists on the record.
+ */
 export async function fetchGastroData(accountId: string): Promise<GastroData> {
+  if (!hasSupabase) {
+    try {
+      const menu = await getMenuBySlug(recordClient, accountId);
+      if (!menu) return { restaurant: null, categories: [], voteSummaries: {} };
+      return { restaurant: menuToRestaurant(menu), categories: menuDataToCategories(menu), voteSummaries: {} };
+    } catch (error) {
+      if (error instanceof RecordUnavailableError) return { restaurant: null, categories: [], voteSummaries: {} };
+      throw error;
+    }
+  }
+
   const restaurant = await fetchRestaurantByAccount(accountId);
   if (!restaurant) {
     return { restaurant: null, categories: [], voteSummaries: {} };
@@ -155,13 +248,34 @@ export async function fetchRelatedMenuItems(
   return (data as MenuItem[]) ?? [];
 }
 
-/** Free-text menu search via the `search_menu_items` RPC. */
+/** Free-text menu search via the `search_menu_items` RPC. Record mode does
+ * the equivalent filter client-side over the same menu fetchGastroData
+ * already reads, rather than an RPC that does not exist without Supabase. */
 export async function searchMenuItems(
   accountId: string,
   query: string
 ): Promise<MenuItem[]> {
   const trimmed = query.trim();
   if (trimmed.length < 2) return [];
+
+  if (!hasSupabase) {
+    try {
+      const menu = await getMenuBySlug(recordClient, accountId);
+      if (!menu) return [];
+      const needle = trimmed.toLowerCase();
+      return menuDataToCategories(menu)
+        .flatMap((cat) => cat.items)
+        .filter(
+          (item) =>
+            item.name.toLowerCase().includes(needle) ||
+            (item.description ?? "").toLowerCase().includes(needle)
+        );
+    } catch (error) {
+      if (error instanceof RecordUnavailableError) return [];
+      throw error;
+    }
+  }
+
   const { data, error } = await supabase.rpc("search_menu_items", {
     p_account_id: accountId,
     p_query: trimmed,

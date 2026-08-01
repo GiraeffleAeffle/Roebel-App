@@ -15,6 +15,47 @@ import type {
   ListingType,
 } from "@/types/marketplace"
 import { createAppNotification } from "@/app/actions/app-notifications"
+import { hasSupabase, recordClient } from "@/lib/record"
+import { listListings, RecordUnavailableError, type ListingRow } from "@netizen-labs/record-client"
+
+/**
+ * Record mode: no `users` table to join a seller profile from, no wallet
+ * address to key by (seller_npub is a Nostr identity, not a wallet — a
+ * different identity system, and a raw address is never rendered anyway).
+ * price_type/views_count have no record equivalent — listingToSpec never
+ * publishes price_type, and view counts are a Supabase-only interaction
+ * metric. "fixed" is the most common real price_type and, unlike
+ * "negotiable"/"free", never changes how the numeric price itself reads.
+ */
+function toListingWithSeller(l: ListingRow): ListingWithSeller {
+  return {
+    id: l.id,
+    seller_wallet_address: "",
+    listing_type: (l.listing_type === "service" || l.listing_type === "schwarzes_brett" ? l.listing_type : "product"),
+    title: l.title,
+    description: l.description,
+    price: l.price !== null && Number.isFinite(Number(l.price)) ? Number(l.price) : 0,
+    price_type: "fixed",
+    category: (l.category ?? "sonstiges") as ListingWithSeller["category"],
+    condition: l.condition as ListingCondition | null,
+    neighborhood: l.location,
+    media_urls: l.media_urls,
+    status: "active",
+    views_count: 0,
+    created_at: l.created_at,
+    updated_at: l.created_at,
+    // ListingCard and the detail page both render an icon next to
+    // `seller_username || formatWalletAddress(seller_wallet_address)`
+    // UNCONDITIONALLY — with both "" (formatWalletAddress("") also returns
+    // "" per its own short-address guard), that reads as a bare icon next
+    // to empty text on every card. A generic, honest label ("no real name
+    // to show, this is a seller") avoids the dead-looking control without
+    // fabricating an identity.
+    seller_username: "Anbieter",
+    seller_profile_picture_url: null,
+    seller_neighborhood: null,
+  }
+}
 
 // ============================================
 // Read operations
@@ -27,6 +68,33 @@ export async function getActiveListings(
   limit = 50,
   listingType?: ListingType
 ): Promise<{ success: boolean; data?: ListingWithSeller[]; error?: string }> {
+  if (!hasSupabase) {
+    try {
+      const rows = await listListings(recordClient, { limit: 200 })
+      let listings = rows.map(toListingWithSeller)
+      if (listingType) listings = listings.filter((l) => l.listing_type === listingType)
+      if (category) listings = listings.filter((l) => l.category === category)
+      if (condition && listingType !== "service" && listingType !== "schwarzes_brett") {
+        listings = listings.filter((l) => l.condition === condition)
+      }
+      if (search) {
+        const needle = search.toLowerCase()
+        listings = listings.filter(
+          (l) =>
+            l.title.toLowerCase().includes(needle) ||
+            (l.description ?? "").toLowerCase().includes(needle)
+        )
+      }
+      // listListings gives no ordering guarantee — sort desc by the
+      // recovered created_at to match the Supabase branch's own ordering.
+      listings.sort((a, b) => b.created_at.localeCompare(a.created_at))
+      return { success: true, data: listings.slice(0, limit) }
+    } catch (error) {
+      if (error instanceof RecordUnavailableError) return { success: true, data: [] }
+      throw error
+    }
+  }
+
   try {
     const supabase = await createClient()
 
@@ -106,6 +174,21 @@ export async function getActiveListings(
 export async function getListingById(
   id: string
 ): Promise<{ success: boolean; data?: ListingWithSeller; error?: string }> {
+  if (!hasSupabase) {
+    try {
+      // listListings already filters to active/non-withdrawn rows — a
+      // separate detail-lookup dataset function does not exist, so the
+      // brief's own guidance ("find by id in the list result") applies.
+      const rows = await listListings(recordClient, { limit: 200 })
+      const row = rows.find((l) => l.id === id)
+      if (!row) return { success: false, error: "Inserat nicht gefunden" }
+      return { success: true, data: toListingWithSeller(row) }
+    } catch (error) {
+      if (error instanceof RecordUnavailableError) return { success: false, error: "Inserat nicht gefunden" }
+      throw error
+    }
+  }
+
   try {
     const supabase = await createClient()
 

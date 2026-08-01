@@ -35,9 +35,22 @@ export interface ListingRow {
   price: string | null;
   category: string | null;
   condition: string | null;
+  /**
+   * `listingToSpec` (mappers.ts:463) publishes the row's `listing_type`
+   * ("product"|"service"|"schwarzes_brett") as `content.type` — on the wire
+   * alongside description/price/condition, in the same content-JSON blob,
+   * just not previously read back here. `null` when the source row had no
+   * listing_type set (content.type omitted entirely, since `str(...) ??
+   * undefined` drops the JSON key) or the content was malformed.
+   */
+  listing_type: string | null;
   media_urls: string[];
   location: string | null;
   status: "active";
+  /** ISO timestamp from the event envelope's own `created_at` —
+   * `listingToSpec` sets it to `unixFromUpdatedAt(row)` at publish time (no
+   * separate created_at tag exists), same signal MovieRow/NoticeRow reuse. */
+  created_at: string;
   seller_npub: string | null;
   /**
    * The signing pubkey — NOT in the brief's original interface block, added
@@ -61,6 +74,14 @@ export interface DealRow {
   deal_type: string | null;
   deal_value: string | null;
   image_url: string | null;
+  /**
+   * Every `image` tag `dealToSpec` (mappers.ts) pushes — the primary
+   * `image_url` tag first, then one per `media_urls` entry. `image_url`
+   * above only ever reads the first of these; a keyless business-deal card
+   * that wants the full gallery (not just the cover) needs all of them, and
+   * they ARE on the wire, just not previously surfaced as a list here.
+   */
+  media_urls: string[];
   start_date: string | null;
   end_date: string | null;
   /**
@@ -111,6 +132,15 @@ export interface NoticeRow {
   message: string;
   severity: string | null;
   status: "active" | "resolved";
+  /**
+   * ISO timestamp from the event envelope's own `created_at` — `noticeToSpec`
+   * (mappers.ts) publishes no separate starts_at/ends_at/created_at tag for
+   * either a service alert or a town announcement, but every event still
+   * carries its own `created_at` on the wire (same signal `listMovies` reuses
+   * for MovieRow's created_at/updated_at). The nearest honest reading is
+   * "since when this notice has been visible on the record."
+   */
+  created_at: string;
 }
 
 /** "" from a `str() ?? ""` mapper default round-trips to null, same as datasets.ts's nullIfEmpty. */
@@ -151,9 +181,11 @@ export async function listListings(client: RecordClient, opts?: { limit?: number
       price: str("price"),
       category: tagValue(ev, "t"),
       condition: str("condition"),
+      listing_type: str("type"),
       media_urls: tagValues(ev, "image"),
       location: tagValue(ev, "location"),
       status: "active",
+      created_at: new Date(ev.created_at * 1000).toISOString(),
       seller_npub: tagValue(ev, "p"),
       pubkey: ev.pubkey,
     });
@@ -189,6 +221,7 @@ export async function listDeals(client: RecordClient, opts?: { limit?: number })
       deal_type: tagValue(ev, "t"),
       deal_value: tagValue(ev, "price"),
       image_url: tagValues(ev, "image")[0] ?? null,
+      media_urls: tagValues(ev, "image"),
       // dealToSpec pushes the row's raw date string unmodified (unlike
       // eventToSpec, which converts through berlinToUnix) — no timezone
       // math to invert here.
@@ -318,6 +351,7 @@ export async function listNotices(client: RecordClient): Promise<NoticeRow[]> {
       message: ev.content,
       severity: tagValue(ev, "severity"),
       status: tagValue(ev, "status") === "resolved" ? "resolved" : "active",
+      created_at: new Date(ev.created_at * 1000).toISOString(),
     });
   }
   return rows.sort((a, b) => (a.status === "active" ? 0 : 1) - (b.status === "active" ? 0 : 1));

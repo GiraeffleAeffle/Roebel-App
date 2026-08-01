@@ -7,6 +7,7 @@ import type {
   ProposalsPaginatedResponse,
   ProposalContent,
 } from "./proposal-types";
+import { RecordClient, listProposals, RecordUnavailableError, type ProposalMetaRow } from "@netizen-labs/record-client";
 
 // Supabase client configuration
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -36,6 +37,14 @@ function keylessProxy(): SupabaseClient {
 export const supabase: SupabaseClient = hasSupabase
   ? createClient(supabaseUrl!, supabaseAnonKey!)
   : keylessProxy();
+
+/** Record-mode read client for getProposals/getProposalStats below. Built
+ * locally (rather than importing `@/lib/record`'s singleton) because that
+ * module itself re-exports `hasSupabase` FROM this file — importing back
+ * from it here would be circular. Same default index URL either way. */
+const proposalsRecordClient = new RecordClient(
+  process.env.NEXT_PUBLIC_NODE_INDEX_URL ?? "https://index.roebel.app",
+);
 
 /**
  * Database schema types
@@ -139,6 +148,103 @@ export async function getProposal(
 }
 
 /**
+ * ProposalMetaRow (civic.ts) carries no vote tallies, proposer wallet, block
+ * numbers or full markdown content — those live on-chain / on Irys, which
+ * detail pages already read directly (per the brief: "detail pages read
+ * chain and Irys as they already do, so do not fabricate tallies"). List
+ * views get explicit, honest neutrals — never a fake vote count. Every
+ * consumer that renders votes already gates on `totalVotes > 0n`
+ * (ProposalCard), so an all-"0" row degrades to simply hiding that row,
+ * not a broken control.
+ */
+function toProposal(r: ProposalMetaRow): Proposal {
+  return {
+    id: r.proposal_id,
+    proposal_id: r.proposal_id,
+    // onchain_id resolves the "proposal_id" TAG (the chain's numeric id) —
+    // NOT r.proposal_id itself, which is the record's own d-tag identity /
+    // tx-hash-routing id (see civic.ts's ProposalMetaRow doc comment on the
+    // naming collision). "" only when the tag was never published.
+    blockchain_proposal_id: r.onchain_id ?? "",
+    proposal_number: 0,
+    title: r.title,
+    summary: r.summary,
+    content: { markdown: "", version: "1" },
+    category: (r.category ?? "general") as Proposal["category"],
+    irys_content_id: r.irys_tx ?? "",
+    irys_url: r.irys_tx ? `https://gateway.irys.xyz/${r.irys_tx}` : "",
+    transaction_hash: r.proposal_id,
+    // Never published (privacy) — never a fabricated/raw wallet address.
+    proposer_address: "",
+    block_number: null,
+    snapshot_block: null,
+    deadline_block: null,
+    state: Number(r.status ?? 0),
+    for_votes: "0",
+    against_votes: "0",
+    abstain_votes: "0",
+    created_at: r.published_at ?? "",
+    updated_at: r.published_at ?? "",
+    last_synced_at: null,
+  };
+}
+
+async function getProposalsFromRecord(
+  filters?: ProposalFilters
+): Promise<{ success: boolean; data?: ProposalsPaginatedResponse; error?: string }> {
+  try {
+    const rows = await listProposals(proposalsRecordClient, { limit: 200 });
+    let proposals = rows.map(toProposal);
+
+    if (filters?.state !== undefined) {
+      const states = Array.isArray(filters.state) ? filters.state : [filters.state];
+      proposals = proposals.filter((p) => states.includes(p.state));
+    }
+    if (filters?.category !== undefined) {
+      const categories = Array.isArray(filters.category) ? filters.category : [filters.category];
+      proposals = proposals.filter((p) => categories.includes(p.category));
+    }
+    if (filters?.proposer) {
+      // proposer_address is never published — this correctly yields no
+      // matches rather than pretending to resolve one.
+      proposals = proposals.filter((p) => p.proposer_address === filters.proposer!.toLowerCase());
+    }
+    if (filters?.search) {
+      const needle = filters.search.toLowerCase();
+      proposals = proposals.filter(
+        (p) => p.title.toLowerCase().includes(needle) || p.summary.toLowerCase().includes(needle)
+      );
+    }
+
+    // proposal_number/total_votes carry no real signal in record mode (both
+    // are always 0/"0") — created_at is the only field with genuine
+    // ordering information, so every orderBy falls back to it.
+    const dir = (filters?.orderDirection || "desc") === "asc" ? 1 : -1;
+    proposals.sort((a, b) => dir * a.created_at.localeCompare(b.created_at));
+
+    const limit = filters?.limit || 10;
+    const offset = filters?.offset || 0;
+    const page = proposals.slice(offset, offset + limit);
+
+    return {
+      success: true,
+      data: {
+        proposals: page,
+        total: proposals.length,
+        limit,
+        offset,
+        has_more: proposals.length > offset + limit,
+      },
+    };
+  } catch (error) {
+    if (error instanceof RecordUnavailableError) {
+      return { success: true, data: { proposals: [], total: 0, limit: filters?.limit || 10, offset: filters?.offset || 0, has_more: false } };
+    }
+    throw error;
+  }
+}
+
+/**
  * Get all proposals with optional filtering, sorting, and pagination
  */
 export async function getProposals(
@@ -148,6 +254,8 @@ export async function getProposals(
   data?: ProposalsPaginatedResponse;
   error?: string;
 }> {
+  if (!hasSupabase) return getProposalsFromRecord(filters);
+
   console.log("📋 [Supabase] Fetching proposals with filters:", filters);
 
   try {
@@ -271,6 +379,29 @@ export async function getProposalStats(): Promise<{
   };
   error?: string;
 }> {
+  if (!hasSupabase) {
+    try {
+      const rows = await listProposals(proposalsRecordClient, { limit: 200 });
+      const states = rows.map((r) => Number(r.status ?? 0));
+      const count = (state: number) => states.filter((s) => s === state).length;
+      return {
+        success: true,
+        data: {
+          total: states.length,
+          active: count(1), // ProposalState.Active
+          succeeded: count(4), // ProposalState.Succeeded
+          defeated: count(3), // ProposalState.Defeated
+          executed: count(7), // ProposalState.Executed
+        },
+      };
+    } catch (error) {
+      if (error instanceof RecordUnavailableError) {
+        return { success: true, data: { total: 0, active: 0, succeeded: 0, defeated: 0, executed: 0 } };
+      }
+      return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    }
+  }
+
   console.log("📊 [Supabase] Fetching proposal statistics");
 
   try {

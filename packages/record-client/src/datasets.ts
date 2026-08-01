@@ -101,7 +101,27 @@ export interface OrgRow {
   bio: string | null;
   avatar_url: string | null;
   cover_url: string | null;
+  /**
+   * Overloaded across the two source tables that both feed this shape
+   * (`orgToSpec` for `accounts` orgs, `businessToSpec` for `businesses`
+   * entries) — same collision class as `articleCategory` below. For an
+   * `accounts` org (`is_business` false) this IS the real `sub_type`
+   * ("restaurant"|"unternehmen"|"verein"|"stadt"|"fraktion"|"journalist"),
+   * safe to use directly. For a `businesses` entry (`is_business` true)
+   * `businessToSpec` always hardcodes this to the literal marker
+   * `"business"` — the real category lives under `business_category`
+   * instead.
+   */
   category: string | null;
+  /** `businessToSpec` only — the `businesses` table's actual category
+   * (e.g. "gastronomie"), published under `profile.business_category` to
+   * avoid colliding with the `"business"` marker above. Always null for an
+   * `accounts` org, where `category` itself already carries the real value. */
+  business_category: string | null;
+  /** `businessToSpec` only (`profile.website`) — `orgToSpec` never publishes
+   * a website field for `accounts` orgs. Always null when `is_business` is
+   * false. */
+  website: string | null;
   opening_hours: string | null;
   is_business: boolean;
   /** `businessToSpec` publishes `profile.address`; `orgToSpec` never does —
@@ -344,6 +364,8 @@ export async function listOrgs(client: RecordClient): Promise<OrgRow[]> {
       avatar_url: str("picture"),
       cover_url: str("banner"),
       category: str("category"),
+      business_category: str("business_category"),
+      website: str("website"),
       opening_hours: str("opening_hours"),
       is_business: str("category") === "business",
       address: str("address"),

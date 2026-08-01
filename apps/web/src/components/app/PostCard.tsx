@@ -101,6 +101,11 @@ export function PostCard({
   const isOrgPost = author_account_type && author_account_type !== "personal" && author_account_name;
   const displayName = isOrgPost ? author_account_name! : (author_username || shortAddress);
   const displayAvatar = isOrgPost && author_account_avatar_url ? author_account_avatar_url : author_profile_picture_url;
+  // Record mode has no wallet-keyed profile route (wallet_address is "" for a
+  // personal author, or the "mecky_bot" bot-badge sentinel) — `/app/profile/`
+  // would be a dead link, so the author name/avatar render as plain, static
+  // elements instead of a Link whenever there is no real address to route to.
+  const hasProfileLink = !!wallet_address && wallet_address !== "mecky_bot";
 
   const handleCardClick = (e: React.MouseEvent) => {
     if (mode === "detail") return;
@@ -161,32 +166,54 @@ export function PostCard({
       >
         {/* Header */}
         <div className="flex items-center gap-3 p-4 pb-2">
-          <Link
-            href={`/app/profile/${wallet_address}`}
-            className="h-10 w-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0 overflow-hidden"
-          >
-            {displayAvatar ? (
-              <Image
-                src={displayAvatar}
-                alt={displayName}
-                width={40}
-                height={40}
-                className="object-cover w-full h-full"
-              />
-            ) : (
-              <span className="text-sm font-medium text-muted-foreground">
-                {displayName.slice(0, 2).toUpperCase()}
-              </span>
-            )}
-          </Link>
+          {hasProfileLink ? (
+            <Link
+              href={`/app/profile/${wallet_address}`}
+              className="h-10 w-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0 overflow-hidden"
+            >
+              {displayAvatar ? (
+                <Image
+                  src={displayAvatar}
+                  alt={displayName}
+                  width={40}
+                  height={40}
+                  className="object-cover w-full h-full"
+                />
+              ) : (
+                <span className="text-sm font-medium text-muted-foreground">
+                  {displayName.slice(0, 2).toUpperCase()}
+                </span>
+              )}
+            </Link>
+          ) : (
+            <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0 overflow-hidden">
+              {displayAvatar ? (
+                <Image
+                  src={displayAvatar}
+                  alt={displayName}
+                  width={40}
+                  height={40}
+                  className="object-cover w-full h-full"
+                />
+              ) : (
+                <span className="text-sm font-medium text-muted-foreground">
+                  {displayName.slice(0, 2).toUpperCase()}
+                </span>
+              )}
+            </div>
+          )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
-              <Link
-                href={`/app/profile/${wallet_address}`}
-                className="text-sm font-medium text-foreground hover:underline"
-              >
-                {displayName}
-              </Link>
+              {hasProfileLink ? (
+                <Link
+                  href={`/app/profile/${wallet_address}`}
+                  className="text-sm font-medium text-foreground hover:underline"
+                >
+                  {displayName}
+                </Link>
+              ) : (
+                <span className="text-sm font-medium text-foreground">{displayName}</span>
+              )}
               {isOrgPost && (
                 <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-[10px] font-medium">
                   {author_account_type === "unternehmen" ? "Gewerbe" :

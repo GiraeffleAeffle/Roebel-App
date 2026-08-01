@@ -33,6 +33,8 @@ import { useAccountVote } from "@/hooks/useAccountVote";
 import { useGastroData } from "@/hooks/useGastroData";
 
 import { supabase } from "@/lib/supabase";
+import { hasSupabase, recordClient } from "@/lib/record";
+import { getOrgBySlug, listArticles, listPosts, RecordUnavailableError } from "@netizen-labs/record-client";
 import { fetchMembersWithProfiles } from "@/lib/supabase-member-management";
 import {
   fetchEventsByAccount,
@@ -64,6 +66,52 @@ function formatEventDate(date: string | null, time: string | null): string {
   if (Number.isNaN(d.getTime())) return date;
   const day = d.toLocaleDateString("de-DE", { day: "2-digit", month: "short" });
   return time ? `${day} · ${String(time).slice(0, 5)}` : day;
+}
+
+/**
+ * Record mode's blog source for a slug — `supabase-blog-articles.ts`'s
+ * `listForAccount` is a Supabase-only file outside this seam, so the
+ * org↔article join (by pubkey, same rule as events/posts/listings) lives
+ * here instead. RecordUnavailableError propagates to the caller's own
+ * try/catch — not swallowed here — so one shared handler covers this
+ * alongside the events/listings calls in the effect below.
+ */
+async function blogArticlesForOrg(slug: string): Promise<BlogArticle[]> {
+  const org = await getOrgBySlug(recordClient, slug);
+  if (!org) return [];
+  const articles = await listArticles(recordClient, { limit: 200 });
+  return articles
+    .filter((a) => a.pubkey === org.pubkey)
+    .map((a) => ({
+      id: a.id,
+      account_id: org.slug,
+      author_account_id: null,
+      title: a.title,
+      // articleToSpec never publishes a slug tag (only newsToSpec does) —
+      // unused here anyway, since the "Artikel" section links by a.id.
+      slug: a.slug ?? "",
+      excerpt: a.excerpt,
+      content: a.content_md,
+      cover_image_url: a.cover_image_url,
+      category: a.category,
+      tags: [],
+      status: "published",
+      is_featured: false,
+      view_count: 0,
+      published_at: a.published_at,
+      created_at: a.published_at ?? "",
+      updated_at: a.published_at ?? "",
+    }));
+}
+
+/** Record mode's "Beiträge" tab badge count — same author_pubkey join as
+ * fetchAccountPosts (supabase-org-content.ts), computed separately here
+ * since the tab count must be known before that tab is ever opened. */
+async function postCountForOrg(slug: string): Promise<number> {
+  const org = await getOrgBySlug(recordClient, slug);
+  if (!org) return 0;
+  const posts = await listPosts(recordClient, { limit: 200 });
+  return posts.filter((p) => p.author_pubkey === org.pubkey).length;
 }
 
 function formatListingPrice(
@@ -131,6 +179,43 @@ export function OrgDetailClient({ account }: { account: Account }) {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      if (!hasSupabase) {
+        // Record mode: no Supabase account_id, no owner-member location
+        // lookup (resolveOrgLocation/fetchDealsByBusiness are Supabase-only
+        // and out of this seam), no raw post-count query. Blog is sourced
+        // from listArticles filtered by the org's pubkey (fetchEventsByAccount
+        // and fetchOrgListings already branch this way themselves).
+        try {
+          const [ev, bl, li] = await Promise.all([
+            features.events ? fetchEventsByAccount(slug, 12) : Promise.resolve([]),
+            features.blog ? blogArticlesForOrg(slug) : Promise.resolve([]),
+            features.products ? fetchOrgListings(slug) : Promise.resolve([]),
+          ]);
+          if (cancelled) return;
+          setEvents(ev);
+          setBlog(bl);
+          setListings(li);
+          // No physical-location signal exists on the record for either a
+          // restaurant or a linked business (see OrgRow.address's own doc
+          // comment: no lat/lng is ever published for a business/restaurant
+          // profile) — the "Standort" section stays hidden, honestly, rather
+          // than showing a location with no coordinates to link to a map.
+          setOrgLocation(null);
+          setDeals([]);
+          setPostCount(await postCountForOrg(slug));
+        } catch (error) {
+          if (!(error instanceof RecordUnavailableError)) throw error;
+          if (cancelled) return;
+          setEvents([]);
+          setBlog([]);
+          setListings([]);
+          setOrgLocation(null);
+          setDeals([]);
+          setPostCount(0);
+        }
+        return;
+      }
+
       const [ev, bl, li, loc, countRes] = await Promise.all([
         features.events ? fetchEventsByAccount(account.id, 12) : Promise.resolve([]),
         features.blog ? listForAccount(account.id, { status: "published" }) : Promise.resolve([]),
@@ -158,7 +243,7 @@ export function OrgDetailClient({ account }: { account: Account }) {
       cancelled = true;
     };
     // members is intentionally included so location resolves once loaded
-  }, [account, members, features.events, features.blog, features.products]);
+  }, [account, members, slug, features.events, features.blog, features.products]);
 
   const products = useMemo(
     () => listings.filter((l) => l.listing_type === "product"),

@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { articleToSpec, businessToSpec, eventToSpec, movieToSpec, newsToSpec, orgToSpec } from "@netizen-labs/publisher";
+import { articleToSpec, businessToSpec, dealToSpec, eventToSpec, movieToSpec, newsToSpec, orgToSpec } from "@netizen-labs/publisher";
 import { deriveOrgIdentity } from "@netizen-labs/nostr";
 import { RecordClient } from "../src/index";
 import { listArticles, listEvents, listMovies, listNews, listOrgs, unixToBerlin } from "../src/datasets";
+import { listDeals } from "../src/civic";
 import { asRecordEvent } from "./helpers";
 
 const clientFor = (events: unknown[]) =>
@@ -126,6 +127,33 @@ test("round-trip parity: org profile — pubkey preserved, is_business false", a
   assert.equal(org.opening_hours, "Mo-Fr 9-17");
   assert.equal(org.pubkey, pubkey);
   assert.equal(org.is_business, false);
+  // orgToSpec publishes the row's own sub_type under the shared `category`
+  // key — for an accounts org (is_business false) that key IS the real
+  // sub_type, unlike businessToSpec's hardcoded "business" marker.
+  assert.equal(org.category, "verein");
+  assert.equal(org.business_category, null);
+  assert.equal(org.website, null);
+});
+
+// --- business_category / website: on the wire, not previously surfaced ---
+//
+// businessToSpec publishes the businesses table's real category under
+// profile.business_category (mappers.ts:267-268) — separate from the
+// hardcoded "business" marker under profile.category, which OrgRow.category
+// alone cannot distinguish from an accounts org's real sub_type. Same class
+// of gap as the karte/page.tsx lat/lng fix: on the wire, not yet mapped.
+test("round-trip parity: business_category and website are recovered on OrgRow", async () => {
+  const bizRow = {
+    id: "b2", status: "published", name: "Gasthaus Seeblick", category: "gastronomie",
+    website_url: "https://gasthaus-seeblick.example", slug: "gasthaus-seeblick",
+    updated_at: "2026-07-02T10:00:00Z",
+  };
+  const spec = businessToSpec(bizRow, "roebel");
+  const [org] = await listOrgs(clientFor([asRecordEvent(spec!)]));
+  assert.equal(org.is_business, true);
+  assert.equal(org.category, "business");
+  assert.equal(org.business_category, "gastronomie");
+  assert.equal(org.website, "https://gasthaus-seeblick.example");
 });
 
 test("unixToBerlin is the exact inverse of berlinToUnix for a Berlin summer (CEST) instant", () => {
@@ -213,4 +241,32 @@ test("round-trip parity: listArticles — KNOWN LIMITATION: no formal category, 
   // at read time and is reported as one. See the articleCategory doc comment
   // in src/datasets.ts.
   assert.equal(back.category, "sommer");
+});
+
+// --- Task 12: DealRow.media_urls — every `image` tag, not just the first ---
+//
+// dealToSpec pushes one `image` tag for the primary image_url, then one more
+// per media_urls entry (mappers.ts:523-527) — all on the wire. DealRow used
+// to surface only tagValues(...)[0] as image_url; a business-deal card that
+// wants the full gallery needs the whole list. The `createDeal`/`updateDeal`
+// actions (apps/web) always sync image_url = media_urls[0], so a second,
+// DISTINCT photo is the realistic case that proves the fuller gallery is
+// recovered.
+test("round-trip parity: deal media_urls carries every image tag, not just the first", async () => {
+  const dealRow = {
+    id: "d1", business_id: "b1", title: "Sommer-Rabatt", description: "20% auf alles",
+    deal_type: "discount", deal_value: "20%", image_url: "https://x/cover.jpg",
+    media_urls: ["https://x/cover.jpg", "https://x/second.jpg"],
+    start_date: "2026-08-01", end_date: "2026-08-31", status: "active", is_active: true,
+    updated_at: "2026-07-02T10:00:00Z",
+  };
+  const spec = dealToSpec(dealRow, new Map([["b1", "Café am Hafen"]]));
+  const [deal] = await listDeals(clientFor([asRecordEvent(spec!)]));
+  assert.equal(deal.image_url, "https://x/cover.jpg");
+  // dealToSpec pushes image_url's own tag first, then one per media_urls
+  // entry — since media_urls[0] IS image_url in real usage, the cover photo
+  // is genuinely duplicated on the wire. Pinned as-is rather than deduped,
+  // same "trust the wire" discipline as the rest of this file.
+  assert.deepEqual(deal.media_urls, ["https://x/cover.jpg", "https://x/cover.jpg", "https://x/second.jpg"]);
+  assert.equal(deal.business_name, "Café am Hafen");
 });

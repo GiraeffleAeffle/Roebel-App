@@ -37,7 +37,7 @@ test("round-trip parity: an org-owned active listing joins back to its org by pu
   const listingRow = {
     id: "l2", account_id: accountId, title: "Schubkarre", description: "Kaum genutzt",
     price: "15", category: "garten", condition: "gebraucht", media_urls: ["https://x/1.jpg"],
-    neighborhood: "Seeblick", status: "active", updated_at: "2026-07-02T10:00:00Z",
+    neighborhood: "Seeblick", status: "active", listing_type: "service", updated_at: "2026-07-02T10:00:00Z",
   };
   const orgSpec = orgToSpec(orgRow, nodeId)!;
   const listingSpec = listingToSpec(listingRow, new Set([accountId]), new Map())!;
@@ -50,9 +50,16 @@ test("round-trip parity: an org-owned active listing joins back to its org by pu
   assert.equal(listing.price, "15");
   assert.equal(listing.category, "garten");
   assert.equal(listing.condition, "gebraucht");
+  // listingToSpec publishes listing_type as content.type, not a tag — on the
+  // wire alongside description/price/condition, previously unread.
+  assert.equal(listing.listing_type, "service");
   assert.deepEqual(listing.media_urls, ["https://x/1.jpg"]);
   assert.equal(listing.location, "Seeblick");
   assert.equal(listing.status, "active");
+  // listingToSpec sets createdAt = unixFromUpdatedAt(row) on the event
+  // envelope — recovered here instead of round-tripping to "" (which used
+  // to render as "Invalid Date" on the marketplace detail page).
+  assert.equal(listing.created_at, new Date(listingSpec.createdAt * 1000).toISOString());
   // Org listings carry no seller "p" tag (listingToSpec only attributes personal sellers) —
   // pubkey is the only join signal for the org case, same rule as events/articles.
   assert.equal(listing.seller_npub, null);

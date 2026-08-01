@@ -22,11 +22,40 @@ import type {
 import { useAppMode } from "@/lib/context/AppModeContext";
 import { useUserProfile } from "@/hooks/useUserProfile";
 import { Landmark, ShieldCheck } from "lucide-react";
+import { hasSupabase, recordClient } from "@/lib/record";
+import { listNotices, RecordUnavailableError, type NoticeRow } from "@netizen-labs/record-client";
 
 type StadtFeedItem =
   | { kind: "post"; data: PostWithEngagement; created_at: string }
   | { kind: "proposal"; data: ProposalFeedItem; created_at: string }
   | { kind: "proposal_comment"; data: ProposalCommentFeedItem; created_at: string };
+
+/**
+ * noticeToSpec (packages/publisher/src/mappers.ts) never publishes an
+ * alert_type/location, and there is no separate starts_at tag — only
+ * title/message/severity/status. alert_type falls back to the same
+ * "general" AlertCard itself falls back to for any unrecognised value, so
+ * this is an explicit, honest choice rather than a guess. starts_at reuses
+ * the notice event's own created_at (added to NoticeRow for this) — "since
+ * when this notice has been visible on the record" is the closest honest
+ * reading available.
+ */
+function noticeToAlert(n: NoticeRow): ServiceAlert {
+  return {
+    id: n.id,
+    title: n.title,
+    description: n.message || null,
+    alert_type: "general",
+    severity: (n.severity ?? "warning") as ServiceAlert["severity"],
+    status: "active",
+    location: null,
+    starts_at: n.created_at,
+    ends_at: null,
+    created_at: n.created_at,
+    updated_at: n.created_at,
+    created_by: "",
+  };
+}
 
 export function StadtFeed() {
   const account = useActiveAccount();
@@ -54,16 +83,60 @@ export function StadtFeed() {
   useEffect(() => {
     async function fetchStadt() {
       setLoading(true);
+
+      // getPostsForFeed already branches on hasSupabase internally (it is
+      // the app-wide "record mode" feed reader), so it is called the same
+      // way in both modes.
+      const postsResult = await getPostsForFeed({
+        limit: 30,
+        viewerWallet: account?.address,
+        feedType: "rathaus",
+      });
+      if (postsResult.success && postsResult.data) {
+        setPosts(postsResult.data);
+      }
+
+      if (!hasSupabase) {
+        // Proposal feed items and proposal comments both need vote tallies
+        // and a proposer wallet address that no record dataset carries
+        // (ProposalMetaRow has no for_votes/against_votes/proposer_address —
+        // see civic.ts) — same "hide rather than fabricate" call the home
+        // page already makes for its featured-proposal hero. Alerts and
+        // announcements come from listNotices(), split by its `kind` field.
+        setProposals([]);
+        setProposalComments([]);
+        try {
+          const notices = await listNotices(recordClient);
+          setAlerts(
+            notices
+              .filter((n) => n.kind === "service_alert" && n.status === "active")
+              .slice(0, 3)
+              .map(noticeToAlert)
+          );
+          setAnnouncements(
+            notices
+              .filter((n) => n.kind === "announcement" && n.status === "active")
+              .slice(0, 5)
+              .map((n) => ({ id: n.id, title: n.title, content: n.message, created_at: n.created_at }))
+          );
+        } catch (error) {
+          if (!(error instanceof RecordUnavailableError)) throw error;
+          setAlerts([]);
+          setAnnouncements([]);
+        }
+        setLoading(false);
+        return;
+      }
+
       const supabase = createClient();
 
-      const [alertsRes, postsResult, proposalsList, commentsList, announcementsRes] = await Promise.all([
+      const [alertsRes, proposalsList, commentsList, announcementsRes] = await Promise.all([
         supabase
           .from("service_alerts")
           .select("*")
           .eq("status", "active")
           .order("severity", { ascending: true })
           .limit(3),
-        getPostsForFeed({ limit: 30, viewerWallet: account?.address, feedType: "rathaus" }),
         fetchProposalsForFeed(20),
         fetchRecentProposalComments(30),
         supabase
@@ -75,9 +148,6 @@ export function StadtFeed() {
       ]);
 
       setAlerts((alertsRes.data || []) as ServiceAlert[]);
-      if (postsResult.success && postsResult.data) {
-        setPosts(postsResult.data);
-      }
       setProposals(proposalsList);
       setProposalComments(commentsList);
       setAnnouncements(announcementsRes.data || []);

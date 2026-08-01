@@ -19,6 +19,8 @@ import { createAppNotification } from "@/app/actions/app-notifications"
 import { isAccountOwner, fetchAccountById } from "@/lib/supabase-accounts"
 import { isVerifiedCitizen } from "@/lib/server/verify-citizen"
 import { isOrgAccount } from "@/types/account"
+import { hasSupabase, recordClient } from "@/lib/record"
+import { listPosts, RecordUnavailableError } from "@netizen-labs/record-client"
 
 // ============================================
 // Helper: build poll results for a set of posts
@@ -100,7 +102,63 @@ export interface GetPostsForFeedOptions {
 export async function getPostsForFeed(
   options: GetPostsForFeedOptions = {}
 ): Promise<{ success: boolean; data?: PostWithEngagement[]; error?: string }> {
-  const { limit = 20, offset = 0, viewerWallet, feedType, category } = options
+  const { limit = 20, offset = 0, feedType } = options
+
+  // Record mode: no account_id/wallet_address/poll/link tables exist — every
+  // viewer-specific or Supabase-only field gets an explicit, honest neutral
+  // instead of being fabricated. category has no record equivalent (Nostr
+  // posts carry no PostCategory tag) so it falls back to "generell", the
+  // same "no specific category" value the Supabase branch below already uses
+  // — PostCard only shows the category badge when it is NOT "generell", so
+  // this neutral is naturally hidden rather than rendering a fake badge.
+  // wallet_address doubles as PostCard's existing agent/bot signal
+  // (`isMecky = wallet_address === "mecky_bot"`) — is_agent is preserved onto
+  // it rather than dropped, so machine speech stays labelled. A real wallet
+  // is never fabricated (never render a raw address); personal AND org posts
+  // both flow through author_username so the correct display name still
+  // shows, at the cost of the org sub-type pill (no on-chain signal exists
+  // to pick "Gewerbe"/"Verein"/"Stadt"/"Fraktion" honestly).
+  if (!hasSupabase) {
+    try {
+      const posts = await listPosts(recordClient, { limit: offset + limit })
+      const page = posts.slice(offset, offset + limit)
+      const data: PostWithEngagement[] = page.map((p) => ({
+        id: p.id,
+        wallet_address: p.is_agent ? "mecky_bot" : "",
+        account_id: null,
+        content: p.content,
+        media_urls: p.media_urls,
+        video_url: null,
+        category: "generell" as PostCategory,
+        status: "published" as Post["status"],
+        likes_count: p.likes_count,
+        comments_count: p.comments_count,
+        created_at: p.created_at,
+        updated_at: p.created_at,
+        post_type: "user" as PostType,
+        feed_type: (feedType ?? "main") as FeedType,
+        linked_event_id: null,
+        linked_experience_id: null,
+        author_username: p.author_name ?? "Unbekannt",
+        author_profile_picture_url: p.author_avatar,
+        author_neighborhood: null,
+        author_account_name: null,
+        author_account_avatar_url: null,
+        author_account_type: null,
+        links: [],
+        is_liked_by_viewer: false,
+        is_reported_by_viewer: false,
+        poll: null,
+        linked_event: null,
+      }))
+      return { success: true, data }
+    } catch (error) {
+      if (error instanceof RecordUnavailableError) return { success: true, data: [] }
+      throw error
+    }
+  }
+
+  const { viewerWallet, category } = options
   try {
     const supabase = await createClient()
 

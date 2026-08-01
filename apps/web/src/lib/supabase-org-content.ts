@@ -1,6 +1,13 @@
 /**
  * Account-scoped content for the public org page: posts (in PostWithEngagement
  * shape so <PostCard> can render them), events, and marketplace listings.
+ *
+ * Record mode: there is no Supabase `accounts` UUID to key on, so every
+ * caller here (OrgDetailClient, AccountPostsList) passes the org's SLUG in
+ * the `accountId` parameter instead — `getOrgBySlug` resolves it back to the
+ * org's signing pubkey, which is the actual join key events/posts/listings
+ * carry on the wire (see `EventRow.pubkey` / `RecordPost.author_pubkey` /
+ * `ListingRow.pubkey` doc comments in @netizen-labs/record-client).
  */
 
 import { supabase } from "./supabase";
@@ -12,6 +19,14 @@ import type {
   FeedType,
   PostLink,
 } from "@/types/post";
+import { hasSupabase, recordClient } from "@/lib/record";
+import {
+  getOrgBySlug,
+  listEvents,
+  listListings,
+  listPosts,
+  RecordUnavailableError,
+} from "@netizen-labs/record-client";
 
 export interface EventRecord {
   id: string;
@@ -47,6 +62,50 @@ export async function fetchAccountPosts(
   opts: { pageSize?: number; viewerWallet?: string | null } = {}
 ): Promise<PostWithEngagement[]> {
   const pageSize = opts.pageSize ?? 30;
+
+  if (!hasSupabase) {
+    try {
+      const org = await getOrgBySlug(recordClient, accountId);
+      if (!org) return [];
+      const posts = await listPosts(recordClient, { limit: 200 });
+      return posts
+        .filter((p) => p.author_pubkey === org.pubkey)
+        .slice(0, pageSize)
+        .map((p) => ({
+          id: p.id,
+          wallet_address: p.is_agent ? "mecky_bot" : "",
+          account_id: null,
+          content: p.content,
+          media_urls: p.media_urls,
+          video_url: null,
+          category: "generell" as PostCategory,
+          status: "published" as Post["status"],
+          likes_count: p.likes_count,
+          comments_count: p.comments_count,
+          created_at: p.created_at,
+          updated_at: p.created_at,
+          post_type: "user" as PostType,
+          feed_type: "main" as FeedType,
+          linked_event_id: null,
+          linked_experience_id: null,
+          author_username: p.author_name ?? "Unbekannt",
+          author_profile_picture_url: p.author_avatar,
+          author_neighborhood: null,
+          author_account_name: null,
+          author_account_avatar_url: null,
+          author_account_type: null,
+          links: [],
+          is_liked_by_viewer: false,
+          is_reported_by_viewer: false,
+          poll: null,
+          linked_event: null,
+        }));
+    } catch (error) {
+      if (error instanceof RecordUnavailableError) return [];
+      throw error;
+    }
+  }
+
   const viewer = opts.viewerWallet?.toLowerCase() ?? null;
 
   const { data: posts, error } = await supabase
@@ -150,6 +209,31 @@ export async function fetchEventsByAccount(
   accountId: string,
   limit = 12
 ): Promise<EventRecord[]> {
+  if (!hasSupabase) {
+    try {
+      const org = await getOrgBySlug(recordClient, accountId);
+      if (!org) return [];
+      const events = await listEvents(recordClient, { limit: 200 });
+      return events
+        .filter((e) => e.pubkey === org.pubkey)
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .slice(0, limit)
+        .map((e) => ({
+          id: e.id,
+          account_id: null,
+          title: e.title,
+          date: e.date,
+          time: e.time,
+          location: e.location,
+          image_url: e.image_url,
+          status: "approved",
+        }));
+    } catch (error) {
+      if (error instanceof RecordUnavailableError) return [];
+      throw error;
+    }
+  }
+
   const { data, error } = await supabase
     .from("events")
     .select("id, account_id, title, date, time, location, image_url, status")
@@ -167,6 +251,40 @@ export async function fetchEventsByAccount(
 export async function fetchOrgListings(
   accountId: string
 ): Promise<MarketplaceListingRecord[]> {
+  if (!hasSupabase) {
+    try {
+      const org = await getOrgBySlug(recordClient, accountId);
+      if (!org) return [];
+      const listings = await listListings(recordClient, { limit: 200 });
+      return listings
+        .filter((l) => l.pubkey === org.pubkey)
+        .map((l) => ({
+          id: l.id,
+          account_id: null,
+          title: l.title,
+          description: l.description,
+          listing_type: l.listing_type === "service" ? "service" : "product",
+          // ListingRow.price is a free-text string (mirrors what the
+          // listing form submitted) — Number() on a non-numeric price would
+          // silently produce NaN, which formatListingPrice-style renderers
+          // treat as "no price"; that is the same degrade the Supabase
+          // branch's own `Number(row.price) || 0` gets for a malformed value.
+          price: l.price !== null && Number.isFinite(Number(l.price)) ? Number(l.price) : null,
+          // price_type (fixed/negotiable/free) has no record equivalent —
+          // listingToSpec (mappers.ts) never publishes it. "fixed" is the
+          // most common real value and, unlike "free"/"negotiable", never
+          // changes the displayed price's meaning when it is actually wrong.
+          price_type: "fixed",
+          media_urls: l.media_urls,
+          status: "active",
+          created_at: "",
+        }));
+    } catch (error) {
+      if (error instanceof RecordUnavailableError) return [];
+      throw error;
+    }
+  }
+
   const { data, error } = await supabase
     .from("marketplace_listings")
     .select(
