@@ -1,6 +1,6 @@
 # State of the Netizen Node
 
-**Last verified: 2026-07-29**, by reading the running node. Part of the
+**Last verified: 2026-08-01**, by reading the running node. Part of the
 [documentation index](README.md); see also
 [State of the Netizen Stack](STATE_OF_THE_NETIZEN_STACK.md) and
 [State of Nostr](STATE_OF_NOSTR.md).
@@ -26,9 +26,10 @@ stays on Fly, so the box itself needs very few secrets.
 DNS is at **IONOS**, not Vercel or Hetzner. A records for `*.roebel.app` that point at the
 node are edited there.
 
-**Measured footprint (2026-07-30):** the full stack — 18 containers including Nextcloud,
-Collabora, Matrix, Postgres, three relays and the indexer — uses **2.1 GiB RAM, 11 GB disk,
-and rounds to 0% CPU**. The relay + mirror + indexer alone are under 100 MB combined. The box
+**Measured footprint (2026-08-01):** the full stack — 23 containers including Nextcloud,
+Collabora, Matrix, Postgres, three relays, the indexer and the Buzz workspace bundle —
+uses **2.3 GiB RAM, 13 GB disk, and rounds to 0% CPU**. The Buzz slice (relay +
+dedicated Postgres 17 + Redis + MinIO) cost ~220 MiB RAM and ~1 GB of images. The relay + mirror + indexer alone are under 100 MB combined. The box
 is dramatically oversized for the civic stack, which is what makes a town-local mini-PC or a
 €50 light mirror realistic — see [roadmap #19](ROADMAP_AND_DEFERRED.md); what would actually
 consume a sovereign machine is local AI inference
@@ -52,6 +53,10 @@ Verified live 2026-07-28:
 | `roebel-mirror-1` | `strfry` | the **federation mirror**, read-only |
 | `roebel-federation-1` | `strfry` | pulls declared peers into the mirror |
 | `roebel-indexer-1` | `node:22-alpine` | cross-node query API over both stores |
+| `roebel-buzz-1` | `ghcr.io/block/buzz:sha-3e48f1b` | **agentic workspace** (line B) — `buzz.roebel.app`, closed relay (NIP-42/43), membership relay-signed |
+| `roebel-buzz-postgres-1` | `postgres:17-alpine` | Buzz's own DB — deliberately NOT the shared postgres:16 |
+| `roebel-buzz-redis-1` | `redis:7-alpine` | Buzz pub/sub + presence |
+| `roebel-buzz-minio-1` | `minio/minio` | Buzz media (Blossom/S3), path-style |
 | `testnode-strfry` | `strfry` | **node #2** — its own members-only relay |
 | `testnode-mirror` | `strfry` | node #2's federation mirror |
 | `testnode-federation` | `strfry` | node #2 pulling Röbel |

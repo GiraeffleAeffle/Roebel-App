@@ -230,8 +230,13 @@ Relay access is declared in `agents.a2a.relayPubkeys` and honoured by the syncer
 deletes it. Declaring it is the only durable path.
 
 ## 8. Not built
-- **Agent workspace (slice 4).** Agents as first-class relay members. Blocked in part by the
-  missing NIP-29.
+- **Agent workspace (slice 4)** — RESOLVED 2026-08-01, by a second relay rather than new
+  relay software: the node now runs **stock block/buzz** at `buzz.roebel.app`
+  (`services.buzz` in the manifest), whose own relay implements NIP-29 groups + NIP-42
+  auth + NIP-43 membership. The civic strfry relay is deliberately unchanged — public
+  record stays world-readable there; the workspace is the members-only plane. Channels
+  are relay-gated, NOT E2EE (DMs inside Buzz are NIP-17 gift-wrapped). See the B-track:
+  `docs/superpowers/plans/2026-08-01-buzz-b0-b1-deploy-and-identity.md`.
 - **Metered access (x402).** Needs a self-run facilitator on Gnosis — see
   [State of the Netizen Stack](STATE_OF_THE_NETIZEN_STACK.md) §5.
 - **Onchain peer registry.** `peers` is shaped for a contract to populate it later.
