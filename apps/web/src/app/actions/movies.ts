@@ -2,6 +2,8 @@
 
 import { createClient } from "@/lib/supabase/server"
 import { revalidatePath } from "next/cache"
+import { hasSupabase, recordClient } from "@/lib/record"
+import { listMovies, RecordUnavailableError } from "@netizen-labs/record-client"
 
 export interface Movie {
   id: string
@@ -15,6 +17,48 @@ export interface Movie {
   status: "draft" | "published" | "archived"
   created_at: string
   updated_at: string
+}
+
+/** Published cinema screenings, ordered by date ascending. */
+export async function getPublishedMovies(): Promise<Movie[]> {
+  if (!hasSupabase) {
+    try {
+      const rows = await listMovies(recordClient, { limit: 50 })
+      return rows
+        .map((m) => ({
+          id: m.id,
+          title: m.title,
+          description: m.description,
+          date: m.date,
+          time: m.time,
+          cover_image_url: m.cover_image_url,
+          trailer_youtube_url: m.trailer_youtube_url,
+          fsk: m.fsk,
+          status: m.status,
+          created_at: m.created_at,
+          updated_at: m.updated_at,
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date))
+    } catch (error) {
+      if (error instanceof RecordUnavailableError) return []
+      throw error
+    }
+  }
+
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from("movies")
+    .select("*")
+    .eq("status", "published")
+    .order("date", { ascending: true })
+
+  if (error) {
+    console.error("Error fetching movies:", error)
+    return []
+  }
+
+  return (data as Movie[]) || []
 }
 
 export async function createMovie(formData: FormData) {

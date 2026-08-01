@@ -11,6 +11,8 @@ import { EventsHeader } from "@/components/events/events-header"
 import { DeepLinkRedirect } from "@/components/deep-link-redirect"
 import { ExperienceSection } from "@/components/app/ExperienceSection"
 import { getExperiences, getExperienceCount } from "@/app/actions/experiences"
+import { hasSupabase, recordClient } from "@/lib/record"
+import { getEventById, RecordUnavailableError } from "@netizen-labs/record-client"
 
 interface Event {
   id: string
@@ -32,6 +34,36 @@ interface Event {
 }
 
 async function getEvent(id: string): Promise<Event | null> {
+  if (!hasSupabase) {
+    try {
+      const row = await getEventById(recordClient, id)
+      if (!row) return null
+      return {
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        date: row.date,
+        time: row.time,
+        end_time: row.end_time,
+        location: row.location ?? "",
+        // No record equivalent (eventToSpec never publishes organiser
+        // contact data) — explicit neutral, never fabricated.
+        organizer_name: "",
+        organizer_email: "",
+        organizer_phone: null,
+        category: row.category,
+        image_url: row.image_url,
+        website_url: row.website_url,
+        ticket_price: row.ticket_price !== null ? Number(row.ticket_price) : null,
+        max_attendees: null,
+        created_at: "",
+      }
+    } catch (err) {
+      if (err instanceof RecordUnavailableError) return null
+      throw err
+    }
+  }
+
   const supabase = await createClient()
 
   const { data: event, error } = await supabase
