@@ -5,6 +5,7 @@ import { EventsGrid } from "@/components/events/events-grid"
 import { EventsFilters } from "@/components/events/events-filters"
 import { EventsGridSkeleton, FilterSkeleton } from "@/components/skeletons"
 import { createClient } from "@/lib/supabase/client"
+import { hasSupabase } from "@/lib/record"
 
 interface Event {
   id: string
@@ -39,9 +40,25 @@ export function EventsPage({ initialEvents, initialCategory = "All Events" }: Ev
 
   const handleCategoryChange = async (category: string) => {
     if (category === currentCategory) return
-    
+
     setLoading(true)
     setCurrentCategory(category)
+
+    if (!hasSupabase) {
+      // Record mode: no live re-query — re-filter the events already sent to
+      // this page instead of calling Supabase. Exact only when the page's
+      // initial category was "All Events" (app/page.tsx's record-mode loader
+      // already scopes `initialEvents` to whatever category was in the URL);
+      // switching between two non-"All Events" categories can undercount
+      // until a record-mode client-side re-fetch exists.
+      setEvents(
+        category === "All Events"
+          ? initialEvents
+          : initialEvents.filter((e) => e.category === category),
+      )
+      setLoading(false)
+      return
+    }
 
     try {
       let query = supabase.from("events").select("*").eq("status", "approved").order("date", { ascending: true })

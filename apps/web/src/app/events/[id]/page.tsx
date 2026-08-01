@@ -193,10 +193,12 @@ export default async function EventDetailPage({
                     </div>
                   )}
 
-                  <div className="flex items-start gap-3">
-                    <MapPin className="h-4 w-4 md:h-5 md:w-5 text-primary flex-shrink-0 mt-0.5" />
-                    <span className="text-sm md:text-base">{event.location}</span>
-                  </div>
+                  {event.location && (
+                    <div className="flex items-start gap-3">
+                      <MapPin className="h-4 w-4 md:h-5 md:w-5 text-primary flex-shrink-0 mt-0.5" />
+                      <span className="text-sm md:text-base">{event.location}</span>
+                    </div>
+                  )}
 
                   {event.ticket_price !== null && event.ticket_price > 0 && (
                     <div className="flex items-center gap-3">
@@ -219,10 +221,12 @@ export default async function EventDetailPage({
                   <CardTitle className="text-xl">Veranstalter</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <User className="h-5 w-5 text-primary" />
-                    <span className="font-medium">{event.organizer_name}</span>
-                  </div>
+                  {event.organizer_name && (
+                    <div className="flex items-center gap-3">
+                      <User className="h-5 w-5 text-primary" />
+                      <span className="font-medium">{event.organizer_name}</span>
+                    </div>
+                  )}
 
                   {event.organizer_phone && (
                     <div className="flex items-center gap-3">
@@ -232,11 +236,13 @@ export default async function EventDetailPage({
                   )}
 
                   <div className="space-y-2 pt-2">
-                    <Button asChild className="w-full">
-                      <Link href={`mailto:${event.organizer_email}?subject=Anfrage zu ${event.title}`}>
-                        Kontakt aufnehmen
-                      </Link>
-                    </Button>
+                    {event.organizer_email && (
+                      <Button asChild className="w-full">
+                        <Link href={`mailto:${event.organizer_email}?subject=Anfrage zu ${event.title}`}>
+                          Kontakt aufnehmen
+                        </Link>
+                      </Button>
+                    )}
 
                     {event.website_url && (
                       <Button variant="outline" asChild className="w-full bg-transparent">

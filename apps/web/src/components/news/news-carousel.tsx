@@ -98,11 +98,15 @@ export function NewsCarousel({ articles }: NewsCarouselProps) {
 
                 {/* Metadata */}
                 <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1">
-                    <User className="h-3 w-3" />
-                    {article.author_name}
-                  </span>
-                  <span>•</span>
+                  {article.author_name && (
+                    <>
+                      <span className="flex items-center gap-1">
+                        <User className="h-3 w-3" />
+                        {article.author_name}
+                      </span>
+                      <span>•</span>
+                    </>
+                  )}
                   <span className="flex items-center gap-1">
                     <Calendar className="h-3 w-3" />
                     {new Date(article.published_at).toLocaleDateString("de-DE", {

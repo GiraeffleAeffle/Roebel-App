@@ -147,10 +147,12 @@ export function EventsGrid({ events }: EventsGridProps) {
                       </div>
                     )}
 
-                    <div className="flex items-center gap-1.5">
-                      <MapPin className="h-4 w-4 flex-shrink-0" />
-                      <span className="truncate">{event.location}</span>
-                    </div>
+                    {event.location && (
+                      <div className="flex items-center gap-1.5">
+                        <MapPin className="h-4 w-4 flex-shrink-0" />
+                        <span className="truncate">{event.location}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

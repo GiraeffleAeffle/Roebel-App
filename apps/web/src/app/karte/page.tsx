@@ -3,7 +3,8 @@ import { MapView } from "@/components/maps/MapView"
 import type { MapEvent, MapBusiness, MapRestaurant } from "@/components/maps/MapView"
 import Link from "next/link"
 import Image from "next/image"
-import { hasSupabase } from "@/lib/record"
+import { hasSupabase, recordClient } from "@/lib/record"
+import { listEvents, RecordUnavailableError } from "@netizen-labs/record-client"
 
 export const dynamic = "force-dynamic"
 
@@ -39,12 +40,47 @@ function KarteShell({ events, businesses, restaurants }: { events: MapEvent[]; b
 
 export default async function PublicKartePage() {
   if (!hasSupabase) {
-    // Record mode: neither `EventRow` nor `OrgRow` (packages/record-client/
-    // src/datasets.ts) carry latitude/longitude/address/phone today — the
-    // town record has no geodata to plot. Rather than fabricate coordinates,
-    // the map renders with no markers instead of crashing on the Supabase
-    // client construction below.
-    return <KarteShell events={[]} businesses={[]} restaurants={[]} />
+    // Record mode: `eventToSpec` (packages/publisher/src/mappers.ts:142-148)
+    // DOES publish `latitude`/`longitude`/`address` tags, and `EventRow`
+    // (record-client) now carries them — so real event markers render below.
+    //
+    // Business/restaurant markers stay hidden, for two DIFFERENT and
+    // accurate reasons (do not conflate them):
+    //  - Businesses: `businessToSpec` publishes an `address` string (now on
+    //    `OrgRow.address`) but NEVER a latitude/longitude — coordinates are
+    //    genuinely NOT PUBLISHED to the record, not merely unmapped. No
+    //    record-client change can recover a marker position for a business
+    //    until the publish side adds geocoding to the wire.
+    //  - Restaurants: no restaurant profile is published to the record at
+    //    all today (see `MenuData`'s pubkey doc, packages/record-client/src/
+    //    civic.ts) — a restaurant has neither address nor coordinates on the
+    //    wire, so there is nothing to map, published or otherwise.
+    let events: MapEvent[] = []
+    try {
+      const rows = await listEvents(recordClient, { limit: 200 })
+      events = rows
+        .filter((e): e is typeof e & { latitude: number; longitude: number } => e.latitude !== null && e.longitude !== null)
+        .map((e) => ({
+          id: e.id,
+          title: e.title,
+          description: e.description,
+          date: e.date,
+          time: e.time,
+          end_time: e.end_time,
+          location: e.location ?? e.address ?? "",
+          category: e.category,
+          latitude: e.latitude,
+          longitude: e.longitude,
+          image_url: e.image_url,
+          // No record equivalent (eventToSpec never publishes organiser
+          // contact data) — MapEvent allows null here, so no fake string.
+          organizer_name: null,
+        }))
+    } catch (err) {
+      if (!(err instanceof RecordUnavailableError)) throw err
+      events = []
+    }
+    return <KarteShell events={events} businesses={[]} restaurants={[]} />
   }
 
   const supabase = await createClient()

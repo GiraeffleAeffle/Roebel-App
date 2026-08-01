@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { articleToSpec, eventToSpec, movieToSpec, newsToSpec, orgToSpec } from "@netizen-labs/publisher";
+import { articleToSpec, businessToSpec, eventToSpec, movieToSpec, newsToSpec, orgToSpec } from "@netizen-labs/publisher";
 import { deriveOrgIdentity } from "@netizen-labs/nostr";
 import { RecordClient } from "../src/index";
 import { listArticles, listEvents, listMovies, listNews, listOrgs, unixToBerlin } from "../src/datasets";
@@ -23,6 +23,50 @@ test("round-trip parity: event row → publisher spec → record row", async () 
   assert.equal(back.time, "19:30");
   assert.equal(back.location, "Stadthafen");
   assert.equal(back.image_url, "https://x/e.jpg");
+});
+
+// --- Review fix: karte/page.tsx record-mode markers ---
+//
+// eventToSpec DOES publish latitude/longitude/address tags (mappers.ts
+// eventToSpec:142-148) — an earlier pass wrongly treated this as absent from
+// the record and rendered an empty map. These pin that the coordinates
+// actually survive the wire round-trip, same discipline as the media_urls
+// fix before it.
+
+test("round-trip parity: event coordinates and address survive eventToSpec → listEvents", async () => {
+  const row = {
+    id: "e10", title: "Open-Air-Kino", description: "Filmabend am See", date: "2026-08-22", time: "21:00",
+    formatted_address: "Seepromenade 3, 17207 Röbel/Müritz", latitude: 53.3706, longitude: 12.6033,
+    status: "approved", updated_at: "2026-07-02T10:00:00Z",
+  };
+  const spec = eventToSpec(row, new Set(), new Map());
+  const [back] = await listEvents(clientFor([asRecordEvent(spec!)]));
+  assert.equal(back.address, "Seepromenade 3, 17207 Röbel/Müritz");
+  assert.equal(back.latitude, 53.3706);
+  assert.equal(back.longitude, 12.6033);
+});
+
+test("round-trip parity: event with no address/coordinates round-trips to null, not 0", async () => {
+  const row = {
+    id: "e11", title: "Sitzung im Rathaus", date: "2026-08-23", time: "18:00",
+    status: "approved", updated_at: "2026-07-02T10:00:00Z",
+  };
+  const spec = eventToSpec(row, new Set(), new Map());
+  const [back] = await listEvents(clientFor([asRecordEvent(spec!)]));
+  assert.equal(back.address, null);
+  assert.equal(back.latitude, null);
+  assert.equal(back.longitude, null);
+});
+
+test("round-trip parity: business address is recovered on OrgRow; businessToSpec never publishes lat/lng", async () => {
+  const bizRow = {
+    id: "b1", status: "published", name: "Café am Hafen", address: "Am Hafen 2, 17207 Röbel/Müritz",
+    category: "gastronomie", slug: "cafe-am-hafen", updated_at: "2026-07-02T10:00:00Z",
+  };
+  const spec = businessToSpec(bizRow, "roebel");
+  const [org] = await listOrgs(clientFor([asRecordEvent(spec!)]));
+  assert.equal(org.address, "Am Hafen 2, 17207 Röbel/Müritz");
+  assert.equal(org.is_business, true);
 });
 
 test("round-trip parity: news", async () => {

@@ -41,6 +41,16 @@ export interface EventRow {
   ticket_price: string | null;
   status: "approved";
   account_id: string | null;
+  /** From the `address` tag (`eventToSpec` publishes `formatted_address` under
+   * this tag name — not to be confused with `location`, which falls back to
+   * the same source column but is a separate tag). Only set when the
+   * organiser filled in a geocoded address. */
+  address: string | null;
+  /** From the `latitude`/`longitude` tags — `eventToSpec` only emits them as
+   * a pair when both are numeric, so on the record either both are set or
+   * both are null. */
+  latitude: number | null;
+  longitude: number | null;
   /**
    * The signing pubkey — NOT in the brief's original interface block, added
    * per review: org-owned events carry no `p` tag (eventToSpec sets
@@ -94,6 +104,14 @@ export interface OrgRow {
   category: string | null;
   opening_hours: string | null;
   is_business: boolean;
+  /** `businessToSpec` publishes `profile.address`; `orgToSpec` never does —
+   * so this is only ever set for a business-category profile (`is_business`
+   * true), null for every other org. Never set for restaurants specifically
+   * (no separate restaurant profile is published today — see MenuData's
+   * pubkey doc comment in civic.ts), and there is no `latitude`/`longitude`
+   * on the wire for any profile kind, so a record-mode map cannot place a
+   * business/restaurant marker even with this field. */
+  address: string | null;
   pubkey: string;
 }
 
@@ -113,6 +131,13 @@ export function unixToBerlin(unix: number): { date: string; time: string } {
 /** "" from a `str() ?? ""` mapper default round-trips to null, same as the never-published row. */
 function nullIfEmpty(v: string): string | null {
   return v === "" ? null : v;
+}
+
+/** A numeric tag value, or `null` if the tag is absent or not a finite number. */
+function numOrNull(v: string | null): number | null {
+  if (v === null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 function toEventRow(ev: RecordEvent): EventRow | null {
@@ -141,6 +166,9 @@ function toEventRow(ev: RecordEvent): EventRow | null {
     // apart without a distinguishing marker the mapper does not emit.
     website_url: tagValues(ev, "r")[0] ?? null,
     ticket_price: tagValue(ev, "price"),
+    address: tagValue(ev, "address"),
+    latitude: numOrNull(tagValue(ev, "latitude")),
+    longitude: numOrNull(tagValue(ev, "longitude")),
     status: "approved",
     // Never published to the record (mappers.ts §eventToSpec) — the record's
     // privacy boundary drops the Supabase account id on purpose; a keyless
@@ -318,6 +346,7 @@ export async function listOrgs(client: RecordClient): Promise<OrgRow[]> {
       category: str("category"),
       opening_hours: str("opening_hours"),
       is_business: str("category") === "business",
+      address: str("address"),
       pubkey: ev.pubkey,
     });
   }
