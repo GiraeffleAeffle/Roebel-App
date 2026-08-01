@@ -75,8 +75,18 @@ Requires Docker Compose ≥ 2.24.4 only for upstream's `!reset` TLS override, wh
   stored), `add-member --pubkey <hex>` — publishes a **kind:13534 membership event signed with
   `BUZZ_RELAY_PRIVATE_KEY`**. Membership add/remove is therefore an auditable relay-signed event,
   not a DB poke. This is the B1.1 revocation surface.
-- **Invite links** (v0.5.0 “use-limited invite links”, PR #3141): a desktop-client flow; no CLI
-  surface found. B1.2 pilots onboard via desktop-generated invite links.
+- **Invite links** (v0.5.0 "use-limited invite links", PR #3141): **correction — there is a
+  server-side REST API, not desktop-only.** `crates/buzz-relay/src/api/invites.rs`:
+  `POST /api/invites` mints a code (NIP-98-signed, caller must hold `owner`/`admin` relay role,
+  `invites.rs:267-339`); `POST /api/invites/claim` redeems it (NIP-98-signed by the *joining*
+  pubkey, deliberately exempt from the membership gate, `invites.rs:347-501`). Params: `ttl_secs`
+  (`MIN_INVITE_TTL_SECS..MAX_INVITE_TTL_SECS`, default 72h) and `max_uses` (1..`MAX_INVITE_USES`,
+  omitted = unlimited — this is the "use-limited" part). Successful claims publish NIP-43
+  `kind:13534` member-added + roster events, same as `buzz-admin add-member`. Optional ToS/privacy/
+  age-attestation join-policy gate sits in front, with a signed acceptance receipt bound to the
+  code (`invites.rs:99-226`). Since these are plain NIP-98-signed HTTP routes, `buzz-cli` or any
+  HTTP client with a Nostr keypair can mint/claim invites — no desktop app required. B1.2/B1.3 can
+  drive this straight from the installer/CLI rather than depending on desktop-generated links.
 - **`buzz-cli`** (crates/buzz-cli): agent-first, JSON in/out. Auth = `BUZZ_PRIVATE_KEY`
   (NIP-98 Schnorr-signed requests), relay = `BUZZ_RELAY_URL`. Surface: messages
   (send/get/thread/search/edit/delete/send-diff), channels (list/create/join/topic), reactions,
@@ -87,9 +97,24 @@ Requires Docker Compose ≥ 2.24.4 only for upstream's `!reset` TLS override, wh
   `BUZZ_PRIVATE_KEY` + `BUZZ_RELAY_URL`; the harness discovers member channels
   (`GET /api/channels?member=true`) and auto-subscribes on membership notifications. Desktop
   spawns a harness per (agent, community) since v0.4.23; server-side we run buzz-acp ourselves.
-- **Known upstream gap:** no REST/event API for managing *channel* members (only relay
-  members) — buzz-acp README calls it out. Recorded as a B2/B5 watch item, NOT something we patch
-  (fork-last).
+- **Known upstream gap — re-verify live before trusting:** `crates/buzz-acp/README.md:53` claims
+  "the relay doesn't yet have a REST/event API for managing channel members." But
+  `crates/buzz-cli/README.md:123-125` lists working `channels add-member`/`remove-member`/`members`
+  commands. This looks like an upstream doc inconsistency (buzz-acp's README stale, or the gap is
+  narrower than stated — maybe just *private*-channel visibility, not membership writes in
+  general) rather than a real capability gap. Confirm against a running relay before B2/B5 planning
+  leans on either doc's claim; don't take it as settled fact from docs alone.
+- **`buzz-agent`** (crates/buzz-agent, upstream's own minimal ACP LLM agent): confirms a headless
+  agent can run fully server-side with zero desktop dependency — "Not a UI. No TUI, no web, no
+  notifications... API keys come from env. Use systemd, Docker secrets, or a wrapper"
+  (`crates/buzz-agent/README.md:257-259`). Config is 100% env vars (`BUZZ_AGENT_PROVIDER=
+  anthropic|openai|databricks`, no config file). It's Tier-1 in the BYOH runtime catalog (reserved
+  id `buzz-agent`) but is not itself a Desktop feature — pairs with `buzz-acp` as a
+  systemd/container unit on the node, independent of any desktop process. BYOH's Tier-3
+  "custom_harnesses/*.json" mechanism (`crates/buzz-acp/README.md:276-292`) *is*
+  Desktop-app-specific (it's how a human picks a locally-installed binary for Buzz Desktop to
+  spawn) — don't reach for it when wiring a node-hosted agent; use `buzz-acp`+`buzz-agent` (or
+  `buzz-acp`+goose/claude-agent-acp) directly instead.
 
 ## 5. Surprises vs. the spec's assumptions
 
@@ -128,3 +153,36 @@ surface). A dedicated reconciliation session should merge the two copies; filed 
   demo (B3) should exercise: agent triggers, human approves.
 - Owner bootstrap: `RELAY_OWNER_PUBKEY` should be Max's wallet-derived pubkey (hex form of his
   existing npub from the identity bridge) — decided at B0.3, no fresh keypair for the owner.
+
+## 8. Addendum — independent verification pass (2026-08-01, second session)
+
+A parallel B-track session cloned `v0.5.2` independently and reached the same load-bearing
+conclusion (§1's digest pin, confirmed byte-for-byte). Two corrections were made directly above
+(§4's invite-links and channel-member-API bullets). Additional facts this pass verified that
+weren't in the original note:
+
+- **RAM/disk: unstated by upstream for the compose bundle**, confirmed by grep across
+  `deploy/compose/README.md`, `.env.example`, and `README.md` — zero sizing guidance anywhere. The
+  only quantified numbers upstream publishes at all are the **Kubernetes Helm chart's** defaults
+  (`deploy/charts/buzz/values.yaml:160-166`, relay pod: request 500m CPU/512Mi RAM, limit 2 CPU/
+  2Gi RAM), which is k8s-pod sizing for the relay process alone — it says nothing about the
+  compose bundle's Postgres/Redis/MinIO containers, which have no stated limits at all. Treat any
+  RAM/disk figure for the compose stack as an inference to verify with `docker stats` after first
+  deploy, not an upstream-sourced fact.
+- **Multi-tenancy nuance:** the host→community resolution §3 describes is real and exercised in
+  the current test suite (e.g. `code_minted_for_one_community_fails_on_another`,
+  `crates/buzz-relay/src/api/invites.rs:1420-1463`) — confirmed working, not aspirational. What
+  *is* still in progress is the **formal isolation proof** for it:
+  `docs/multi-tenant-relay.md` is headed `draft` and is a TLA+/Tamarin verification effort for
+  hardening this exact boundary (row-level security across N stateless relay processes sharing one
+  Postgres). The mechanism works today; the rigor of its cross-tenant isolation guarantee is what's
+  still being formally nailed down. Doesn't change any B0/B1 decision, but don't cite the "draft"
+  doc as either "not implemented" or "already proven" — it's neither.
+- **`BUZZ_HUDDLE_AUDIO_AVAILABLE`** exists as a relay-side config flag
+  (`crates/buzz-relay/src/config.rs`), and huddle/audio handling lives server-side
+  (`crates/buzz-relay/src/audio/{room,join,mesh,handler,wire}.rs`), with `crates/buzz-relay-mesh`
+  providing cross-pod huddle audio tunneling for HA/k8s only (irrelevant to our single relay
+  process). Could not confirm a "v0.5.3 ships agent transcription" claim specifically, since
+  v0.5.3 as a whole-product version doesn't exist (§1) — only `desktop-v0.5.3`. If B-track work
+  depends on agent transcription specifically, re-check `crates/buzz-agent` and the desktop
+  transcription pipeline directly rather than assuming it landed with any particular tag.
