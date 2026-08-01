@@ -167,6 +167,22 @@
         "element": "https://chat.roebel.app"
       }
     },
+    "buzz": {
+      "url": "https://buzz.roebel.app",
+      "imageTag": "sha-3e48f1b",
+      "ownerPubkey": "4dbcf5811b976212623b75f778e3be404643eb2f200bbb8ac8ebf6f46fecac0a",
+      "agentPubkeys": [
+        "412e639ad250e84faeb3033bba1d20ee09b8a68a2ca8542fcd19d3c2475df16b"
+      ],
+      "secrets": {
+        "postgresPassword": "$BUZZ_POSTGRES_PASSWORD",
+        "redisPassword": "$BUZZ_REDIS_PASSWORD",
+        "s3AccessKey": "$BUZZ_S3_ACCESS_KEY",
+        "s3SecretKey": "$BUZZ_S3_SECRET_KEY",
+        "relayPrivateKey": "$BUZZ_RELAY_PRIVATE_KEY",
+        "gitHookHmac": "$BUZZ_GIT_HOOK_HMAC_SECRET"
+      }
+    },
     "secrets": {
       "nextcloudClientSecret": "$NEXTCLOUD_CLIENT_SECRET",
       "matrixClientSecret": "$MATRIX_CLIENT_SECRET",
@@ -296,7 +312,12 @@
   ],
   "record": {
     "decisions": {
-      "bodies": [{ "id": "stadtvertretung", "noticeScope": "town" }]
+      "bodies": [
+        {
+          "id": "stadtvertretung",
+          "noticeScope": "town"
+        }
+      ]
     }
   },
   "branding": {

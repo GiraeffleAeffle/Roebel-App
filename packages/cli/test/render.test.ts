@@ -80,7 +80,12 @@ test("secrets appear only as references, never resolved values", () => {
   // every secret the manifest names is surfaced as a ref in SECRETS.md
   assert.deepEqual(
     collectSecretRefs(roebel).sort(),
-    ["$COORDINATOR_PUBKEY", "$GNOSIS_BUNDLER_RPC", "$GNOSIS_RPC", "$MATRIX_CLIENT_SECRET", "$NEXTCLOUD_CLIENT_SECRET", "$ROEBEL_ID_JWKS", "$SUPABASE_URL", "$WEB_CLIENT_SECRET"],
+    [
+      "$BUZZ_GIT_HOOK_HMAC_SECRET", "$BUZZ_POSTGRES_PASSWORD", "$BUZZ_REDIS_PASSWORD",
+      "$BUZZ_RELAY_PRIVATE_KEY", "$BUZZ_S3_ACCESS_KEY", "$BUZZ_S3_SECRET_KEY",
+      "$COORDINATOR_PUBKEY", "$GNOSIS_BUNDLER_RPC", "$GNOSIS_RPC", "$MATRIX_CLIENT_SECRET",
+      "$NEXTCLOUD_CLIENT_SECRET", "$ROEBEL_ID_JWKS", "$SUPABASE_URL", "$WEB_CLIENT_SECRET",
+    ],
   );
   // the keystone env references the secret, it does not inline a value
   assert.match(renderBundle(selfHosted).files["roebel-id.env"], /NEXTCLOUD_CLIENT_SECRET=\$NEXTCLOUD_CLIENT_SECRET/);
@@ -95,7 +100,7 @@ test("the plan is ordered and covers every declared surface", () => {
     // Federation follows the relay: peers are mirrored into a store that only
     // exists once the node's own Nostr surface is up.
     // The indexer follows the relay: it indexes stores that must exist first.
-    "mas-oidc", "nostr-relay", "indexer", "federation", "web-env",
+    "mas-oidc", "nostr-relay", "buzz", "indexer", "federation", "web-env",
     // Operations come after the services exist but before "verify" — a node is
     // not verified until it is also survivable.
     "backup", "backup-offsite", "backup-restore-test", "harden", "firewall",
@@ -581,11 +586,15 @@ test("manifest-declared agent keys become the add-members script; humans-only sh
 });
 
 test("buzz is config-gated — an undeclared workspace changes nothing", () => {
-  const compose = renderComposeYml(roebel);
+  // The canonical Röbel manifest now declares buzz, so the baseline is a
+  // variant with it stripped — the assertion stays: no declaration, no trace.
+  const { buzz: _buzz, ...servicesWithoutBuzz } = roebel.services;
+  const noBuzz = { ...roebel, services: servicesWithoutBuzz };
+  const compose = renderComposeYml(noBuzz);
   assert.doesNotMatch(compose, /buzz/i);
-  assert.doesNotMatch(renderCaddyfile(roebel), /buzz/i);
-  assert.equal(renderBundle(roebel).files["buzz/add-members.sh"], undefined);
-  assert.ok(!plan(roebel).some((s) => s.id === "buzz"));
+  assert.doesNotMatch(renderCaddyfile(noBuzz), /buzz/i);
+  assert.equal(renderBundle(noBuzz).files["buzz/add-members.sh"], undefined);
+  assert.ok(!plan(noBuzz).some((s) => s.id === "buzz"));
 });
 
 test("a vault: secret ref fails at render time, not on the box", () => {

@@ -175,8 +175,10 @@ test("a declared buzz workspace is an endpoint, counts for comms, and nags about
   };
   assert.ok(!doctor(withAgents).warnings.some((w) => w.includes("buzz declared without")));
 
-  // Undeclared -> no buzz endpoint, comms note unchanged.
-  const plain = doctor(roebel);
+  // Undeclared -> no buzz endpoint, comms note unchanged. (The canonical
+  // manifest now declares buzz, so strip it for the baseline.)
+  const { buzz: _buzz, ...servicesWithoutBuzz } = roebel.services;
+  const plain = doctor({ ...roebel, services: servicesWithoutBuzz });
   assert.ok(!plain.endpoints.some((e) => e.name === "buzz"));
   assert.doesNotMatch(plain.sovereignty.find((l) => l.layer === "comms")!.note, /workspace relay/);
 });
