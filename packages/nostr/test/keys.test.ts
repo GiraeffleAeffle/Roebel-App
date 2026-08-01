@@ -10,6 +10,7 @@ import {
   isNostrPubkey,
   npubDecode,
   npubEncode,
+  nsecEncode,
 } from "../src/keys";
 
 /** A realistic 65-byte ECDSA signature, as a wallet's personal_sign returns. */
@@ -101,5 +102,24 @@ describe("npub encoding (NIP-19)", () => {
     const bytes = hexToBytes("3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d");
     const nsec = bech32.encode("nsec", bech32.toWords(bytes), 1000);
     assert.throws(() => npubDecode(nsec), /expected an npub/);
+  });
+});
+
+describe("nsec encoding (NIP-19)", () => {
+  it("encodes the secret key in the format Nostr clients import", () => {
+    const { secretKey } = deriveNostrIdentity(SIGNATURE);
+    const nsec = nsecEncode(secretKey);
+    assert.ok(nsec.startsWith("nsec1"));
+  });
+
+  it("matches the NIP-19 reference vector", () => {
+    // From NIP-19: the reference nsec for this well-known test key.
+    const hex = "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa";
+    const bytes = new Uint8Array(hex.match(/.{2}/g)!.map((b) => parseInt(b, 16)));
+    assert.equal(nsecEncode(bytes), "nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5");
+  });
+
+  it("rejects a wrong-length secret", () => {
+    assert.throws(() => nsecEncode(new Uint8Array(31)), /32 bytes/);
   });
 });

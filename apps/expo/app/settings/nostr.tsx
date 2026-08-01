@@ -32,6 +32,8 @@ import {
   registerIdentity,
 } from '@/lib/nostr/identity';
 import { publishProfile, readFromRelay } from '@/lib/nostr/publish';
+import { nsecEncode } from '@netizen-labs/nostr';
+import { fetchBuzzWorkspaceEnabled } from '@/lib/supabase-app-settings';
 
 /**
  * Nostr-Identität — onboarding for the identity bridge.
@@ -103,6 +105,9 @@ export default function NostrIdentityScreen() {
   const [showDetails, setShowDetails] = useState(false);
   /** null = not looked up yet. Read straight off Gnosis, so it resolves in a second. */
   const [hasCitizenNft, setHasCitizenNft] = useState<boolean | null>(null);
+  /** Pilot gate for the Netizen Workspace export — off unless app_settings says 'true'. */
+  const [workspaceEnabled, setWorkspaceEnabled] = useState(false);
+  const [exportedAt, setExportedAt] = useState<number | null>(null);
 
   const profileMetadata = useCallback(
     () => ({
@@ -158,6 +163,10 @@ export default function NostrIdentityScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void fetchBuzzWorkspaceEnabled().then(setWorkspaceEnabled);
+  }, []);
 
   // Membership is an on-chain fact — read it directly instead of inferring it
   // from whether the relay has admitted us yet. One RPC call, about a second,
@@ -221,6 +230,33 @@ export default function NostrIdentityScreen() {
     setCopied(which);
     setTimeout(() => setCopied(null), 1800);
   }, []);
+
+  /**
+   * Hand the citizen their own secret key, for import into the Workspace app.
+   *
+   * Custody-preserving on purpose: the key is derived and stored on this device,
+   * the node never sees it, and export happens only on an explicit, warned tap.
+   * The clipboard is the transfer channel — imperfect, but it is the citizen's
+   * own device and the standard import path every Nostr client understands.
+   */
+  const onExportWorkspaceKey = useCallback(() => {
+    if (!identity) return;
+    Alert.alert(
+      'Schlüssel exportieren?',
+      'Dieser geheime Schlüssel IST deine Identität. Wer ihn hat, kann in deinem Namen schreiben.\n\n• Füge ihn nur in der Workspace-App (Buzz) ein\n• Schicke ihn niemandem — auch nicht dem Röbel-Team\n• Röbel speichert ihn nicht und kann ihn nicht wiederherstellen',
+      [
+        { text: 'Abbrechen', style: 'cancel' },
+        {
+          text: 'In Zwischenablage kopieren',
+          onPress: async () => {
+            await Clipboard.setStringAsync(nsecEncode(identity.secretKey));
+            setExportedAt(Date.now());
+            setTimeout(() => setExportedAt(null), 60_000);
+          },
+        },
+      ],
+    );
+  }, [identity]);
 
   const onRemove = useCallback(() => {
     Alert.alert(
@@ -422,6 +458,35 @@ export default function NostrIdentityScreen() {
           </View>
         )}
 
+        {workspaceEnabled && identity && (
+          <>
+            <Text style={[styles.sectionHeading, { color: colors.textSecondary }]}>
+              NETIZEN WORKSPACE
+            </Text>
+            <View style={[styles.card, { backgroundColor: colors.surface }]}>
+              <Text style={[styles.body, { color: colors.textSecondary }]}>
+                Röbels Arbeitsraum (Buzz) nutzt denselben Ausweis wie das Relay. Exportiere
+                deinen Schlüssel und füge ihn in der Buzz-App ein — dann bist du dort dieselbe
+                Person wie hier. Der Schlüssel bleibt dabei auf deinen eigenen Geräten; Röbel
+                sieht ihn nie.
+              </Text>
+              <Pressable
+                style={[styles.secondaryButton, { borderColor: colors.borderSecondary, marginTop: 14 }]}
+                onPress={onExportWorkspaceKey}
+              >
+                <Text style={[styles.secondaryButtonText, { color: colors.textPrimary }]}>
+                  {exportedAt ? 'Kopiert — jetzt in Buzz einfügen' : 'Schlüssel für Buzz exportieren'}
+                </Text>
+              </Pressable>
+              {exportedAt != null && (
+                <Text style={[styles.buttonNote, { color: colors.textSecondary, marginTop: 10 }]}>
+                  Tipp: Nach dem Einfügen die Zwischenablage leeren (etwas anderes kopieren).
+                </Text>
+              )}
+            </View>
+          </>
+        )}
+
         <Text style={[styles.sectionHeading, { color: colors.textSecondary }]}>GUT ZU WISSEN</Text>
         <View style={[styles.card, styles.explainerCard, { backgroundColor: colors.surface }]}>
           {EXPLAINERS.map((item, index) => {
@@ -490,6 +555,7 @@ const styles = StyleSheet.create({
 
   card: { borderRadius: 16, padding: 16 },
   cardLabel: { fontFamily: fontFamily.medium, fontSize: 11, letterSpacing: 0.6, marginBottom: 6 },
+  body: { fontFamily: fontFamily.regular, fontSize: 14, lineHeight: 21 },
   sectionHeading: {
     fontFamily: fontFamily.medium,
     fontSize: 11,

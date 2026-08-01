@@ -36,3 +36,13 @@ export async function fetchXmtpDmsEnabled(): Promise<boolean> {
   const value = await fetchAppSetting('xmtp_dms_enabled');
   return value !== 'false';
 }
+
+/**
+ * Pilot gate for the Netizen Workspace (Buzz) section in the Nostr settings.
+ * Opposite default from the kill switches above: this is a NEW pilot surface,
+ * so a missing key means OFF — only an explicit 'true' shows the export flow.
+ */
+export async function fetchBuzzWorkspaceEnabled(): Promise<boolean> {
+  const value = await fetchAppSetting('buzz_workspace_enabled');
+  return value === 'true';
+}

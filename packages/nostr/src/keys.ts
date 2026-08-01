@@ -98,6 +98,17 @@ export function npubDecode(npub: string): string {
   return bytesToHex(new Uint8Array(bech32.fromWords(words)));
 }
 
+/**
+ * NIP-19 bech32 encoding of a SECRET key — the import format every Nostr
+ * client (including the Buzz workspace apps) accepts. Exists for the citizen's
+ * own export flow; the node never calls this on a citizen's key, because the
+ * node never holds one (custody rule, identity-bridge spec).
+ */
+export function nsecEncode(secretKey: Uint8Array): string {
+  if (secretKey.length !== 32) throw new Error("a nostr secret key is 32 bytes");
+  return bech32.encode("nsec", bech32.toWords(secretKey), 1000);
+}
+
 /** True for a lowercase 64-hex Nostr pubkey — the shape the relay allow-list stores. */
 export function isNostrPubkey(value: string): boolean {
   return /^[0-9a-f]{64}$/.test(value);

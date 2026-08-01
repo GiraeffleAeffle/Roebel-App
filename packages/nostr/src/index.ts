@@ -15,6 +15,7 @@ export {
   isNostrPubkey,
   npubDecode,
   npubEncode,
+  nsecEncode,
 } from "./keys";
 
 export {
