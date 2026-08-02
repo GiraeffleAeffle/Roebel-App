@@ -14,6 +14,7 @@
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MINI_APPS_SITE_DOMAIN } from "@/lib/miniapp/siteDomain";
+import { hasSupabase } from "@/lib/record";
 
 export const runtime = "nodejs";
 
@@ -36,6 +37,18 @@ export async function GET(
   const { slug } = await params;
   if (!SLUG_RE.test(slug)) {
     return htmlMessage(404, "Mini-App nicht gefunden", "Diese Adresse gibt es nicht.");
+  }
+
+  // The mini-app runtime is a Supabase-only feature (published app HTML
+  // lives in mini_app_versions, no record equivalent) — createAdminClient()
+  // throws immediately (not lazily) on a missing URL, so this must be
+  // checked before ever constructing the client.
+  if (!hasSupabase) {
+    return htmlMessage(
+      503,
+      "Mini-Apps nicht verfügbar",
+      "Diese Funktion benötigt ein Backend und ist im öffentlichen Datensatz nicht verfügbar.",
+    );
   }
 
   // Served on the app's OWN dedicated origin (<slug>.roebel.site, rewritten

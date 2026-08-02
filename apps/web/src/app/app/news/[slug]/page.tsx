@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button"
 import { Calendar, User, Eye, ArrowLeft, Share2 } from "lucide-react"
 import Link from "next/link"
 import { DeepLinkRedirect } from "@/components/deep-link-redirect"
+import { hasSupabase, recordClient } from "@/lib/record"
+import { getNewsBySlug, RecordUnavailableError } from "@netizen-labs/record-client"
+import { MarkdownRenderer } from "@/components/proposals/MarkdownRenderer"
 
 export const dynamic = "force-dynamic"
 
@@ -14,6 +17,117 @@ interface NewsArticlePageProps {
 
 export default async function NewsArticlePage({ params }: NewsArticlePageProps) {
   const { slug } = await params
+
+  if (!hasSupabase) {
+    let row: Awaited<ReturnType<typeof getNewsBySlug>> = null
+    try {
+      row = await getNewsBySlug(recordClient, slug)
+    } catch (err) {
+      if (!(err instanceof RecordUnavailableError)) throw err
+      row = null
+    }
+
+    if (!row) {
+      notFound()
+    }
+
+    // Record mode: `content_md` is markdown (the publisher converts HTML to
+    // markdown before publishing — mappers.ts `newsToSpec`), unlike the
+    // Supabase column which stores HTML for `dangerouslySetInnerHTML`. It is
+    // rendered with `MarkdownRenderer` instead. `author_name`, `tags`,
+    // `is_featured` and view counts have no record equivalent (news mapper
+    // never publishes them) and are omitted rather than faked.
+    return (
+      <div className="space-y-6">
+        <DeepLinkRedirect type="news" id={slug} />
+
+        <div className="mb-4">
+          <Button variant="ghost" asChild className="gap-2 px-0 hover:bg-transparent text-sm">
+            <Link href="/app/news">
+              <ArrowLeft className="h-4 w-4" />
+              Zurück zu News
+            </Link>
+          </Button>
+        </div>
+
+        <article className="max-w-4xl">
+          <div className="mb-6">
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              {row.category && (
+                <Badge variant="secondary" className="text-xs">{row.category}</Badge>
+              )}
+            </div>
+
+            <h1 className="text-2xl md:text-3xl font-medium text-foreground mb-3">
+              {row.title}
+            </h1>
+
+            {row.excerpt && (
+              <p className="text-base text-muted-foreground mb-4">{row.excerpt}</p>
+            )}
+
+            <div className="flex items-center justify-between flex-wrap gap-3 text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-3">
+                {row.published_at && (
+                  <span className="flex items-center gap-1.5">
+                    <Calendar className="h-3.5 w-3.5" />
+                    {new Date(row.published_at).toLocaleDateString("de-DE", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </span>
+                )}
+              </div>
+
+              <Button variant="outline" size="sm" className="text-xs h-8">
+                <Share2 className="h-3.5 w-3.5 mr-1.5" />
+                Teilen
+              </Button>
+            </div>
+          </div>
+
+          {row.cover_image_url && (
+            <div className="mb-6 rounded-lg overflow-hidden aspect-video bg-muted">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={row.cover_image_url}
+                alt={row.title}
+                className="w-full h-full object-cover"
+              />
+            </div>
+          )}
+
+          <MarkdownRenderer content={row.content_md} />
+
+          <div className="mt-8 pt-6 border-t border-border">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                {row.published_at && (
+                  <>
+                    <p className="text-xs text-muted-foreground">Veröffentlicht am</p>
+                    <p className="font-medium text-sm">
+                      {new Date(row.published_at).toLocaleDateString("de-DE", {
+                        day: "2-digit",
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </p>
+                  </>
+                )}
+              </div>
+              <Link href="/app/news">
+                <Button variant="outline" className="text-sm h-9">
+                  Weitere Artikel lesen
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </article>
+      </div>
+    )
+  }
+
   const supabase = await createClient()
 
   const { data: article, error } = await supabase

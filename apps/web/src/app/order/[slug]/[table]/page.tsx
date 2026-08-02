@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server"
 import type { Metadata } from "next"
 import Link from "next/link"
 import { DeepLinkRedirect } from "@/components/deep-link-redirect"
+import { hasSupabase } from "@/lib/record"
 
 const APP_STORE_URL = "https://apps.apple.com/de/app/r%C3%B6bel/id6754984699"
 const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.maxbrych.roebelonchain&hl=de"
@@ -10,7 +11,13 @@ interface PageProps {
   params: Promise<{ slug: string; table: string }>
 }
 
+// QR table ordering is a Supabase-only feature (no record equivalent) — in
+// record mode there is no restaurant row to resolve. The page below already
+// falls back to a generic "Restaurant" label and its only real job (send
+// the visitor to the app stores) needs no backend at all, so this simply
+// skips the lookup instead of crashing on the keyless Proxy.
 async function getRestaurant(slug: string) {
+  if (!hasSupabase) return null
   const supabase = await createClient()
   const { data } = await supabase
     .from("restaurants")

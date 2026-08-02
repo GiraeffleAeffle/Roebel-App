@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
+import { hasSupabase } from "@/lib/record"
 import { ReferralOpenCTA } from "./ReferralOpenCTA"
 
 interface Props {
@@ -22,6 +23,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 async function resolveReferral(code: string) {
+  // Referral codes are a Supabase-only wallet/invite feature (no record
+  // equivalent) — nothing to resolve in record mode.
+  if (!hasSupabase) return null
+
   const supabase = await createClient()
   const { data: ref } = await supabase
     .from("referral_codes")
@@ -46,6 +51,25 @@ async function resolveReferral(code: string) {
 export default async function ReferralLandingPage({ params }: Props) {
   const { code } = await params
   const upper = code.toUpperCase()
+
+  if (!hasSupabase) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-[#00498B] via-[#264e8e] to-[#E4F2FF] text-white flex items-center justify-center p-6">
+        <div className="max-w-md text-center space-y-4">
+          <div className="text-5xl">🐂</div>
+          <h1 className="text-2xl font-semibold">Einladung nicht verfügbar</h1>
+          <p className="text-white/80 text-sm">
+            Diese Funktion benötigt ein Backend und ist im öffentlichen Datensatz nicht
+            verfügbar.
+          </p>
+          <Link href="/" className="inline-block underline text-sm">
+            Zur Startseite
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
   const data = await resolveReferral(upper)
   if (!data) notFound()
 

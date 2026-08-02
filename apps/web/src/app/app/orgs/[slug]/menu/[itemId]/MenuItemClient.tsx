@@ -35,7 +35,7 @@ export function MenuItemClient({
     let cancelled = false;
     setLoading(true);
     void (async () => {
-      const detail = await fetchMenuItemDetail(itemId);
+      const detail = await fetchMenuItemDetail(itemId, slug);
       if (cancelled) return;
       setItem(detail);
       setLoading(false);

@@ -10,7 +10,7 @@ import {
   type MenuItemVoteSummary,
 } from "./supabase-ratings";
 import { hasSupabase, recordClient } from "@/lib/record";
-import { getMenuBySlug, RecordUnavailableError, type MenuData } from "@netizen-labs/record-client";
+import { getMenu, getMenuBySlug, RecordUnavailableError, type MenuData } from "@netizen-labs/record-client";
 
 export interface MenuItemWithFlags extends MenuItem {
   has_variants: boolean;
@@ -200,9 +200,39 @@ export async function fetchGastroData(accountId: string): Promise<GastroData> {
   return { restaurant, categories, voteSummaries };
 }
 
+/**
+ * `itemId` alone (a synthetic `item-${catIdx}-${itemIdx}` in record mode)
+ * carries no restaurant reference — record-mode callers must also pass the
+ * org slug so the right menu can be resolved at all. `slug` is ignored in
+ * Supabase mode (itemId is already a real UUID there).
+ */
 export async function fetchMenuItemDetail(
-  itemId: string
+  itemId: string,
+  slug?: string
 ): Promise<MenuItemDetail | null> {
+  if (!hasSupabase) {
+    if (!slug) return null;
+    try {
+      const menu = await getMenuBySlug(recordClient, slug);
+      if (!menu) return null;
+      const item = menuDataToCategories(menu)
+        .flatMap((cat) => cat.items)
+        .find((i) => i.id === itemId);
+      if (!item) return null;
+      return {
+        ...item,
+        // menuToSpec publishes no variants/sides at all (see
+        // menuDataToCategories's own doc comment) — genuinely absent.
+        variants: [],
+        sides: [],
+        vote_summary: null,
+      };
+    } catch (error) {
+      if (error instanceof RecordUnavailableError) return null;
+      throw error;
+    }
+  }
+
   const { data, error } = await supabase
     .from("menu_items")
     .select("*, menu_item_variants(*), menu_item_sides(*)")
@@ -229,11 +259,30 @@ export async function fetchMenuItemDetail(
   };
 }
 
+/**
+ * `restaurantId` is `MenuData.restaurantId` in record mode (the menu's own
+ * `d`-tag suffix, set on `MenuItemDetail.restaurant_id` above) — `getMenu`
+ * looks it up directly, no slug needed here.
+ */
 export async function fetchRelatedMenuItems(
   restaurantId: string,
   excludeId: string,
   limit = 6
 ): Promise<MenuItem[]> {
+  if (!hasSupabase) {
+    try {
+      const menu = await getMenu(recordClient, restaurantId);
+      if (!menu) return [];
+      return menuDataToCategories(menu)
+        .flatMap((cat) => cat.items)
+        .filter((i) => i.id !== excludeId)
+        .slice(0, limit);
+    } catch (error) {
+      if (error instanceof RecordUnavailableError) return [];
+      throw error;
+    }
+  }
+
   const { data, error } = await supabase
     .from("menu_items")
     .select("*")

@@ -1,10 +1,51 @@
 import { createClient } from "@/lib/supabase/server"
 import { MapView } from "@/components/maps/MapView"
 import type { MapEvent, MapBusiness, MapRestaurant, MapCheckpoint } from "@/components/maps/MapView"
+import { hasSupabase, recordClient } from "@/lib/record"
+import { listEvents, RecordUnavailableError } from "@netizen-labs/record-client"
 
 export const dynamic = "force-dynamic"
 
 export default async function AppKartePage() {
+  if (!hasSupabase) {
+    // Same recovery rules as the public `/karte` page: `eventToSpec` DOES
+    // publish latitude/longitude, so real event markers render below.
+    // Businesses/restaurants/checkpoints stay empty — no coordinates are
+    // ever published for a business or restaurant (see `/karte`'s own doc
+    // comment), and `explorer_checkpoints` is a Supabase-only gamification
+    // table with no record equivalent at all.
+    let events: MapEvent[] = []
+    try {
+      const rows = await listEvents(recordClient, { limit: 200 })
+      events = rows
+        .filter((e): e is typeof e & { latitude: number; longitude: number } => e.latitude !== null && e.longitude !== null)
+        .map((e) => ({
+          id: e.id,
+          title: e.title,
+          description: e.description,
+          date: e.date,
+          time: e.time,
+          end_time: e.end_time,
+          location: e.location ?? e.address ?? "",
+          category: e.category,
+          latitude: e.latitude,
+          longitude: e.longitude,
+          image_url: e.image_url,
+          // No record equivalent (eventToSpec never publishes organiser
+          // contact data) — MapEvent allows null here, so no fake string.
+          organizer_name: null,
+        }))
+    } catch (err) {
+      if (!(err instanceof RecordUnavailableError)) throw err
+      events = []
+    }
+    return (
+      <div className="h-[calc(100vh-4rem)] -m-6">
+        <MapView events={events} businesses={[]} restaurants={[]} checkpoints={[]} isAuthenticated />
+      </div>
+    )
+  }
+
   const supabase = await createClient()
 
   const [eventsRes, businessesRes, restaurantsRes, checkpointsRes] = await Promise.all([

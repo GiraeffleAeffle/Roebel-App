@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase"
+import { hasSupabase } from "@/lib/record"
 
 export interface DocumentationChapter {
   id: string
@@ -11,8 +12,15 @@ export interface DocumentationChapter {
   updated_at: string
 }
 
+// Uploaded PDF documentation chapters are a Supabase-storage-only feature
+// with no record equivalent — the reader page already renders a friendly
+// "wird gerade vorbereitet" empty state for zero chapters, so record mode
+// simply reuses it rather than crashing on the keyless Proxy.
+
 /** All chapters in display order (public + admin reads). */
 export async function getChapters(): Promise<DocumentationChapter[]> {
+  if (!hasSupabase) return []
+
   const { data, error } = await supabase
     .from("documentation_chapters")
     .select("*")
@@ -30,6 +38,8 @@ export async function getChapters(): Promise<DocumentationChapter[]> {
 export async function getChapterBySlug(
   slug: string
 ): Promise<DocumentationChapter | null> {
+  if (!hasSupabase) return null
+
   const { data, error } = await supabase
     .from("documentation_chapters")
     .select("*")

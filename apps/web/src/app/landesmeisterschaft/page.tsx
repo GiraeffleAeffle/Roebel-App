@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { hasSupabase } from "@/lib/record";
 import { LMPageClient } from "@/components/landesmeisterschaft/LMPageClient";
 
 // Paste the Supabase UUID of the Landesmeisterschaft event here
@@ -10,7 +11,10 @@ export default async function LandesmeisterschaftPage() {
   let livestreamActive = false;
   let livestreamUrl = "";
 
-  if (LM_EVENT_ID) {
+  // Livestream fields are a Supabase-only operational signal (no record
+  // equivalent — EventRow publishes no livestream tags) — stay off rather
+  // than throw on the keyless Proxy.
+  if (LM_EVENT_ID && hasSupabase) {
     const supabase = await createClient();
     const { data } = await supabase
       .from("events")

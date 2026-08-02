@@ -2,20 +2,64 @@ import { createClient } from "@/lib/supabase/server"
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { Calendar, User, Eye, Star } from "lucide-react"
+import { hasSupabase, recordClient } from "@/lib/record"
+import { listNews, RecordUnavailableError } from "@netizen-labs/record-client"
 
 export const dynamic = "force-dynamic"
 
+/** Local shape the grid below renders — mirrors the `news_articles` columns used in JSX. */
+interface NewsListArticle {
+  id: string
+  slug: string
+  title: string
+  excerpt: string | null
+  cover_image_url: string | null
+  category: string | null
+  author_name: string
+  published_at: string
+  view_count: number
+  is_featured: boolean
+}
+
 export default async function NewsListPage() {
-  const supabase = await createClient()
+  let articles: NewsListArticle[] = []
 
-  const { data: articles, error } = await supabase
-    .from("news_articles")
-    .select("*")
-    .eq("status", "published")
-    .order("published_at", { ascending: false })
+  if (!hasSupabase) {
+    try {
+      const rows = await listNews(recordClient, { limit: 200 })
+      articles = rows
+        .filter((a) => a.slug !== null && a.published_at !== null)
+        .map((a) => ({
+          id: a.id,
+          slug: a.slug as string,
+          title: a.title,
+          excerpt: a.excerpt,
+          cover_image_url: a.cover_image_url,
+          category: a.category,
+          // No record equivalent — explicit neutral, never fabricated.
+          author_name: "",
+          published_at: a.published_at as string,
+          view_count: 0,
+          is_featured: false,
+        }))
+        .sort((a, b) => b.published_at.localeCompare(a.published_at))
+    } catch (err) {
+      if (err instanceof RecordUnavailableError) articles = []
+      else throw err
+    }
+  } else {
+    const supabase = await createClient()
 
-  if (error) {
-    console.error("Error fetching news:", error)
+    const { data, error } = await supabase
+      .from("news_articles")
+      .select("*")
+      .eq("status", "published")
+      .order("published_at", { ascending: false })
+
+    if (error) {
+      console.error("Error fetching news:", error)
+    }
+    articles = data || []
   }
 
   const featuredArticles = articles?.filter((a) => a.is_featured).slice(0, 3) || []
@@ -74,10 +118,12 @@ export default async function NewsListPage() {
                     </p>
                   )}
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <User className="h-3 w-3" />
-                      {article.author_name}
-                    </span>
+                    {article.author_name && (
+                      <span className="flex items-center gap-1">
+                        <User className="h-3 w-3" />
+                        {article.author_name}
+                      </span>
+                    )}
                     <span className="flex items-center gap-1">
                       <Calendar className="h-3 w-3" />
                       {new Date(article.published_at).toLocaleDateString("de-DE")}
@@ -133,10 +179,12 @@ export default async function NewsListPage() {
                     </p>
                   )}
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <User className="h-3 w-3" />
-                      {article.author_name}
-                    </span>
+                    {article.author_name && (
+                      <span className="flex items-center gap-1">
+                        <User className="h-3 w-3" />
+                        {article.author_name}
+                      </span>
+                    )}
                     <span className="flex items-center gap-1">
                       <Calendar className="h-3 w-3" />
                       {new Date(article.published_at).toLocaleDateString("de-DE")}

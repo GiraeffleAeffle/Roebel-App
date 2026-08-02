@@ -3,6 +3,7 @@
 import { headers } from "next/headers"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { sendConfirmationEmail } from "@/lib/newsletter/transactional"
+import { hasSupabase } from "@/lib/record"
 
 const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/
 const COOLDOWN_MS = 15 * 60 * 1000
@@ -24,6 +25,13 @@ function ipThrottled(ip: string): boolean {
 export async function subscribeToNewsletter(email: string): Promise<{ success: boolean; message: string }> {
   // Silent success for already-active addresses — never reveal subscription state.
   const okMessage = "Fast geschafft! Bitte bestätige deine Anmeldung über den Link in deinem Postfach."
+
+  // The newsletter is a Supabase-only feature (no record equivalent) —
+  // createAdminClient() throws immediately (not lazily) on a missing URL,
+  // so this must be checked before ever constructing the client.
+  if (!hasSupabase) {
+    return { success: false, message: "Der Newsletter ist in diesem Fork derzeit nicht verfügbar." }
+  }
 
   const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown"
   if (ipThrottled(ip)) {
@@ -84,7 +92,7 @@ export async function subscribeToNewsletter(email: string): Promise<{ success: b
 }
 
 export async function confirmSubscription(token: string): Promise<{ success: boolean }> {
-  if (!token) return { success: false }
+  if (!token || !hasSupabase) return { success: false }
   const supabase = createAdminClient()
   const { data } = await supabase
     .from("newsletter_subscribers")
@@ -101,7 +109,7 @@ export async function confirmSubscription(token: string): Promise<{ success: boo
 }
 
 export async function unsubscribeByToken(token: string): Promise<{ success: boolean }> {
-  if (!token) return { success: false }
+  if (!token || !hasSupabase) return { success: false }
   const supabase = createAdminClient()
   const { data } = await supabase
     .from("newsletter_subscribers")
