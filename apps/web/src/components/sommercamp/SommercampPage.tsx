@@ -11,6 +11,7 @@ import Link from "next/link";
 import { MessageCircle, Moon, Sun } from "lucide-react";
 import { Reveal } from "./Reveal";
 import { RegistrationCard } from "./RegistrationCard";
+import { hasSupabase } from "@/lib/record";
 import {
   AblaufSection,
   FaqSection,
@@ -213,7 +214,14 @@ export function SommercampPage() {
               </p>
             </Reveal>
             <Reveal delay={150} className="mt-8">
-              <RegistrationCard night={night} />
+              {hasSupabase ? (
+                <RegistrationCard night={night} />
+              ) : (
+                <p className="rounded-2xl bg-white/10 px-6 py-8 text-center text-base text-white">
+                  Diese Funktion benötigt ein Backend und ist im öffentlichen
+                  Datensatz nicht verfügbar.
+                </p>
+              )}
             </Reveal>
             {/* Fragen? Direkter Draht per WhatsApp (+49 176 82275490). */}
             <Reveal delay={250} className="mt-6 text-center">

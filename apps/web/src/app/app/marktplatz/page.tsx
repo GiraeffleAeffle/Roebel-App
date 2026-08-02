@@ -9,6 +9,7 @@ import type { ListingWithSeller } from "@/types/marketplace"
 import type { MarketplaceCategory, ServiceCategory, BoardCategory, ListingCondition, ListingType } from "@/types/marketplace"
 import { MARKETPLACE_CATEGORIES, SERVICE_CATEGORIES, BOARD_CATEGORIES, LISTING_CONDITIONS } from "@/types/marketplace"
 import { ListingCard } from "@/components/marketplace/ListingCard"
+import { hasSupabase } from "@/lib/record"
 
 export default function MarktplatzPage() {
   const searchParams = useSearchParams()
@@ -86,17 +87,19 @@ export default function MarktplatzPage() {
                 : "Kaufen und verkaufen in Ihrer Nachbarschaft."}
           </p>
         </div>
-        <Link
-          href="/app/marktplatz/erstellen"
-          className="inline-flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          {isBoardMode
-            ? "Aushang erstellen"
-            : isServiceMode
-              ? "Dienstleistung anbieten"
-              : "Inserat erstellen"}
-        </Link>
+        {hasSupabase && (
+          <Link
+            href="/app/marktplatz/erstellen"
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            {isBoardMode
+              ? "Aushang erstellen"
+              : isServiceMode
+                ? "Dienstleistung anbieten"
+                : "Inserat erstellen"}
+          </Link>
+        )}
       </div>
 
       {/* Listing Type Tabs */}

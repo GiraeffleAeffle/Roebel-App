@@ -14,6 +14,7 @@ import { useUnreadMessages } from "@/hooks/useUnreadMessages";
 import { NotificationDot } from "@/components/ui/notification-dot";
 import { useTheme } from "next-themes";
 import { GlobalSearch } from "@/components/search/GlobalSearch";
+import { hasSupabase } from "@/lib/record";
 
 interface AppHeaderProps {
   onToggleMobileSidebar?: () => void;
@@ -114,10 +115,10 @@ export function AppHeader({ onToggleMobileSidebar }: AppHeaderProps) {
             )}
           </Link>
 
-          {/* Connect Button / Profile */}
+          {/* Connect Button / Profile — no login in read-only record mode */}
           {account ? (
             <ProfileDropdown />
-          ) : (
+          ) : !hasSupabase ? null : (
             <ConnectButton
               client={client}
               chain={activeChain}

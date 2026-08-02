@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Heart } from "lucide-react";
 import { toggleLike } from "@/app/actions/posts";
+import { hasSupabase } from "@/lib/record";
 
 interface LikeButtonProps {
   postId: string;
@@ -58,6 +59,7 @@ export function LikeButton({
           : "text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
       } ${!walletAddress ? "opacity-50 cursor-not-allowed" : ""}`}
       aria-label={isLiked ? "Gefällt mir nicht mehr" : "Gefällt mir"}
+      title={!hasSupabase ? "Nur Lesen — ohne Backend nicht verfügbar" : undefined}
     >
       <Heart
         className={`h-4 w-4 transition-transform ${

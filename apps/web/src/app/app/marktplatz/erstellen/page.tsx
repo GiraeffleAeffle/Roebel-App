@@ -18,6 +18,7 @@ import type {
   BoardPriceType,
 } from "@/types/marketplace"
 import { ListingForm } from "@/components/marketplace/ListingForm"
+import { hasSupabase } from "@/lib/record"
 
 export default function CreateListingPage() {
   const router = useRouter()
@@ -61,6 +62,18 @@ export default function CreateListingPage() {
       router.push("/app/marktplatz/meine")
     }
     setIsSubmitting(false)
+  }
+
+  if (!hasSupabase) {
+    return (
+      <div className="text-center py-12">
+        <ShoppingBag className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+        <p className="text-muted-foreground font-medium">
+          Diese Funktion benötigt ein Backend und ist im öffentlichen Datensatz
+          nicht verfügbar.
+        </p>
+      </div>
+    )
   }
 
   if (!account?.address) {

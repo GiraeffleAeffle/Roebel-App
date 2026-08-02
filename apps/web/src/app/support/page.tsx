@@ -1,6 +1,7 @@
 import { FeedbackForm } from "@/components/support/feedback-form"
 import { EventsHeader } from "@/components/events/events-header"
 import { MessageSquare, Bug, Lightbulb, MessageCircle } from "lucide-react"
+import { hasSupabase } from "@/lib/record"
 
 export const metadata = {
   title: "Support & Feedback | Röbel App",
@@ -47,7 +48,14 @@ export default function SupportPage() {
             </div>
           </div>
 
-          <FeedbackForm />
+          {hasSupabase ? (
+            <FeedbackForm />
+          ) : (
+            <p className="text-center text-sm text-muted-foreground">
+              Diese Funktion benötigt ein Backend und ist im öffentlichen
+              Datensatz nicht verfügbar.
+            </p>
+          )}
         </div>
       </main>
     </div>

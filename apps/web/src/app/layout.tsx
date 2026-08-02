@@ -11,6 +11,7 @@ import { GlobalAppDownloadSheet } from "@/components/app/GlobalAppDownloadSheet"
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { AccountProvider } from "@/lib/context/AccountContext";
 import { Analytics } from "@vercel/analytics/react";
+import { RecordModeNotice } from "@/components/RecordModeNotice";
 
 export const metadata: Metadata = {
   title: "Röbel App",
@@ -42,6 +43,7 @@ export default function RootLayout({
             <GlobalAutoConnect />
             <AccountProvider>
               <GlobalWalletRedirect />
+              <RecordModeNotice />
               <div className="flex-1">{children}</div>
               <ConditionalFooter />
               <GlobalAppDownloadSheet />

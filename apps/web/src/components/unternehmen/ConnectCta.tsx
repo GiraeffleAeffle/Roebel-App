@@ -7,6 +7,7 @@ import { client } from "@/app/client";
 import { activeChain } from "@/lib/chains";
 import { wallets } from "@/lib/wallet-config";
 import { cn } from "@/lib/utils";
+import { hasSupabase } from "@/lib/record";
 
 type Variant = "primary" | "secondary" | "primary-light";
 
@@ -34,6 +35,9 @@ export function ConnectCta({
 }: ConnectCtaProps) {
   const { connect, isConnecting } = useConnectModal();
   const [busy, setBusy] = useState(false);
+
+  // No backend means no account creation — never offer a login that dead-ends.
+  if (!hasSupabase) return null;
 
   const handleClick = async () => {
     if (busy || isConnecting) return;

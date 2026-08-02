@@ -22,6 +22,7 @@ import { PollCreator } from "@/components/app/PollCreator";
 import { CategorySelector } from "@/components/app/CategorySelector";
 import { GuidelinesBanner, GuidelinesInfoButton } from "@/components/app/CommunityGuidelines";
 import type { OGMetadata, CreatePollInput, PostCategory, FeedType } from "@/types/post";
+import { hasSupabase } from "@/lib/record";
 
 const MAX_CHARS = 500;
 const MAX_IMAGES = 10;
@@ -323,6 +324,9 @@ export function PostComposer({
       setIsSubmitting(false);
     }
   };
+
+  // Posting always needs the backend — never show a composer that can't submit.
+  if (!hasSupabase) return null;
 
   // Non-citizen state — only blocks when the parent feed requires verification
   if (requireVerified && !verificationLoading && account && !isVerified && !isPostingAsOrg) {

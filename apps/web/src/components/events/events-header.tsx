@@ -10,6 +10,7 @@ import { client } from "@/app/client"
 import { activeChain } from "@/lib/chains"
 import { wallets } from "@/lib/wallet-config"
 import { ProfilePill } from "@/components/layout/ProfilePill"
+import { hasSupabase } from "@/lib/record"
 
 const NAV_LINKS = [
   { href: "/", label: "Events" },
@@ -51,7 +52,7 @@ export function EventsHeader() {
           <div className="flex items-center gap-2 md:gap-3">
             {account ? (
               <ProfilePill />
-            ) : (
+            ) : !hasSupabase ? null : (
               <ConnectButton
                 client={client}
                 chain={activeChain}

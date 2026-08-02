@@ -5,6 +5,7 @@ import { EventsHeader } from "@/components/events/events-header"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Sparkles } from "lucide-react"
+import { hasSupabase } from "@/lib/record"
 
 export default function SubmitPageClient() {
   return (
@@ -19,16 +20,25 @@ export default function SubmitPageClient() {
             </p>
 
             {/* AI submission option */}
-            <div className="mt-6">
-              <Link href="/submit-ai">
-                <Button variant="outline" className="gap-2">
-                  <Sparkles className="h-4 w-4" />
-                  Probiere die KI-gestützte Einreichung
-                </Button>
-              </Link>
-            </div>
+            {hasSupabase && (
+              <div className="mt-6">
+                <Link href="/submit-ai">
+                  <Button variant="outline" className="gap-2">
+                    <Sparkles className="h-4 w-4" />
+                    Probiere die KI-gestützte Einreichung
+                  </Button>
+                </Link>
+              </div>
+            )}
           </div>
-          <EventSubmissionForm />
+          {hasSupabase ? (
+            <EventSubmissionForm />
+          ) : (
+            <p className="text-center text-sm text-muted-foreground">
+              Diese Funktion benötigt ein Backend und ist im öffentlichen
+              Datensatz nicht verfügbar.
+            </p>
+          )}
         </div>
       </main>
     </div>

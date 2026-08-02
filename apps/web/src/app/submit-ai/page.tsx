@@ -3,6 +3,7 @@ import { EventsHeader } from "@/components/events/events-header"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, Sparkles } from "lucide-react"
+import { hasSupabase } from "@/lib/record"
 
 // Prevent static prerendering — AIEventSubmissionChat uses useAccount context
 export const dynamic = "force-dynamic"
@@ -108,15 +109,24 @@ export default function AISubmitEventPage() {
           </div>
 
           {/* Chat interface */}
-          <AIEventSubmissionChat />
+          {hasSupabase ? (
+            <>
+              <AIEventSubmissionChat />
 
-          {/* Help text */}
-          <div className="mt-6 text-center text-sm text-muted-foreground">
-            <p>
-              Deine Eingaben werden von einer KI verarbeitet. Alle Events werden vor der
-              Veröffentlichung überprüft.
+              {/* Help text */}
+              <div className="mt-6 text-center text-sm text-muted-foreground">
+                <p>
+                  Deine Eingaben werden von einer KI verarbeitet. Alle Events werden vor der
+                  Veröffentlichung überprüft.
+                </p>
+              </div>
+            </>
+          ) : (
+            <p className="text-center text-sm text-muted-foreground">
+              Diese Funktion benötigt ein Backend und ist im öffentlichen
+              Datensatz nicht verfügbar.
             </p>
-          </div>
+          )}
         </div>
       </main>
     </div>

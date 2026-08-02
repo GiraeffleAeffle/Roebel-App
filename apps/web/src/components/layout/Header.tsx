@@ -10,6 +10,7 @@ import { de } from "@/lib/translations/de";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { ProfilePill } from "@/components/layout/ProfilePill";
+import { hasSupabase } from "@/lib/record";
 
 export function Header() {
   const account = useActiveAccount();
@@ -66,7 +67,7 @@ export function Header() {
           <div className="flex items-center gap-2">
             {account ? (
               <ProfilePill />
-            ) : (
+            ) : !hasSupabase ? null : (
               <>
                 <div className="hidden sm:block">
                   <ConnectButton

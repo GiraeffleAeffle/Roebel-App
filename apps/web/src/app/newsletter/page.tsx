@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { EventsHeader } from "@/components/events/events-header"
 import { NewsletterSignupForm } from "./signup-form"
+import { hasSupabase } from "@/lib/record"
 
 export const metadata: Metadata = {
   title: "Newsletter | Röbel App",
@@ -18,7 +19,14 @@ export default function NewsletterPage() {
           Röbel/Müritz passiert. Kostenlos, jederzeit abbestellbar.
         </p>
         <div className="mt-8">
-          <NewsletterSignupForm />
+          {hasSupabase ? (
+            <NewsletterSignupForm />
+          ) : (
+            <p className="text-sm text-gray-600">
+              Diese Funktion benötigt ein Backend und ist im öffentlichen
+              Datensatz nicht verfügbar.
+            </p>
+          )}
         </div>
         <p className="mt-6 text-xs text-gray-400">
           Details zur Verarbeitung deiner Daten findest du im Abschnitt „Newsletter“ unserer{" "}

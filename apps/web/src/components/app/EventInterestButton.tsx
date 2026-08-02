@@ -5,6 +5,7 @@ import { Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useActiveAccount } from "thirdweb/react";
 import { createClient } from "@/lib/supabase/client";
+import { hasSupabase } from "@/lib/record";
 
 interface EventInterestButtonProps {
   eventId: string;
@@ -90,6 +91,7 @@ export function EventInterestButton({
         className="w-full rounded-lg"
         onClick={handleToggle}
         disabled={!account?.address || toggling}
+        title={!hasSupabase ? "Nur Lesen — ohne Backend nicht verfügbar" : undefined}
       >
         <Heart
           className={`h-4 w-4 mr-2 ${isInterested ? "fill-current" : ""}`}
@@ -109,6 +111,7 @@ export function EventInterestButton({
       className="w-full mt-1 rounded-lg text-xs h-8"
       onClick={handleToggle}
       disabled={!account?.address || toggling}
+      title={!hasSupabase ? "Nur Lesen — ohne Backend nicht verfügbar" : undefined}
     >
       <Heart
         className={`h-3.5 w-3.5 mr-1 ${isInterested ? "fill-current" : ""}`}

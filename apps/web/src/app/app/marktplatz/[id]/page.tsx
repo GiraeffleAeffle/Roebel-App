@@ -30,6 +30,7 @@ import {
 } from "@/types/marketplace"
 import { MediaCarousel } from "@/components/business/MediaCarousel"
 import { formatWalletAddress } from "@/lib/user-types"
+import { hasSupabase } from "@/lib/record"
 
 const conditionColors: Record<string, string> = {
   neu: "bg-green-50 text-green-700",
@@ -377,7 +378,7 @@ export default function ListingDetailPage({
                     : "Inserat löschen"}
               </button>
             </div>
-          ) : (
+          ) : !hasSupabase ? null : (
             <Link
               href={`/app/messages?to=${listing.seller_wallet_address}&subject=${encodeURIComponent(listing.title)}&listingId=${listing.id}`}
               className="flex items-center justify-center gap-2 w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors"
