@@ -3,8 +3,20 @@
 import { createClient } from "@/lib/supabase/server"
 import { revalidatePath } from "next/cache"
 import type { Feedback, FeedbackStatus, FeedbackType } from "@/types/feedback"
+import { hasSupabase } from "@/lib/record"
 
 export async function submitFeedback(formData: FormData) {
+  // Belt-and-braces: the UI already hides this form when keyless, but a
+  // direct POST must get the honest German answer, not the generic
+  // catch-all below (which would misleadingly invite a retry).
+  if (!hasSupabase) {
+    return {
+      success: false,
+      error:
+        "Diese Funktion benötigt ein Backend und ist im öffentlichen Datensatz nicht verfügbar.",
+    }
+  }
+
   try {
     const supabase = await createClient()
 

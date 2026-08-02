@@ -66,12 +66,14 @@ export function EventsHeader() {
               />
             )}
 
-            <Button asChild className="h-9 md:h-10 px-3 md:px-5 text-sm md:text-base">
-              <Link href="/submit">
-                <Plus className="h-4 w-4 md:mr-2" />
-                <span className="hidden sm:inline">Hinzufügen</span>
-              </Link>
-            </Button>
+            {hasSupabase && (
+              <Button asChild className="h-9 md:h-10 px-3 md:px-5 text-sm md:text-base">
+                <Link href="/submit">
+                  <Plus className="h-4 w-4 md:mr-2" />
+                  <span className="hidden sm:inline">Hinzufügen</span>
+                </Link>
+              </Button>
+            )}
 
             <Button
               variant="ghost"

@@ -2,6 +2,7 @@ import { AIEventSubmissionChat } from "@/components/events/ai-event-submission-c
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, Sparkles } from "lucide-react"
+import { hasSupabase } from "@/lib/record"
 
 export default function AISubmitEventPage() {
   return (
@@ -101,15 +102,24 @@ export default function AISubmitEventPage() {
           </div>
 
           {/* Chat interface */}
-          <AIEventSubmissionChat />
+          {hasSupabase ? (
+            <>
+              <AIEventSubmissionChat />
 
-          {/* Help text */}
-          <div className="mt-6 text-center text-sm text-muted-foreground">
-            <p>
-              Deine Eingaben werden von einer KI verarbeitet. Alle Events werden vor der
-              Veröffentlichung überprüft.
+              {/* Help text */}
+              <div className="mt-6 text-center text-sm text-muted-foreground">
+                <p>
+                  Deine Eingaben werden von einer KI verarbeitet. Alle Events werden vor der
+                  Veröffentlichung überprüft.
+                </p>
+              </div>
+            </>
+          ) : (
+            <p className="text-center text-sm text-muted-foreground">
+              Diese Funktion benötigt ein Backend und ist im öffentlichen
+              Datensatz nicht verfügbar.
             </p>
-          </div>
+          )}
     </div>
   )
 }
