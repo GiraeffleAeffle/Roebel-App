@@ -10,6 +10,7 @@ import {
   type AccountRatingSummary,
   type AccountRatingRecord,
 } from "@/lib/supabase-ratings";
+import { hasSupabase } from "@/lib/record";
 
 export function useAccountRating(accountId: string | null) {
   const account = useActiveAccount();
@@ -19,8 +20,11 @@ export function useAccountRating(accountId: string | null) {
   const [userRating, setUserRating] = useState<AccountRatingRecord | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Ratings are a Supabase-only feature with no record equivalent — skip
+  // the fetch entirely in record mode rather than let it throw on the
+  // keyless Proxy; summary/userRating simply stay at their neutral `null`.
   const refetch = useCallback(async () => {
-    if (!accountId) return;
+    if (!accountId || !hasSupabase) return;
     setLoading(true);
     try {
       const [s, u] = await Promise.all([
@@ -40,7 +44,7 @@ export function useAccountRating(accountId: string | null) {
 
   const setRating = useCallback(
     async (stars: number, comment?: string | null) => {
-      if (!accountId || !wallet) return;
+      if (!accountId || !wallet || !hasSupabase) return;
       const rec = await upsertAccountRating({
         account_id: accountId,
         wallet_address: wallet,
@@ -54,7 +58,7 @@ export function useAccountRating(accountId: string | null) {
   );
 
   const removeRating = useCallback(async () => {
-    if (!accountId || !wallet) return;
+    if (!accountId || !wallet || !hasSupabase) return;
     await deleteAccountRating(accountId, wallet);
     setUserRating(null);
     await refetch();

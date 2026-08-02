@@ -121,6 +121,9 @@ export async function getPostsForFeed(
   if (!hasSupabase) {
     try {
       const posts = await listPosts(recordClient, { limit: offset + limit })
+      // listPosts gives no ordering guarantee — sort desc by created_at to
+      // match the Supabase branch's own ordering before slicing the page.
+      posts.sort((a, b) => b.created_at.localeCompare(a.created_at))
       const page = posts.slice(offset, offset + limit)
       const data: PostWithEngagement[] = page.map((p) => ({
         id: p.id,

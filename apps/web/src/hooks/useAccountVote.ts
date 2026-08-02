@@ -10,6 +10,7 @@ import {
   type AccountVoteSummary,
   type VoteValue,
 } from "@/lib/supabase-ratings";
+import { hasSupabase } from "@/lib/record";
 
 export function useAccountVote(accountId: string | null) {
   const account = useActiveAccount();
@@ -19,8 +20,11 @@ export function useAccountVote(accountId: string | null) {
   const [userVote, setUserVote] = useState<VoteValue | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Votes are a Supabase-only feature with no record equivalent — skip the
+  // fetch entirely in record mode rather than let it throw on the keyless
+  // Proxy; summary/userVote simply stay at their neutral `null`.
   const refetch = useCallback(async () => {
-    if (!accountId) return;
+    if (!accountId || !hasSupabase) return;
     setLoading(true);
     try {
       const [s, u] = await Promise.all([
@@ -40,7 +44,7 @@ export function useAccountVote(accountId: string | null) {
 
   const setVote = useCallback(
     async (vote: VoteValue) => {
-      if (!accountId || !wallet) return;
+      if (!accountId || !wallet || !hasSupabase) return;
       setUserVote(vote); // optimistic
       await voteAccount({ account_id: accountId, wallet_address: wallet, vote });
       await refetch();
@@ -49,7 +53,7 @@ export function useAccountVote(accountId: string | null) {
   );
 
   const clearVote = useCallback(async () => {
-    if (!accountId || !wallet) return;
+    if (!accountId || !wallet || !hasSupabase) return;
     setUserVote(null); // optimistic
     await clearAccountVote(accountId, wallet);
     await refetch();

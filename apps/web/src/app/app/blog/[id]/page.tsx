@@ -5,8 +5,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Calendar, Eye } from "lucide-react";
 import { SUB_TYPE_EMOJI, SUB_TYPE_LABELS, type OrgSubType } from "@/types/account";
+import { hasSupabase, recordClient } from "@/lib/record";
+import { listArticles, listOrgs, RecordUnavailableError } from "@netizen-labs/record-client";
+import { MarkdownRenderer } from "@/components/proposals/MarkdownRenderer";
 
 export const dynamic = "force-dynamic";
+
+const ORG_SUB_TYPES = new Set<string>(Object.keys(SUB_TYPE_LABELS));
 
 interface BlogArticleRow {
   id: string;
@@ -37,6 +42,129 @@ export default async function BlogArticlePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+
+  if (!hasSupabase) {
+    // listArticles has no getArticleById sibling (unlike events/news) — one
+    // fetch, find by id, matching the brief's "find by id in the list
+    // result" pattern already used for marketplace.
+    let article: Awaited<ReturnType<typeof listArticles>>[number] | null = null;
+    let orgName: string | null = null;
+    let orgSlug: string | null = null;
+    let orgSubType: OrgSubType | null = null;
+    try {
+      const articles = await listArticles(recordClient, { limit: 200 });
+      article = articles.find((a) => a.id === id) ?? null;
+      if (!article) notFound();
+      // ArticleRow carries the signing pubkey, not an account id — resolve
+      // the byline by joining back to the org roster (same pubkey rule
+      // OrgDetailClient's own blogArticlesForOrg helper uses).
+      const orgs = await listOrgs(recordClient);
+      const org = orgs.find((o) => o.pubkey === article!.pubkey) ?? null;
+      if (org) {
+        orgName = org.name;
+        orgSlug = org.slug;
+        // orgToSpec publishes the real sub_type under `category` for an
+        // accounts org (businessToSpec's "business" marker never applies
+        // to an org that can publish blog articles) — same recovery rule
+        // as orgs/[slug]/page.tsx.
+        orgSubType =
+          org.category && ORG_SUB_TYPES.has(org.category) ? (org.category as OrgSubType) : null;
+      }
+    } catch (err) {
+      if (!(err instanceof RecordUnavailableError)) throw err;
+      notFound();
+    }
+    if (!article) notFound();
+
+    const subTypeLabel = orgSubType ? SUB_TYPE_LABELS[orgSubType] : "Organisation";
+
+    return (
+      <div className="space-y-6">
+        <div>
+          <Button variant="ghost" asChild className="gap-2 px-0 hover:bg-transparent text-sm">
+            <Link href="/app/blog">
+              <ArrowLeft className="h-4 w-4" />
+              Zurück zum Blog
+            </Link>
+          </Button>
+        </div>
+
+        <article className="max-w-4xl">
+          <div className="mb-6">
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              {article.category && (
+                <Badge variant="secondary" className="text-xs">
+                  {article.category}
+                </Badge>
+              )}
+              {/* is_featured/tags have no record equivalent (articleToSpec
+                  never publishes them) — omitted rather than faked. */}
+              {article.ai_generated && (
+                <Badge variant="outline" className="text-xs text-muted-foreground">
+                  Mit KI erstellt
+                </Badge>
+              )}
+            </div>
+
+            <h1 className="text-2xl md:text-3xl font-medium text-foreground mb-3">
+              {article.title}
+            </h1>
+
+            {article.excerpt && (
+              <p className="text-base text-muted-foreground mb-4">{article.excerpt}</p>
+            )}
+
+            <div className="flex items-center justify-between flex-wrap gap-3 text-xs text-muted-foreground">
+              {orgName && (
+                <Link
+                  href={orgSlug ? `/app/orgs/${orgSlug}/blog` : `/app/blog`}
+                  className="flex items-center gap-2 hover:text-foreground"
+                >
+                  <span aria-hidden className="text-base">
+                    {orgSubType ? SUB_TYPE_EMOJI[orgSubType] : "🏢"}
+                  </span>
+                  <span className="font-medium">{orgName}</span>
+                  <span className="text-muted-foreground">· {subTypeLabel}</span>
+                </Link>
+              )}
+              <div className="flex flex-wrap items-center gap-3">
+                {article.published_at && (
+                  <span className="flex items-center gap-1.5">
+                    <Calendar className="h-3.5 w-3.5" />
+                    {new Date(article.published_at).toLocaleDateString("de-DE", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </span>
+                )}
+                {/* view_count has no record equivalent (Supabase-only
+                    interaction metric) — omitted rather than a fake "0". */}
+              </div>
+            </div>
+          </div>
+
+          {article.cover_image_url && (
+            <div className="mb-6 rounded-lg overflow-hidden aspect-video bg-muted">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={article.cover_image_url}
+                alt={article.title}
+                className="w-full h-full object-cover"
+              />
+            </div>
+          )}
+
+          {/* Record mode: content_md is markdown (articleToSpec's source is
+              the same HTML→markdown conversion newsToSpec uses) — rendered
+              via MarkdownRenderer rather than dangerouslySetInnerHTML,
+              which expects HTML. */}
+          <MarkdownRenderer content={article.content_md} />
+        </article>
+      </div>
+    );
+  }
+
   const supabase = await createClient();
 
   const { data, error } = await supabase

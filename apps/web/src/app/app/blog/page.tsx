@@ -2,9 +2,13 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Eye, FileText } from "lucide-react";
-import { SUB_TYPE_EMOJI, type OrgSubType } from "@/types/account";
+import { SUB_TYPE_EMOJI, SUB_TYPE_LABELS, type OrgSubType } from "@/types/account";
+import { hasSupabase, recordClient } from "@/lib/record";
+import { listArticles, listOrgs, RecordUnavailableError } from "@netizen-labs/record-client";
 
 export const dynamic = "force-dynamic";
+
+const ORG_SUB_TYPES = new Set<string>(Object.keys(SUB_TYPE_LABELS));
 
 interface BlogRow {
   id: string;
@@ -27,7 +31,57 @@ interface BlogRow {
   };
 }
 
-export default async function BlogFeedPage() {
+async function getArticles(): Promise<BlogRow[]> {
+  if (!hasSupabase) {
+    try {
+      const [articles, orgs] = await Promise.all([
+        listArticles(recordClient, { limit: 200 }),
+        listOrgs(recordClient),
+      ]);
+      const orgByPubkey = new Map(orgs.map((o) => [o.pubkey, o]));
+      return articles
+        .map((a) => {
+          const org = orgByPubkey.get(a.pubkey);
+          // No resolvable org for this article's signing pubkey — hide it
+          // rather than render a byline with an empty org name.
+          if (!org) return null;
+          const subType =
+            org.category && ORG_SUB_TYPES.has(org.category) ? (org.category as OrgSubType) : null;
+          const row: BlogRow = {
+            id: a.id,
+            title: a.title,
+            excerpt: a.excerpt,
+            cover_image_url: a.cover_image_url,
+            category: a.category,
+            // is_featured has no record equivalent — never fabricated.
+            is_featured: false,
+            // view_count is a Supabase-only interaction metric — honest 0,
+            // not hidden (a real number next to an Eye icon reads as an
+            // honest stat, same call Task 11 made for news view counts).
+            view_count: 0,
+            published_at: a.published_at,
+            account: {
+              id: org.slug,
+              name: org.name,
+              slug: org.slug,
+              avatar_url: org.avatar_url,
+              sub_type: subType,
+              is_verified: false,
+              is_extern: false,
+              extern_status: null,
+            },
+          };
+          return row;
+        })
+        .filter((row): row is BlogRow => row !== null)
+        .sort((a, b) => (b.published_at ?? "").localeCompare(a.published_at ?? ""))
+        .slice(0, 60);
+    } catch (err) {
+      if (err instanceof RecordUnavailableError) return [];
+      throw err;
+    }
+  }
+
   const supabase = await createClient();
   const { data } = await supabase
     .from("blog_articles")
@@ -44,9 +98,13 @@ export default async function BlogFeedPage() {
     .order("published_at", { ascending: false })
     .limit(60);
 
-  const articles: BlogRow[] = ((data as unknown as BlogRow[]) || []).filter(
+  return ((data as unknown as BlogRow[]) || []).filter(
     (a) => !a.account.is_extern || a.account.extern_status === "approved"
   );
+}
+
+export default async function BlogFeedPage() {
+  const articles = await getArticles();
 
   return (
     <div className="space-y-6">

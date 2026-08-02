@@ -11,6 +11,8 @@ import { EventInterestButton } from "@/components/app/EventInterestButton"
 import { EventOwnerActions } from "@/components/app/EventOwnerActions"
 import { ExperienceSection } from "@/components/app/ExperienceSection"
 import { getExperiences, getExperienceCount } from "@/app/actions/experiences"
+import { hasSupabase, recordClient } from "@/lib/record"
+import { getEventById, RecordUnavailableError } from "@netizen-labs/record-client"
 
 interface EventAccount {
   id: string
@@ -41,6 +43,42 @@ interface Event {
 }
 
 async function getEvent(id: string): Promise<Event | null> {
+  if (!hasSupabase) {
+    try {
+      const row = await getEventById(recordClient, id)
+      if (!row) return null
+      return {
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        date: row.date,
+        time: row.time,
+        end_time: row.end_time,
+        location: row.location ?? "",
+        // No record equivalent (eventToSpec never publishes organiser
+        // contact data) — explicit neutral, never fabricated. Every render
+        // site below gates on these being truthy.
+        organizer_name: "",
+        organizer_email: "",
+        organizer_phone: null,
+        category: row.category,
+        image_url: row.image_url,
+        website_url: row.website_url,
+        ticket_price: row.ticket_price !== null ? Number(row.ticket_price) : null,
+        max_attendees: null,
+        created_at: "",
+        // eventToSpec never publishes the Supabase account id (privacy
+        // boundary, see EventRow.account_id's own doc comment) — no org
+        // card to join here either way.
+        account_id: null,
+        accounts: null,
+      }
+    } catch (err) {
+      if (err instanceof RecordUnavailableError) return null
+      throw err
+    }
+  }
+
   const supabase = await createClient()
 
   const { data: event, error } = await supabase
@@ -57,6 +95,10 @@ async function getEvent(id: string): Promise<Event | null> {
 }
 
 async function getInterestCount(eventId: string): Promise<number> {
+  // No record equivalent (event_interests is a Supabase-only interaction
+  // table) — 0 is the honest count, not a fetch failure.
+  if (!hasSupabase) return 0
+
   const supabase = await createClient()
 
   const { data } = await supabase
@@ -147,10 +189,12 @@ export default async function EventDetailPage({
                 </div>
               )}
 
-              <div className="flex items-start gap-3">
-                <MapPin className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
-                <span className="text-sm">{event.location}</span>
-              </div>
+              {event.location && (
+                <div className="flex items-start gap-3">
+                  <MapPin className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+                  <span className="text-sm">{event.location}</span>
+                </div>
+              )}
 
               {event.ticket_price !== null && event.ticket_price > 0 && (
                 <div className="flex items-center gap-3">
@@ -188,12 +232,12 @@ export default async function EventDetailPage({
                   )}
                   <span className="font-medium text-sm">{event.accounts.name}</span>
                 </div>
-              ) : (
+              ) : event.organizer_name ? (
                 <div className="flex items-center gap-3">
                   <User className="h-4 w-4 text-primary flex-shrink-0" />
                   <span className="font-medium text-sm">{event.organizer_name}</span>
                 </div>
-              )}
+              ) : null}
 
               {event.organizer_phone && (
                 <div className="flex items-center gap-3">
@@ -209,11 +253,13 @@ export default async function EventDetailPage({
                   variant="detail"
                 />
 
-                <Button asChild className="w-full" size="sm">
-                  <Link href={`mailto:${event.organizer_email}?subject=Anfrage zu ${event.title}`}>
-                    Kontakt aufnehmen
-                  </Link>
-                </Button>
+                {event.organizer_email && (
+                  <Button asChild className="w-full" size="sm">
+                    <Link href={`mailto:${event.organizer_email}?subject=Anfrage zu ${event.title}`}>
+                      Kontakt aufnehmen
+                    </Link>
+                  </Button>
+                )}
 
                 {event.website_url && (
                   <Button variant="outline" asChild className="w-full bg-transparent" size="sm">

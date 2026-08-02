@@ -163,8 +163,13 @@ export function OrgDetailClient({ account }: { account: Account }) {
 
   const categoryRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  // Members first (location resolution needs them).
+  // Members first (location resolution needs them). Supabase-only — no
+  // membership concept exists in record mode (no accounts/account_owners
+  // table on the record); skip rather than let it throw on the keyless
+  // Proxy. `members` simply stays at its initial `[]`, which is also
+  // correct behaviour there (no fake member list).
   useEffect(() => {
+    if (!hasSupabase) return;
     let cancelled = false;
     void (async () => {
       const mem = await fetchMembersWithProfiles(account.id);
@@ -351,12 +356,20 @@ export function OrgDetailClient({ account }: { account: Account }) {
                   },
                 ]
               : []),
-            {
-              kind: "rate" as const,
-              onClick: () => setRatingOpen(true),
-              active: !!userRating,
-              label: "Bewerten",
-            },
+            // Ratings are a Supabase-only feature (upsertAccountRating has
+            // no record equivalent) — the action would open a modal whose
+            // submit silently fails, so it is hidden rather than shown
+            // non-functional.
+            ...(hasSupabase
+              ? [
+                  {
+                    kind: "rate" as const,
+                    onClick: () => setRatingOpen(true),
+                    active: !!userRating,
+                    label: "Bewerten",
+                  },
+                ]
+              : []),
           ]}
         />
       </div>
@@ -404,6 +417,11 @@ export function OrgDetailClient({ account }: { account: Account }) {
         {(ratingSummary?.rating_count ?? 0) > 0 && (
           <RatingSummary summary={ratingSummary} />
         )}
+        {/* Votes are a Supabase-only feature (voteAccount/clearAccountVote
+            have no record equivalent) — an interactive control that always
+            fails on click is worse than no control, so the whole thumbs-
+            vote row is hidden in record mode rather than shown zeroed. */}
+        {hasSupabase && (
         <div className="pt-1">
           <ThumbsVote
             interactive
@@ -421,6 +439,7 @@ export function OrgDetailClient({ account }: { account: Account }) {
             </p>
           )}
         </div>
+        )}
       </div>
 
       {/* Tabs */}

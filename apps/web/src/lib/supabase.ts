@@ -398,7 +398,7 @@ export async function getProposalStats(): Promise<{
       if (error instanceof RecordUnavailableError) {
         return { success: true, data: { total: 0, active: 0, succeeded: 0, defeated: 0, executed: 0 } };
       }
-      return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+      throw error;
     }
   }
 
