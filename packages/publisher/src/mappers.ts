@@ -503,13 +503,30 @@ export function orgPostToSpec(row: Row, orgAccountIds: Set<string>): PublishSpec
  *
  * Business data end to end: the deal, its window, its imagery. The business's
  * contact details stay in the node — the app is the contact route.
+ *
+ * Gated on the OWNING BUSINESS being publishable, not just the deal's own
+ * status/is_active — a deal cannot outlive its business's moderation state.
+ * `publishableBusinessIds` mirrors how `businessNameById` is already passed
+ * (both come from the same "fetch published businesses" call in sync.ts);
+ * without this a business rejected AFTER creating an active deal would keep
+ * signing that deal's title/description/price/images under `biz-<id>` every
+ * pass forever, even though its own profile correctly stopped publishing
+ * (`businessToSpec`'s `status === "published"` gate). Matches that SAME
+ * predicate — published only — which is stricter than the app's own public
+ * deals feed (`apps/web/src/app/actions/local-ads.ts`, which merely excludes
+ * `"rejected"`); being stricter than the app is fine, looser never is.
  */
-export function dealToSpec(row: Row, businessNameById: Map<string, string>): PublishSpec | null {
+export function dealToSpec(
+  row: Row,
+  businessNameById: Map<string, string>,
+  publishableBusinessIds: Set<string>,
+): PublishSpec | null {
   if (str(row, "status") !== "active" || row["is_active"] !== true) return null;
   const id = str(row, "id");
   const businessId = str(row, "business_id");
   const title = str(row, "title");
   if (!id || !businessId || !title) return null;
+  if (!publishableBusinessIds.has(businessId)) return null;
 
   const tags: string[][] = [
     ["d", `deal:${id}`],

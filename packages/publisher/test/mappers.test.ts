@@ -351,7 +351,11 @@ describe("consented personal organisers and the wider record", () => {
       is_active: true,
       updated_at: "2026-07-30T10:00:00+00:00",
     };
-    const spec = dealToSpec(deal, new Map([["biz-uuid-1", "Pizzeria Müritz"]]))!;
+    const spec = dealToSpec(
+      deal,
+      new Map([["biz-uuid-1", "Pizzeria Müritz"]]),
+      new Set(["biz-uuid-1"]),
+    )!;
     assert.equal(spec.kind, 30402);
     assert.equal(spec.scope, "biz-biz-uuid-1");
     assert.deepEqual(spec.tags.find((t) => t[0] === "business"), ["business", "Pizzeria Müritz"]);
@@ -359,7 +363,46 @@ describe("consented personal organisers and the wider record", () => {
   });
 
   it("an inactive deal never publishes", () => {
-    assert.equal(dealToSpec({ id: "d-2", business_id: "b", title: "x", status: "active", is_active: false }, new Map()), null);
+    assert.equal(
+      dealToSpec(
+        { id: "d-2", business_id: "b", title: "x", status: "active", is_active: false },
+        new Map(),
+        new Set(),
+      ),
+      null,
+    );
+  });
+
+  it("dealToSpec: refuses a deal whose business is rejected or pending — the business's moderation state binds the deal, even though the deal row itself is active", () => {
+    const rejectedDeal = {
+      id: "d-3", business_id: "biz-rejected", title: "Sollte nie erscheinen",
+      status: "active", is_active: true, updated_at: "2026-07-30T10:00:00+00:00",
+    };
+    // Business is NOT in the publishable set (as if it fell out of the
+    // status=eq.published fetch entirely) — even though a name happens to be
+    // known for it (e.g. from a stale cache), the id gate must still refuse.
+    assert.equal(
+      dealToSpec(rejectedDeal, new Map([["biz-rejected", "Verstecktes Geschäft"]]), new Set()),
+      null,
+    );
+
+    const pendingDeal = { ...rejectedDeal, id: "d-3b", business_id: "biz-pending" };
+    assert.equal(dealToSpec(pendingDeal, new Map(), new Set()), null);
+  });
+
+  it("dealToSpec: publishes when the owning business IS publishable, carrying its business tag", () => {
+    const deal = {
+      id: "d-4", business_id: "biz-ok", title: "Gutes Angebot",
+      status: "active", is_active: true, updated_at: "2026-07-30T10:00:00+00:00",
+    };
+    const spec = dealToSpec(
+      deal,
+      new Map([["biz-ok", "Gutes Geschäft"]]),
+      new Set(["biz-ok"]),
+    )!;
+    assert.ok(spec);
+    assert.equal(spec.scope, "biz-biz-ok");
+    assert.deepEqual(spec.tags.find((t) => t[0] === "business"), ["business", "Gutes Geschäft"]);
   });
 
   it("businessToSpec: a business becomes a kind-0 profile under its biz scope", () => {

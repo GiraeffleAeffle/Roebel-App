@@ -213,12 +213,20 @@ export async function buildSpecs(
       const nameById = new Map(
         businesses.filter((b) => b.id && typeof b.name === "string").map((b) => [String(b.id), String(b.name)]),
       );
+      // The `businesses` fetch above is already status=eq.published, so this
+      // Set of ids IS "businesses whose deals are allowed to publish" —
+      // built from the SAME fetch (no second round trip) rather than a
+      // fragile PostgREST embedded-resource filter on business_deals itself.
+      // A deal owned by a business that fell out of that fetch (pending,
+      // rejected, deleted) is filtered out in code, defense-in-depth style,
+      // even though the deal row's own status/is_active flags say "active".
+      const publishableBusinessIds = new Set(businesses.filter((b) => b.id).map((b) => String(b.id)));
       const rows = await deps.fetchRows(
         "business_deals",
         "select=id,business_id,title,description,deal_type,deal_value,image_url,media_urls,start_date,end_date,status,is_active,updated_at,created_at&status=eq.active&is_active=eq.true",
       );
       for (const row of rows) {
-        const spec = dealToSpec(row, nameById);
+        const spec = dealToSpec(row, nameById, publishableBusinessIds);
         if (spec) specs.push(spec);
       }
     }

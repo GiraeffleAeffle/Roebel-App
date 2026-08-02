@@ -204,6 +204,53 @@ describe("businesses dataset and buildSpecs fetch efficiency", () => {
   });
 });
 
+describe("deals inherit their owning business's moderation state (defense in depth)", () => {
+  it("a deal owned by a business that is NOT in the published-businesses fetch (rejected/pending) never publishes, even though the deal row itself is active", async () => {
+    const LOCAL_TABLES: Record<string, Record<string, unknown>[]> = {
+      // Empty on purpose: the real businesses query is status=eq.published,
+      // so a rejected or pending business simply never comes back on the
+      // wire — this is what that looks like from buildSpecs's point of view.
+      businesses: [],
+      business_deals: [
+        {
+          id: "deal-orphan",
+          business_id: "biz-rejected",
+          title: "Sollte nie erscheinen",
+          status: "active",
+          is_active: true,
+          updated_at: "2026-07-30T10:00:00+00:00",
+        },
+      ],
+    };
+    const summary = await publishOnce({
+      nodeSecret: SECRET,
+      nodeId: "roebel",
+      datasets: ["deals"],
+      fetchRows: async (table) => LOCAL_TABLES[table] ?? [],
+      relayUrl: "ws://relay",
+      makeClient: () => ({
+        publish: async () => ({ ok: true, message: "" }),
+        close: () => {},
+      }),
+    });
+    assert.equal(summary.built, 0);
+  });
+
+  it("a deal owned by a published business still publishes, carrying the business tag", async () => {
+    const specs = await buildSpecs({
+      datasets: ["deals", "businesses"],
+      fetchRows: async (table) => TABLES[table] ?? [],
+      nodeId: "roebel",
+    });
+    const dealSpec = specs.find((s) => s.d === "deal:deal-1");
+    assert.ok(dealSpec, "the published business's deal should still publish");
+    assert.deepEqual(
+      dealSpec!.tags.find((t) => t[0] === "business"),
+      ["business", "Bäckerei Müritz"],
+    );
+  });
+});
+
 describe("dataset names", () => {
   // Verify that all known dataset names are recognized as valid DatasetName type.
   // This ensures the CLI's VALID_DATASETS set and the sync module's DatasetName union stay in sync.

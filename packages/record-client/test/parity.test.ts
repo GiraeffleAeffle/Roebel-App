@@ -260,7 +260,7 @@ test("round-trip parity: deal media_urls carries every image tag, not just the f
     start_date: "2026-08-01", end_date: "2026-08-31", status: "active", is_active: true,
     updated_at: "2026-07-02T10:00:00Z",
   };
-  const spec = dealToSpec(dealRow, new Map([["b1", "Café am Hafen"]]));
+  const spec = dealToSpec(dealRow, new Map([["b1", "Café am Hafen"]]), new Set(["b1"]));
   const [deal] = await listDeals(clientFor([asRecordEvent(spec!)]));
   assert.equal(deal.image_url, "https://x/cover.jpg");
   // dealToSpec pushes image_url's own tag first, then one per media_urls

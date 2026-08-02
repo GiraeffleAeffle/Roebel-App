@@ -82,7 +82,7 @@ test("round-trip parity: a deal's pubkey joins to that business's own profile pu
     status: "active", is_active: true, updated_at: "2026-07-02T10:00:00Z",
   };
   const businessSpec = businessToSpec(businessRow, nodeId)!;
-  const dealSpec = dealToSpec(dealRow, new Map([[businessId, "Bäckerei Sonnenschein"]]))!;
+  const dealSpec = dealToSpec(dealRow, new Map([[businessId, "Bäckerei Sonnenschein"]]), new Set([businessId]))!;
   assert.equal(businessSpec.scope, dealSpec.scope, "a business's deal and its own profile must share a signing scope");
   const identity = deriveOrgIdentity(nodeSecret, nodeId, dealSpec.scope);
 

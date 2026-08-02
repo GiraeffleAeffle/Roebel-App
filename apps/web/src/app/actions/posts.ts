@@ -20,7 +20,7 @@ import { isAccountOwner, fetchAccountById } from "@/lib/supabase-accounts"
 import { isVerifiedCitizen } from "@/lib/server/verify-citizen"
 import { isOrgAccount } from "@/types/account"
 import { hasSupabase, recordClient } from "@/lib/record"
-import { listPosts, RecordUnavailableError } from "@netizen-labs/record-client"
+import { listPosts, getThread, RecordUnavailableError, type RecordPost } from "@netizen-labs/record-client"
 
 // ============================================
 // Helper: build poll results for a set of posts
@@ -91,6 +91,61 @@ async function buildPollMap(
 // Read operations
 // ============================================
 
+/**
+ * A RecordPost (packages/record-client's social.ts) → the same
+ * PostWithEngagement shape the Supabase branch below produces, so PostCard
+ * renders identically regardless of backend. Shared by getPostsForFeed's and
+ * getPostById's !hasSupabase branches — both need the identical mapping over
+ * a different starting set (a page of top-level notes vs. one found-by-id
+ * note), so it lives here once rather than duplicated.
+ *
+ * Record mode: no account_id/wallet_address/poll/link tables exist — every
+ * viewer-specific or Supabase-only field gets an explicit, honest neutral
+ * instead of being fabricated. category has no record equivalent (Nostr
+ * posts carry no PostCategory tag) so it falls back to "generell", the
+ * same "no specific category" value the Supabase branch below already uses
+ * — PostCard only shows the category badge when it is NOT "generell", so
+ * this neutral is naturally hidden rather than rendering a fake badge.
+ * wallet_address doubles as PostCard's existing agent/bot signal
+ * (`isMecky = wallet_address === "mecky_bot"`) — is_agent is preserved onto
+ * it rather than dropped, so machine speech stays labelled. A real wallet
+ * is never fabricated (never render a raw address); personal AND org posts
+ * both flow through author_username so the correct display name still
+ * shows, at the cost of the org sub-type pill (no on-chain signal exists
+ * to pick "Gewerbe"/"Verein"/"Stadt"/"Fraktion" honestly).
+ */
+function recordPostToPostWithEngagement(p: RecordPost, feedType: FeedType): PostWithEngagement {
+  return {
+    id: p.id,
+    wallet_address: p.is_agent ? "mecky_bot" : "",
+    account_id: null,
+    content: p.content,
+    media_urls: p.media_urls,
+    video_url: null,
+    category: "generell" as PostCategory,
+    status: "published" as Post["status"],
+    likes_count: p.likes_count,
+    comments_count: p.comments_count,
+    created_at: p.created_at,
+    updated_at: p.created_at,
+    post_type: "user" as PostType,
+    feed_type: feedType,
+    linked_event_id: null,
+    linked_experience_id: null,
+    author_username: p.author_name ?? "Unbekannt",
+    author_profile_picture_url: p.author_avatar,
+    author_neighborhood: null,
+    author_account_name: null,
+    author_account_avatar_url: null,
+    author_account_type: null,
+    links: [],
+    is_liked_by_viewer: false,
+    is_reported_by_viewer: false,
+    poll: null,
+    linked_event: null,
+  }
+}
+
 export interface GetPostsForFeedOptions {
   limit?: number
   offset?: number
@@ -104,20 +159,6 @@ export async function getPostsForFeed(
 ): Promise<{ success: boolean; data?: PostWithEngagement[]; error?: string }> {
   const { limit = 20, offset = 0, feedType } = options
 
-  // Record mode: no account_id/wallet_address/poll/link tables exist — every
-  // viewer-specific or Supabase-only field gets an explicit, honest neutral
-  // instead of being fabricated. category has no record equivalent (Nostr
-  // posts carry no PostCategory tag) so it falls back to "generell", the
-  // same "no specific category" value the Supabase branch below already uses
-  // — PostCard only shows the category badge when it is NOT "generell", so
-  // this neutral is naturally hidden rather than rendering a fake badge.
-  // wallet_address doubles as PostCard's existing agent/bot signal
-  // (`isMecky = wallet_address === "mecky_bot"`) — is_agent is preserved onto
-  // it rather than dropped, so machine speech stays labelled. A real wallet
-  // is never fabricated (never render a raw address); personal AND org posts
-  // both flow through author_username so the correct display name still
-  // shows, at the cost of the org sub-type pill (no on-chain signal exists
-  // to pick "Gewerbe"/"Verein"/"Stadt"/"Fraktion" honestly).
   if (!hasSupabase) {
     try {
       const posts = await listPosts(recordClient, { limit: offset + limit })
@@ -125,35 +166,7 @@ export async function getPostsForFeed(
       // match the Supabase branch's own ordering before slicing the page.
       posts.sort((a, b) => b.created_at.localeCompare(a.created_at))
       const page = posts.slice(offset, offset + limit)
-      const data: PostWithEngagement[] = page.map((p) => ({
-        id: p.id,
-        wallet_address: p.is_agent ? "mecky_bot" : "",
-        account_id: null,
-        content: p.content,
-        media_urls: p.media_urls,
-        video_url: null,
-        category: "generell" as PostCategory,
-        status: "published" as Post["status"],
-        likes_count: p.likes_count,
-        comments_count: p.comments_count,
-        created_at: p.created_at,
-        updated_at: p.created_at,
-        post_type: "user" as PostType,
-        feed_type: (feedType ?? "main") as FeedType,
-        linked_event_id: null,
-        linked_experience_id: null,
-        author_username: p.author_name ?? "Unbekannt",
-        author_profile_picture_url: p.author_avatar,
-        author_neighborhood: null,
-        author_account_name: null,
-        author_account_avatar_url: null,
-        author_account_type: null,
-        links: [],
-        is_liked_by_viewer: false,
-        is_reported_by_viewer: false,
-        poll: null,
-        linked_event: null,
-      }))
+      const data = page.map((p) => recordPostToPostWithEngagement(p, (feedType ?? "main") as FeedType))
       return { success: true, data }
     } catch (error) {
       if (error instanceof RecordUnavailableError) return { success: true, data: [] }
@@ -347,6 +360,28 @@ export async function getPostById(
   postId: string,
   viewerWallet?: string
 ): Promise<{ success: boolean; data?: PostWithEngagement; error?: string }> {
+  // Record mode: PostCard.handleCardClick and every card action (like,
+  // report, comment section) route on the SAME `id` getPostsForFeed's
+  // record-mode branch already returns (RecordPost.id — the d tag if a
+  // mapper ever sets one, else the event id) — round-tripping through that
+  // field is what makes a feed-card click resolve here instead of hitting
+  // "Beitrag nicht gefunden". listPosts has no single-record lookup (same
+  // limitation getListingById's record branch already documents for
+  // marketplace listings), so fetch a page and find the match by id.
+  // viewerWallet has no meaning without Supabase's per-viewer like/report
+  // tables — recordPostToPostWithEngagement already neutrals those out.
+  if (!hasSupabase) {
+    try {
+      const posts = await listPosts(recordClient, { limit: 200 })
+      const p = posts.find((post) => post.id === postId)
+      if (!p) return { success: false, error: "Beitrag nicht gefunden" }
+      return { success: true, data: recordPostToPostWithEngagement(p, "main") }
+    } catch (error) {
+      if (error instanceof RecordUnavailableError) return { success: false, error: "Beitrag nicht gefunden" }
+      throw error
+    }
+  }
+
   try {
     const supabase = await createClient()
 
@@ -725,6 +760,47 @@ export async function getComments(
   limit = 20,
   offset = 0
 ): Promise<{ success: boolean; data?: PostComment[]; error?: string }> {
+  // Record mode: getThread's kind-1 reply batching (packages/record-client's
+  // social.ts) is the SAME machinery that produces the real comments_count
+  // every card already advertises — wiring it here is what makes "12
+  // Kommentare" actually expand instead of failing with a generic error.
+  // postId here IS the event id (see the comment on getPostById above), so
+  // it round-trips straight into getThread's `e` filter. Field-by-field, the
+  // same neutrals as recordPostToPostWithEngagement above: wallet_address is
+  // never a real address (the "mecky_bot" sentinel or "" — CommentItem only
+  // ever uses it to build a fallback TEXT label, `.slice()` on "" is safe,
+  // and it is never used for an href/button), account_id/video_url have no
+  // record equivalent, status is always "published" (nothing else reaches
+  // the relay), and author_username falls back to "Unbekannt" so
+  // CommentItem's own `author_username || shortAddress` never needs the
+  // fallback branch.
+  if (!hasSupabase) {
+    try {
+      const replies = await getThread(recordClient, postId)
+      // getThread gives no ordering guarantee — sort asc by created_at to
+      // match the Supabase branch's own ordering before slicing the page.
+      replies.sort((a, b) => a.created_at.localeCompare(b.created_at))
+      const page = replies.slice(offset, offset + limit)
+      const data: PostComment[] = page.map((c) => ({
+        id: c.id,
+        post_id: postId,
+        wallet_address: c.is_agent ? "mecky_bot" : "",
+        account_id: null,
+        content: c.content,
+        media_urls: c.media_urls,
+        video_url: null,
+        status: "published" as PostComment["status"],
+        created_at: c.created_at,
+        author_username: c.author_name ?? "Unbekannt",
+        author_profile_picture_url: c.author_avatar,
+      }))
+      return { success: true, data }
+    } catch (error) {
+      if (error instanceof RecordUnavailableError) return { success: true, data: [] }
+      throw error
+    }
+  }
+
   try {
     const supabase = await createClient()
 
