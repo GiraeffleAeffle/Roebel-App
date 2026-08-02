@@ -650,6 +650,9 @@ importers:
       '@netizen-labs/workspace':
         specifier: workspace:*
         version: link:../../packages/workspace
+      '@noble/hashes':
+        specifier: ^1.8.0
+        version: 1.8.0
       '@radix-ui/react-alert-dialog':
         specifier: ^1.1.15
         version: 1.1.15(@types/react-dom@19.1.7(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
