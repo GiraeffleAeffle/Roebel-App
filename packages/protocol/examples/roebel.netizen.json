@@ -82,7 +82,7 @@
       {
         "id": "web",
         "redirectUris": [
-          "https://www.roebel.app/api/auth/callback",
+          "https://www.roebel.app/api/workspace/auth/callback",
           "https://roebel.app/api/workspace/auth/callback"
         ],
         "scopes": [
