@@ -107,9 +107,14 @@ Two rails, distinguished by **who holds the key**:
 - **Node-signed** (node-held per-organisation keys, since 2026-07-30): the public CMS
   datasets, mirrored by `@netizen-labs/publisher` (`services.publisher` in the manifest).
   Events and cinema as NIP-52 `31923`, organisation profiles as kind 0 — the cinema's
-  screenings signed by the cinema's derived key, an org's events by that org's key. relay-sync
-  merges the publisher's pubkeys into the allow-list each pass (`EXTRA_KEYS_FILE`). Details
-  and the privacy boundary: [Public data on Nostr](PUBLIC_DATA_ON_NOSTR.md) §1.
+  screenings signed by the cinema's derived key, an org's events by that org's key. Three
+  civic kinds round out the CMS datasets: town news as NIP-23 `30023` (`d=news:<uuid>`),
+  restaurant menus as **kind `32101`** (one replaceable event per restaurant, `d=restaurant:<id>`),
+  civic notices as **kind `32102`** (town-signed, a resolved alert is an edit, never a
+  deletion), and governance proposals as **kind `32100`** — a discoverable pointer only, body
+  stays on Irys and tallies stay on-chain. relay-sync merges the publisher's pubkeys into the
+  allow-list each pass (`EXTRA_KEYS_FILE`). Details and the privacy boundary: [Public data on
+  Nostr](PUBLIC_DATA_ON_NOSTR.md) §1.
 
 On delete the app publishes a NIP-09 kind 5 request and says plainly in the UI that erasure
 on Nostr is **advisory** — relays may ignore it, and clients that already fetched an event
@@ -201,6 +206,16 @@ history, and **provenance** — which node an event came from.
 
 `GET /events?q=&kinds=&authors=&since=&until=&node=&limit=` · `GET /stats` · `GET /health`
 
+**`/events` also takes `e`, `p` and `d` tag filters**, added 2026-08-02 for the fork-with-fallback
+read path (§13a of the roadmap): `e`/`p` match via a GIN-indexed `tags @> …` JSONB containment
+query (`idx_nostr_events_tags`), so replies and reactions to a given event or author are
+queryable without a full scan; `d` filters on the `d_tag` column directly — the same column the
+replaceable-event collapse ([Roadmap §13](ROADMAP_AND_DEFERRED.md)) already maintains — so a
+client can ask for one stable record (a restaurant's menu, a proposal pointer) by its `d` tag
+alone. This is what lets
+`@netizen-labs/record-client` (and so a keyless `apps/web`) fetch a specific parameterised
+replaceable event instead of paging through everything of a kind.
+
 Public read by design. Everything in it came off world-readable relays, so publishing leaks
 nothing new, and it is what lets a **peer's** agent query this node.
 
@@ -208,6 +223,33 @@ nothing new, and it is what lets a **peer's** agent query this node.
 event whose signature is re-verified on ingest rather than trusted from a peer, and the whole
 store is rebuildable by re-reading the relays. Drop the database and nothing is lost — that is
 what keeps query efficiency from turning into lock-in.
+
+## 6a. Fork-with-fallback: the web app reads the index — live 2026-08-02
+
+The other end of publishing is consuming. **`apps/web` now has a record-mode read path**: every
+public route reads through `@netizen-labs/record-client` against a node's `/events` index
+instead of PostgREST whenever Supabase credentials are absent, so a fork with no backend at all
+still renders the town's real public record — read-only, slightly slower, same data. This closes
+[Roadmap §13a](ROADMAP_AND_DEFERRED.md), previously the largest gap in §8/§9 below: until now,
+publishing to the relay proved the record was *public*, not that an outside app could actually
+*consume* it end to end.
+
+The mechanism: the three Supabase client factories construct a throw-on-access `Proxy` when
+keyless rather than crash on import, every public data-fetching function branches on
+`hasSupabase` and falls back to the record-client, and `NEXT_PUBLIC_NODE_INDEX_URL` (default
+Röbel's own `https://index.roebel.app`) is the one variable a fork sets to point at a different
+node. A navy banner marks the instance read-only and every write affordance is hidden rather
+than left to fail. [`apps/web/scripts/keyless-smoke.sh`](../apps/web/scripts/keyless-smoke.sh)
+is the acceptance test — it builds and boots the app with the Supabase env genuinely absent and
+asserts all 8 public routes return HTTP 200 with the record-mode notice present. See [Forking
+Guide → Ohne Supabase starten](FORKING_GUIDE.md#ohne-supabase-starten-record-mode) for how to
+run it yourself.
+
+Scoped to `apps/web` only — Expo still requires Supabase env to run — and honest gaps remain:
+roughly 60 of the ~127 `apps/web/src/app/api/**` handlers are unaudited for keyless behaviour
+(a page rendering does not prove every API route it might call degrades gracefully), and
+interaction counts (likes, comments, reposts) shown in record mode are advisory, reflecting
+whatever the index last mirrored rather than a live tally.
 
 ## 7. Agents on the record (slice 4) — live 2026-07-28
 

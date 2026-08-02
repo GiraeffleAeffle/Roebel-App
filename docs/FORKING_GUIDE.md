@@ -5,22 +5,82 @@ towns who want to **fork the platform** for themselves. If you just asked *"is t
 a staging environment / how do I test this easily?"* — start with
 [Testing against staging](#testing-against-staging).
 
+- **Just want to see it run, zero setup?** → [Ohne Supabase starten (record mode)](#ohne-supabase-starten-record-mode)
 - **Contributor?** → [Prerequisites](#prerequisites) → [Testing against staging](#testing-against-staging)
 - **Maintainer provisioning staging?** → [docs/STAGING_ENVIRONMENT.md](STAGING_ENVIRONMENT.md)
 - **Forking for your own town?** → [Fork for your own town](#fork-for-your-own-town)
 
 ---
 
-## TL;DR — the three ways to test
+## TL;DR — the four ways to test
 
 | Goal | What to do | Setup effort |
 |---|---|---|
+| Clone and run the **web** app with zero backend | `pnpm install`, run `apps/web` with no env | none |
 | Just look at / click through the app | Open **https://stage.roebel.app** | none |
 | Develop the **web** app | Run `apps/web` locally, point at staging Supabase | ~2 min |
 | Develop the **mobile** app | Run `apps/expo` in Expo Go, point at staging Supabase | ~5 min |
 
 You do **not** need to fork or provision anything to contribute — staging is shared.
 You only fork if you want your *own town's* independent instance.
+
+---
+
+## Ohne Supabase starten (record mode)
+
+The fastest way to see the app run at all: **no Supabase project, no env file, no
+credentials.** `apps/web` reads the town's public record straight off the node's
+HTTP index instead of PostgREST, so every public page renders with real data even
+when `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are absent.
+
+```bash
+git clone https://github.com/Roebel-Labs/Roebel-App.git
+cd Roebel-App
+pnpm install
+cd apps/web
+pnpm dev        # → http://localhost:3000, no .env.local needed
+```
+
+Open it and you'll see **Röbel's actual public record** — the default index is
+`https://index.roebel.app`, the same node the production app talks to, just
+through its read-only public interface instead of the database.
+
+To point the app at a **different community's node** instead, set one variable:
+
+```bash
+NEXT_PUBLIC_NODE_INDEX_URL=https://index.example-town.app pnpm dev
+```
+
+That's the whole seam — [`apps/web/src/lib/record.ts`](../apps/web/src/lib/record.ts)
+constructs the index client from that single env var, defaulting to Röbel's own
+node when it's unset.
+
+**What works in record mode** — all public reading: the feed, events, news,
+cinema programme, organisations, marketplace, business deals, restaurant menus,
+governance proposals, civic notices, and the map.
+
+**What does not** — anything that needs a backend to write or to know who you
+are: login, posting, likes/comments, any form, DMs, notifications, the points
+card, the mini-app runtime, QR ordering. A navy banner across the top says so
+plainly: *"Öffentlicher Datensatz – nur Lesen. Diese Instanz läuft ohne Backend
+und zeigt das öffentliche Register der Stadt."* — and every write affordance is
+hidden rather than shown-then-failing.
+
+This is genuinely read-only, not a demo mode with fake data — it's Röbel's live
+public record, sourced the same way an outside client would. See
+[Public data on Nostr](PUBLIC_DATA_ON_NOSTR.md) for what's published and why, and
+[Roadmap and deferred work §13a](ROADMAP_AND_DEFERRED.md) for how this shipped.
+
+**The acceptance test is [`apps/web/scripts/keyless-smoke.sh`](../apps/web/scripts/keyless-smoke.sh)** —
+it builds and boots the app with the Supabase env genuinely absent (not just
+unread) and asserts all eight public routes (`/`, `/news`, `/app`,
+`/app/marktplatz`, `/proposals`, `/karte`, `/app/events`, `/unternehmen`) return
+HTTP 200 with the record-mode banner present. Run it yourself with:
+
+```bash
+cd apps/web
+./scripts/keyless-smoke.sh
+```
 
 ---
 

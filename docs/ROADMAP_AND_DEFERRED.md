@@ -185,15 +185,35 @@ media: calendar data should use NIP-52 kinds rather than invented ones, and medi
 served from a Blossom server next to strfry — NIP-96 is officially deprecated in its
 favour. **Trigger:** publishing the events/cinema/org datasets, or any media, to the relay.
 
-### 13a. Fork-with-fallback: the app reads Nostr when Supabase is absent
+### 13a. ~~Fork-with-fallback: the app reads Nostr when Supabase is absent~~ — DONE 2026-08-02
 
-The end state of the dual system: someone forks the Röbel web or expo repo, configures no
-Supabase, and the app still shows the whole public record by reading the node's index/relay —
-same data, slightly slower. The pieces exist (every public dataset is on the record, the
-consumer contract is documented in the Netizen repo's CONSUMING_THE_RECORD.md); what is
-missing is a data-layer seam in the apps that falls back from PostgREST to `/events` queries
-per dataset. **Trigger:** the first real fork, or the Atlas proving a full read-only client —
-whichever comes first.
+The end state of the dual system: someone forks the Röbel web repo, configures no Supabase,
+and the app still shows the whole public record by reading the node's index — same data,
+read-only. **Shipped for web**: all three Supabase client factories return a throw-on-access
+Proxy when keyless (construction never crashes SSR), every public read path branches on
+`hasSupabase` and falls back to `@netizen-labs/record-client` against the node's
+`/events` index, and a sweep removed render-time Supabase access from every public route. A
+navy banner marks the instance as read-only and hides write affordances rather than letting
+them fail. `NEXT_PUBLIC_NODE_INDEX_URL` repoints a fork at a different community's node;
+default is Röbel's own (`https://index.roebel.app`).
+
+**Proof:** [`apps/web/scripts/keyless-smoke.sh`](../apps/web/scripts/keyless-smoke.sh) builds
+and boots the app with the Supabase env genuinely absent and asserts all 8 public routes (`/`,
+`/news`, `/app`, `/app/marktplatz`, `/proposals`, `/karte`, `/app/events`, `/unternehmen`)
+return HTTP 200 with the record-mode notice present — not just a 200, the actual record-mode
+banner, so the test fails if a route silently falls back to empty data instead of reading the
+index. See [Forking Guide → Ohne Supabase starten](FORKING_GUIDE.md#ohne-supabase-starten-record-mode).
+
+**Honest gaps, not swept under this:**
+- **~60 of the ~127 handlers under `apps/web/src/app/api/**` are unaudited** for keyless
+  behaviour. A page rendering does not imply every API route it might call degrades
+  gracefully — an unaudited handler that assumes Supabase will 500, which is a broken
+  endpoint, not a broken page. The smoke test only exercises page routes.
+- **Interaction counts (likes, comments, reposts) are advisory in record mode.** The index
+  reflects what the relay has mirrored, not a live tally, so a count shown to a keyless reader
+  can lag the authoritative Supabase-backed number by up to one publisher cycle.
+- **Expo is out of scope.** This shipped for `apps/web` only; the mobile app still requires
+  Supabase env to run at all.
 
 ### 13. ~~The index does not honour replaceable events~~ — DONE 2026-07-30
 

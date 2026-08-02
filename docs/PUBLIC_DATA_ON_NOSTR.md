@@ -35,6 +35,14 @@ public datasets onto the relay every 5 minutes — first live pass: 41 events ac
 | **images** — mirrored content-addressed at `/media/<sha256>` (Blossom-shaped reads); the hash in the signed event is the integrity check | |
 | **the manifest** — `/manifest` on the index: chain id + every contract address, so governance and Münzen are discoverable on-chain without asking anyone | |
 
+As of 2026-08-02, the **web app itself** reads this table's left column back out, not just the
+publisher writing it: any public route renders from the node's index when Supabase is absent,
+which is the other end of this migration — [Forking Guide → Ohne Supabase
+starten](FORKING_GUIDE.md#ohne-supabase-starten-record-mode) and
+[Roadmap §13a](ROADMAP_AND_DEFERRED.md) cover the read side. The remaining "not yet" row —
+per-person opt-in content — is the only genuinely missing public dataset; everything else a
+keyless fork needs to render is already in the left column above.
+
 **The withdrawal path shipped before the publish path**, exactly as §3.4 demands — and the
 first kind-30018 events on the record were four withdrawal tombstones, published before any
 active listing (their sellers had not opted in, so the gate held them back). The index honours
