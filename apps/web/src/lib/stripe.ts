@@ -1,12 +1,40 @@
 import Stripe from "stripe";
 
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error("STRIPE_SECRET_KEY is not set in environment variables");
+/**
+ * Stripe clients are constructed LAZILY, on first property access.
+ *
+ * A module-level `throw` here breaks far more than Stripe: Next.js imports
+ * every API route while collecting page data at build time, so an unset
+ * STRIPE_SECRET_KEY failed the entire `next build` — which is exactly what a
+ * fork without payment credentials hits (see docs/FORKING_GUIDE.md, record
+ * mode). Deferring the check to first use keeps the build and every unrelated
+ * route working, while a real Stripe call still fails loudly and specifically.
+ * Same reasoning as the Supabase client in lib/supabase.ts.
+ */
+function lazyStripe(readKey: () => string | undefined, label: string): Stripe {
+  let client: Stripe | null = null;
+  return new Proxy({} as Stripe, {
+    get(_target, prop) {
+      if (!client) {
+        const key = readKey();
+        if (!key) {
+          throw new Error(
+            `${label} is not set — Stripe is not configured in this deployment.`,
+          );
+        }
+        client = new Stripe(key);
+      }
+      return Reflect.get(client, prop, client);
+    },
+  });
 }
 
 // The default/primary Stripe client — used for event tickets and anything
 // else that shares the main Stripe account.
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+export const stripe = lazyStripe(
+  () => process.env.STRIPE_SECRET_KEY,
+  "STRIPE_SECRET_KEY",
+);
 
 /**
  * Röbel Card Stripe client. The voucher system runs on a SEPARATE Stripe
@@ -20,9 +48,10 @@ export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
  * Falls back to the default key if the card-specific key is missing so
  * local dev without the split setup still works.
  */
-const cardSecretKey =
-  process.env.STRIPE_SECRET_KEY_CARD ?? process.env.STRIPE_SECRET_KEY;
-export const stripeCard = new Stripe(cardSecretKey);
+export const stripeCard = lazyStripe(
+  () => process.env.STRIPE_SECRET_KEY_CARD ?? process.env.STRIPE_SECRET_KEY,
+  "STRIPE_SECRET_KEY_CARD (or STRIPE_SECRET_KEY)",
+);
 
 // Event ticket configuration
 export const TICKET_CONFIG = {
