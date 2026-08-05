@@ -52,6 +52,26 @@ if (typeof global.process === 'undefined') {
   global.process = require('process');
 }
 
+// Web only: react-native's own core init (Libraries/Core/setUpGlobals.js,
+// pulled in as a side effect of the `react-native` import above) runs BEFORE
+// this file's plain statements and unconditionally does
+// `global.process = global.process || {}` (+ `.env`) — so by the time the
+// guard above runs, global.process is already defined (as that bare `{env}`
+// object) and the guard never fires. `process.browser` / `process.version`
+// stay undefined, which crashes several browserify-era transitive deps
+// (readable-stream et al., pulled in via the stream/crypto polyfills in
+// metro.config.js) that do `!process.browser && process.version.slice(...)`
+// at module-load time: boot fails with body never rendering. Merge the full
+// process/browser.js shim's fields on top, on web only, keeping whatever env
+// react-native already populated. Native is untouched (block never runs
+// there), and this app never itself relies on `process.browser` semantics.
+if (Platform.OS === 'web' && typeof global.process.browser === 'undefined') {
+  const browserProcess = require('process');
+  Object.assign(global.process, browserProcess, {
+    env: { ...browserProcess.env, ...global.process.env },
+  });
+}
+
 // Import Thirdweb adapter synchronously for non-web platforms
 // Wrapped in try-catch so Expo Go doesn't crash (native crypto module unavailable)
 if (Platform.OS !== "web") {

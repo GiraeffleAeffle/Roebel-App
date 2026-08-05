@@ -210,6 +210,41 @@ const Services = z.object({
     })
     .optional(),
   /**
+   * Metered machine-scale access to the public record (x402).
+   *
+   * Human-scale reads stay free; /bulk, /export and /firehose on the index
+   * host answer 402 until paid. Every settlement lands in `payTo` (the
+   * treasury Safe) on this node's own chain; `split` fixes the author share
+   * recorded per sale. Spec: docs/superpowers/specs/2026-08-05-x402-*.md
+   */
+  metering: z
+    .object({
+      payTo: address,
+      /** CAIP-2 chain id, e.g. "eip155:100". Must match `chain.chainId`. */
+      network: z.string().regex(/^eip155:\d+$/, "network must be a CAIP-2 eip155 id"),
+      /** Settlement token — must implement EIP-3009 (probe before declaring). */
+      asset: address,
+      /** The token's EIP-712 domain, needed by payers to sign authorizations. */
+      assetName: z.string().min(1),
+      assetVersion: z.string().min(1),
+      assetDecimals: z.number().int().min(0).max(36),
+      /** Atomic-unit integer strings — a price with a decimal point is a bug. */
+      prices: z.object({
+        bulk: z.string().regex(/^\d+$/),
+        export: z.string().regex(/^\d+$/),
+        firehoseDay: z.string().regex(/^\d+$/),
+      }),
+      split: z
+        .record(z.number())
+        .refine(
+          (s) => Object.values(s).reduce((a, b) => a + b, 0) === 100,
+          "metering.split must sum to 100",
+        ),
+      /** Months until unclaimed author accruals roll to the treasury. */
+      unclaimedMonths: z.number().int().positive().optional(),
+    })
+    .optional(),
+  /**
    * Line B: the agentic workspace — stock `block/buzz`, deployed as upstream's
    * own bundle (relay + dedicated Postgres 17 + Redis + MinIO). Dedicated on
    * purpose: upstream pins postgres:17 while the node's shared Postgres is 16,
@@ -542,7 +577,25 @@ export const NetizenManifestSchema = z.object({
       sig: z.string(),
     })
     .optional(),
-});
+})
+  .superRefine((m, ctx) => {
+    const met = m.services.metering;
+    if (!met) return;
+    if (!m.services.indexer) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["services", "metering"],
+        message: "metering requires services.indexer — the gateway reads the index database",
+      });
+    }
+    if (m.chain && met.network !== `eip155:${m.chain.chainId}`) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["services", "metering", "network"],
+        message: `metering.network must be eip155:${m.chain.chainId} to match the declared chain`,
+      });
+    }
+  });
 
 export type NetizenManifest = z.infer<typeof NetizenManifestSchema>;
 
