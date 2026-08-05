@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '@/lib/storage/secureStorage';
 import {
   NOSTR_KEY_DERIVATION_MESSAGE,
   bindingStatement,

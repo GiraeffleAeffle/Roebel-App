@@ -13,7 +13,7 @@
  */
 import { keccak256 } from 'thirdweb/utils';
 import { hash5, SNARK_FIELD_SIZE } from 'maci-crypto';
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '@/lib/storage/secureStorage';
 import type { Account } from 'thirdweb/wallets';
 import type { CitizenIdentity, CitizenPreimage, CommitmentEvidence } from './verification-types';
 

@@ -7,7 +7,7 @@
  * shared device never inherits it).
  */
 
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '@/lib/storage/secureStorage';
 import * as Crypto from 'expo-crypto';
 import {
   CONSENT_STORAGE_KEYS,

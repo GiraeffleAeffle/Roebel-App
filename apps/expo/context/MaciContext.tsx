@@ -24,7 +24,7 @@
  *       3. Otherwise: needs-signup.
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "@/lib/storage/secureStorage";
 import { getContractEvents, prepareEvent } from "thirdweb";
 import { keccak256 } from "thirdweb/utils";
 import { getRpcClient, eth_blockNumber } from "thirdweb/rpc";

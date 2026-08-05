@@ -11,7 +11,7 @@
  * The durable acceptance proof remains the wallet-signed registration itself;
  * the flag here only bridges the gap between "accepted" and "enrolled".
  */
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '@/lib/storage/secureStorage';
 import type { SigningAccount } from './identity';
 
 const CONSENT_AT_KEY = 'nostr.publicRecordConsentAt';
