@@ -11,6 +11,8 @@
     "lint": "expo lint",
     "eas-build-post-install": "bash ./eas-hooks/eas-build-post-prebuild.sh",
     "export": "NODE_OPTIONS=--max-old-space-size=8192 expo export",
+    "export:web": "NODE_OPTIONS=--max-old-space-size=8192 expo export --platform web",
+    "smoke:web": "node scripts/web-smoke.mjs",
     "update:preview": "NODE_OPTIONS=--max-old-space-size=8192 eas update --channel preview",
     "update:production": "NODE_OPTIONS=--max-old-space-size=8192 eas update --channel production"
   },
