@@ -84,9 +84,13 @@ the acceptance gate.
    `deleteItemAsync`, options ignored on web). Native delegates to
    expo-secure-store; `secureStorage.web.ts` uses namespaced
    `localStorage` (`roebel.secure.<keychainService>.<key>`). Rewire the
-   7 web-reachable call sites (9 total, minus `lib/xmtp/client.ts` —
-   unreachable behind the native probe — and `lib/bookmarks.ts`, already
-   shadowed by its `.web` fork).
+   5 web-reachable call sites: `lib/citizen-commitment.ts`,
+   `lib/consent-storage.ts`, `lib/nostr/enroll.ts`,
+   `lib/nostr/identity.ts`, `context/MaciContext.tsx`. (Of the 9 files
+   matching a broad grep, `lib/maci.ts` and `context/ConsentContext.tsx`
+   mention the package in comments only, `lib/xmtp/client.ts` is
+   unreachable behind the native probe, and `lib/bookmarks.ts` is already
+   shadowed by its `.web` fork.)
 3. **Boot-path audit**: no-op or guard remaining native touches on web
    (expo-updates checks, splash screen, haptics, any module the boot
    harness surfaces next).
