@@ -10,6 +10,7 @@ import { useDeveloperMode } from '@/context/DeveloperModeContext';
 import { CustomToggle } from '@/components/consent/CustomToggle';
 import { deleteUserAccount, DeleteAccountError } from '@/lib/supabase-account-deletion';
 import BottomDrawer from '@/components/BottomDrawer';
+import InstallAppCard from '@/components/InstallAppCard';
 import ChevronLeftIcon from '@/assets/icons/chevron-left.svg';
 import CheckIcon from '@/assets/icons/check.svg';
 
@@ -116,6 +117,7 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView style={styles.flex1} showsVerticalScrollIndicator={false}>
+        <InstallAppCard />
         <Section title="ERSCHEINUNGSBILD" colors={colors}>
           {themeOptions.map((option, index) => (
             <ThemeOption
