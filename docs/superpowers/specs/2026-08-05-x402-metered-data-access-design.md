@@ -74,9 +74,12 @@ demand trigger.
 ### Free tier (unchanged in substance, limits made explicit)
 
 - Relay reads on `wss://relay.roebel.app` — untouched.
-- Index API `/events`, `/stats`, `/manifest`, `/media/<sha>` — per-IP rate
-  limit (default 60 req/min) and the existing per-query `limit` cap. Limits
-  are manifest-tunable and deliberately generous (P2).
+- Index API `/events`, `/stats`, `/manifest`, `/media/<sha>` — unchanged. The
+  existing per-query `limit` cap (`MAX_LIMIT = 200`) is the slice-1 free-tier
+  boundary; per-IP rate limiting (e.g. 60 req/min) is deferred until abuse is
+  observed (Caddy has no built-in rate limiter — it needs a plugin or a
+  gateway proxy, neither worth building speculatively; P2 wants the free tier
+  generous anyway).
 - NSP-9 federation sync for declared peers — untouched, free.
 - Backfeed, agent-watcher, publisher — untouched.
 
@@ -154,6 +157,27 @@ Safe; it proposes exactly as the admin dashboard's `useProposeMetaTx` does,
 owners confirm). Sub-threshold amounts accrue to the next round. The ledger
 accounts from day one (slice 1) so the first payout is retroactively
 complete.
+
+### Consent and anonymity (added 2026-08-05 after review question)
+
+An individual can stay completely out of this system, in layers:
+
+1. **Being on the record is already opt-in** — a citizen without a Nostr
+   binding publishes nothing and has nothing here to meter.
+2. **On the record, identity is pseudonymous** (npub + self-chosen profile);
+   no part of this design adds linkage on its own.
+3. **Earning is claim-based.** Accruals are computed per npub from
+   already-public data. The npub→wallet resolution and the payout happen
+   only when the citizen actively claims their earnings in the app; a
+   payout is an on-chain transfer and therefore a deliberate, revocable
+   step out of pseudonymity. Unclaimed accruals roll to the treasury after
+   12 months (manifest-tunable).
+4. **Monetization opt-out.** A citizen can exclude their npub entirely:
+   excluded authors' events are dropped from `/bulk`, `/export` and
+   `/firehose` and never appear in `serving_log`. Their events remain on
+   the free public record (they are public either way) but never
+   participate in the paid product. The exclusion list lives beside the
+   relay allow-list machinery and is enforced in the gateway's queries.
 
 ### Transparency
 
@@ -240,8 +264,16 @@ Each slice gets its own implementation plan.
 
 ## 11. Open questions
 
-1. **USDC.e on Gnosis: EIP-3009?** One on-chain probe decides the slice-1
-   settlement token (else EURe/Permit2).
+1. ~~**USDC.e on Gnosis: EIP-3009?**~~ **RESOLVED 2026-08-05 — probe
+   PASSED.** `0x2a22f9c3b484C3629090FeED35F17Ff8F88f76F0` ("Bridged USDC
+   (Gnosis)", 6 decimals) sits behind a non-EIP-1967 proxy
+   (`implementation()` → `0x107CF7fb73EA48D1D200989b156Ce1894d7AfEC7`); the
+   implementation bytecode contains `transferWithAuthorization` (both
+   overloads), `receiveWithAuthorization`, `authorizationState`, and
+   `permit`. EIP-712 domain: name `Bridged USDC (Gnosis)`, version `2`,
+   chainId 100. Slice 1 settles USDC.e via the standard x402 `exact`
+   scheme — no Permit2 fallback needed. (Lesson: probe via
+   `implementation()`, not only the EIP-1967 slot.)
 2. **Real prices** for bulk/export/firehose — defaults above are
    placeholders; P2 says start symbolic.
 3. **Firehose pass duration** (24 h default) and whether `/export` dumps are
