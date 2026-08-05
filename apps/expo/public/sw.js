@@ -34,7 +34,7 @@ self.addEventListener('fetch', (event) => {
             const copy = res.clone();
             caches.open(CACHE).then((c) => c.put(req, copy));
             return res;
-          })
+          }).catch(() => Response.error())
       )
     );
     return;
@@ -45,8 +45,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put('/', copy));
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put('/', copy));
+          }
           return res;
         })
         .catch(async () => (await caches.match('/')) || (await caches.match('/offline.html')))
