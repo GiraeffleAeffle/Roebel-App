@@ -1,4 +1,4 @@
-import { recoverTypedDataAddress } from "viem";
+import { recoverTypedDataAddress, getAddress } from "viem";
 import { transferAuthTypedData } from "./eip3009.js";
 import type { PaymentPayload, PaymentRequirements, VerifyResult } from "./types.js";
 
@@ -28,6 +28,17 @@ export async function verifyExact(
   if (!auth || payload.scheme !== "exact" || payload.network !== req.network) {
     return invalid("scheme_or_network_mismatch");
   }
+
+  // Normalize addresses early, fail-closed on malformed addresses.
+  let asset: `0x${string}`;
+  let authFrom: `0x${string}`;
+  try {
+    asset = getAddress(req.asset);
+    authFrom = getAddress(auth.from);
+  } catch {
+    return invalid("bad_asset_address");
+  }
+
   if (auth.to.toLowerCase() !== req.payTo.toLowerCase()) return invalid("payTo_mismatch");
   if (BigInt(auth.value) < BigInt(req.maxAmountRequired)) return invalid("insufficient_value");
 
@@ -48,12 +59,12 @@ export async function verifyExact(
   if (recovered.toLowerCase() !== auth.from.toLowerCase()) return invalid("bad_signature");
 
   const used = await deps.readContract({
-    address: req.asset, functionName: "authorizationState", args: [auth.from, auth.nonce],
+    address: asset, functionName: "authorizationState", args: [authFrom, auth.nonce],
   });
   if (used) return invalid("nonce_used");
 
   const balance = (await deps.readContract({
-    address: req.asset, functionName: "balanceOf", args: [auth.from],
+    address: asset, functionName: "balanceOf", args: [authFrom],
   })) as bigint;
   if (balance < BigInt(auth.value)) return invalid("insufficient_funds");
 

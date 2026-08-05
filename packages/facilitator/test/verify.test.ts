@@ -104,3 +104,32 @@ test("network mismatch is rejected before any chain call", async () => {
   });
   assert.deepEqual([result.isValid, result.invalidReason], [false, "scheme_or_network_mismatch"]);
 });
+
+test("lowercase asset address is normalized before readContract", async () => {
+  const lowercaseReq: PaymentRequirements = {
+    ...REQ,
+    asset: REQ.asset.toLowerCase() as `0x${string}`,
+  };
+  let capturedAddress: `0x${string}` | undefined;
+  const mockChain = {
+    readContract: async ({ address, functionName }: { address: `0x${string}`; functionName: string }) => {
+      capturedAddress = address;
+      return functionName === "authorizationState" ? false : 10_000_000n;
+    },
+    now: () => NOW,
+  };
+  const result = await verifyExact(await signedPayload(), lowercaseReq, mockChain);
+  assert.equal(result.isValid, true);
+  // Verify the address passed to readContract is checksummed (not lowercase).
+  assert.equal(capturedAddress?.toLowerCase(), lowercaseReq.asset.toLowerCase());
+  assert.notEqual(capturedAddress, lowercaseReq.asset);
+});
+
+test("malformed asset address returns bad_asset_address", async () => {
+  const badReq: PaymentRequirements = {
+    ...REQ,
+    asset: "0x_invalid_" as `0x${string}`,
+  };
+  const result = await verifyExact(await signedPayload(), badReq, chain());
+  assert.deepEqual([result.isValid, result.invalidReason], [false, "bad_asset_address"]);
+});
