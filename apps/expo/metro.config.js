@@ -52,6 +52,19 @@ config.resolver.blockList = [
 
 // Custom resolver to exclude problematic modules from bundle
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  // Web: node's `crypto` must NOT resolve to react-native-quick-crypto — the
+  // extraNodeModules alias above applies to every platform and quick-crypto's
+  // import side effect requires the native QuickCrypto module (boot crash on
+  // web). Route both names to the pure-JS implementation instead.
+  if (
+    platform === 'web' &&
+    (moduleName === 'crypto' ||
+      moduleName === 'react-native-quick-crypto' ||
+      moduleName.startsWith('react-native-quick-crypto/'))
+  ) {
+    return context.resolveRequest(context, 'crypto-browserify', platform);
+  }
+
   // Exclude react-native-mmkv (all platforms)
   if (moduleName === 'react-native-mmkv' || moduleName.includes('react-native-mmkv')) {
     return { type: 'empty' };
