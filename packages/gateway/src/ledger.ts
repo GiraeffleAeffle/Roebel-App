@@ -94,4 +94,4 @@ export const STATS_ENDPOINTS_SQL =
 
 export const TOP_ACCRUALS_SQL =
   `SELECT author, ROUND(accrued_atomic)::text AS accrued_atomic
-   FROM metering_accruals ORDER BY accrued_atomic DESC LIMIT 100`.replace(/\s+/g, " ");
+   FROM (SELECT author, accrued_atomic FROM metering_accruals ORDER BY accrued_atomic DESC LIMIT 100) top`.replace(/\s+/g, " ");
