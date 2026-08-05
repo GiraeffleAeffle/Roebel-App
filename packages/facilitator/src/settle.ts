@@ -22,7 +22,9 @@ export async function settleExact(
   deps: SettleDeps,
 ): Promise<SettleResult> {
   const auth = payload.payload.authorization;
-  // Normalize addresses early, fail-closed on malformed addresses.
+
+  // Normalize addresses early in its own try/catch — a malformed address is
+  // a definitively bad payment (settle_reverted), not an RPC hiccup (network_error).
   let asset: `0x${string}`;
   let authFrom: `0x${string}`;
   let authTo: `0x${string}`;
@@ -31,7 +33,7 @@ export async function settleExact(
     authFrom = getAddress(auth.from);
     authTo = getAddress(auth.to);
   } catch {
-    return { success: false, errorReason: "network_error", network: req.network };
+    return { success: false, errorReason: "settle_reverted", network: req.network };
   }
 
   // viem 2.x: parseSignature. `v` is absent on compact signatures — derive it
