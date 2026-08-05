@@ -1,2 +1,6 @@
 export { configFromEnv, formatAtomic, type MeteringConfig } from "./config.js";
 export { FacilitatorClient, body402, encodePaymentResponse, parsePayment, requirementsFor } from "./x402.js";
+export {
+  LEDGER_SCHEMA_SQL, STATS_ENDPOINTS_SQL, STATS_TOTALS_SQL, TOP_ACCRUALS_SQL,
+  countByAuthor, insertLedgerSql, insertServingSql, type LedgerEntry,
+} from "./ledger.js";
