@@ -1,5 +1,16 @@
 import { Platform } from "react-native";
 import "react-native-get-random-values";
+
+// PWA: register the service worker (web production only — dev would cache
+// Metro's ever-changing bundles).
+if (Platform.OS === "web" && !__DEV__ && typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((e) => {
+      console.warn("Service worker registration failed:", e?.message ?? e);
+    });
+  });
+}
+
 // DISABLED — in-app debug log viewer kept for later. To re-enable, uncomment
 // the two lines below AND the <DebugLogOverlay /> mount + import in app/_layout.tsx.
 // (Feature code lives in lib/debug-logs.ts + components/DebugLogOverlay.tsx.)
