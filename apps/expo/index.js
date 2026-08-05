@@ -3,7 +3,8 @@ import "react-native-get-random-values";
 
 // PWA: register the service worker (web production only — dev would cache
 // Metro's ever-changing bundles).
-if (Platform.OS === "web" && !__DEV__ && typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+// __SMOKE_TEST__: see scripts/web-smoke.mjs — SW cannot register under route interception.
+if (Platform.OS === "web" && !__DEV__ && typeof navigator !== "undefined" && "serviceWorker" in navigator && !globalThis.__SMOKE_TEST__) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch((e) => {
       console.warn("Service worker registration failed:", e?.message ?? e);

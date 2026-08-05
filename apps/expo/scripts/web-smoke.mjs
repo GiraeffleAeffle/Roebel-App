@@ -25,6 +25,9 @@ if (!fs.existsSync(path.join(DIST, 'index.html'))) {
 const errors = [];
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+// Service-worker script fetches bypass route interception — registration can
+// never succeed under the harness. Flag the page so the app skips it.
+await page.addInitScript(() => { window.__SMOKE_TEST__ = true; });
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 300)); });
 page.on('pageerror', (e) => errors.push('PAGEERROR: ' + (e && e.stack ? e.stack : String(e)).slice(0, 2000)));
 
