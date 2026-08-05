@@ -26,11 +26,11 @@ const errors = [];
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 300)); });
-page.on('pageerror', (e) => errors.push('PAGEERROR: ' + String(e).slice(0, 300)));
+page.on('pageerror', (e) => errors.push('PAGEERROR: ' + (e && e.stack ? e.stack : String(e)).slice(0, 2000)));
 
 await page.route('**/*', async (route) => {
   const url = new URL(route.request().url());
-  if (url.hostname !== 'app.local') {
+  if (url.hostname !== 'localhost') {
     // Real external calls (Supabase, thirdweb, RPC) proceed normally.
     try { await route.continue(); } catch { /* page closed */ }
     return;
@@ -47,7 +47,7 @@ await page.route('**/*', async (route) => {
   }
 });
 
-await page.goto('http://app.local/', { waitUntil: 'load', timeout: 30_000 });
+await page.goto('http://localhost/', { waitUntil: 'load', timeout: 30_000 });
 await page.waitForTimeout(20_000);
 const text = (await page.evaluate(() => document.body.innerText || '')).trim();
 fs.mkdirSync(path.dirname(SHOT), { recursive: true });
