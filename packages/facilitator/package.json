@@ -1,0 +1,25 @@
+{
+  "name": "@netizen-labs/facilitator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-run x402 facilitator — verifies and settles exact-scheme EIP-3009 payments on the node's own chain.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "bin": { "netizen-facilitator": "src/cli.ts" },
+  "exports": { ".": "./src/index.ts" },
+  "files": ["src"],
+  "scripts": {
+    "start": "tsx src/cli.ts",
+    "build": "esbuild src/cli.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/facilitator.cjs",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": { "viem": "^2.47.6" },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "esbuild": "^0.27.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
