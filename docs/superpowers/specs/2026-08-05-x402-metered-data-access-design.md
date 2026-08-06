@@ -89,18 +89,27 @@ demand trigger.
 |---|---|---|
 | `GET /bulk/events` | Same query grammar as `/events`, `limit` up to 10 000, cursor pagination | €0.50 per 1 000 events |
 | `GET /export/<dataset>` | Full-history NDJSON dump per dataset (events, articles, marketplace, …) | €5 per dump |
-| `GET /firehose?since=` | SSE stream of new events as ingested | €1 per 24 h pass |
+| `GET /firehose` | SSE stream of new events as ingested | €1 per 24 h pass |
 
 Defaults are placeholders; real numbers are an open question (§11). All
 prices start symbolic per P2.
+
+**As implemented, `/firehose` is a two-step pass flow, not a `since=`
+resumable stream:** the paid request mints a time-bounded pass (JSON
+`{ pass, connect }`); the client then opens the SSE socket at
+`GET /firehose?pass=<token>`, which starts at connect time. There is no
+`since=` resume — a dropped connection reconnects at "now", not where it
+left off. Watermark-based resume is deferred past slice 1.
 
 Unpaid requests receive `402 Payment Required` with:
 - machine-readable x402 V2 `accepts` array (all currently-live rails), and
 - a human-readable `Link` header + JSON field pointing to a "how to pay"
   docs page.
 
-Paid endpoints are listed in x402 discovery (Bazaar) so agents find them
-without prior knowledge of Röbel.
+**Deferred to slice 2** (same trigger as the Base-USDC accept — Max's
+multichain GK work): paid endpoints are not listed in x402 discovery
+(Bazaar) in slice 1. An agent must already know the gateway's URL (from the
+manifest or the `/pay` landing page) to find them.
 
 ## 4. Payment layer
 
@@ -189,16 +198,24 @@ it."
 
 ## 6. Manifest + installer
 
-- New optional top-level `metering` block in `packages/protocol`'s manifest
-  schema: `{ enabled, prices, split, rails, freeTier: { rpm, maxLimit } }`.
+- New optional `services.metering` block in `packages/protocol`'s manifest
+  schema (**as implemented — supersedes the sketch above**):
+  `{ payTo, network, asset, assetName, assetVersion, assetDecimals, prices,
+  split, unclaimedMonths? }`. It nests under `services` alongside `indexer`
+  and `chat.nostr` (both required when metering is declared), not at the
+  manifest's top level, and there is no `enabled`/`rails`/`freeTier` field —
+  the block's mere presence is the "enabled" signal, and free-tier limits
+  live with the indexer's existing `MAX_LIMIT`, not here.
 - `netizen render` emits: gateway container, facilitator container, payout
   cron (slice 2), and Caddy routes — paid paths (`/bulk`, `/export`,
   `/firehose`, `/metering`) route to the gateway on the same index host; the
   free indexer API keeps its existing routes and behavior.
 - `examples/roebel.netizen.json` dogfoods the block (and per the standing
   rule, `packages/cli` tests run when the example changes).
-- The known preset gap (presets declare no relay/publisher/indexer services)
-  is fixed in the same slice so a preset node ships the earn loop.
+- **Not done in slice 1, moved to follow-ups:** the known preset gap
+  (presets declare no relay/publisher/indexer services) is still open —
+  slice 1 shipped metering for a node that already declares the full civic
+  stack; a preset node does not yet ship the earn loop.
 
 ## 7. Non-goals (explicit)
 
@@ -219,8 +236,12 @@ it."
 
 ## 8. Failure modes
 
-- **Facilitator down** → its accept is omitted from 402 responses; other
-  rails still offered; alert fires.
+- **Facilitator down** → **as implemented**, the gateway does not health-check
+  the facilitator before building the 402: its accept stays advertised
+  regardless (slice 1 has only the one Gnosis rail, so there is nothing to
+  fall back to). A paid attempt made while it is down fails at verify/settle
+  and the request errors out to the client. No alert fires — alerting on
+  facilitator health is not built; it is TBD.
 - **Payment verification** is fail-closed: no data on unverifiable payment.
 - **Ledger write failure** is fail-open: a paid request is always served
   (never charge without delivering); the settlement tx on-chain allows
