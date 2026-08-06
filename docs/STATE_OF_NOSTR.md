@@ -37,7 +37,8 @@ enabling AUTH here is configuration work, not a software swap — NIP-29 is what
 needs different relay software. See
 [Roadmap §7](ROADMAP_AND_DEFERRED.md) for the trigger.
 
-**Still true and deliberate now that metering (§6b) is live:** x402 wraps the **index's**
+**Still true and deliberate — and unchanged by the metering layer (§6b, shipped
+2026-08-05, not yet deployed):** x402 wraps the **index's**
 HTTP API behind a paid gateway; the authoring relay itself gains no AUTH, no gated reads, no
 member-only anything. Decision recorded 2026-08-05 in [Roadmap
 §7](ROADMAP_AND_DEFERRED.md#7-gated-reads-nip-42) after considering NIP-42 as the metering
