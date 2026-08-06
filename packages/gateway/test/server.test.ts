@@ -155,3 +155,109 @@ test("/metering/stats returns totals and split", async () => {
     assert.equal(body.totals.requests, 0);
   });
 });
+
+// --- Review-round fixes: fail-open recording, watermark normalisation, no crash. ---
+
+test("bulk: a ledger write failure after settlement is fail-open — still 200 with the events", async () => {
+  const d = deps({
+    query: async (text: string) => {
+      if (/INSERT INTO access_ledger/.test(text)) throw new Error("db unavailable");
+      if (/FROM nostr_events/.test(text)) {
+        return [{ id: "e1", pubkey: "p1", kind: 1, created_at: 9, content: "c", tags: [], sig: "s", node_id: "n", source: "r" }];
+      }
+      return [];
+    },
+  });
+  await withServer(d, async (base) => {
+    const res = await fetch(`${base}/bulk/events?kinds=1`, { headers: { "X-PAYMENT": HEADER } });
+    assert.equal(res.status, 200, "payment already settled — the data must still be served");
+    const body = await res.json();
+    assert.equal(body.events.length, 1);
+  });
+});
+
+test("firehose SSE: emits data and re-derives an ISO watermark from a Date on the next poll", async () => {
+  const batchValues: unknown[][] = [];
+  let batchCalls = 0;
+  const firstEventIndexedAt = new Date();
+  const d = deps({
+    pollMs: 10,
+    query: async (text: string, values: unknown[]) => {
+      if (/FROM firehose_passes/.test(text) && /^SELECT/.test(text)) {
+        return [{ ledger_id: 1, expires_at: new Date(Date.now() + 3_600_000) }];
+      }
+      if (/FROM nostr_events WHERE indexed_at/.test(text)) {
+        batchCalls += 1;
+        batchValues.push(values);
+        if (batchCalls === 1) {
+          return [{
+            id: "e1", pubkey: "p1", kind: 1, created_at: 9, content: "c", tags: [], sig: "s",
+            node_id: "n", source: "r", indexed_at: firstEventIndexedAt,
+          }];
+        }
+        return [];
+      }
+      return [];
+    },
+  });
+  await withServer(d, async (base) => {
+    const controller = new AbortController();
+    const res = await fetch(`${base}/firehose?pass=VALID`, { signal: controller.signal });
+    assert.equal(res.status, 200);
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let received = "";
+    const deadline = Date.now() + 5000;
+    while (!received.includes("data:") && Date.now() < deadline) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      received += decoder.decode(value, { stream: true });
+    }
+    assert.match(received, /data: \{.*"id":"e1"/, "the first SSE data event should carry the row");
+    // Give the second (pollMs-later) poll a chance to fire and capture its watermark.
+    const secondPollDeadline = Date.now() + 2000;
+    while (batchCalls < 2 && Date.now() < secondPollDeadline) {
+      await new Promise((r) => setTimeout(r, 15));
+    }
+    await reader.cancel();
+    controller.abort();
+    // Let the server-side loop observe req 'close' and exit before the server shuts down.
+    await new Promise((r) => setTimeout(r, 30));
+  });
+  assert.ok(batchCalls >= 2, "expected at least two firehose batch polls");
+  const secondPollWatermark = String(batchValues[1][0]);
+  assert.match(secondPollWatermark, /^\d{4}-\d{2}-\d{2}T.*Z$/, "watermark handed to the next poll must be ISO-8601, not a locale Date string");
+});
+
+test("export: a mid-stream query failure destroys the connection without crashing the process", async () => {
+  // streamExport only re-queries once a batch comes back FULL (EXPORT_BATCH=5000
+  // in src/exportStream.ts) — so the first call must return exactly that many rows
+  // to force a second call, which is where we inject the failure.
+  const fullBatch = Array.from({ length: 5000 }, (_, i) => ({
+    id: `e${i}`, pubkey: "p1", kind: 1, created_at: 9, content: "c", tags: [], sig: "s", node_id: "n", source: "r",
+  }));
+  let batchCall = 0;
+  const d = deps({
+    query: async (text: string) => {
+      if (/FROM nostr_events/.test(text)) {
+        batchCall += 1;
+        if (batchCall === 1) return fullBatch;
+        throw new Error("db exploded mid-export");
+      }
+      if (/INSERT INTO access_ledger/.test(text)) return [{ id: 1 }];
+      return [];
+    },
+  });
+  await withServer(d, async (base) => {
+    // The destroy happens fast enough locally that either the initial fetch()
+    // (headers never fully delivered) or the later res.text() (body cut off)
+    // can be the one that observes the reset — assert on the outcome, not the
+    // exact point of failure: the client must never see a clean 200 body.
+    await assert.rejects(async () => {
+      const res = await fetch(`${base}/export`, { headers: { "X-PAYMENT": HEADER } });
+      await res.text();
+    }, "a truncated export must never resolve as a clean response");
+    const health = await fetch(`${base}/health`);
+    assert.equal(health.status, 200, "the server process must still be alive and answering after the failure");
+  });
+});
