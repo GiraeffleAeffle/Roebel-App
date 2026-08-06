@@ -6,3 +6,5 @@ export {
 } from "./ledger.js";
 export { BULK_MAX_LIMIT, buildBulkQuery, decodeCursor, encodeCursor, nextCursor, type BulkCursor } from "./bulk.js";
 export { loadExclusions } from "./exclusions.js";
+export { buildExportBatchQuery, streamExport } from "./exportStream.js";
+export { firehoseBatchQuery, mintPassSql, passLookupSql } from "./firehose.js";
