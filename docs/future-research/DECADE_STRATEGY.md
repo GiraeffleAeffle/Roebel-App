@@ -42,9 +42,13 @@ So the route to "the new system" is not pitching towns on a parallel system. It 
 civil society already runs on, until official adoption is the least-effort option. **The merge happens one Satzung
 at a time** (each org writing the protocol into its bylaws), and eventually one *Gemeinderatsbeschluss* at a time.
 
-> **Explicitly rejected:** "everyone gets onto the fork" as an *exit from the state.* That is the network-state
-> fantasy this whole Land-First philosophy was built to reject. Every project that tried it converted ideologues
-> instead of neighbors. We convert neighbors.
+> **Explicitly rejected:** "everyone gets onto the fork" as an *exit from the state.* Secession-flavored startup
+> societies converted ideologues instead of neighbors; we convert neighbors. **The network-state thesis itself
+> (Balaji Srinivasan — on record 2026-08-05 as the founding inspiration of this work) is embraced, read
+> land-first:** Röbel is not a cloud community shopping for territory but a real town installing the network
+> layer, and the merge path below is our route to the recognition endgame the book describes. What is rejected
+> is a sequencing and a posture — cloud-first secession — not the thesis. (Full mapping: netizen_labs
+> `docs/STRATEGY.md` §1c.)
 
 ### 1b. Not "internet money" — the fiscal constitution wrapped around it
 The money layer is settled or being settled by billion-dollar balance sheets: denomination via **USDC/EURe**, rails
