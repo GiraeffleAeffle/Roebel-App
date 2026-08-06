@@ -37,6 +37,13 @@ enabling AUTH here is configuration work, not a software swap — NIP-29 is what
 needs different relay software. See
 [Roadmap §7](ROADMAP_AND_DEFERRED.md) for the trigger.
 
+**Still true and deliberate now that metering (§6b) is live:** x402 wraps the **index's**
+HTTP API behind a paid gateway; the authoring relay itself gains no AUTH, no gated reads, no
+member-only anything. Decision recorded 2026-08-05 in [Roadmap
+§7](ROADMAP_AND_DEFERRED.md#7-gated-reads-nip-42) after considering NIP-42 as the metering
+mechanism and rejecting it: the civic record STAYS public. NIP-42 remains a possible paid
+*transport* later, not a paywall around the record.
+
 ## 2. Identity — wallet → npub
 
 A Nostr key is secp256k1 **Schnorr/BIP-340**; an Ethereum address is not one, and an
@@ -251,6 +258,36 @@ roughly 60 of the ~127 `apps/web/src/app/api/**` handlers are unaudited for keyl
 interaction counts (likes, comments, reposts) shown in record mode are advisory, reflecting
 whatever the index last mirrored rather than a live tally.
 
+## 6b. Metered access (x402) — slice 1 shipped 2026-08-05, not yet deployed
+
+The free tier is **unchanged**: the relay stays world-readable, `/events` / `/stats` /
+`/manifest` / `/media/<sha>` stay public and free. What is new sits in front of it as a
+separate paid tier, not a wall around the existing one — `packages/gateway` puts three
+metered endpoints on the same index host, path-routed by Caddy so the free API is untouched:
+`/bulk/events` (keyset-paginated bulk query), `/export` (NDJSON stream) and `/firehose` (SSE,
+sold as a 24h pass). Each request is a standard x402 handshake — 402, sign, retry — settled
+by `packages/facilitator`, a self-run x402 facilitator (exact scheme, EIP-3009
+`transferWithAuthorization`) rather than Coinbase's, because Gnosis is not on Coinbase's
+facilitator network list (see [Roadmap §11](ROADMAP_AND_DEFERRED.md)).
+
+**Where the money goes:** every paid response is logged (`access_ledger`, `serving_log`)
+against the authors whose events it served, and a pro-rata `metering_accruals` view splits
+the sale 50/50 between those authors and the community treasury — `payTo` is the
+Gemeinschaftskasse Safe. A `/pay` page explains the handshake to a human, and
+`/metering/stats` publishes the aggregate numbers so the split is legible, not just claimed.
+An author can opt a pubkey out of monetisation entirely via
+`strfry-policy/metering-excluded.txt`.
+
+**Merged to `main`, not yet deployed to the live node.** Shipping it live still needs: the
+`gateway`/`facilitator` builds copied as artifacts the way the indexer's is, a funded
+`METERING_SETTLER_PRIV` (gas-only key) in the box `.env`, and a `netizen render` +
+`netizen up` pass to pick up the new compose services and Caddy routes.
+
+Design: [x402 metered data access
+design](superpowers/specs/2026-08-05-x402-metered-data-access-design.md); implementation
+plan: [slice 1](superpowers/plans/2026-08-05-x402-metering-slice1.md); code:
+`packages/gateway`, `packages/facilitator`.
+
 ## 7. Agents on the record (slice 4) — live 2026-07-28
 
 An agent has no wallet, so it cannot derive a key from a wallet signature the way a Citizen
@@ -279,8 +316,10 @@ deletes it. Declaring it is the only durable path.
   record stays world-readable there; the workspace is the members-only plane. Channels
   are relay-gated, NOT E2EE (DMs inside Buzz are NIP-17 gift-wrapped). See the B-track:
   `docs/superpowers/plans/2026-08-01-buzz-b0-b1-deploy-and-identity.md`.
-- **Metered access (x402).** Needs a self-run facilitator on Gnosis — see
-  [State of the Netizen Stack](STATE_OF_THE_NETIZEN_STACK.md) §5.
+- **Metered access (x402) — slice 1 shipped 2026-08-05**, merged but not yet deployed to
+  the live node. See §6b above. Still not built: the payout job, `/metering/stats` display
+  names, Base/Stripe accept and a NIP-42 paid transport (see [Roadmap
+  §11](ROADMAP_AND_DEFERRED.md)).
 - **Onchain peer registry.** `peers` is shaped for a contract to populate it later.
 
 ## 9. Ecosystem check — 2026-07-29

@@ -1,7 +1,7 @@
 # x402 Metered Data Access + Author Revenue Share — Design
 
 **Date:** 2026-08-05
-**Status:** DRAFT — design approved in brainstorming session; awaiting spec review
+**Status:** APPROVED — slice 1 implemented (see docs/superpowers/plans/2026-08-05-x402-metering-slice1.md)
 **Scope:** Netizen stack feature, dogfooded on the Röbel node
 **Related:** `docs/ROADMAP_AND_DEFERRED.md` §7 (gated reads), §11 (x402 facilitator), §12 (data-sale legality); `docs/STATE_OF_NOSTR.md`; `docs/future-research/2026-07-27_DATA_SOVEREIGNTY_AND_MARKETPLACE.md`; NSP-9 federation spec; NSP-12 decision record spec
 

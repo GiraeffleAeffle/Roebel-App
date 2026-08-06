@@ -146,6 +146,15 @@ why only already-public data goes on it. Private or member-only content would ne
 a different relay. Nuance (2026-07-29): upstream strfry supports NIP-42, so this is
 configuration work on the existing binary, optionally paired with NIP-70 protected events.
 
+**Decision 2026-08-05:** considered, in-session, as the mechanism for x402 metering (§11) —
+and rejected. **The civic record STAYS public.** No exclusivity on signed events (any payer
+or peer can re-serve what they fetch), EU personal-data law (consent is revocable, so
+"sold" access is undeliverable), and it would break fork-with-fallback, NSP-9 federation and
+the NSP-12 *Public* Decision Record. See the spec's [Rejected:
+private-by-default](superpowers/specs/2026-08-05-x402-metered-data-access-design.md#rejected-private-by-default-nip-42-walls-around-the-record)
+section. NIP-42 survives only as a possible paid *transport* for metered access — **trigger:**
+a real customer asks for raw Nostr protocol access, not just the gateway's HTTP endpoints.
+
 **Trigger:** a genuine requirement to publish something that is not public. Treat with
 suspicion — the append-only log makes GDPR erasure advisory at best.
 
@@ -389,22 +398,51 @@ registrar by hand, which is the least sovereign-feeling step in an otherwise dec
 
 ## Money and data economy
 
-### 11. x402 facilitator on Gnosis
+### 11. ~~x402 facilitator on Gnosis~~ — slice 1 shipped 2026-08-05
 
 Metered node-to-node data access, the monetisation half of the federation thesis.
 
-Two verified obstacles: **Gnosis is not on Coinbase's facilitator network list**, and
-**EURe does not implement EIP-3009** (probed onchain 2026-07-27: `transferWithAuthorization`
-absent from the implementation bytecode; `permit` present). So an EURe rail means **running
-your own facilitator** and taking the **Permit2 two-step path** rather than the single
-signature gasless flow USDC gets.
+**Shipped:** `packages/facilitator` (self-run x402 facilitator, exact scheme, EIP-3009
+`transferWithAuthorization`, verify fail-closed + settle distinguishing revert from
+network error, 24 tests) and `packages/gateway` (paid `/bulk/events`, `/export` NDJSON and
+`/firehose` SSE-with-24h-passes, wrapping the indexer on the same host via Caddy path
+routing; `access_ledger` + `serving_log` + a pro-rata `metering_accruals` view; a human
+`/pay` page; a `/metering/stats` transparency endpoint; a monetization opt-out file
+`strfry-policy/metering-excluded.txt`; 36 tests). The manifest gained a `services.metering`
+block (requires both `indexer` and `chat.nostr`, network must match the chain); Röbel's
+example manifest declares it — prices `bulk` 500000 / `export` 5000000 / `firehoseDay`
+1000000 atomic units (≈$0.50 / $5 / $1), a 50/50 author/treasury split, `payTo` the
+Gemeinschaftskasse Safe. Design: [x402 metered data access
+design](superpowers/specs/2026-08-05-x402-metered-data-access-design.md); implementation:
+[slice 1 plan](superpowers/plans/2026-08-05-x402-metering-slice1.md).
 
-Running your own is arguably on-brand — a facilitator settling in EURe on your own chain is
-the "thin protocol fee on flows that pass through" from the coordination thesis, rather than
-renting Coinbase's rails. **Note Circles CRC is ERC-1155 and cannot be the settlement token.**
+**Merged to `main`, not yet deployed** to the live node — that needs
+`METERING_SETTLER_PRIV` (a gas-only key) funded with xDAI in the box `.env` and a
+`netizen render` + `netizen up` pass.
 
-**Trigger:** nodes exchanging something worth metering. Federation now exists, so this is no
-longer blocked on infrastructure — only on demand.
+**The probe superseded the obstacle below.** It targeted EURe; settlement instead runs on
+**USDC.e**, probed 2026-08-05 to have full EIP-3009 behind an `implementation()` proxy (not
+EIP-1967) — `transferWithAuthorization` works via the standard exact scheme, EIP-712 domain
+name "Bridged USDC (Gnosis)" version "2". The EURe/Permit2 fallback described next was not
+needed.
+
+Two verified obstacles, kept for the record because they shaped the design: **Gnosis is not
+on Coinbase's facilitator network list**, and **EURe does not implement EIP-3009** (probed
+onchain 2026-07-27: `transferWithAuthorization` absent from the implementation bytecode;
+`permit` present). Had USDC.e not worked, an EURe rail would have meant taking the
+**Permit2 two-step path** rather than the single-signature gasless flow USDC gets.
+
+Running your own facilitator is arguably on-brand — settling on your own chain is the "thin
+protocol fee on flows that pass through" from the coordination thesis, rather than renting
+Coinbase's rails. **Note Circles CRC is ERC-1155 and cannot be the settlement token.**
+
+**Still deferred, each with its own trigger:**
+- Coinbase-facilitator **Base** accept + Bazaar discovery listing. **Trigger:** GK Safe
+  deployed on Base — Max's own task.
+- **Stripe** API keys (fiat checkout, slice 3).
+- **Payout job** turning `metering_accruals` into real EURe transfers, and
+  **`/metering/stats` display names** (resolving wallets/npubs to display names — never
+  raw addresses). **Trigger for both:** slice 2.
 
 ### 12. Compute-to-data, and what may legally be sold
 
