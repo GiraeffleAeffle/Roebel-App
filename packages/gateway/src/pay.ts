@@ -35,8 +35,10 @@ same filter grammar as the free <code>/events</code> (<code>q</code>,
 <code>kinds</code>, <code>authors</code>, <code>since</code>, <code>until</code>,
 <code>node</code>) — except the <code>ids</code>, <code>e</code>, <code>p</code>
 and <code>d</code> tag filters, which the bulk query builder deliberately
-drops — but up to ${BULK_MAX_LIMIT.toLocaleString("en-US")} events per page
-with keyset pagination via <code>cursor</code>.</li>
+drops and which return a <code>400</code> before any payment is charged (use
+the free <code>/events</code> endpoint for these) — but up to
+${BULK_MAX_LIMIT.toLocaleString("en-US")} events per page with keyset
+pagination via <code>cursor</code>.</li>
 <li><code>GET /export</code> — ${price(cfg.prices.export)} per request. The
 node's entire history (optionally filtered by <code>kinds</code>), streamed
 as NDJSON, one signed event per line.</li>

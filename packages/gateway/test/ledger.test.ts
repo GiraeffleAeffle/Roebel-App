@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  LEDGER_SCHEMA_SQL, countByAuthor, insertLedgerSql, insertServingSql,
+  LEDGER_SCHEMA_SQL, countByAuthor, insertLedgerSql, insertServingSql, nonceSeenSql,
   STATS_TOTALS_SQL, STATS_ENDPOINTS_SQL, TOP_ACCRUALS_SQL,
 } from "../src/ledger.js";
 
@@ -9,6 +9,25 @@ test("schema creates ledger, serving log, passes and the accrual view", () => {
   for (const object of ["access_ledger", "serving_log", "firehose_passes", "metering_accruals"]) {
     assert.ok(LEDGER_SCHEMA_SQL.includes(object), `schema must define ${object}`);
   }
+});
+
+test("schema indexes nostr_events.indexed_at for the firehose poll", () => {
+  assert.ok(
+    LEDGER_SCHEMA_SQL.includes("CREATE INDEX IF NOT EXISTS idx_nostr_events_indexed_at ON nostr_events (indexed_at);"),
+  );
+});
+
+test("the accrual view excludes unsettled (reconcile) sales from author accrual", () => {
+  assert.ok(
+    LEDGER_SCHEMA_SQL.includes("WHERE NOT l.reconcile"),
+    "an unsettled sale must not count as author-earned revenue",
+  );
+});
+
+test("nonceSeenSql checks a nonce against the ledger for replay protection", () => {
+  const built = nonceSeenSql("0xabc");
+  assert.match(built.text, /SELECT 1 FROM access_ledger WHERE nonce = \$1/);
+  assert.deepEqual(built.values, ["0xabc"]);
 });
 
 test("insertLedgerSql binds every column and returns the id", () => {
@@ -36,14 +55,16 @@ test("insertServingSql expands to one row per author, null on empty", () => {
   assert.equal(insertServingSql(7, new Map()), null);
 });
 
-test("STATS_TOTALS_SQL counts requests and sums revenue", () => {
+test("STATS_TOTALS_SQL counts requests and sums revenue, excluding unsettled sales", () => {
   assert.ok(STATS_TOTALS_SQL.includes("COUNT(*)::int AS requests"));
   assert.ok(STATS_TOTALS_SQL.includes("COALESCE(SUM(amount),0)::text"));
+  assert.ok(STATS_TOTALS_SQL.includes("WHERE NOT reconcile"));
 });
 
-test("STATS_ENDPOINTS_SQL groups by endpoint", () => {
+test("STATS_ENDPOINTS_SQL groups by endpoint, excluding unsettled sales", () => {
   assert.ok(STATS_ENDPOINTS_SQL.includes("GROUP BY endpoint"));
   assert.ok(STATS_ENDPOINTS_SQL.includes("COUNT(*)::int AS requests"));
+  assert.ok(STATS_ENDPOINTS_SQL.includes("WHERE NOT reconcile"));
 });
 
 test("TOP_ACCRUALS_SQL orders numerically in subquery, not by text alias", () => {

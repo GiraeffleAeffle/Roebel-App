@@ -229,6 +229,117 @@ test("firehose SSE: emits data and re-derives an ISO watermark from a Date on th
   assert.match(secondPollWatermark, /^\d{4}-\d{2}-\d{2}T.*Z$/, "watermark handed to the next poll must be ISO-8601, not a locale Date string");
 });
 
+// --- Whole-branch review fixes: replay guard, uncharged 400 for dropped filters, settled value. ---
+
+test("I2: a replayed X-PAYMENT is rejected with 402 before the facilitator is asked to verify it again", async () => {
+  let nonceQueries = 0;
+  let verifyCalls = 0;
+  const d = deps({
+    query: async (text: string) => {
+      if (/WHERE nonce = \$1/.test(text)) {
+        nonceQueries += 1;
+        // First call: nonce unseen. Second call (the replay): nonce now on the ledger.
+        return nonceQueries === 1 ? [] : [{ "?column?": 1 }];
+      }
+      if (/INSERT INTO access_ledger/.test(text)) return [{ id: 1 }];
+      if (/FROM nostr_events/.test(text)) {
+        return [{ id: "e1", pubkey: "p1", kind: 1, created_at: 9, content: "c", tags: [], sig: "s", node_id: "n", source: "r" }];
+      }
+      return [];
+    },
+    facilitator: {
+      verify: async () => {
+        verifyCalls += 1;
+        return { isValid: true, payer: "0x0000000000000000000000000000000000000001" as `0x${string}` };
+      },
+      settle: async () => ({ success: true, transaction: "0xdead" as `0x${string}`, network: "eip155:100" }),
+    },
+  });
+  await withServer(d, async (base) => {
+    const first = await fetch(`${base}/bulk/events?kinds=1`, { headers: { "X-PAYMENT": HEADER } });
+    assert.equal(first.status, 200, "the first use of the authorization must be served");
+
+    const second = await fetch(`${base}/bulk/events?kinds=1`, { headers: { "X-PAYMENT": HEADER } });
+    assert.equal(second.status, 402, "a replay of the same signed authorization must be rejected");
+    const body = await second.json();
+    assert.match(body.error, /authorization already used/);
+  });
+  assert.equal(verifyCalls, 1, "the facilitator must never be asked to verify a nonce already on the ledger");
+});
+
+test("I3: /bulk/events with an unsupported tag filter is a 400 and never reaches the paywall", async () => {
+  let verifyCalls = 0;
+  const d = deps({
+    facilitator: {
+      verify: async () => { verifyCalls += 1; return { isValid: true, payer: "0x01" as `0x${string}` }; },
+      settle: async () => ({ success: true, transaction: "0xdead" as `0x${string}`, network: "eip155:100" }),
+    },
+  });
+  await withServer(d, async (base) => {
+    const res = await fetch(`${base}/bulk/events?ids=abc`, { headers: { "X-PAYMENT": HEADER } });
+    assert.equal(res.status, 400, "an unsupported filter must be rejected before any payment is taken");
+    const body = await res.json();
+    assert.match(body.error, /ids/);
+    assert.match(body.error, /\/events/);
+  });
+  assert.equal(verifyCalls, 0, "the client must not be charged for a query that silently drops its filter");
+});
+
+test("M2: the ledger records the authorization's actual settled value, not the configured price", async () => {
+  const customValue = "999999"; // deliberately different from cfg.prices.bulk ("500000")
+  const payment: PaymentPayload = {
+    ...PAYMENT,
+    payload: {
+      ...PAYMENT.payload,
+      authorization: { ...PAYMENT.payload.authorization, value: customValue, nonce: ("0x" + "11".repeat(32)) as `0x${string}` },
+    },
+  };
+  const header = Buffer.from(JSON.stringify(payment)).toString("base64");
+  let insertedValues: unknown[] | undefined;
+  const d = deps({
+    query: async (text: string, values: unknown[]) => {
+      if (/INSERT INTO access_ledger/.test(text)) {
+        insertedValues = values;
+        return [{ id: 1 }];
+      }
+      if (/FROM nostr_events/.test(text)) {
+        return [{ id: "e1", pubkey: "p1", kind: 1, created_at: 9, content: "c", tags: [], sig: "s", node_id: "n", source: "r" }];
+      }
+      return [];
+    },
+  });
+  await withServer(d, async (base) => {
+    const res = await fetch(`${base}/bulk/events?kinds=1`, { headers: { "X-PAYMENT": header } });
+    assert.equal(res.status, 200);
+  });
+  assert.ok(insertedValues, "the ledger insert must have run");
+  assert.equal(insertedValues?.[2], customValue, "amount column must equal authorization.value, not the configured price");
+});
+
+test("firehose SSE: a pass that expires mid-stream ends the connection on the next poll", async () => {
+  const d = deps({
+    pollMs: 10,
+    query: async (text: string) => {
+      if (/FROM firehose_passes/.test(text) && /^SELECT/.test(text)) {
+        // Already expired by the time the poll loop checks it.
+        return [{ ledger_id: 1, expires_at: new Date(Date.now() - 1000) }];
+      }
+      return [];
+    },
+  });
+  await withServer(d, async (base) => {
+    const res = await fetch(`${base}/firehose?pass=EXPIRING`);
+    assert.equal(res.status, 200);
+    const reader = res.body!.getReader();
+    const deadline = Date.now() + 2000;
+    let done = false;
+    while (!done && Date.now() < deadline) {
+      ({ done } = await reader.read());
+    }
+    assert.ok(done, "the stream must end once the pass has expired, not stay open indefinitely");
+  });
+});
+
 test("export: a mid-stream query failure destroys the connection without crashing the process", async () => {
   // streamExport only re-queries once a batch comes back FULL (EXPORT_BATCH=5000
   // in src/exportStream.ts) — so the first call must return exactly that many rows

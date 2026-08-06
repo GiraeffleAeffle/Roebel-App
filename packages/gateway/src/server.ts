@@ -9,7 +9,7 @@ import { streamExport } from "./exportStream.js";
 import { firehoseBatchQuery, mintPassSql, passLookupSql } from "./firehose.js";
 import {
   STATS_ENDPOINTS_SQL, STATS_TOTALS_SQL, TOP_ACCRUALS_SQL,
-  countByAuthor, insertLedgerSql, insertServingSql,
+  countByAuthor, insertLedgerSql, insertServingSql, nonceSeenSql,
 } from "./ledger.js";
 import { payPageHtml } from "./pay.js";
 
@@ -23,7 +23,7 @@ export interface GatewayDeps {
   pollMs?: number;
 }
 
-interface Paid { payer: string; settle: SettleResult; requirements: PaymentRequirements; nonce: string }
+interface Paid { payer: string; settle: SettleResult; requirements: PaymentRequirements; nonce: string; value: string }
 
 export function createGatewayServer(deps: GatewayDeps): Server {
   const { cfg } = deps;
@@ -70,6 +70,18 @@ export function createGatewayServer(deps: GatewayDeps): Server {
         json(402, body402(cfg, path, price, description, "malformed X-PAYMENT header"));
         return null;
       }
+      // Replay guard: reject a re-submitted authorization BEFORE spending a
+      // verify/settle call on it. A captured X-PAYMENT header is otherwise
+      // replayable against any endpoint for as long as the signature itself
+      // stays valid — the facilitator's own nonce check only prevents the
+      // underlying EIP-3009 transfer from executing twice, it does not stop
+      // us from serving the (free, already-authorized-looking) response twice.
+      const seenCheck = nonceSeenSql(payment.payload.authorization.nonce);
+      const seenRows = await deps.query(seenCheck.text, seenCheck.values);
+      if (seenRows.length) {
+        json(402, body402(cfg, path, price, description, "authorization already used — sign a fresh payment"));
+        return null;
+      }
       const verdict = await deps.facilitator.verify(payment, requirements);
       if (!verdict.isValid) {
         json(402, body402(cfg, path, price, description, `payment invalid: ${verdict.invalidReason}`));
@@ -81,12 +93,19 @@ export function createGatewayServer(deps: GatewayDeps): Server {
         return null;
       }
       if (!settle.success) console.error(`[gateway] RECONCILE: settle network_error for ${path}, payer ${verdict.payer}`);
-      return { payer: verdict.payer ?? payment.payload.authorization.from, settle, requirements, nonce: payment.payload.authorization.nonce };
+      return {
+        payer: verdict.payer ?? payment.payload.authorization.from, settle, requirements,
+        nonce: payment.payload.authorization.nonce, value: payment.payload.authorization.value,
+      };
     };
 
-    const recordSale = async (endpoint: string, paid: Paid, price: string, counts: Map<string, number>): Promise<number> => {
+    const recordSale = async (endpoint: string, paid: Paid, counts: Map<string, number>): Promise<number> => {
+      // The ledger records what the payer actually authorized and settled
+      // (payment.payload.authorization.value), never the currently configured
+      // price — a mid-flight price change must not retroactively misstate what
+      // an already-signed authorization was for.
       const ledger = insertLedgerSql({
-        endpoint, payer: paid.payer, amount: price, asset: cfg.asset, network: cfg.network,
+        endpoint, payer: paid.payer, amount: paid.value, asset: cfg.asset, network: cfg.network,
         splitAuthors: cfg.splitAuthors, tx: paid.settle.transaction ?? null, nonce: paid.nonce,
         reconcile: !paid.settle.success,
       });
@@ -103,6 +122,16 @@ export function createGatewayServer(deps: GatewayDeps): Server {
       if (url.pathname === "/health") return json(200, { ok: true, node: cfg.nodeId });
 
       if (url.pathname === "/bulk/events") {
+        // The bulk query builder deliberately drops tag filters (ids, e, p, d)
+        // — see buildBulkQuery. Charging the payer BEFORE discovering their
+        // filter is silently ignored would mean paying for a query that was
+        // never run as asked, so this check happens ahead of the paywall.
+        const unsupported = ["ids", "e", "p", "d"].filter((k) => url.searchParams.has(k));
+        if (unsupported.length) {
+          return json(400, {
+            error: `/bulk/events does not support tag filter(s): ${unsupported.join(", ")} — use the free /events endpoint for these`,
+          });
+        }
         const paid = await paywall("/bulk/events", cfg.prices.bulk, `bulk event query, up to ${BULK_MAX_LIMIT} events`);
         if (!paid) return;
         const query = queryFromUrl(url);
@@ -113,7 +142,7 @@ export function createGatewayServer(deps: GatewayDeps): Server {
         // write failure here is an accounting problem, not a reason to withhold
         // data already paid for — log loudly for manual reconciliation and serve.
         try {
-          await recordSale("/bulk/events", paid, cfg.prices.bulk, countByAuthor(rows));
+          await recordSale("/bulk/events", paid, countByAuthor(rows));
         } catch (error) {
           console.error(`[gateway] RECONCILE: ledger write failed for /bulk/events, payer ${paid.payer}, tx ${paid.settle.transaction}:`, error);
         }
@@ -149,7 +178,7 @@ export function createGatewayServer(deps: GatewayDeps): Server {
         }
         res.end();
         try {
-          await recordSale("/export", paid, cfg.prices.export, counts);
+          await recordSale("/export", paid, counts);
         } catch (error) {
           console.error(`[gateway] RECONCILE: ledger write failed for /export, payer ${paid.payer}, tx ${paid.settle.transaction}:`, error);
         }
@@ -162,7 +191,7 @@ export function createGatewayServer(deps: GatewayDeps): Server {
           const paid = await paywall("/firehose", cfg.prices.firehoseDay, "24h firehose pass (SSE)");
           if (!paid) return;
           try {
-            const ledgerId = await recordSale("/firehose", paid, cfg.prices.firehoseDay, new Map());
+            const ledgerId = await recordSale("/firehose", paid, new Map());
             const token = mint();
             const minted = mintPassSql(token, ledgerId, 24);
             await deps.query(minted.text, minted.values);
@@ -183,6 +212,11 @@ export function createGatewayServer(deps: GatewayDeps): Server {
         const found = await deps.query(lookup.text, lookup.values);
         if (!found.length) return json(401, { error: "invalid or expired pass — buy a new one at /firehose" });
         const ledgerId = Number(found[0].ledger_id);
+        // The connect-time lookup already filters expired passes out (WHERE
+        // expires_at > now() in passLookupSql), but the SSE connection can
+        // stay open for hours — a 24h pass bought at connect time can expire
+        // mid-stream, so the expiry is re-checked on every poll, not just once.
+        const expiresAt = found[0].expires_at as string | Date;
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-store",
@@ -193,6 +227,10 @@ export function createGatewayServer(deps: GatewayDeps): Server {
         let open = true;
         req.on("close", () => { open = false; });
         while (open) {
+          if (new Date(expiresAt) <= new Date()) {
+            res.end();
+            return;
+          }
           let rows: Array<Record<string, unknown> & { pubkey: string; indexed_at: string | Date }>;
           try {
             const batch = firehoseBatchQuery(watermark, deps.excluded());
