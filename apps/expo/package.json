@@ -13,7 +13,7 @@
     "export": "NODE_OPTIONS=--max-old-space-size=8192 expo export",
     "export:web": "NODE_OPTIONS=--max-old-space-size=8192 expo export --platform web",
     "smoke:web": "node scripts/web-smoke.mjs",
-    "deploy:web": "pnpm export:web && cd dist && npx vercel --prod",
+    "deploy:web": "pnpm export:web && ([ -d .vercel ] && cp -R .vercel dist/.vercel || true) && cd dist && npx vercel --prod",
     "update:preview": "NODE_OPTIONS=--max-old-space-size=8192 eas update --channel preview",
     "update:production": "NODE_OPTIONS=--max-old-space-size=8192 eas update --channel production"
   },
