@@ -115,6 +115,17 @@ this repo runs `vercel` on your behalf.
    the CNAME record Vercel's domain UI shows (typically
    `app.roebel.app` → `cname.vercel-dns.com`). Propagation is usually
    minutes, occasionally longer depending on the registrar's TTL.
+6. **Allowlist the deployed origin in the thirdweb dashboard:** thirdweb
+   client IDs used from a browser are origin-allowlisted — add
+   `https://app.roebel.app` (and any fork's own domain) to the client
+   ID's allowed domains under Settings → API Keys in the thirdweb
+   dashboard. Without this, wallet login (`inAppWallet`) fails silently
+   on the deployed origin with an origin-not-allowed error, even though
+   everything else about the deploy is correct. `pnpm smoke:web` cannot
+   catch this gap: it runs headless with no real origin, and thirdweb
+   dashboards typically allow `localhost` by default, so a local smoke
+   test or dev-server login can succeed while the deployed origin still
+   fails.
 
 A note on environment values: `EXPO_PUBLIC_*` (and any other) variables
 consumed by the app are **not** Vercel project env vars — they are read
@@ -220,6 +231,12 @@ headless and explicitly skips service-worker registration.
   gate from the spec — a red installability result means the manifest,
   service worker, or HTTPS/icon requirements regressed and must be fixed
   before calling the deploy done.
+- **Phase 1 acceptance:** log in with the inAppWallet on the deployed
+  origin (`https://app.roebel.app`, not localhost) and confirm the feed
+  renders live Supabase data. This is the Phase 1 acceptance gate from
+  the spec — it only passes once the thirdweb origin allowlist step
+  above has been done, since wallet login on the deployed origin fails
+  without it.
 
 ## Deferred
 

@@ -28,7 +28,7 @@ export default function InstallAppCard() {
         </>
       ) : (
         <Text style={[styles.body, { color: colors.textSecondary }]}>
-          Tippe in Safari auf das Teilen-Symbol und wähle „Zum Home-Bildschirm", um die Röbel App zu installieren.
+          Öffne diese Seite in Safari und tippe auf das Teilen-Symbol, wähle dann „Zum Home-Bildschirm", um die Röbel App zu installieren.
         </Text>
       )}
     </View>

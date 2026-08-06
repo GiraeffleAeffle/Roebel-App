@@ -1,5 +1,5 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "rewrites": [{ "source": "/((?!_expo/|assets/|icons/|sw\\.js|manifest\\.json|offline\\.html).*)", "destination": "/index.html" }],
   "headers": [
     {
       "source": "/_expo/static/(.*)",
