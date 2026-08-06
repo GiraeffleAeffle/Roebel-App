@@ -54,3 +54,15 @@ test("metering requires services.chat.nostr — the gateway/facilitator render i
   delete bad.services.chat.nostr;
   assert.throws(() => NetizenManifestSchema.parse(bad));
 });
+
+test("metering requires chain — the facilitator needs the chain RPC", () => {
+  const bad = structuredClone(base);
+  delete bad.chain;
+  assert.throws(() => NetizenManifestSchema.parse(bad));
+});
+
+test("metering requires services.backend — the gateway needs the backend Postgres", () => {
+  const bad = structuredClone(base);
+  delete bad.services.backend;
+  assert.throws(() => NetizenManifestSchema.parse(bad));
+});

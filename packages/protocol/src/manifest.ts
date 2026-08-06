@@ -595,6 +595,20 @@ export const NetizenManifestSchema = z.object({
         message: "metering requires services.chat.nostr — the gateway and facilitator render inside the relay stack and the exclusion file lives in strfry-policy",
       });
     }
+    if (!m.chain) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["services", "metering"],
+        message: "metering requires chain — the facilitator needs the chain RPC to verify and settle EIP-3009 authorizations",
+      });
+    }
+    if (!m.services.backend) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["services", "metering"],
+        message: "metering requires services.backend — the gateway needs the backend Postgres to read the index and write the access ledger",
+      });
+    }
     if (m.chain && met.network !== `eip155:${m.chain.chainId}`) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
