@@ -1,0 +1,218 @@
+# Expo Web PWA
+
+## What this is
+
+The Expo app (`apps/expo`) ships three build targets: native iOS, native
+Android, and — as of this doc — a static, installable Progressive Web App
+served at `app.roebel.app`. The PWA target exists so any community forking
+this project can distribute a fully working app **without an Apple
+developer account, without Google Play review, and without an EAS build**.
+On iOS a home-screen PWA is the *only* store-free distribution path, so the
+web target is treated as a first-class surface, not a fallback.
+
+`apps/web` (Next.js) remains the public/SEO marketing and content site at
+`roebel.app`. `apps/expo`'s web export is the actual app — the same
+StyleSheet + `useTheme()` React Native codebase, compiled via
+`expo export --platform web` and served as a single-page app with a
+manifest, icons, and a hand-rolled service worker.
+
+Background reading:
+- Spec: [`docs/superpowers/specs/2026-08-05-expo-web-pwa-design.md`](superpowers/specs/2026-08-05-expo-web-pwa-design.md)
+- Implementation plan: [`.superpowers/sdd/2026-08-05-expo-web-pwa/`](../.superpowers/sdd/2026-08-05-expo-web-pwa/)
+
+## Commands
+
+Run all three from `apps/expo`.
+
+### `pnpm export:web`
+
+`NODE_OPTIONS=--max-old-space-size=8192 expo export --platform web`
+
+Builds the static bundle into `apps/expo/dist/`: content-hashed JS/CSS
+chunks under `_expo/static/`, `index.html`, and everything copied verbatim
+from `apps/expo/public/` (`manifest.json`, `sw.js`, `offline.html`, the
+`icons/` set, and `vercel.json`). The 8 GB heap flag is the repo-standard
+setting for Metro exports of this app's size — without it the bundler can
+OOM partway through. A clean run takes roughly a minute and produces
+around 50–60 MB across well-split chunks with a small entry bundle.
+`EXPO_PUBLIC_*` values (thirdweb client ID, Supabase URL/anon key,
+contract addresses, etc.) are read from `apps/expo/.env` and baked into
+the bundle at export time — there is no server-side env at runtime for a
+static export.
+
+### `pnpm smoke:web`
+
+`node scripts/web-smoke.mjs`
+
+Boots the just-exported `dist/` in headless Chromium without a local HTTP
+server — it intercepts requests and serves files straight off disk, so it
+also runs inside sandboxes that block port binding. It loads `/`, waits
+for the app to settle, and asserts there are zero page/console errors and
+that the body actually rendered text (the login screen, in practice). A
+screenshot lands at `apps/expo/.expo/web-smoke.png` for visual
+confirmation. Exit code 0 and a trailing `SMOKE PASS` line mean the export
+is good; a nonzero exit and `SMOKE FAIL` means something regressed and the
+export must not ship. `pnpm export:web` must be run first — the script
+exits early with an error if `dist/index.html` is missing.
+
+### `pnpm deploy:web`
+
+`pnpm export:web && cd dist && npx vercel --prod`
+
+Exports fresh, then deploys the `dist/` directory to Vercel as a
+production deployment via the Vercel CLI, invoked from inside `dist/` so
+Vercel treats that directory as the deploy root — it uploads exactly what
+`export:web` produced, including `vercel.json`. This mirrors the
+`circles-roebel-mini-app` standalone-deploy pattern already used elsewhere
+in this repo: the Vercel project is **not** Git-connected. There is no
+auto-deploy on push; every deploy is this explicit local command. Running
+it repeatedly against the same Vercel project (after the first-deploy
+steps below) ships a new production deployment each time.
+
+## First deploy (USER steps)
+
+These steps require a human with Vercel account access and DNS control
+for `roebel.app`. They are documented here, not automated — nothing in
+this repo runs `vercel` on your behalf.
+
+1. **Authenticate the Vercel CLI once per machine:**
+   ```bash
+   npx vercel login
+   ```
+2. **Create the project and ship the first deployment** by running the
+   deploy script from `apps/expo`:
+   ```bash
+   pnpm deploy:web
+   ```
+   The Vercel CLI will prompt to link the current directory to a new (or
+   existing) Vercel project the first time it runs. Accept the defaults
+   unless you have a reason not to — the project has no framework preset
+   requirements since it deploys a pre-built static `dist/`.
+3. **Add the custom domain** in the Vercel project's dashboard (Settings
+   → Domains): add `app.roebel.app` as the project domain.
+4. **Point DNS at Vercel** at the domain registrar for `roebel.app`: add
+   the CNAME record Vercel's domain UI shows (typically
+   `app.roebel.app` → `cname.vercel-dns.com`). Propagation is usually
+   minutes, occasionally longer depending on the registrar's TTL.
+
+A note on environment values: `EXPO_PUBLIC_*` (and any other) variables
+consumed by the app are **not** Vercel project env vars — they are read
+from `apps/expo/.env` on the machine that runs `pnpm export:web` and
+compiled into the static bundle at build time. Setting environment
+variables in the Vercel dashboard has no effect on this deployment; to
+change a baked value, edit `apps/expo/.env` locally and re-run
+`pnpm deploy:web`.
+
+## Updating
+
+There is no CI/CD pipeline wired up for this target (see Deferred,
+below). To ship a change:
+
+1. Merge the change to `main` as usual.
+2. From `apps/expo`, run `pnpm deploy:web`.
+
+If the change touches shell-level assets whose caching semantics change —
+the service worker's own logic, the precache list, or anything that needs
+old clients to pick up a new cache generation rather than keep serving a
+stale cached shell — bump `VERSION` in `apps/expo/public/sw.js` (currently
+`'v1'`) before deploying. The service worker's `activate` handler deletes
+any cache whose key doesn't match the current `VERSION`, so bumping it is
+what forces existing installs to drop old cached assets. Routine content
+or app-code changes do **not** need a version bump — the content-hashed
+`_expo/static/*` chunk names already guarantee cache correctness for those
+because a new build produces new filenames.
+
+## Web degrade matrix
+
+Copied verbatim from spec §5 ([`docs/superpowers/specs/2026-08-05-expo-web-pwa-design.md`](superpowers/specs/2026-08-05-expo-web-pwa-design.md)):
+
+| Capability | Web behavior |
+|---|---|
+| Login / smart account / gasless tx | Full (thirdweb web-first) |
+| Feed, events, news, proposals, voting | Full (Supabase + chain reads) |
+| DMs | Supabase Realtime rail only; XMTP rail native-only |
+| Push | None until Phase 3; then web push (iOS: installed PWA only) |
+| Map | Placeholder view (Phase 4: mapbox-gl) |
+| QR scan | Existing web fork (getUserMedia) |
+| Camera/image upload | expo-image-picker web (file input) |
+| Calendar, haptics, sensors | No-op |
+| Secure storage | localStorage (see threat-model note) |
+
+## Storage caveat
+
+On native, secrets (MACI voting keys, the citizen commitment, the Nostr
+identity, consent/prompt state) live in Keychain/Keystore via
+`expo-secure-store`. On web, `expo-secure-store`'s build is an empty
+module, so the app's storage wrapper (`lib/storage/secureStorage.web.ts`)
+falls back to plain namespaced `localStorage`
+(`roebel.secure.<keychainService>.<key>`). Any successful XSS against the
+deployed origin can read that storage.
+
+This is an accepted, deliberate trade-off, not an oversight: every secret
+currently routed through this wrapper is deterministically re-derivable
+from the user's thirdweb wallet, so loss or theft is recoverable by
+re-deriving rather than catastrophic, and an attacker capable of XSS would
+equally be able to exfiltrate an encryption key sitting in IndexedDB, so
+encrypting the localStorage payload would add complexity without changing
+the actual threat model. Consent/prompt state, separately, was never
+secret to begin with. See spec §3 for the full decision and its rationale,
+and revisit this trade-off immediately if any *non-re-derivable* secret is
+ever added to this storage wrapper.
+
+## Manual install test checklist
+
+Run this after every deploy that touches the manifest, service worker,
+`+html.tsx` head tags, or the install-prompt UI. All of it requires real
+devices/browsers — none of it is covered by `smoke:web`, which runs
+headless and explicitly skips service-worker registration.
+
+- **Android Chrome:** open `https://app.roebel.app`. Confirm Chrome's
+  install affordance appears (omnibox icon or the in-app install card in
+  Einstellungen). Tap through the card, then Chrome's install prompt.
+  Confirm the app opens standalone (no browser chrome, own recent-apps
+  entry) from the home screen icon.
+- **iOS Safari 16.4+:** open `https://app.roebel.app` in Safari (not an
+  in-app browser). Use the Share sheet → "Zum Home-Bildschirm" (Add to
+  Home Screen). Confirm the resulting home-screen icon launches standalone
+  with the correct name, icon, and theme color.
+- **Desktop Chrome:** open `https://app.roebel.app`. Confirm the install
+  icon appears in the omnibox; install and confirm the app opens in its
+  own window.
+- **Offline check:** with the app installed on any of the above, enable
+  airplane mode, then reopen the app from its home-screen/desktop icon.
+  Confirm either the cached app shell renders (if it was already visited
+  while online) or the German offline page (`public/offline.html`)
+  renders — never a blank screen or a browser network-error page.
+- **Lighthouse installability:** after the first production deploy, run
+  ```bash
+  npx lighthouse https://app.roebel.app --only-categories=pwa --view
+  ```
+  The PWA/installability check must pass. This is the Phase 2 acceptance
+  gate from the spec — a red installability result means the manifest,
+  service worker, or HTTPS/icon requirements regressed and must be fixed
+  before calling the deploy done.
+
+## Deferred
+
+The following are explicitly out of scope for this ship and tracked for
+follow-up phases, not silently dropped:
+
+- **Web push (spec Phase 3):** VAPID keypair, a `useNotifications.web.ts`
+  subscription flow, `platform='web'` rows in `push_tokens`, and a
+  web-push sender added to the `send-notification` edge function
+  alongside the existing Expo push path. iOS constraint to document
+  in-app once built: web push requires the PWA to already be installed to
+  the home screen (iOS 16.4+ only).
+- **XMTP browser rail:** web DMs stay on the Supabase Realtime rail only;
+  the XMTP v3/MLS rail remains native-only (`lib/xmtp/client.ts` is
+  unreachable on web behind its native-module probe).
+- **Real map on web:** the current web fork is a placeholder view; a real
+  `mapbox-gl` implementation replacing it is spec Phase 4.
+- **CI workflow for the web smoke test:** `pnpm export:web && pnpm
+  smoke:web` should run in CI on every PR touching `apps/expo`, but the
+  repo's `gh` token lacks the `workflow` OAuth scope needed to push a new
+  file under `.github/workflows/`. Add
+  `.github/workflows/web-smoke.yml` manually (from an account with
+  `workflow` scope, or via the GitHub web UI) when this is wanted; the
+  job itself is just the two commands above run against `apps/expo` on a
+  Node + pnpm runner.
