@@ -24,6 +24,8 @@ function writeBundle(bundle: Bundle, outDir: string): void {
   copyBuiltArtifact(bundle, outDir, "publisher:", "../../publisher/dist/publisher.cjs", "publisher/publisher.cjs", "the public datasets will NOT publish");
   copyBuiltArtifact(bundle, outDir, "indexer:", "../../indexer/dist/indexer.cjs", "indexer/indexer.cjs", "cross-node queries will NOT work");
   copyBuiltArtifact(bundle, outDir, "agent-watcher:", "../../agent-watcher/dist/agent-watcher.cjs", "agent-watcher/agent-watcher.cjs", "the mention-answering agent will NOT run");
+  copyBuiltArtifact(bundle, outDir, "gateway:", "../../gateway/dist/gateway.cjs", "gateway/gateway.cjs", "paid data endpoints will NOT serve");
+  copyBuiltArtifact(bundle, outDir, "facilitator:", "../../facilitator/dist/facilitator.cjs", "facilitator/facilitator.cjs", "x402 payments will NOT verify or settle");
 }
 
 /**

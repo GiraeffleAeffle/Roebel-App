@@ -245,7 +245,13 @@ test("a node with no peers indexes only its own relay", () => {
 });
 
 test("declaring publicRead routes the index through Caddy", () => {
-  assert.match(renderCaddyfile(WITH_INDEXER), /index\.roebel\.app \{\n\s+reverse_proxy indexer:8080/);
+  // The base example (Task 1) now declares metering, which wraps this same
+  // host with paid-path `handle` blocks (asserted in metering.test.ts) — so
+  // the plain single-line route this test checks only survives without it.
+  const { metering: _metering, ...servicesNoMetering } =
+    (WITH_INDEXER as { services: Record<string, unknown> }).services;
+  const withoutMetering = { ...(WITH_INDEXER as Record<string, unknown>), services: servicesNoMetering };
+  assert.match(renderCaddyfile(withoutMetering as never), /index\.roebel\.app \{\n\s+reverse_proxy indexer:8080/);
 });
 
 test("a node that declares no indexer ships none of it", () => {

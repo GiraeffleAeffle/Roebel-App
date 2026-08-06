@@ -440,7 +440,34 @@ export function renderCaddyfile(m: NetizenManifest): string {
   // The index is public by design: it is how a PEER's agent asks this node a
   // question, and everything in it came off world-readable relays.
   const indexUrl = m.services.indexer?.publicRead;
-  if (indexUrl) blocks.push(`${hostname(indexUrl)} {\n  reverse_proxy indexer:8080\n}`);
+  if (indexUrl && m.services.metering) {
+    // Metering wraps the free API rather than replacing it: paid paths go to
+    // the gateway, everything else stays exactly the free indexer. `handle`
+    // blocks are order-sensitive — the catch-all MUST come last (same lesson
+    // as the Collabora block above).
+    blocks.push(`${hostname(indexUrl)} {
+  handle /bulk/* {
+    reverse_proxy gateway:8402
+  }
+  handle /export* {
+    reverse_proxy gateway:8402
+  }
+  handle /firehose* {
+    reverse_proxy gateway:8402
+  }
+  handle /pay* {
+    reverse_proxy gateway:8402
+  }
+  handle /metering/* {
+    reverse_proxy gateway:8402
+  }
+  handle {
+    reverse_proxy indexer:8080
+  }
+}`);
+  } else if (indexUrl) {
+    blocks.push(`${hostname(indexUrl)} {\n  reverse_proxy indexer:8080\n}`);
+  }
   // One vhost carries Buzz's WebSocket, REST and media — Caddy upgrades WS
   // transparently, so no extra directives (upstream's own Caddyfile is this line).
   add(m.services.buzz?.url, "buzz:3000");
@@ -610,6 +637,60 @@ export function renderComposeYml(m: NetizenManifest): string {
       PORT: "8080"
     expose: ["8080"]
     depends_on: [postgres, strfry]`,
+      );
+    }
+
+    // Metered machine-scale access (x402): the facilitator verifies + settles
+    // EIP-3009 payments on this node's own chain; the gateway serves the paid
+    // endpoints and shares the indexer's database (the ledger lives beside the
+    // index it meters). Secrets: only the settler's gas key — it cannot
+    // redirect funds, the payer's signature fixes payTo.
+    if (m.services.metering && m.services.indexer && m.services.backend && m.chain) {
+      const met = m.services.metering;
+      const rpc = typeof m.chain.rpc === "string" && m.chain.rpc.startsWith("$")
+        ? `\${${m.chain.rpc.slice(1)}}`
+        : String(m.chain.rpc);
+      svc.push(
+        `  facilitator:
+    image: node:22-alpine
+    restart: unless-stopped
+    command: ["node", "/app/facilitator.cjs"]
+    volumes:
+      - "./facilitator/facilitator.cjs:/app/facilitator.cjs:ro"
+    environment:
+      NETWORK: "${met.network}"
+      RPC_URL: "${rpc}"
+      # Gas-only key. It submits payer-signed authorizations; value moves
+      # payer->treasury regardless of who submits.
+      SETTLER_PRIV: "\${METERING_SETTLER_PRIV}"
+      PORT: "8402"
+    expose: ["8402"]`,
+        `  gateway:
+    image: node:22-alpine
+    restart: unless-stopped
+    command: ["node", "/app/gateway.cjs"]
+    volumes:
+      - "./gateway/gateway.cjs:/app/gateway.cjs:ro"
+      - "./strfry-policy:/etc/strfry:ro"
+    environment:
+      NODE_ID: "${m.id}"
+      PUBLIC_BASE: "${m.services.indexer.publicRead ?? ""}"
+      DATABASE_URL: "postgres://indexer:\${POSTGRES_PASSWORD}@postgres:5432/indexer"
+      FACILITATOR_URL: "http://facilitator:8402"
+      PAY_TO: "${met.payTo}"
+      NETWORK: "${met.network}"
+      ASSET: "${met.asset}"
+      ASSET_NAME: ${JSON.stringify(met.assetName)}
+      ASSET_VERSION: "${met.assetVersion}"
+      ASSET_DECIMALS: "${met.assetDecimals}"
+      PRICE_BULK: "${met.prices.bulk}"
+      PRICE_EXPORT: "${met.prices.export}"
+      PRICE_FIREHOSE_DAY: "${met.prices.firehoseDay}"
+      SPLIT_AUTHORS: "${met.split.authors ?? 0}"
+      EXCLUDED_FILE: "/etc/strfry/metering-excluded.txt"
+      PORT: "8402"
+    expose: ["8402"]
+    depends_on: [postgres, facilitator]`,
       );
     }
 
@@ -1036,6 +1117,15 @@ f="$(dirname "$0")/members.txt"
 grep -qi "^\${pk}$" "$f" 2>/dev/null || printf '%s\\n' "$pk" >> "$f"
 echo "granted write: $pk"
 `;
+}
+
+/** The monetization opt-out list: one hex pubkey per line. An author here is
+ *  dropped from every PAID response; their events stay on the free record. */
+export function renderMeteringExcluded(m: NetizenManifest): string {
+  return header(m, "Metering exclusion list — authors who opted out of monetization") +
+    "# One 64-hex Nostr pubkey per line. '#' comments. Re-read every 60s.\n" +
+    "# An excluded author's events never appear in /bulk, /export or /firehose\n" +
+    "# and never accrue earnings. The free public record is unaffected.\n";
 }
 
 /**
@@ -2060,12 +2150,20 @@ export function collectSecretRefs(m: NetizenManifest): string[] {
 
 export function renderSecretsChecklist(m: NetizenManifest): string {
   const refs = collectSecretRefs(m);
-  const items = refs.map((r) => `- [ ] \`${r}\``).join("\n");
+  const items = refs.map((r) => `- [ ] \`${r}\``);
+  // Not a manifest field — the settler key is compose-interpolated straight
+  // into docker-compose.yml (never named in the public manifest), so
+  // collectSecretRefs' generic walk over `m` cannot see it. Listed here by hand.
+  if (m.services.metering) {
+    items.push(
+      "- [ ] `METERING_SETTLER_PRIV` — facilitator settler EOA private key (pays gas only; fund with a few xDAI). Generate fresh; never reuse another service's key.",
+    );
+  }
   return `${header(m, "secrets the operator must supply before \`netizen up\`")}
 These are **references** — supply the real values via env / vault at apply time.
 They are never written into the bundle.
 
-${items}
+${items.join("\n")}
 `;
 }
 
@@ -2162,6 +2260,9 @@ export function renderBundle(m: NetizenManifest): Bundle {
     files["strfry-policy/write-policy.sh"] = renderNostrPolicyWrapper();
     files["strfry-policy/members.txt"] = renderNostrMembers(m);
     files["strfry-policy/add-member.sh"] = renderNostrAddMember();
+    if (m.services.metering) {
+      files["strfry-policy/metering-excluded.txt"] = renderMeteringExcluded(m);
+    }
     // NIP-62/NIP-09 → real LMDB deletion (the executor half; the scanner is a
     // pre-built artifact copied in by the CLI, like relay-sync.cjs).
     files["strfry-vanish/vanish-exec.sh"] = renderVanishExecutor(m);
