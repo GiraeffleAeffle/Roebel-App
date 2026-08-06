@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 // Duplicated from useInstallPrompt.ts on purpose: a relative import of
 // './useInstallPrompt' would platform-resolve back to THIS file.
@@ -9,9 +9,21 @@ export type InstallPromptState = {
   promptInstall: () => Promise<void>;
 };
 
+// beforeinstallprompt is a one-shot event Chrome fires at page load — module
+// scope captures it at boot; a mount-scoped listener would miss it whenever
+// the user reaches Settings after it fired.
+let deferredEvent: any = null;
+const subscribers = new Set<() => void>();
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e: Event) => {
+    e.preventDefault();
+    deferredEvent = e;
+    subscribers.forEach((notify) => notify());
+  });
+}
+
 export function useInstallPrompt(): InstallPromptState {
-  const deferred = useRef<any>(null);
-  const [canPrompt, setCanPrompt] = useState(false);
+  const [canPrompt, setCanPrompt] = useState(() => deferredEvent !== null);
 
   const isStandalone =
     typeof window !== 'undefined' &&
@@ -21,21 +33,20 @@ export function useInstallPrompt(): InstallPromptState {
     typeof navigator !== 'undefined' && /iPhone|iPad|iPod/.test(navigator.userAgent);
 
   useEffect(() => {
-    const onBeforeInstall = (e: Event) => {
-      e.preventDefault();
-      deferred.current = e;
-      setCanPrompt(true);
+    const notify = () => setCanPrompt(deferredEvent !== null);
+    subscribers.add(notify);
+    notify();
+    return () => {
+      subscribers.delete(notify);
     };
-    window.addEventListener('beforeinstallprompt', onBeforeInstall);
-    return () => window.removeEventListener('beforeinstallprompt', onBeforeInstall);
   }, []);
 
   const promptInstall = useCallback(async () => {
-    if (!deferred.current) return;
-    deferred.current.prompt();
-    await deferred.current.userChoice;
-    deferred.current = null;
-    setCanPrompt(false);
+    if (!deferredEvent) return;
+    deferredEvent.prompt();
+    await deferredEvent.userChoice;
+    deferredEvent = null;
+    subscribers.forEach((notify) => notify());
   }, []);
 
   return { canPrompt, isStandalone, isIosSafari, promptInstall };

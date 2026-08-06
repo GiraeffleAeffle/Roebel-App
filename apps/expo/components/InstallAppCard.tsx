@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useTheme } from '@/context/ThemeContext';
 import { useInstallPrompt } from '@/hooks/useInstallPrompt';
+import { fontFamily } from '@/constants/theme';
 
 export default function InstallAppCard() {
   const { colors } = useTheme();
@@ -22,7 +23,7 @@ export default function InstallAppCard() {
             style={[styles.button, { backgroundColor: colors.primary }]}
             accessibilityRole="button"
           >
-            <Text style={styles.buttonLabel}>Jetzt installieren</Text>
+            <Text style={[styles.buttonLabel, { color: colors.onPrimary }]}>Jetzt installieren</Text>
           </Pressable>
         </>
       ) : (
@@ -36,8 +37,8 @@ export default function InstallAppCard() {
 
 const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 12, padding: 16, marginHorizontal: 16, marginBottom: 16 },
-  title: { fontFamily: 'MonaSans-SemiBold', fontSize: 16, marginBottom: 4 },
-  body: { fontFamily: 'MonaSans-Regular', fontSize: 14, lineHeight: 20 },
+  title: { fontFamily: fontFamily.semiBold, fontSize: 16, marginBottom: 4 },
+  body: { fontFamily: fontFamily.regular, fontSize: 14, lineHeight: 20 },
   button: { marginTop: 12, borderRadius: 8, paddingVertical: 10, alignItems: 'center' },
-  buttonLabel: { fontFamily: 'MonaSans-SemiBold', fontSize: 14, color: '#fff' },
+  buttonLabel: { fontFamily: fontFamily.semiBold, fontSize: 14 },
 });
