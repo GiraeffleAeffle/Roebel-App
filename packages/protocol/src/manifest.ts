@@ -588,6 +588,13 @@ export const NetizenManifestSchema = z.object({
         message: "metering requires services.indexer — the gateway reads the index database",
       });
     }
+    if (!m.services.chat?.nostr) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["services", "metering"],
+        message: "metering requires services.chat.nostr — the gateway and facilitator render inside the relay stack and the exclusion file lives in strfry-policy",
+      });
+    }
     if (m.chain && met.network !== `eip155:${m.chain.chainId}`) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

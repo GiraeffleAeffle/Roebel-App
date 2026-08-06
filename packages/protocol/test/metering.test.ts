@@ -48,3 +48,9 @@ test("prices are atomic-unit integer strings", () => {
   bad.services.metering = { ...METERING, prices: { ...METERING.prices, bulk: "0.5" } };
   assert.throws(() => NetizenManifestSchema.parse(bad));
 });
+
+test("metering requires services.chat.nostr — the gateway/facilitator render inside the relay stack", () => {
+  const bad = structuredClone(base);
+  delete bad.services.chat.nostr;
+  assert.throws(() => NetizenManifestSchema.parse(bad));
+});
