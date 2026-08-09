@@ -59,22 +59,34 @@ Commits `9abd046c` (I1), `5a7d8f48` + `323254b7` (I2), `362a0c44` (Review-Fixes)
    Ablauf, Nonce und Signatur — **nie** das `statement`.
 2. Ortis-Copy wörtlich aus §I2: Titel „Anmelden bei Ortis", H1 „Ortis".
 
-**Bekannter Pilot-Vorbehalt (kein Code-Bug, gehört in die I5-Planung):** die Ortis-Login-Seite
-ist im HTML markenrein, wird aber von `id.roebel.app` ausgeliefert — Adressleiste und die
-SIWE-`domain`/`uri` zeigen `roebel.app`. Die naheliegende Abhilfe (Vanity-Host wie
-`id.ortis.<domain>` per CNAME auf dieselbe Fly-App) **bricht den Login**: der Bridge leitet
-`expectedDomain` aus genau einem `config.issuer`-Host ab und `verifySiwe` lehnt bei Abweichung
-hart ab. Multi-Host braucht zuerst ein `expectedDomain`-**Set**. Das ist die eigentliche
-Vorbedingung für „Issuer pro Community" (I5/Phase 3).
+**Der Pilot-Vorbehalt wurde am selben Tag zur Entscheidung — „Issuer pro Community" kommt vor:**
+die Ortis-Login-Seite ist im HTML markenrein, wurde aber von `id.roebel.app` ausgeliefert.
+Max hat das als für den Pilot untauglich verworfen. Ein Vanity-Host per CNAME **löst das
+nicht** (eine Provider-Instanz = ein Issuer; Discovery, `iss` und die aus `config.issuer`
+abgeleitete SIWE-`expectedDomain` hängen alle daran). Entschieden: **zweite Fly-App
+`ortis-id` mit eigenem `ISSUER_URL=https://id.ortis.app`**, gleiches Image, nur der
+Ortis-RP registriert. Dafür war ein Code-Blocker zu lösen — `NEXTCLOUD_*` war zwingend;
+jetzt sind alle bekannten Prefixe optional und `loadConfig()` verlangt nur noch
+**mindestens einen** RP (Commit `9cac3b09`). Vollständiges Runbook:
+`apps/roebel-id/README.md` → „Running a second instance for another community".
 
-**Max' Schritte, damit Ortis-Login live testbar ist:**
-1. `fly secrets set ORTIS_CLIENT_SECRET=<secret> -a roebel-id`
-2. `ORTIS_CLIENT_ID` + `ORTIS_REDIRECT_URIS`
-   (`https://app.ortis.<domain>/api/auth/callback,http://localhost:3000/api/auth/callback`)
-   in `fly.toml`/Secrets setzen; `ORTIS_BRANDING` **weglassen** (defaultet korrekt),
-   `ORTIS_BRANDING_CONTEXT` optional für den Amtsnamen.
-3. Deploy aus `apps/roebel-id/` heraus (Build-Context) — Details in dessen README.
-4. Denselben `client_id`/`secret` in der Ortis-Session (netizen_labs-Monorepo) hinterlegen.
+**⚠️ Vor dem nächsten `fly deploy -a roebel-id`:** auf der laufenden Instanz stehen noch
+`ORTIS_*`-Secrets mit dem wörtlich übernommenen Platzhalter
+`https://app.ortis.<domain>/api/auth/callback`. Das ist keine gültige URI; seit `d9ce3651`
+prüft `loadConfig()` das beim Boot, d.h. der nächste Deploy dieser App würde **nicht
+starten**. Der Ortis-Client zieht ohnehin auf `ortis-id` um, also:
+`fly secrets unset ORTIS_CLIENT_ID ORTIS_CLIENT_SECRET ORTIS_REDIRECT_URIS -a roebel-id`.
+
+**Reihenfolge für den Live-Test (Domain = `ortis.app`, App live seit 2026-08-09):**
+1. Vercel-Seite zuerst: `ORTIS_BASE_URL=https://app.ortis.app` setzen — die App baut ihre
+   `redirect_uri` daraus und schickt sonst die generierte Vercel-Domain
+   (`ortis-three.vercel.app`), was als Pilot-Adresse nicht besser ist als `roebel.app`.
+2. `ortis-id` nach README-Runbook hochziehen (eigene `JWKS_JSON` + `COOKIE_KEYS`,
+   `ORTIS_REDIRECT_URIS=https://app.ortis.app/api/auth/callback`, `fly deploy -c fly.ortis.toml`,
+   `fly certs add id.ortis.app`).
+3. Vercel: `OIDC_ISSUER=https://id.ortis.app`, `OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET`,
+   `ORTIS_DEV_AUTH=0`.
+4. `ORTIS_*` auf `roebel-id` unsetzen (siehe Warnung oben).
 
 **Offen (nächste Session):** I2b (Keystone-eigener OTP-Versand — zusätzlich blockiert durch Max'
 thirdweb-Dashboard-Task), I3 (QR-Pairing), I4 (`communities`-Claim), I5 (Manifest-Reife).
