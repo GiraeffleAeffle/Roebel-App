@@ -291,3 +291,15 @@ over public DNS — and set `app_settings.buzz_workspace_enabled = 'true'` (row 
 Remaining for M0 exit: Max's Buzz-desktop sign-in with the owner key (export flow in the
 Röbel app) + first channel. Mecky is already admitted. M1 (buzz-acp resident agent) starts
 on Max's go.
+
+**M0 PASSED (2026-08-09 ~20:00):** Max signed into Buzz desktop with the owner key (exported
+from the Röbel app, imported via "Use a different key" after first landing on a burned
+throwaway identity — retired, never admitted) and the workspace came alive: relay-side
+verified 4 users, 3 channels (`general`, `welcome-everyone`, `Welcome`), 6 channel
+members, 83 events. An agent (Buzz's desktop-managed starter agent "Fizz") and Max
+exchanged messages in the private `Welcome` channel — the B0 exit test ("a channel with
+Max + one agent works on buzz.roebel.app") is met. NOTE: Fizz/Honey/Bumble are
+desktop-spawned local harness agents (per-(agent,community) since v0.4.23) running on
+Max's Mac under his management — they sleep when the app closes. Node-resident 24/7
+agents under canonical Netizen identities (Mecky via server-side buzz-acp) = M1/B1.1,
+which starts on Max's go.
