@@ -1,3 +1,15 @@
+// Login-page branding presets (see src/interaction/login-page.ts for the copy/colors each
+// preset renders). Pilot-critical: an Ortis client — a mayor of another municipality — must
+// never resolve to the 'roebel' preset.
+const BRANDING_PRESETS = ['roebel', 'ortis'] as const
+export type BrandingPreset = (typeof BRANDING_PRESETS)[number]
+
+export interface BrandingConfig {
+  preset: BrandingPreset
+  /** Optional free-text line rendered under the heading, e.g. an Amt/org name for the pilot. */
+  context?: string
+}
+
 /**
  * A first-party relying party (a Röbel-run service, or a Netizen-run consumer like Ortis)
  * that logs in via Röbel ID. All first-party RPs share the same trust level and get a
@@ -11,6 +23,7 @@ export interface RelyingPartyConfig {
   clientSecret: string
   redirectUris: string[]
   postLogoutRedirectUris: string[]
+  branding: BrandingConfig
 }
 
 export interface Config {
@@ -36,12 +49,27 @@ function required(name: string): string {
 }
 
 /**
+ * Load one RP's login-page branding: `<PREFIX>_BRANDING` selects the preset (`roebel`, the
+ * default when unset, or `ortis`) and `<PREFIX>_BRANDING_CONTEXT` is an optional free-text
+ * line (e.g. an Amt/org name for the pilot). An unrecognized preset value throws loudly at
+ * boot — silently falling back would risk an Ortis client rendering Röbel branding.
+ */
+function loadBranding(prefix: string): BrandingConfig {
+  const preset = process.env[`${prefix}_BRANDING`] ?? 'roebel'
+  if (!(BRANDING_PRESETS as readonly string[]).includes(preset)) {
+    throw new Error(`Invalid ${prefix}_BRANDING: '${preset}' (expected one of ${BRANDING_PRESETS.join(', ')})`)
+  }
+  const context = process.env[`${prefix}_BRANDING_CONTEXT`]
+  return context ? { preset: preset as BrandingPreset, context } : { preset: preset as BrandingPreset }
+}
+
+/**
  * Load one relying party from its env-var prefix: `<PREFIX>_CLIENT_ID`,
  * `<PREFIX>_CLIENT_SECRET`, `<PREFIX>_REDIRECT_URIS` (comma-separated),
- * `<PREFIX>_POST_LOGOUT_URIS` (comma-separated, optional). Every required subvar throws
- * loudly via `required()` if missing — callers decide whether calling this at all is
- * conditional (the known optional prefixes below) or unconditional (Nextcloud, and
- * anything listed in FIRST_PARTY_RPS).
+ * `<PREFIX>_POST_LOGOUT_URIS` (comma-separated, optional), plus the branding subvars (see
+ * `loadBranding`). Every required subvar throws loudly via `required()` if missing —
+ * callers decide whether calling this at all is conditional (the known optional prefixes
+ * below) or unconditional (Nextcloud, and anything listed in FIRST_PARTY_RPS).
  */
 function loadRelyingParty(prefix: string): RelyingPartyConfig {
   return {
@@ -50,6 +78,7 @@ function loadRelyingParty(prefix: string): RelyingPartyConfig {
     clientSecret: required(`${prefix}_CLIENT_SECRET`),
     redirectUris: required(`${prefix}_REDIRECT_URIS`).split(','),
     postLogoutRedirectUris: (process.env[`${prefix}_POST_LOGOUT_URIS`] ?? '').split(',').filter(Boolean),
+    branding: loadBranding(prefix),
   }
 }
 

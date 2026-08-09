@@ -145,6 +145,7 @@ describe('interaction login POST — failure path', () => {
           clientSecret: 'nextcloud-secret',
           redirectUris: [REDIRECT_URI],
           postLogoutRedirectUris: [],
+          branding: { preset: 'roebel' },
         },
       ],
     }

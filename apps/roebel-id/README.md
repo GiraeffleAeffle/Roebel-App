@@ -47,10 +47,12 @@ schema. Copy `.env.example` to `.env` for local dev.
 
 ### First-party relying parties (RPs)
 
-Each RP is a block of up to four env vars, keyed by an uppercase prefix:
+Each RP is a block of up to six env vars, keyed by an uppercase prefix:
 `<PREFIX>_CLIENT_ID`, `<PREFIX>_CLIENT_SECRET`, `<PREFIX>_REDIRECT_URIS`
-(comma-separated), `<PREFIX>_POST_LOGOUT_URIS` (optional, comma-separated). The
-lowercased prefix becomes `RelyingPartyConfig.name`.
+(comma-separated), `<PREFIX>_POST_LOGOUT_URIS` (optional, comma-separated),
+`<PREFIX>_BRANDING` and `<PREFIX>_BRANDING_CONTEXT` (both optional, see
+"Login-page branding" below). The lowercased prefix becomes
+`RelyingPartyConfig.name`.
 
 - `NEXTCLOUD` — always required; the keystone won't boot without it.
 - `MATRIX`, `WEB`, `ORTIS` — optional; each is registered only when its
@@ -68,15 +70,34 @@ All first-party RPs share the same trust level (pre-granted consent — see
 `src/interaction/router.ts`) and register as `authorization_code` + PKCE-required
 `client_secret_basic` OIDC clients (`src/oidc/provider.ts`).
 
+#### Login-page branding
+
+**Pilot-critical:** the login page's copy and colors are resolved per RP by the
+requesting `client_id` (`src/interaction/router.ts` → `src/interaction/login-page.ts`),
+not hardcoded. A visiting mayor logging in through Ortis must never see Röbel branding.
+
+- `<PREFIX>_BRANDING` — `roebel` (default when unset) or `ortis`. An unrecognized
+  value throws loudly at boot rather than silently falling back.
+- `<PREFIX>_BRANDING_CONTEXT` — optional free-text line rendered under the heading
+  in secondary (grey) color, e.g. an Amt/org name for the pilot. HTML-escaped.
+- The `roebel` preset renders byte-for-byte identical to the page before branding
+  was parametrized ("Röbel ID", navy `#00498B`). The `ortis` preset ("Ortis",
+  near-black `#111`, no navy) never mentions Röbel.
+- An unrecognized `client_id` at the interaction endpoint (shouldn't happen for a
+  first-party-only IdP) falls back to the `roebel` preset.
+
 #### Ortis
 
 Ortis (the multi-community consumer of this keystone) registers like any other
-first-party RP:
+first-party RP. `ORTIS_BRANDING=ortis` is **required** — without it the RP falls
+back to the default `roebel` preset, which a visiting mayor must never see:
 
 ```
 ORTIS_CLIENT_ID=ortis
 ORTIS_CLIENT_SECRET=__set_in_fly_secrets__
 ORTIS_REDIRECT_URIS=https://app.ortis.<domain>/api/auth/callback,http://localhost:3000/api/auth/callback
+ORTIS_BRANDING=ortis
+ORTIS_BRANDING_CONTEXT=Amt Musterstadt
 ```
 
 `<domain>` is the Ortis deployment's own domain; the second URI is the local

@@ -156,6 +156,7 @@ describe('authorization_code + PKCE end-to-end (Nextcloud-as-relying-party proof
           clientSecret: 'nextcloud-secret',
           redirectUris: [REDIRECT_URI],
           postLogoutRedirectUris: [],
+          branding: { preset: 'roebel' },
         },
       ],
     }

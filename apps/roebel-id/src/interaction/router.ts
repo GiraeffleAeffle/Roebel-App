@@ -1,19 +1,31 @@
 import express from 'express'
 import type Provider from 'oidc-provider'
 import type { AuthBridge } from '../auth-bridge/types.js'
+import type { BrandingConfig, RelyingPartyConfig } from '../config.js'
 import { renderLoginPage } from './login-page.js'
 
+// Fallback for a client_id the router can't resolve to a configured RP — shouldn't happen for
+// a first-party-only IdP (every registered OIDC client comes straight from relyingParties), but
+// falling back to an unbranded/blank page would be worse than defaulting to Röbel branding.
+const FALLBACK_BRANDING: BrandingConfig = { preset: 'roebel' }
+
 export function createInteractionRouter(deps: {
-  provider: Provider; bridge: AuthBridge; thirdwebClientId: string; chainId: number; firstPartyClientIds: string[]
+  provider: Provider; bridge: AuthBridge; thirdwebClientId: string; chainId: number; relyingParties: RelyingPartyConfig[]
 }): express.Router {
   const router = express.Router()
-  const { provider, bridge, firstPartyClientIds } = deps
+  const { provider, bridge, relyingParties } = deps
+  const brandingByClientId = new Map(relyingParties.map((rp) => [rp.clientId, rp.branding]))
+  const firstPartyClientIds = new Set(relyingParties.map((rp) => rp.clientId))
 
   router.get('/interaction/:uid', async (req, res, next) => {
     try {
       const details = await provider.interactionDetails(req, res)
       if (details.prompt.name !== 'login' && details.prompt.name !== 'consent') return next()
-      res.set('cache-control', 'no-store').send(renderLoginPage(details.uid, deps.thirdwebClientId, deps.chainId))
+      // The requesting client determines branding (I2): an Ortis client must never render
+      // Röbel copy/colors. Resolved by client_id since that's all the pending interaction
+      // carries at this point — no session/account yet.
+      const branding = brandingByClientId.get(String(details.params.client_id)) ?? FALLBACK_BRANDING
+      res.set('cache-control', 'no-store').send(renderLoginPage(details.uid, deps.thirdwebClientId, deps.chainId, branding))
     } catch (e) { next(e) }
   })
 
@@ -30,7 +42,7 @@ export function createInteractionRouter(deps: {
       // Pre-granting consent (below) is only safe for first-party Röbel-run clients (Nextcloud,
       // Matrix/MAS, ...). Any client_id outside that trusted set must NOT silently receive an
       // auto-grant — fail closed rather than skip a consent screen that doesn't exist yet.
-      if (!firstPartyClientIds.includes(String(params.client_id))) {
+      if (!firstPartyClientIds.has(String(params.client_id))) {
         res.status(400).json({ error: 'unsupported_client' })
         return
       }

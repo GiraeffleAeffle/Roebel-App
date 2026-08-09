@@ -23,7 +23,11 @@ function withEnv(extra: Record<string, string>) {
 // created it) plus FIRST_PARTY_RPS itself, plus everything in BASE.
 afterEach(() => {
   for (const key of Object.keys(process.env)) {
-    if (key in BASE || key === 'FIRST_PARTY_RPS' || /_(CLIENT_ID|CLIENT_SECRET|REDIRECT_URIS|POST_LOGOUT_URIS)$/.test(key)) {
+    if (
+      key in BASE ||
+      key === 'FIRST_PARTY_RPS' ||
+      /_(CLIENT_ID|CLIENT_SECRET|REDIRECT_URIS|POST_LOGOUT_URIS|BRANDING|BRANDING_CONTEXT)$/.test(key)
+    ) {
       delete process.env[key]
     }
   }
@@ -39,6 +43,7 @@ describe('relying party list', () => {
         clientSecret: 'nc-secret',
         redirectUris: ['https://cloud.example/apps/user_oidc/code'],
         postLogoutRedirectUris: [],
+        branding: { preset: 'roebel' },
       },
     ])
   })
@@ -67,6 +72,7 @@ describe('web relying party', () => {
       clientSecret: 'web-secret',
       redirectUris: ['https://roebel.app/api/workspace/auth/callback'],
       postLogoutRedirectUris: [],
+      branding: { preset: 'roebel' },
     })
   })
 
@@ -111,6 +117,7 @@ describe('ortis relying party', () => {
         'http://localhost:3000/api/auth/callback',
       ],
       postLogoutRedirectUris: [],
+      branding: { preset: 'roebel' },
     })
   })
 
@@ -142,6 +149,7 @@ describe('additional first-party RPs via FIRST_PARTY_RPS', () => {
       clientSecret: 'buzz-secret',
       redirectUris: ['https://buzz.example/callback'],
       postLogoutRedirectUris: [],
+      branding: { preset: 'roebel' },
     })
   })
 
@@ -188,5 +196,54 @@ describe('same-behavior guarantee', () => {
       WEB_REDIRECT_URIS: 'https://roebel.app/api/workspace/auth/callback',
     })
     expect(loadConfig().relyingParties.map((rp) => rp.name)).toEqual(['nextcloud', 'matrix', 'web'])
+  })
+})
+
+// I2 — per-RP login branding (pilot-critical: an Ortis client must never resolve to Röbel
+// branding). <PREFIX>_BRANDING selects the preset (default 'roebel'); <PREFIX>_BRANDING_CONTEXT
+// is an optional free-text line (e.g. an Amt/org name for the pilot).
+describe('branding', () => {
+  it('defaults to the roebel preset when <PREFIX>_BRANDING is unset', () => {
+    withEnv({})
+    expect(loadConfig().relyingParties.find((rp) => rp.name === 'nextcloud')?.branding).toEqual({ preset: 'roebel' })
+  })
+
+  it('selects the ortis preset when set explicitly', () => {
+    withEnv({ NEXTCLOUD_BRANDING: 'ortis' })
+    expect(loadConfig().relyingParties.find((rp) => rp.name === 'nextcloud')?.branding).toEqual({ preset: 'ortis' })
+  })
+
+  it('fails loudly on an unrecognized preset value', () => {
+    withEnv({ NEXTCLOUD_BRANDING: 'bogus' })
+    expect(() => loadConfig()).toThrow(/Invalid NEXTCLOUD_BRANDING/)
+  })
+
+  it('carries an optional context line', () => {
+    withEnv({ NEXTCLOUD_BRANDING_CONTEXT: 'Amt Röbel-Müritz' })
+    expect(loadConfig().relyingParties.find((rp) => rp.name === 'nextcloud')?.branding).toEqual({
+      preset: 'roebel',
+      context: 'Amt Röbel-Müritz',
+    })
+  })
+
+  it('omits context from the branding object when unset (no empty string)', () => {
+    withEnv({})
+    expect(loadConfig().relyingParties.find((rp) => rp.name === 'nextcloud')?.branding).not.toHaveProperty('context')
+  })
+
+  it('gives ortis its own ortis branding + context, independent of nextcloud', () => {
+    withEnv({
+      ORTIS_CLIENT_ID: 'ortis',
+      ORTIS_CLIENT_SECRET: 'ortis-secret',
+      ORTIS_REDIRECT_URIS: 'https://app.ortis.roebel.app/api/auth/callback',
+      ORTIS_BRANDING: 'ortis',
+      ORTIS_BRANDING_CONTEXT: 'Amt Musterstadt',
+    })
+    const cfg = loadConfig()
+    expect(cfg.relyingParties.find((rp) => rp.name === 'ortis')?.branding).toEqual({
+      preset: 'ortis',
+      context: 'Amt Musterstadt',
+    })
+    expect(cfg.relyingParties.find((rp) => rp.name === 'nextcloud')?.branding).toEqual({ preset: 'roebel' })
   })
 })

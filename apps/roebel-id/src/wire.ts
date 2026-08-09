@@ -42,7 +42,7 @@ export function wireApp(config: Config = loadConfig(), overrides: WireOverrides 
     bridge,
     thirdwebClientId: config.thirdwebClientId,
     chainId: config.chainId,
-    firstPartyClientIds: config.relyingParties.map((rp) => rp.clientId),
+    relyingParties: config.relyingParties,
   })
 
   // Interaction routes must be mounted before provider.callback() so panva's catch-all OIDC

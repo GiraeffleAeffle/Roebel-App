@@ -8,17 +8,73 @@
 // Login methods: Google/Apple/Facebook (OAuth, one connect() call) + Email (2-step:
 // preAuthenticate sends a code, then connect() with the code). All use the SAME enclave
 // wallet so the deterministic smart-account address matches the main Röbel app.
+//
+// Branding is per-RP (see `RelyingPartyConfig.branding` in config.ts): Ortis — the
+// multi-community consumer of this keystone, used by mayors of OTHER municipalities — must
+// never show Röbel branding, so the requesting client's preset (resolved by the interaction
+// router) picks the copy/colors below. The 'roebel' preset renders byte-for-byte identical to
+// the page before branding was parametrized; new presets are pure data.
+import type { BrandingConfig, BrandingPreset } from '../config.js'
+
 const SIWE_STATEMENT = 'Anmeldung bei Roebel ID'
 
-export function renderLoginPage(uid: string, thirdwebClientId: string, chainId: number): string {
+interface PresetCopy {
+  title: string
+  heading: string
+  intro: string
+  /** Headline text color + button background. */
+  primaryColor: string
+  /** Optional context-line color (also used by the existing secondary-text/separator copy). */
+  secondaryColor: string
+  /** Second line of the enclave-wallet explainer comment inside the <script> block. */
+  walletNote: string
+}
+
+const PRESETS: Record<BrandingPreset, PresetCopy> = {
+  roebel: {
+    title: 'Bei Röbel anmelden',
+    heading: 'Röbel ID',
+    intro: 'Melde dich mit deiner Röbel-Identität an, um fortzufahren.',
+    primaryColor: '#00498B',
+    secondaryColor: '#6B7280',
+    walletNote: "matches the main app (recovers the visitor's existing Röbel identity).",
+  },
+  ortis: {
+    title: 'Bei Ortis anmelden',
+    heading: 'Ortis',
+    intro: 'Melde dich an, um bei Ortis fortzufahren.',
+    primaryColor: '#111',
+    secondaryColor: '#6B7280',
+    walletNote: "matches the main app (recovers the visitor's existing identity).",
+  },
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+export function renderLoginPage(uid: string, thirdwebClientId: string, chainId: number, branding: BrandingConfig): string {
+  const copy = PRESETS[branding.preset]
+  // Only emitted when an org/Amt name is configured for this RP — no empty element otherwise,
+  // so the default (no context) roebel page stays byte-for-byte identical to before branding
+  // was parametrized. `branding.context` is env-controlled text landing in HTML: escape it.
+  const contextLine = branding.context
+    ? `\n  <p style="color:${copy.secondaryColor};font-size:14px;margin:0 0 12px">${escapeHtml(branding.context)}</p>`
+    : ''
+
   return `<!doctype html><html lang="de"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Bei Röbel anmelden</title>
+<title>${copy.title}</title>
 <style>
-  body{font-family:system-ui;background:#fff;color:#00498B;display:grid;place-items:center;min-height:100vh;margin:0}
+  body{font-family:system-ui;background:#fff;color:${copy.primaryColor};display:grid;place-items:center;min-height:100vh;margin:0}
   main{text-align:center;max-width:340px;width:90%}
   .col{display:flex;flex-direction:column;gap:10px}
-  button{background:#00498B;color:#fff;border:0;border-radius:12px;padding:13px 20px;font-size:16px;cursor:pointer}
+  button{background:${copy.primaryColor};color:#fff;border:0;border-radius:12px;padding:13px 20px;font-size:16px;cursor:pointer}
   button:disabled{opacity:.5;cursor:default}
   input{border:1px solid #B4B8C1;border-radius:12px;padding:12px 14px;font-size:16px;font-family:inherit}
   .sep{color:#6B7280;font-size:13px;margin:8px 0}
@@ -26,8 +82,8 @@ export function renderLoginPage(uid: string, thirdwebClientId: string, chainId: 
 </style>
 </head><body>
 <main>
-  <h1>Röbel ID</h1>
-  <p>Melde dich mit deiner Röbel-Identität an, um fortzufahren.</p>
+  <h1>${copy.heading}</h1>${contextLine}
+  <p>${copy.intro}</p>
   <div class="col">
     <button class="oauth" data-s="google">Mit Google anmelden</button>
     <button class="oauth" data-s="apple">Mit Apple anmelden</button>
@@ -49,7 +105,7 @@ export function renderLoginPage(uid: string, thirdwebClientId: string, chainId: 
 
   const client = createThirdwebClient({ clientId: '${thirdwebClientId}' })
   // One shared enclave wallet for every method → deterministic smart-account address that
-  // matches the main app (recovers the visitor's existing Röbel identity).
+  // ${copy.walletNote}
   const wallet = inAppWallet({
     auth: { options: ['google', 'email', 'phone', 'apple', 'facebook'] },
     smartAccount: { chain: defineChain(${chainId}), sponsorGas: true },
