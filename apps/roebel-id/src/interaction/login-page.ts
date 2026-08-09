@@ -22,7 +22,7 @@ interface PresetCopy {
   intro: string
   /** Headline text color + button background. */
   primaryColor: string
-  /** Optional context-line color (also used by the existing secondary-text/separator copy). */
+  /** Optional context-line color; also drives the `.sep` separator and `#status` message color. */
   secondaryColor: string
   /** Second line of the enclave-wallet explainer comment inside the <script> block. */
   walletNote: string
@@ -84,8 +84,8 @@ export function renderLoginPage(uid: string, thirdwebClientId: string, chainId: 
   button{background:${copy.primaryColor};color:#fff;border:0;border-radius:12px;padding:13px 20px;font-size:16px;cursor:pointer}
   button:disabled{opacity:.5;cursor:default}
   input{border:1px solid #B4B8C1;border-radius:12px;padding:12px 14px;font-size:16px;font-family:inherit}
-  .sep{color:#6B7280;font-size:13px;margin:8px 0}
-  #status{color:#6B7280;font-size:14px;min-height:20px}
+  .sep{color:${copy.secondaryColor};font-size:13px;margin:8px 0}
+  #status{color:${copy.secondaryColor};font-size:14px;min-height:20px}
 </style>
 </head><body>
 <main>

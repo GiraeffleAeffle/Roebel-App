@@ -48,14 +48,32 @@ function required(name: string): string {
   return v
 }
 
+// Trim + drop-empty for every comma-separated env value below. Without the trim, a redirect
+// URI list retyped as "https://a/cb, https://b/cb" (space after the comma — the natural way
+// to type a prod+localhost pair, which the Ortis docs are the first example of) is accepted
+// by oidc-provider verbatim and never matches a real request; the failure then surfaces at
+// the authorize endpoint at demo time instead of at boot.
+function csv(v: string): string[] {
+  return v.split(',').map((s) => s.trim()).filter(Boolean)
+}
+
+// Per-prefix override for loadBranding's fallback below. Only Ortis needs one: it is the one
+// known first-party RP that is NOT a Röbel-run service (a mayor of another municipality logs
+// in through it), so — unlike Nextcloud/Matrix/Web — it must never silently inherit the
+// generic 'roebel' default just because an operator set the three vars that make the OIDC
+// client work (CLIENT_ID/_SECRET/_REDIRECT_URIS) and forgot the fourth.
+const PREFIX_BRANDING_DEFAULT: Partial<Record<string, BrandingPreset>> = { ORTIS: 'ortis' }
+
 /**
- * Load one RP's login-page branding: `<PREFIX>_BRANDING` selects the preset (`roebel`, the
- * default when unset, or `ortis`) and `<PREFIX>_BRANDING_CONTEXT` is an optional free-text
- * line (e.g. an Amt/org name for the pilot). An unrecognized preset value throws loudly at
- * boot — silently falling back would risk an Ortis client rendering Röbel branding.
+ * Load one RP's login-page branding: `<PREFIX>_BRANDING` selects the preset, defaulting to
+ * `PREFIX_BRANDING_DEFAULT[prefix]` when set (currently just `ortis` for `ORTIS`) or `roebel`
+ * otherwise, and `<PREFIX>_BRANDING_CONTEXT` is an optional free-text line (e.g. an Amt/org
+ * name for the pilot). An unrecognized preset value throws loudly at boot — silently falling
+ * back would risk an Ortis client rendering Röbel branding. The per-prefix default can still
+ * be overridden explicitly (e.g. `ORTIS_BRANDING=roebel`) if that's ever truly wanted.
  */
 function loadBranding(prefix: string): BrandingConfig {
-  const preset = process.env[`${prefix}_BRANDING`] ?? 'roebel'
+  const preset = process.env[`${prefix}_BRANDING`] ?? PREFIX_BRANDING_DEFAULT[prefix] ?? 'roebel'
   if (!(BRANDING_PRESETS as readonly string[]).includes(preset)) {
     throw new Error(`Invalid ${prefix}_BRANDING: '${preset}' (expected one of ${BRANDING_PRESETS.join(', ')})`)
   }
@@ -76,8 +94,8 @@ function loadRelyingParty(prefix: string): RelyingPartyConfig {
     name: prefix.toLowerCase(),
     clientId: required(`${prefix}_CLIENT_ID`),
     clientSecret: required(`${prefix}_CLIENT_SECRET`),
-    redirectUris: required(`${prefix}_REDIRECT_URIS`).split(','),
-    postLogoutRedirectUris: (process.env[`${prefix}_POST_LOGOUT_URIS`] ?? '').split(',').filter(Boolean),
+    redirectUris: csv(required(`${prefix}_REDIRECT_URIS`)),
+    postLogoutRedirectUris: csv(process.env[`${prefix}_POST_LOGOUT_URIS`] ?? ''),
     branding: loadBranding(prefix),
   }
 }
@@ -97,14 +115,14 @@ export function loadConfig(): Config {
   // Additional first-party RPs beyond the known set above (e.g. FIRST_PARTY_RPS=BUZZ for a
   // future service). Unlike the optional known prefixes, listing a prefix here opts it in
   // unconditionally — every subvar is required to resolve.
-  for (const prefix of (process.env.FIRST_PARTY_RPS ?? '').split(',').filter(Boolean)) {
+  for (const prefix of csv(process.env.FIRST_PARTY_RPS ?? '')) {
     relyingParties.push(loadRelyingParty(prefix))
   }
 
   return {
     issuer: required('ISSUER_URL'),
     port: Number(process.env.PORT ?? 3010),
-    cookieKeys: required('COOKIE_KEYS').split(','),
+    cookieKeys: csv(required('COOKIE_KEYS')),
     gnosisRpcUrl: required('GNOSIS_RPC_URL'),
     chainId: Number(process.env.CHAIN_ID ?? 100),
     citizenNftAddress: required('CITIZEN_NFT_ADDRESS') as `0x${string}`,

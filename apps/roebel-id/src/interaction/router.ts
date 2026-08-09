@@ -42,6 +42,13 @@ export function createInteractionRouter(deps: {
       // Pre-granting consent (below) is only safe for first-party Röbel-run clients (Nextcloud,
       // Matrix/MAS, ...). Any client_id outside that trusted set must NOT silently receive an
       // auto-grant — fail closed rather than skip a consent screen that doesn't exist yet.
+      // By construction this can't currently fire: firstPartyClientIds is built from the same
+      // relyingParties array that populates the provider's client registry (see
+      // buildProvider), and oidc-provider itself rejects an unknown client_id before an
+      // Interaction is ever created — so a request never reaches here with a client_id outside
+      // this set. The check stays as a deliberate fail-closed guard: it exists so that wiring a
+      // non-first-party client in some future auth flow requires consciously decoupling the two
+      // lists, rather than this guard silently no-oping because it was never able to catch that.
       if (!firstPartyClientIds.has(String(params.client_id))) {
         res.status(400).json({ error: 'unsupported_client' })
         return

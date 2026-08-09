@@ -101,7 +101,7 @@ describe('ortis relying party', () => {
     expect(loadConfig().relyingParties.find((rp) => rp.name === 'ortis')).toBeUndefined()
   })
 
-  it('is registered with the app.ortis.<domain> redirect plus a local dev uri, when set', () => {
+  it('is registered with the app.ortis.<domain> redirect plus a local dev uri, when set, and defaults to ortis branding (never Röbel by omission)', () => {
     withEnv({
       ORTIS_CLIENT_ID: 'ortis',
       ORTIS_CLIENT_SECRET: 'ortis-secret',
@@ -117,7 +117,7 @@ describe('ortis relying party', () => {
         'http://localhost:3000/api/auth/callback',
       ],
       postLogoutRedirectUris: [],
-      branding: { preset: 'roebel' },
+      branding: { preset: 'ortis' },
     })
   })
 
@@ -127,6 +127,18 @@ describe('ortis relying party', () => {
       ORTIS_REDIRECT_URIS: 'https://app.ortis.roebel.app/api/auth/callback',
     })
     expect(() => loadConfig()).toThrow(/Missing required env: ORTIS_CLIENT_SECRET/)
+  })
+
+  it('trims whitespace around comma-separated redirect uris (a space after the comma must not create a silent mismatch at the authorize endpoint)', () => {
+    withEnv({
+      ORTIS_CLIENT_ID: 'ortis',
+      ORTIS_CLIENT_SECRET: 'ortis-secret',
+      ORTIS_REDIRECT_URIS: 'https://a/cb, https://b/cb',
+    })
+    expect(loadConfig().relyingParties.find((rp) => rp.name === 'ortis')?.redirectUris).toEqual([
+      'https://a/cb',
+      'https://b/cb',
+    ])
   })
 })
 
@@ -200,8 +212,11 @@ describe('same-behavior guarantee', () => {
 })
 
 // I2 — per-RP login branding (pilot-critical: an Ortis client must never resolve to Röbel
-// branding). <PREFIX>_BRANDING selects the preset (default 'roebel'); <PREFIX>_BRANDING_CONTEXT
-// is an optional free-text line (e.g. an Amt/org name for the pilot).
+// branding). <PREFIX>_BRANDING selects the preset — default 'roebel' for every prefix except
+// ORTIS, which defaults to 'ortis' (see PREFIX_BRANDING_DEFAULT in config.ts) so an operator
+// who sets the three vars that make the Ortis OIDC client work and forgets the branding var
+// still can't ship a Röbel-branded page to a visiting mayor. <PREFIX>_BRANDING_CONTEXT is an
+// optional free-text line (e.g. an Amt/org name for the pilot).
 describe('branding', () => {
   it('defaults to the roebel preset when <PREFIX>_BRANDING is unset', () => {
     withEnv({})
@@ -250,5 +265,26 @@ describe('branding', () => {
       context: 'Amt Musterstadt',
     })
     expect(cfg.relyingParties.find((rp) => rp.name === 'nextcloud')?.branding).toEqual({ preset: 'roebel' })
+  })
+
+  it('defaults an ortis RP to the ortis preset even when ORTIS_BRANDING is unset entirely (the footgun this guards against)', () => {
+    withEnv({
+      ORTIS_CLIENT_ID: 'ortis',
+      ORTIS_CLIENT_SECRET: 'ortis-secret',
+      ORTIS_REDIRECT_URIS: 'https://app.ortis.roebel.app/api/auth/callback',
+      // ORTIS_BRANDING intentionally unset — an operator who wired up only the three vars that
+      // make the OIDC client work must still never get a Röbel-branded page for Ortis.
+    })
+    expect(loadConfig().relyingParties.find((rp) => rp.name === 'ortis')?.branding).toEqual({ preset: 'ortis' })
+  })
+
+  it('still honors an explicit ORTIS_BRANDING=roebel override, if that is ever truly wanted', () => {
+    withEnv({
+      ORTIS_CLIENT_ID: 'ortis',
+      ORTIS_CLIENT_SECRET: 'ortis-secret',
+      ORTIS_REDIRECT_URIS: 'https://app.ortis.roebel.app/api/auth/callback',
+      ORTIS_BRANDING: 'roebel',
+    })
+    expect(loadConfig().relyingParties.find((rp) => rp.name === 'ortis')?.branding).toEqual({ preset: 'roebel' })
   })
 })

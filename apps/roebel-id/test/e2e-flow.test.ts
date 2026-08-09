@@ -17,6 +17,12 @@ import type { RoebelClaims } from '../src/claims/types.js'
 
 const ADDRESS = '0x4444444444444444444444444444444444444444'
 const REDIRECT_URI = 'http://localhost:8080/apps/user_oidc/code'
+const ORTIS_REDIRECT_URI = 'http://localhost:8080/ortis/callback'
+
+// Catches the brand name in EITHER spelling — the umlaut original ("Röbel") and its ASCII
+// transliteration ("Roebel") — case-insensitively. Same pattern as
+// test/interaction-branding.test.ts and test/login-page.test.ts.
+const ROEBEL_TRACE = /r(ö|oe)bel/i
 
 const stubBridge: AuthBridge = {
   issueNonce: () => 'stub-nonce',
@@ -158,6 +164,17 @@ describe('authorization_code + PKCE end-to-end (Nextcloud-as-relying-party proof
           postLogoutRedirectUris: [],
           branding: { preset: 'roebel' },
         },
+        // I2 pilot-critical path (see "renders Ortis branding..." below): branding must survive
+        // the full wireApp -> buildProvider -> real oidc-provider interaction path, not just the
+        // stub-Provider path already covered by test/interaction-branding.test.ts.
+        {
+          name: 'ortis',
+          clientId: 'ortis',
+          clientSecret: 'ortis-secret',
+          redirectUris: [ORTIS_REDIRECT_URI],
+          postLogoutRedirectUris: [],
+          branding: { preset: 'ortis', context: 'Amt Musterstadt' },
+        },
       ],
     }
 
@@ -256,5 +273,49 @@ describe('authorization_code + PKCE end-to-end (Nextcloud-as-relying-party proof
     const groups = (claims as { groups?: string[] }).groups ?? (userinfo as { groups?: string[] }).groups
     expect(groups).toEqual(['citizen', 'org:o1:admin'])
     expect(userinfo.sub).toBe(ADDRESS)
+  })
+
+  // I2 pilot-critical path: test/interaction-branding.test.ts already proves the router picks
+  // branding by client_id against a stub Provider; this proves the same thing survives the real
+  // wireApp -> buildProvider -> oidc-provider interaction path end-to-end, for the one client
+  // (Ortis) where getting this wrong means a visiting mayor sees Röbel branding.
+  it('renders Ortis branding (not Röbel) for a real authorize request through the Ortis client', async () => {
+    const discovered = await Issuer.discover(issuer)
+    const ortisClient = new discovered.Client({
+      client_id: 'ortis',
+      client_secret: 'ortis-secret',
+      redirect_uris: [ORTIS_REDIRECT_URI],
+      response_types: ['code'],
+      token_endpoint_auth_method: 'client_secret_basic',
+    })
+
+    const code_verifier = generators.codeVerifier()
+    const code_challenge = generators.codeChallenge(code_verifier)
+    const state = generators.state()
+
+    const authorizationUrl = ortisClient.authorizationUrl({
+      scope: 'openid email profile roebel',
+      code_challenge,
+      code_challenge_method: 'S256',
+      redirect_uri: ORTIS_REDIRECT_URI,
+      state,
+    })
+
+    const jar = new CookieJar()
+
+    // 1. GET /auth for the ortis client -> no session yet -> 303 to /interaction/:uid
+    let res = await rawRequest(authorizationUrl)
+    jar.capture(res.headers['set-cookie'])
+    expect(res.status).toBe(303)
+    const interactionUrl = new URL(res.headers.location!, issuer)
+
+    // 2. GET the login page itself — the interaction router resolves branding from the pending
+    // interaction's client_id (src/interaction/router.ts -> src/interaction/login-page.ts).
+    res = await rawRequest(interactionUrl.toString(), { headers: { cookie: jar.header() } })
+    expect(res.status).toBe(200)
+    expect(res.body).toContain('<h1>Ortis</h1>')
+    expect(res.body).toContain('Amt Musterstadt')
+    expect(res.body).not.toMatch(ROEBEL_TRACE)
+    expect(res.body).not.toContain('#00498B')
   })
 })

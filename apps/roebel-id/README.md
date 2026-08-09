@@ -61,10 +61,14 @@ Each RP is a block of up to six env vars, keyed by an uppercase prefix:
   prefix's vars become required — a missing one throws `Missing required env:
   <VAR>` at boot.
 - `FIRST_PARTY_RPS` — optional, comma-separated list of *additional* prefixes
-  beyond the three known ones above (e.g. `FIRST_PARTY_RPS=BUZZ`). Every
-  prefix listed here is required to resolve fully — there's no "set the id to
-  opt in" half-step like the known optional prefixes get; listing it is the
-  opt-in.
+  beyond the four known ones above (`NEXTCLOUD` + the three optional ones,
+  e.g. `FIRST_PARTY_RPS=BUZZ`). Every prefix listed here is required to
+  resolve fully — there's no "set the id to opt in" half-step like the known
+  optional prefixes get; listing it is the opt-in. Listing a prefix that's
+  already one of the four known ones is a boot failure: `loadRelyingParty`
+  runs for it twice, registering the same `client_id` twice, and
+  `oidc-provider` throws `client_id must be unique amongst statically
+  configured clients` when the `Provider` is constructed.
 
 All first-party RPs share the same trust level (pre-granted consent — see
 `src/interaction/router.ts`) and register as `authorization_code` + PKCE-required
@@ -76,8 +80,11 @@ All first-party RPs share the same trust level (pre-granted consent — see
 requesting `client_id` (`src/interaction/router.ts` → `src/interaction/login-page.ts`),
 not hardcoded. A visiting mayor logging in through Ortis must never see Röbel branding.
 
-- `<PREFIX>_BRANDING` — `roebel` (default when unset) or `ortis`. An unrecognized
-  value throws loudly at boot rather than silently falling back.
+- `<PREFIX>_BRANDING` — `roebel` or `ortis`. Defaults to `roebel` when unset,
+  **except for `ORTIS`, which defaults to `ortis`** (a visiting mayor must
+  never see Röbel branding just because an operator forgot this var — see
+  "Ortis" below). An unrecognized value throws loudly at boot rather than
+  silently falling back.
 - `<PREFIX>_BRANDING_CONTEXT` — optional free-text line rendered under the heading
   in secondary (grey) color, e.g. an Amt/org name for the pilot. HTML-escaped.
 - The `roebel` preset renders byte-for-byte identical to the page before branding
@@ -89,14 +96,16 @@ not hardcoded. A visiting mayor logging in through Ortis must never see Röbel b
 #### Ortis
 
 Ortis (the multi-community consumer of this keystone) registers like any other
-first-party RP. `ORTIS_BRANDING=ortis` is **required** — without it the RP falls
-back to the default `roebel` preset, which a visiting mayor must never see:
+first-party RP. `ORTIS_BRANDING` **defaults to `ortis`** — a plain
+`ORTIS_CLIENT_ID`/`ORTIS_CLIENT_SECRET`/`ORTIS_REDIRECT_URIS` setup with no
+`ORTIS_BRANDING` var at all still renders the Ortis preset, never `roebel`.
+Set it explicitly only to override that default (e.g. `ORTIS_BRANDING=roebel`
+if that's ever truly wanted) or to carry a context line:
 
 ```
 ORTIS_CLIENT_ID=ortis
 ORTIS_CLIENT_SECRET=__set_in_fly_secrets__
 ORTIS_REDIRECT_URIS=https://app.ortis.<domain>/api/auth/callback,http://localhost:3000/api/auth/callback
-ORTIS_BRANDING=ortis
 ORTIS_BRANDING_CONTEXT=Amt Musterstadt
 ```
 
@@ -116,7 +125,10 @@ fly secrets set \
   -a roebel-id
 ```
 
-All other variables come from `.env.example` (hardcoded or shared).
+Every other variable listed in "Environment variables" above (the core vars,
+plus any first-party RP blocks and their branding subvars) needs its own
+`fly secrets set` or `fly.toml` entry — none of it is baked in from
+`.env.example`, which is local-dev-only and never deployed.
 
 ### 2. Deploy
 
