@@ -57,6 +57,34 @@ function csv(v: string): string[] {
   return v.split(',').map((s) => s.trim()).filter(Boolean)
 }
 
+/**
+ * Reject a redirect URI that `oidc-provider` would only reject later, at the authorize
+ * endpoint — i.e. in front of a user, mid-login, instead of at boot.
+ *
+ * This is not hypothetical: the Ortis block was first set on Fly with the docs' own
+ * `<domain>` placeholder pasted verbatim (`https://app.ortis.<domain>/api/auth/callback`).
+ * The keystone booted clean and stayed healthy; every authorize request for that client
+ * then failed with `invalid_redirect_uri: redirect_uris must only contain valid uris`,
+ * and — because the check is per client, not per URI — the ONE bad entry took the whole
+ * Ortis client down, including its valid localhost URI.
+ *
+ * Two rules, both mirroring oidc-provider's own client-metadata validation: the value must
+ * parse as an absolute URI, and it must not carry a fragment.
+ */
+function assertValidRedirectUri(varName: string, uri: string): string {
+  let parsed: URL
+  try {
+    parsed = new URL(uri)
+  } catch {
+    throw new Error(
+      `Invalid ${varName}: '${uri}' is not a valid absolute URI ` +
+        `(a '<...>' placeholder left in the value is the usual cause)`,
+    )
+  }
+  if (parsed.hash) throw new Error(`Invalid ${varName}: '${uri}' must not contain a fragment`)
+  return uri
+}
+
 // Per-prefix override for loadBranding's fallback below. Only Ortis needs one: it is the one
 // known first-party RP that is NOT a Röbel-run service (a mayor of another municipality logs
 // in through it), so — unlike Nextcloud/Matrix/Web — it must never silently inherit the
@@ -94,8 +122,12 @@ function loadRelyingParty(prefix: string): RelyingPartyConfig {
     name: prefix.toLowerCase(),
     clientId: required(`${prefix}_CLIENT_ID`),
     clientSecret: required(`${prefix}_CLIENT_SECRET`),
-    redirectUris: csv(required(`${prefix}_REDIRECT_URIS`)),
-    postLogoutRedirectUris: csv(process.env[`${prefix}_POST_LOGOUT_URIS`] ?? ''),
+    redirectUris: csv(required(`${prefix}_REDIRECT_URIS`)).map((u) =>
+      assertValidRedirectUri(`${prefix}_REDIRECT_URIS`, u),
+    ),
+    postLogoutRedirectUris: csv(process.env[`${prefix}_POST_LOGOUT_URIS`] ?? '').map((u) =>
+      assertValidRedirectUri(`${prefix}_POST_LOGOUT_URIS`, u),
+    ),
     branding: loadBranding(prefix),
   }
 }

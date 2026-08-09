@@ -142,6 +142,53 @@ describe('ortis relying party', () => {
   })
 })
 
+// Regression: on 2026-08-09 the Ortis block was set on Fly with this file's own `<domain>`
+// placeholder pasted verbatim. The keystone booted clean and its health check stayed green;
+// every authorize request for the Ortis client then failed with `invalid_redirect_uri`, and
+// since oidc-provider validates the client's whole redirect_uris array, the one bad entry
+// disabled the valid localhost URI alongside it. These pin the failure to boot instead.
+describe('redirect uri validation (fail at boot, not in front of a user)', () => {
+  it('rejects a leftover <...> placeholder, naming the var and the cause', () => {
+    withEnv({
+      ORTIS_CLIENT_ID: 'ortis',
+      ORTIS_CLIENT_SECRET: 'ortis-secret',
+      ORTIS_REDIRECT_URIS:
+        'https://app.ortis.<domain>/api/auth/callback,http://localhost:3040/api/auth/callback',
+    })
+    expect(() => loadConfig()).toThrow(/Invalid ORTIS_REDIRECT_URIS.*placeholder/s)
+  })
+
+  it('rejects a fragment, which oidc-provider would otherwise reject at the authorize endpoint', () => {
+    withEnv({
+      ORTIS_CLIENT_ID: 'ortis',
+      ORTIS_CLIENT_SECRET: 'ortis-secret',
+      ORTIS_REDIRECT_URIS: 'https://app.ortis.example/api/auth/callback#done',
+    })
+    expect(() => loadConfig()).toThrow(/Invalid ORTIS_REDIRECT_URIS.*fragment/s)
+  })
+
+  it('validates post-logout uris under their own var name', () => {
+    withEnv({
+      ORTIS_CLIENT_ID: 'ortis',
+      ORTIS_CLIENT_SECRET: 'ortis-secret',
+      ORTIS_REDIRECT_URIS: 'https://app.ortis.example/api/auth/callback',
+      ORTIS_POST_LOGOUT_URIS: 'https://app.ortis.<domain>/',
+    })
+    expect(() => loadConfig()).toThrow(/Invalid ORTIS_POST_LOGOUT_URIS/)
+  })
+
+  it('still accepts a plain-http localhost callback — the dev URI the Ortis app actually uses', () => {
+    withEnv({
+      ORTIS_CLIENT_ID: 'ortis',
+      ORTIS_CLIENT_SECRET: 'ortis-secret',
+      ORTIS_REDIRECT_URIS: 'http://localhost:3040/api/auth/callback',
+    })
+    expect(loadConfig().relyingParties.find((rp) => rp.name === 'ortis')?.redirectUris).toEqual([
+      'http://localhost:3040/api/auth/callback',
+    ])
+  })
+})
+
 describe('additional first-party RPs via FIRST_PARTY_RPS', () => {
   it('is a no-op when unset', () => {
     withEnv({})
