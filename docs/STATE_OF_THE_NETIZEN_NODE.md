@@ -70,15 +70,14 @@ Verified live 2026-07-28:
 | `https://chat.roebel.app` | 200 — Element |
 | `https://index.roebel.app` | 200 — cross-node query API (public read) |
 | `https://id.roebel.app/.well-known/openid-configuration` | 200 — Röbel ID (on **Fly**, not this box) |
-| `https://buzz.roebel.app` | **unreachable — `buzz` A record missing at IONOS** (see below) |
+| `https://buzz.roebel.app` | 200 — agentic workspace relay (`/_liveness` ok, NIP-11 served) |
 
-**DNS regression, found 2026-08-09:** the `buzz` A record is gone from the IONOS zone.
-It existed on 2026-08-01 — Max added it and the Let's Encrypt cert (issued 08-01 13:37 UTC,
-expires 10-30) proves resolution worked. The zone's nameservers are unchanged (IONOS
-`ui-dns.*`) and every other node subdomain still points at the box; only `buzz` is missing.
-Box-side, Buzz is fully healthy and serves 200 via IP (`curl --resolve
-buzz.roebel.app:443:178.105.19.80 https://buzz.roebel.app/_liveness`). Until the record
-`buzz → 178.105.19.80` is re-added, no client can connect and the cert cannot renew.
+**DNS regression, found and fixed 2026-08-09:** the `buzz` A record had vanished from the
+IONOS zone sometime after 2026-08-01 (the LE cert issued 08-01 13:37 UTC proves resolution
+worked at deploy time; every other subdomain was unaffected). Max re-added
+`buzz → 178.105.19.80` on 2026-08-09; verified on the authoritative `ui-dns.*` servers and
+propagated on 1.1.1.1/8.8.8.8, liveness 200 over public DNS. If Buzz goes dark again,
+check this record first — one IONOS zone edit dropped it once already.
 
 ## 4. Secrets
 

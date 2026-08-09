@@ -284,3 +284,10 @@ bundle dir never contains; run the formal proof with the next gated deploy.
    → create a channel. Mecky's key is already admitted.
 3. A *responding* resident agent (buzz-acp harness, §8 note) is B1.1 — first M1 item,
    not M0.
+
+**Gates 1+2 CLEARED (2026-08-09, later the same day):** Max re-added the IONOS A record —
+verified authoritative + propagated (1.1.1.1, 8.8.8.8), `/_liveness` 200 and NIP-11 served
+over public DNS — and set `app_settings.buzz_workspace_enabled = 'true'` (row verified).
+Remaining for M0 exit: Max's Buzz-desktop sign-in with the owner key (export flow in the
+Röbel app) + first channel. Mecky is already admitted. M1 (buzz-acp resident agent) starts
+on Max's go.
