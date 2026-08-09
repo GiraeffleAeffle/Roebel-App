@@ -106,7 +106,7 @@ describe('ortis relying party', () => {
       ORTIS_CLIENT_ID: 'ortis',
       ORTIS_CLIENT_SECRET: 'ortis-secret',
       ORTIS_REDIRECT_URIS:
-        'https://app.ortis.roebel.app/api/auth/callback,http://localhost:3000/api/auth/callback',
+        'https://app.ortis.roebel.app/api/auth/callback,http://localhost:3040/api/auth/callback',
     })
     expect(loadConfig().relyingParties.find((rp) => rp.name === 'ortis')).toEqual({
       name: 'ortis',
@@ -114,7 +114,7 @@ describe('ortis relying party', () => {
       clientSecret: 'ortis-secret',
       redirectUris: [
         'https://app.ortis.roebel.app/api/auth/callback',
-        'http://localhost:3000/api/auth/callback',
+        'http://localhost:3040/api/auth/callback',
       ],
       postLogoutRedirectUris: [],
       branding: { preset: 'ortis' },

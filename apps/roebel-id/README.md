@@ -105,12 +105,17 @@ if that's ever truly wanted) or to carry a context line:
 ```
 ORTIS_CLIENT_ID=ortis
 ORTIS_CLIENT_SECRET=__set_in_fly_secrets__
-ORTIS_REDIRECT_URIS=https://app.ortis.<domain>/api/auth/callback,http://localhost:3000/api/auth/callback
+ORTIS_REDIRECT_URIS=https://app.ortis.<domain>/api/auth/callback,http://localhost:3040/api/auth/callback
 ORTIS_BRANDING_CONTEXT=Amt Musterstadt
 ```
 
 `<domain>` is the Ortis deployment's own domain; the second URI is the local
-dev callback for testing Ortis against this keystone.
+dev callback for testing Ortis against this keystone. The path and the dev port
+are not ours to choose — the Ortis app builds its `redirect_uri` as
+`${ORTIS_BASE_URL}/api/auth/callback` and defaults `ORTIS_BASE_URL` to
+`http://localhost:3040` (netizen_labs `apps/ortis/.env.example`). A mismatch
+here surfaces as `redirect_uri did not match` at the authorize endpoint, so
+keep the two in sync when the Ortis side changes.
 
 ## Deployment (Fly)
 
