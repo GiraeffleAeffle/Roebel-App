@@ -265,10 +265,32 @@ issuer and relying-party set come entirely from the secrets set above.
 fly certs add id.ortis.app -a ortis-id
 ```
 
-Then create the DNS record `fly certs add` asks for (typically a `CNAME`
-for `id.ortis.app` pointing at `ortis-id.fly.dev`, or the `A`/`AAAA` pair
-`fly certs show id.ortis.app -a ortis-id` reports) at whichever registrar
-hosts `ortis.app`.
+Then create the DNS records at whichever registrar hosts the domain. For
+`ortis.app` that is Vercel, so (`npx vercel dns add <domain> <name> <type> <value>`):
+
+```bash
+npx vercel dns add ortis.app id           CNAME m1e6kge.ortis-id.fly.dev
+npx vercel dns add ortis.app _fly-ownership.id TXT   app-m1e6kge
+```
+
+**Use the app-specific CNAME target that `fly certs setup <host> -a <app>`
+prints (`m1e6kge.ortis-id.fly.dev`), not the plain `<app>.fly.dev`.** Both
+resolve to the same addresses and traffic works either way, but the app gets
+a *shared* IPv4 by default, so Fly cannot infer ownership from the IP alone —
+with the plain hostname the cert sits at `Not verified` indefinitely. The
+`_fly-ownership` TXT is what actually settles it (the `m1e6kge` part is this
+app's id — read yours from `fly certs setup`). Adding both flipped this cert
+to `Issued` within ~30 seconds.
+
+Note that `force_https = true` makes the edge answer the HTTP-01 challenge
+path with a 301, so don't wait on HTTP validation. Then poll:
+
+```bash
+fly certs check id.ortis.app -a ortis-id   # Not verified -> Issued
+```
+
+The domain's CAA records must permit Let's Encrypt; `ortis.app` already
+lists `letsencrypt.org`.
 
 ### 6. Point the Ortis app at its new issuer
 

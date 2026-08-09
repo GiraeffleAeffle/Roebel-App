@@ -77,16 +77,31 @@ prüft `loadConfig()` das beim Boot, d.h. der nächste Deploy dieser App würde 
 starten**. Der Ortis-Client zieht ohnehin auf `ortis-id` um, also:
 `fly secrets unset ORTIS_CLIENT_ID ORTIS_CLIENT_SECRET ORTIS_REDIRECT_URIS -a roebel-id`.
 
-**Reihenfolge für den Live-Test (Domain = `ortis.app`, App live seit 2026-08-09):**
-1. Vercel-Seite zuerst: `ORTIS_BASE_URL=https://app.ortis.app` setzen — die App baut ihre
-   `redirect_uri` daraus und schickt sonst die generierte Vercel-Domain
-   (`ortis-three.vercel.app`), was als Pilot-Adresse nicht besser ist als `roebel.app`.
-2. `ortis-id` nach README-Runbook hochziehen (eigene `JWKS_JSON` + `COOKIE_KEYS`,
-   `ORTIS_REDIRECT_URIS=https://app.ortis.app/api/auth/callback`, `fly deploy -c fly.ortis.toml`,
-   `fly certs add id.ortis.app`).
-3. Vercel: `OIDC_ISSUER=https://id.ortis.app`, `OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET`,
-   `ORTIS_DEV_AUTH=0`.
-4. `ORTIS_*` auf `roebel-id` unsetzen (siehe Warnung oben).
+### `ortis-id` ist LIVE (2026-08-09, in Produktion verifiziert)
+
+`https://id.ortis.app` läuft: eigene Fly-App `ortis-id` (2 Maschinen, fra), gleiches Image,
+`ISSUER_URL=https://id.ortis.app`, **nur** der Ortis-RP, eigene `JWKS_JSON` + `COOKIE_KEYS`.
+Discovery meldet durchgehend `id.ortis.app` (authorize/token/jwks). Sonde gegen den echten
+authorize-Endpunkt: `303 → /interaction/...`, Seite mit Titel „Anmelden bei Ortis", H1 „Ortis",
+SIWE-`statement` „Anmeldung bei Ortis", **null** Treffer für `/r(ö|oe)bel/i`, kein `#00498B`.
+`id.roebel.app` ist unberührt (alle vier Clients weiterhin registriert — die Web-App läuft
+übrigens unter der Client-ID `roebel-web`, nicht `web`).
+
+**Zwei Fallen, die dabei zugeschnappt sind — beide jetzt im README-Runbook dokumentiert:**
+1. `ORTIS_CLIENT_ID`/`_SECRET` waren auf `roebel-id` gar nicht angekommen (nur die
+   Redirect-URIs), Symptom `invalid_client`. Ohne `<PREFIX>_CLIENT_ID` registriert
+   `loadConfig()` den RP schlicht nicht — beim Debuggen zuerst `fly secrets list` prüfen.
+2. Der DNS-CNAME muss auf das **app-spezifische** Fly-Ziel zeigen
+   (`m1e6kge.ortis-id.fly.dev`), nicht auf `ortis-id.fly.dev`, plus TXT
+   `_fly-ownership.id`. Mit dem generischen Namen bleibt das Zertifikat dauerhaft
+   „Not verified", weil die App eine **geteilte** IPv4 hat und Fly den Besitz nicht aus der
+   IP ableiten kann. `force_https` beantwortet die HTTP-01-Challenge zudem mit 301.
+
+**Offen (Vercel-Seite, gehört der Ortis-Session):** `OIDC_ISSUER=https://id.ortis.app`,
+`OIDC_CLIENT_ID=ortis`, das **neue** `OIDC_CLIENT_SECRET` (frisch erzeugt für `ortis-id`;
+das alte lag im Chatverlauf und stirbt mit Schritt danach), `ORTIS_DEV_AUTH=0`.
+**Danach:** `fly secrets unset ORTIS_CLIENT_ID ORTIS_CLIENT_SECRET ORTIS_REDIRECT_URIS -a roebel-id`
+— erst dann, sonst bricht der aktuell funktionierende Login über `id.roebel.app` weg.
 
 **Offen (nächste Session):** I2b (Keystone-eigener OTP-Versand — zusätzlich blockiert durch Max'
 thirdweb-Dashboard-Task), I3 (QR-Pairing), I4 (`communities`-Claim), I5 (Manifest-Reife).
