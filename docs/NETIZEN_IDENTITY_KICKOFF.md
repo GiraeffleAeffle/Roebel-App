@@ -44,6 +44,22 @@ Env-Template für Fly dokumentieren. Bestehende RPs (Nextcloud/Matrix/Web) dürf
 Röbel-Clients → unverändert Röbel ID. Erweiterbar als `branding`-Config pro RP (deckt sich mit
 dem zugesagten Custom-Login pro Community, ORTIS_KICKOFF §1b).
 
+### I2b — Gebrandete Code-Mail: Keystone-eigener OTP + thirdweb Custom Auth (Max, 2026-08-09)
+
+Die OTP-Mail darf nicht von thirdweb kommen. Der Flow wird umgedreht:
+1. Login-Seite → **Keystone verschickt den Code selbst** (Node-SMTP/nodemailer, Absender +
+   Template im Client-Branding aus I2 — „Ortis" für Ortis-Nutzer), verifiziert ihn, stellt die
+   Session/ein signiertes Token aus (JWKS-Endpoint existiert bereits).
+2. Wallet-Ableitung: `wallet.connect({ strategy: 'jwt' | 'auth_endpoint', … })` — thirdweb
+   verifiziert UNSER Token (OIDC-JWT gegen unseren JWKS bzw. auth_endpoint) und liefert
+   dasselbe deterministische Enclave-Smart-Account wie bisher. Dashboard-Konfiguration der
+   Custom-Auth nötig (Max' Task: im thirdweb-Dashboard aktivieren; Plan-Verfügbarkeit prüfen).
+3. `preAuthenticate` (thirdweb-Mail) fliegt aus der Login-Seite; Social-OAuth-Buttons bleiben
+   vorerst unverändert.
+Wichtig: gleiche User-ID-Zuordnung sicherstellen (bestehende E-Mail-Identitäten müssen dasselbe
+Wallet ergeben — thirdweb Custom-Auth-User-ID-Semantik gegen die bisherigen E-Mail-Accounts
+testen, BEVOR es live geht; sonst bekommen Bestandsnutzer neue Adressen).
+
 ### I3 — QR-App-Connect (Pairing-Grant, Demo-Spec Schritt 1)
 Spec: `netizen/netizen_labs/docs/superpowers/specs/2026-08-09-buergermeister-demo-design.md` §1.
 - Keystone: Pairing-Session (kurze TTL, one-shot), QR-Payload, **Verifikations-Code auf beiden
@@ -75,6 +91,16 @@ mehrere?**
 Der Keystone als generischer Netizen-Identity-Service: Env-Schema dokumentieren, damit
 `netizen render` ihn pro Community-Node ausrollen kann (Issuer pro Community = Phase 3,
 NICHT in diesem Build — nur nichts tun, was es verbaut).
+
+### Ausblick (NICHT dieser Build): das souveräne Enclave-Äquivalent
+Verifizierte Zielarchitektur (Stack-Research 2026-07-22 §1 + Spec `2026-07-27-thirdweb-
+independence.md`): Passkey/WebAuthn-PRF (Geräte-Enclave, deterministisch, kein Vendor) + Safe/
+Kernel-Account + eigene 4337-Rails (Netizen Accounts; Gate C-1 Kernel-v3-Layer). Für Nutzer ohne
+Passkey (Gerätefloor iOS 18+/Android 14+ bzw. reine E-Mail-Nutzer): **der Node als Verwahrer**
+(envelope-verschlüsseltes Vault-Muster wie beim Ortis-Signer) statt US-Vendor. Migration ist
+entspannt, weil Smart-Account-Adressen beim **Signer-Tausch stabil bleiben** — thirdweb-Key raus,
+Passkey/Node-Key rein, Identität unverändert. Dieser Build tut nichts, was diesen Pfad verbaut
+(I2b macht die Auth bereits vendor-eigen; nur die Schlüsselableitung bleibt vorerst thirdweb).
 
 ## 3. Regeln
 - TDD — die bestehende Test-Suite (`test/`, u.a. e2e-flow mit Stub-Overrides über `wireApp`)
