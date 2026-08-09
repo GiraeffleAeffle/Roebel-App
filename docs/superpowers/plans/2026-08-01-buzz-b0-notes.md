@@ -240,3 +240,47 @@ app_settings) → create a channel → `sh buzz/add-members.sh` has already admi
 `BUZZ_PRIVATE_KEY=<mecky nsec/hex derived from NODE_AGENT_SECRET on the box>` +
 `BUZZ_RELAY_URL=wss://buzz.roebel.app` + `claude-agent-acp` (npm) as the ACP harness.
 Do NOT wire the build into `netizen up` (the installer applies, it does not compile).
+
+## 9. M0 verification against the box (2026-08-09, Autar kickoff session)
+
+Every B0 claim re-verified against the running node, per the "state docs that disagree
+with the box are bugs" rule. Deploying CLI copy confirmed: the **Röbel repo copy**
+(`DAO_test/packages/cli`) performed the deploy (§6/§8 stand); netizen_labs carries the
+port (`99dd526`) — no drift found in the buzz render surface.
+
+**Verified live:**
+
+- Containers: `roebel-buzz-1` (sha-3e48f1b), `-postgres-1` (17-alpine), `-redis-1`
+  (7-alpine), `-minio-1` — all **Up 7 days (healthy)**. 23 containers total; box at
+  2.3 GiB RAM used of 16, 15 GB disk of 320.
+- Liveness: `/_liveness` → 200 `ok` (via `--resolve` pin to `178.105.19.80`).
+- Membership equals the manifest, exactly: `relay_members` = owner `4dbcf581…` (Max) +
+  agent `412e639a…` (Mecky) — `buzz/add-members.sh` was applied. `pubkey_allowlist` 0
+  rows, `relay_invites` 0 rows.
+- Usage: `users` 0, `channels` 0, `channel_members` 0, `events` 2 (bootstrap).
+  **The B0 exit test — a channel with Max + one agent — has NOT run. No human has
+  ever signed in.** The 08-01 "Buzz live" claim covered infrastructure only.
+- Doctor (Röbel-repo copy): buzz present in plan step 8; comms sovereignty ✓
+  ("own relay + agentic workspace relay at https://buzz.roebel.app").
+
+**DNS REGRESSION — the one hard gate:** the `buzz` A record is **gone from the IONOS
+zone** (absent from 1.1.1.1 and 8.8.8.8 on 2026-08-09). It existed 08-01: the LE cert
+(issued 08-01 13:37 UTC, expires 10-30) proves resolution worked at deploy time. NS
+unchanged (`ui-dns.*`); `relay`/`cloud`/`chat`/`index` still → `178.105.19.80`; only
+`buzz` is missing (the unrelated `app` PWA record is also still unset). Until Max
+re-adds `buzz → 178.105.19.80`, no client connects and the cert cannot renew.
+
+**Redeploy-survival proof: deferred, deliberately.** Repo HEAD now carries the
+undeployed x402 metering slice, itself user-gated on a settler key — a `netizen up`
+today would not be an "unrelated" deploy. Buzz state lives in named docker volumes
+(`buzz_git_data`/`buzz_pg_data`/`buzz_redis_data`/`buzz_minio_data`), which the rsync
+bundle dir never contains; run the formal proof with the next gated deploy.
+
+**Remaining for M0 exit, in order:**
+
+1. **USER GATE (Max):** re-add the IONOS A record `buzz → 178.105.19.80`.
+2. **USER GATE (Max):** Buzz desktop → `wss://buzz.roebel.app` → sign in with the owner
+   key (pilot export flow, commit `74b8b2eb`, `app_settings.buzz_workspace_enabled`)
+   → create a channel. Mecky's key is already admitted.
+3. A *responding* resident agent (buzz-acp harness, §8 note) is B1.1 — first M1 item,
+   not M0.

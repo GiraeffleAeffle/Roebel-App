@@ -1,6 +1,6 @@
 # State of the Netizen Node
 
-**Last verified: 2026-08-01**, by reading the running node. Part of the
+**Last verified: 2026-08-09**, by reading the running node. Part of the
 [documentation index](README.md); see also
 [State of the Netizen Stack](STATE_OF_THE_NETIZEN_STACK.md) and
 [State of Nostr](STATE_OF_NOSTR.md).
@@ -63,13 +63,22 @@ Verified live 2026-07-28:
 
 ## 3. Public endpoints
 
-| URL | Status 2026-07-28 |
+| URL | Status 2026-08-09 |
 |---|---|
 | `wss://relay.roebel.app` | 200 — authoring relay |
 | `https://cloud.roebel.app` | 302 — Nextcloud |
 | `https://chat.roebel.app` | 200 — Element |
 | `https://index.roebel.app` | 200 — cross-node query API (public read) |
 | `https://id.roebel.app/.well-known/openid-configuration` | 200 — Röbel ID (on **Fly**, not this box) |
+| `https://buzz.roebel.app` | **unreachable — `buzz` A record missing at IONOS** (see below) |
+
+**DNS regression, found 2026-08-09:** the `buzz` A record is gone from the IONOS zone.
+It existed on 2026-08-01 — Max added it and the Let's Encrypt cert (issued 08-01 13:37 UTC,
+expires 10-30) proves resolution worked. The zone's nameservers are unchanged (IONOS
+`ui-dns.*`) and every other node subdomain still points at the box; only `buzz` is missing.
+Box-side, Buzz is fully healthy and serves 200 via IP (`curl --resolve
+buzz.roebel.app:443:178.105.19.80 https://buzz.roebel.app/_liveness`). Until the record
+`buzz → 178.105.19.80` is re-added, no client can connect and the cert cannot renew.
 
 ## 4. Secrets
 
