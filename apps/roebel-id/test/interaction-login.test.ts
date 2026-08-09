@@ -138,12 +138,15 @@ describe('interaction login POST — failure path', () => {
       supabaseUrl: 'http://unused.invalid',
       supabaseServiceKey: 'unused',
       thirdwebClientId: 'unused',
-      nextcloud: {
-        clientId: 'nextcloud',
-        clientSecret: 'nextcloud-secret',
-        redirectUris: [REDIRECT_URI],
-        postLogoutRedirectUris: [],
-      },
+      relyingParties: [
+        {
+          name: 'nextcloud',
+          clientId: 'nextcloud',
+          clientSecret: 'nextcloud-secret',
+          redirectUris: [REDIRECT_URI],
+          postLogoutRedirectUris: [],
+        },
+      ],
     }
 
     const { app } = wireApp(testConfig, {

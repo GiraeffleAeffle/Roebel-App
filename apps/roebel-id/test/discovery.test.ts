@@ -5,7 +5,9 @@ import { makeSupabaseAdapterFactory } from '../src/store/supabase-adapter.js'
 
 const config: any = {
   issuer: 'http://localhost:3010', cookieKeys: ['k1'], chainId: 100,
-  nextcloud: { clientId: 'nextcloud', clientSecret: 'secret', redirectUris: ['http://localhost:8080/apps/user_oidc/code'], postLogoutRedirectUris: [] },
+  relyingParties: [
+    { name: 'nextcloud', clientId: 'nextcloud', clientSecret: 'secret', redirectUris: ['http://localhost:8080/apps/user_oidc/code'], postLogoutRedirectUris: [] },
+  ],
 }
 process.env.JWKS_JSON = JSON.stringify({ keys: [] }) // provider generates dev keys when empty in test
 

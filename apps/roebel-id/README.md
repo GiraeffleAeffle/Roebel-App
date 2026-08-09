@@ -24,6 +24,64 @@ Output is valid JSON `{"keys":[{...}]}` with fields: `kid` (random UUID), `use` 
 
 Copy the entire JSON output to the `JWKS_JSON` environment variable.
 
+## Environment variables
+
+`src/config.ts` (`loadConfig()`) is the source of truth; this section documents its
+schema. Copy `.env.example` to `.env` for local dev.
+
+### Core
+
+| Var | Required | Notes |
+| --- | --- | --- |
+| `ISSUER_URL` | yes | The keystone's own OIDC issuer URL. |
+| `PORT` | no (default `3010`) | |
+| `COOKIE_KEYS` | yes | Comma-separated. |
+| `GNOSIS_RPC_URL` | yes | |
+| `CHAIN_ID` | no (default `100`) | |
+| `CITIZEN_NFT_ADDRESS` | yes | |
+| `ATTESTER_NFT_ADDRESS` | yes | |
+| `SUPABASE_URL` | yes | |
+| `SUPABASE_SERVICE_KEY` | yes | |
+| `THIRDWEB_CLIENT_ID` | yes | |
+| `JWKS_JSON` | yes (prod) | See "Generate JWKS" above. |
+
+### First-party relying parties (RPs)
+
+Each RP is a block of up to four env vars, keyed by an uppercase prefix:
+`<PREFIX>_CLIENT_ID`, `<PREFIX>_CLIENT_SECRET`, `<PREFIX>_REDIRECT_URIS`
+(comma-separated), `<PREFIX>_POST_LOGOUT_URIS` (optional, comma-separated). The
+lowercased prefix becomes `RelyingPartyConfig.name`.
+
+- `NEXTCLOUD` — always required; the keystone won't boot without it.
+- `MATRIX`, `WEB`, `ORTIS` — optional; each is registered only when its
+  `<PREFIX>_CLIENT_ID` is set, so the keystone boots unchanged on a node that
+  hasn't stood up that service yet. Once the id is set, the rest of that
+  prefix's vars become required — a missing one throws `Missing required env:
+  <VAR>` at boot.
+- `FIRST_PARTY_RPS` — optional, comma-separated list of *additional* prefixes
+  beyond the three known ones above (e.g. `FIRST_PARTY_RPS=BUZZ`). Every
+  prefix listed here is required to resolve fully — there's no "set the id to
+  opt in" half-step like the known optional prefixes get; listing it is the
+  opt-in.
+
+All first-party RPs share the same trust level (pre-granted consent — see
+`src/interaction/router.ts`) and register as `authorization_code` + PKCE-required
+`client_secret_basic` OIDC clients (`src/oidc/provider.ts`).
+
+#### Ortis
+
+Ortis (the multi-community consumer of this keystone) registers like any other
+first-party RP:
+
+```
+ORTIS_CLIENT_ID=ortis
+ORTIS_CLIENT_SECRET=__set_in_fly_secrets__
+ORTIS_REDIRECT_URIS=https://app.ortis.<domain>/api/auth/callback,http://localhost:3000/api/auth/callback
+```
+
+`<domain>` is the Ortis deployment's own domain; the second URI is the local
+dev callback for testing Ortis against this keystone.
+
 ## Deployment (Fly)
 
 ### 1. Set secrets on Fly

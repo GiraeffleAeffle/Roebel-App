@@ -42,11 +42,7 @@ export function wireApp(config: Config = loadConfig(), overrides: WireOverrides 
     bridge,
     thirdwebClientId: config.thirdwebClientId,
     chainId: config.chainId,
-    firstPartyClientIds: [
-      config.nextcloud.clientId,
-      ...(config.matrix ? [config.matrix.clientId] : []),
-      ...(config.web ? [config.web.clientId] : []),
-    ],
+    firstPartyClientIds: config.relyingParties.map((rp) => rp.clientId),
   })
 
   // Interaction routes must be mounted before provider.callback() so panva's catch-all OIDC

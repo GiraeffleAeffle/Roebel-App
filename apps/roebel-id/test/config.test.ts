@@ -19,16 +19,40 @@ function withEnv(extra: Record<string, string>) {
   for (const [k, v] of Object.entries({ ...BASE, ...extra })) process.env[k] = v
 }
 
+// Generic cleanup, not a hardcoded prefix list: any RP env-block subvar (whichever prefix
+// created it) plus FIRST_PARTY_RPS itself, plus everything in BASE.
 afterEach(() => {
   for (const key of Object.keys(process.env)) {
-    if (key.startsWith('WEB_') || key in BASE) delete process.env[key]
+    if (key in BASE || key === 'FIRST_PARTY_RPS' || /_(CLIENT_ID|CLIENT_SECRET|REDIRECT_URIS|POST_LOGOUT_URIS)$/.test(key)) {
+      delete process.env[key]
+    }
   }
+})
+
+describe('relying party list', () => {
+  it('registers nextcloud first, and alone, when no optional RP is configured', () => {
+    withEnv({})
+    expect(loadConfig().relyingParties).toEqual([
+      {
+        name: 'nextcloud',
+        clientId: 'nextcloud',
+        clientSecret: 'nc-secret',
+        redirectUris: ['https://cloud.example/apps/user_oidc/code'],
+        postLogoutRedirectUris: [],
+      },
+    ])
+  })
+
+  it('fails loudly when a required nextcloud subvar is missing', () => {
+    withEnv({ NEXTCLOUD_CLIENT_SECRET: '' })
+    expect(() => loadConfig()).toThrow(/Missing required env: NEXTCLOUD_CLIENT_SECRET/)
+  })
 })
 
 describe('web relying party', () => {
   it('is absent when WEB_CLIENT_ID is unset, so the keystone boots unchanged', () => {
     withEnv({})
-    expect(loadConfig().web).toBeUndefined()
+    expect(loadConfig().relyingParties.find((rp) => rp.name === 'web')).toBeUndefined()
   })
 
   it('is registered when WEB_CLIENT_ID is set', () => {
@@ -37,7 +61,8 @@ describe('web relying party', () => {
       WEB_CLIENT_SECRET: 'web-secret',
       WEB_REDIRECT_URIS: 'https://roebel.app/api/workspace/auth/callback',
     })
-    expect(loadConfig().web).toEqual({
+    expect(loadConfig().relyingParties.find((rp) => rp.name === 'web')).toEqual({
+      name: 'web',
       clientId: 'roebel-web',
       clientSecret: 'web-secret',
       redirectUris: ['https://roebel.app/api/workspace/auth/callback'],
@@ -60,6 +85,108 @@ describe('web relying party', () => {
       WEB_REDIRECT_URIS:
         'https://roebel.app/api/workspace/auth/callback,https://staging.roebel.app/api/workspace/auth/callback',
     })
-    expect(loadConfig().web?.redirectUris.length).toBe(2)
+    expect(loadConfig().relyingParties.find((rp) => rp.name === 'web')?.redirectUris.length).toBe(2)
+  })
+})
+
+describe('ortis relying party', () => {
+  it('is absent when ORTIS_CLIENT_ID is unset, so the keystone boots unchanged', () => {
+    withEnv({})
+    expect(loadConfig().relyingParties.find((rp) => rp.name === 'ortis')).toBeUndefined()
+  })
+
+  it('is registered with the app.ortis.<domain> redirect plus a local dev uri, when set', () => {
+    withEnv({
+      ORTIS_CLIENT_ID: 'ortis',
+      ORTIS_CLIENT_SECRET: 'ortis-secret',
+      ORTIS_REDIRECT_URIS:
+        'https://app.ortis.roebel.app/api/auth/callback,http://localhost:3000/api/auth/callback',
+    })
+    expect(loadConfig().relyingParties.find((rp) => rp.name === 'ortis')).toEqual({
+      name: 'ortis',
+      clientId: 'ortis',
+      clientSecret: 'ortis-secret',
+      redirectUris: [
+        'https://app.ortis.roebel.app/api/auth/callback',
+        'http://localhost:3000/api/auth/callback',
+      ],
+      postLogoutRedirectUris: [],
+    })
+  })
+
+  it('fails loudly when the id is set but the secret is missing', () => {
+    withEnv({
+      ORTIS_CLIENT_ID: 'ortis',
+      ORTIS_REDIRECT_URIS: 'https://app.ortis.roebel.app/api/auth/callback',
+    })
+    expect(() => loadConfig()).toThrow(/Missing required env: ORTIS_CLIENT_SECRET/)
+  })
+})
+
+describe('additional first-party RPs via FIRST_PARTY_RPS', () => {
+  it('is a no-op when unset', () => {
+    withEnv({})
+    expect(loadConfig().relyingParties.map((rp) => rp.name)).toEqual(['nextcloud'])
+  })
+
+  it('registers a listed prefix, fully resolved', () => {
+    withEnv({
+      FIRST_PARTY_RPS: 'BUZZ',
+      BUZZ_CLIENT_ID: 'buzz',
+      BUZZ_CLIENT_SECRET: 'buzz-secret',
+      BUZZ_REDIRECT_URIS: 'https://buzz.example/callback',
+    })
+    expect(loadConfig().relyingParties.find((rp) => rp.name === 'buzz')).toEqual({
+      name: 'buzz',
+      clientId: 'buzz',
+      clientSecret: 'buzz-secret',
+      redirectUris: ['https://buzz.example/callback'],
+      postLogoutRedirectUris: [],
+    })
+  })
+
+  it('supports several extra prefixes, comma-separated, appended after the known ones', () => {
+    withEnv({
+      FIRST_PARTY_RPS: 'BUZZ,FOO',
+      WEB_CLIENT_ID: 'roebel-web',
+      WEB_CLIENT_SECRET: 'web-secret',
+      WEB_REDIRECT_URIS: 'https://roebel.app/api/workspace/auth/callback',
+      BUZZ_CLIENT_ID: 'buzz',
+      BUZZ_CLIENT_SECRET: 'buzz-secret',
+      BUZZ_REDIRECT_URIS: 'https://buzz.example/callback',
+      FOO_CLIENT_ID: 'foo',
+      FOO_CLIENT_SECRET: 'foo-secret',
+      FOO_REDIRECT_URIS: 'https://foo.example/callback',
+    })
+    expect(loadConfig().relyingParties.map((rp) => rp.name)).toEqual(['nextcloud', 'web', 'buzz', 'foo'])
+  })
+
+  it('fails loudly when a listed prefix is missing a required subvar — listing it opts in unconditionally, unlike the known optional prefixes', () => {
+    withEnv({
+      FIRST_PARTY_RPS: 'BUZZ',
+      BUZZ_CLIENT_ID: 'buzz',
+      // BUZZ_CLIENT_SECRET intentionally missing
+      BUZZ_REDIRECT_URIS: 'https://buzz.example/callback',
+    })
+    expect(() => loadConfig()).toThrow(/Missing required env: BUZZ_CLIENT_SECRET/)
+  })
+})
+
+describe('same-behavior guarantee', () => {
+  it('nextcloud-only env registers exactly one client', () => {
+    withEnv({})
+    expect(loadConfig().relyingParties.map((rp) => rp.name)).toEqual(['nextcloud'])
+  })
+
+  it('nextcloud+matrix+web env registers exactly those three, in that order', () => {
+    withEnv({
+      MATRIX_CLIENT_ID: 'matrix',
+      MATRIX_CLIENT_SECRET: 'matrix-secret',
+      MATRIX_REDIRECT_URIS: 'https://auth.roebel.app/upstream/callback/01ROEBELIDPROVIDERULID000000',
+      WEB_CLIENT_ID: 'roebel-web',
+      WEB_CLIENT_SECRET: 'web-secret',
+      WEB_REDIRECT_URIS: 'https://roebel.app/api/workspace/auth/callback',
+    })
+    expect(loadConfig().relyingParties.map((rp) => rp.name)).toEqual(['nextcloud', 'matrix', 'web'])
   })
 })

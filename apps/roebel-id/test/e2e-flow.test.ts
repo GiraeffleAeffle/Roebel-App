@@ -149,12 +149,15 @@ describe('authorization_code + PKCE end-to-end (Nextcloud-as-relying-party proof
       supabaseUrl: 'http://unused.invalid',
       supabaseServiceKey: 'unused',
       thirdwebClientId: 'unused',
-      nextcloud: {
-        clientId: 'nextcloud',
-        clientSecret: 'nextcloud-secret',
-        redirectUris: [REDIRECT_URI],
-        postLogoutRedirectUris: [],
-      },
+      relyingParties: [
+        {
+          name: 'nextcloud',
+          clientId: 'nextcloud',
+          clientSecret: 'nextcloud-secret',
+          redirectUris: [REDIRECT_URI],
+          postLogoutRedirectUris: [],
+        },
+      ],
     }
 
     const { app } = wireApp(testConfig, {
