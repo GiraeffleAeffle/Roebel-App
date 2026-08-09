@@ -4,6 +4,11 @@ import { renderLoginPage } from '../src/interaction/login-page.js'
 // I2 — per-client login branding. The roebel preset must render byte-for-byte identical to
 // the pre-branding page (commit 9abd046c); the ortis preset must carry zero Röbel trace —
 // Ortis is used by mayors of OTHER municipalities and must never see Röbel branding.
+//
+// Catches the brand name in EITHER spelling — the umlaut original ("Röbel") and its ASCII
+// transliteration ("Roebel", which is what the SIWE statement used before it became
+// preset-driven) — case-insensitively, over the full rendered response.
+const ROEBEL_TRACE = /r(ö|oe)bel/i
 
 const PRE_BRANDING_PAGE = `<!doctype html><html lang="de"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -111,12 +116,19 @@ describe('renderLoginPage — roebel preset', () => {
 })
 
 describe('renderLoginPage — ortis preset', () => {
-  it('titles and headlines as Ortis, with zero Röbel trace and no navy anywhere', () => {
+  it('titles and headlines as Ortis, with zero Röbel trace (either spelling) and no navy anywhere', () => {
     const rendered = renderLoginPage('uid-1', 'tw-client', 100, { preset: 'ortis' })
-    expect(rendered).toContain('<title>Bei Ortis anmelden</title>')
+    expect(rendered).toContain('<title>Anmelden bei Ortis</title>')
     expect(rendered).toContain('<h1>Ortis</h1>')
-    expect(rendered).not.toContain('Röbel')
+    expect(rendered).not.toMatch(ROEBEL_TRACE)
     expect(rendered).not.toContain('#00498B')
+  })
+
+  it('carries the ortis SIWE statement, ASCII-only, with zero Röbel trace in the signed message', () => {
+    const rendered = renderLoginPage('uid-1', 'tw-client', 100, { preset: 'ortis' })
+    expect(rendered).toContain("statement: 'Anmeldung bei Ortis'")
+    // eslint-disable-next-line no-control-regex
+    expect(rendered.match(/statement: '([^']*)'/)?.[1]).toMatch(/^[\x00-\x7F]*$/)
   })
 
   it('uses a monochrome, near-black palette for buttons/headline', () => {

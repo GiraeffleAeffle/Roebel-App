@@ -10,6 +10,10 @@ import type { RelyingPartyConfig } from '../src/config.js'
 // bit: an Ortis client must never resolve to Röbel branding). This drives the real router
 // against a minimal stub Provider — only `interactionDetails` is exercised by the GET handler
 // under test, so a full oidc-provider instance (see test/e2e-flow.test.ts) isn't needed here.
+//
+// Catches the brand name in EITHER spelling — the umlaut original ("Röbel") and its ASCII
+// transliteration ("Roebel") — case-insensitively.
+const ROEBEL_TRACE = /r(ö|oe)bel/i
 
 const bridge: AuthBridge = {
   issueNonce: () => 'stub-nonce',
@@ -66,12 +70,12 @@ describe('interaction router — branding resolved by client_id', () => {
     expect(res.text).not.toContain('Ortis')
   })
 
-  it('serves the ortis preset, with its context line and zero Röbel trace, for the ortis client', async () => {
+  it('serves the ortis preset, with its context line and zero Röbel trace (either spelling), for the ortis client', async () => {
     const res = await request(appFor('ortis')).get('/interaction/uid-1')
     expect(res.status).toBe(200)
     expect(res.text).toContain('<h1>Ortis</h1>')
     expect(res.text).toContain('Amt Musterstadt')
-    expect(res.text).not.toContain('Röbel')
+    expect(res.text).not.toMatch(ROEBEL_TRACE)
     expect(res.text).not.toContain('#00498B')
   })
 

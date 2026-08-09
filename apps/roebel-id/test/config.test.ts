@@ -231,6 +231,11 @@ describe('branding', () => {
     expect(loadConfig().relyingParties.find((rp) => rp.name === 'nextcloud')?.branding).not.toHaveProperty('context')
   })
 
+  it('treats an explicit empty-string BRANDING_CONTEXT the same as unset', () => {
+    withEnv({ NEXTCLOUD_BRANDING_CONTEXT: '' })
+    expect(loadConfig().relyingParties.find((rp) => rp.name === 'nextcloud')?.branding).toEqual({ preset: 'roebel' })
+  })
+
   it('gives ortis its own ortis branding + context, independent of nextcloud', () => {
     withEnv({
       ORTIS_CLIENT_ID: 'ortis',

@@ -16,8 +16,6 @@
 // the page before branding was parametrized; new presets are pure data.
 import type { BrandingConfig, BrandingPreset } from '../config.js'
 
-const SIWE_STATEMENT = 'Anmeldung bei Roebel ID'
-
 interface PresetCopy {
   title: string
   heading: string
@@ -28,6 +26,13 @@ interface PresetCopy {
   secondaryColor: string
   /** Second line of the enclave-wallet explainer comment inside the <script> block. */
   walletNote: string
+  /**
+   * The signed SIWE `statement` (EIP-4361). MUST stay ASCII-only — siwe@3.0.0 enforces the
+   * EIP-4361 ABNF and rejects non-ASCII bytes here (no umlauts, no em dashes, etc). Per-preset
+   * so no page — including Ortis — ever sends "Roebel" to the browser, even inside the script
+   * block's signed-message payload.
+   */
+  siweStatement: string
 }
 
 const PRESETS: Record<BrandingPreset, PresetCopy> = {
@@ -38,14 +43,16 @@ const PRESETS: Record<BrandingPreset, PresetCopy> = {
     primaryColor: '#00498B',
     secondaryColor: '#6B7280',
     walletNote: "matches the main app (recovers the visitor's existing Röbel identity).",
+    siweStatement: 'Anmeldung bei Roebel ID',
   },
   ortis: {
-    title: 'Bei Ortis anmelden',
+    title: 'Anmelden bei Ortis',
     heading: 'Ortis',
-    intro: 'Melde dich an, um bei Ortis fortzufahren.',
+    intro: 'Melde dich bei Ortis an, um fortzufahren.',
     primaryColor: '#111',
     secondaryColor: '#6B7280',
     walletNote: "matches the main app (recovers the visitor's existing identity).",
+    siweStatement: 'Anmeldung bei Ortis',
   },
 }
 
@@ -119,7 +126,7 @@ export function renderLoginPage(uid: string, thirdwebClientId: string, chainId: 
     status.textContent = 'Identität wird bestätigt…'
     const nonce = await (await fetch('/interaction/${uid}/nonce')).text()
     const message = new SiweMessage({ domain: location.host, address: account.address, uri: location.origin,
-      version: '1', chainId: ${chainId}, nonce, statement: '${SIWE_STATEMENT}',
+      version: '1', chainId: ${chainId}, nonce, statement: '${copy.siweStatement}',
       expirationTime: new Date(Date.now()+120000).toISOString() }).prepareMessage()
     const signature = await account.signMessage({ message })
     const res = await fetch('/interaction/${uid}/login', { method: 'POST', headers: { 'content-type': 'application/json' },
