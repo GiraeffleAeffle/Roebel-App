@@ -5,11 +5,26 @@ import { fileURLToPath } from "node:url";
 import { renderBundle, renderCaddyfile, renderComposeYml } from "../src/render.js";
 import { parseManifest } from "@netizen-labs/protocol";
 
-const base = parseManifest(JSON.parse(
+const example = JSON.parse(
   readFileSync(fileURLToPath(new URL("../../protocol/examples/roebel.netizen.json", import.meta.url)), "utf8"),
-));
+);
 
-// The example declares metering; the "without" case is constructed by removal.
+// The Röbel manifest deferred its metering block on 2026-08-09 (settler-key
+// gate still open — restored when the x402 deploy is wanted), so the fixture
+// below IS the example declaration, attached on top before parsing. `base`
+// stays the declared case and `without` the removal, as the tests expect.
+example.services.metering = {
+  payTo: "0x3A08c86Efc5ff38CC35d850F1D4d564e497bFDEa",
+  network: "eip155:100",
+  asset: "0x2a22f9c3b484C3629090FeED35F17Ff8F88f76F0",
+  assetName: "Bridged USDC (Gnosis)",
+  assetVersion: "2",
+  assetDecimals: 6,
+  prices: { bulk: "500000", export: "5000000", firehoseDay: "1000000" },
+  split: { authors: 50, treasury: 50 },
+};
+const base = parseManifest(example);
+
 const without = structuredClone(base) as typeof base;
 delete (without.services as Record<string, unknown>).metering;
 

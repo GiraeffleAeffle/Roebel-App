@@ -19,8 +19,13 @@ const METERING = {
   split: { authors: 50, treasury: 50 },
 };
 
-test("the example manifest declares metering and parses", () => {
-  const parsed = NetizenManifestSchema.parse(base);
+// The Röbel manifest deferred its metering block on 2026-08-09 (settler-key
+// gate still open — restored when the x402 deploy is wanted), so the fixture
+// above IS the example declaration; the tests attach it explicitly.
+test("the metering fixture parses against the example manifest", () => {
+  const withMetering = structuredClone(base);
+  withMetering.services.metering = METERING;
+  const parsed = NetizenManifestSchema.parse(withMetering);
   assert.equal(parsed.services.metering?.payTo, METERING.payTo);
   assert.equal(parsed.services.metering?.prices.bulk, "500000");
 });
@@ -33,6 +38,7 @@ test("metering.split must sum to 100", () => {
 
 test("metering requires the indexer — the gateway reads its database", () => {
   const bad = structuredClone(base);
+  bad.services.metering = METERING;
   delete bad.services.indexer;
   assert.throws(() => NetizenManifestSchema.parse(bad));
 });
@@ -51,18 +57,21 @@ test("prices are atomic-unit integer strings", () => {
 
 test("metering requires services.chat.nostr — the gateway/facilitator render inside the relay stack", () => {
   const bad = structuredClone(base);
+  bad.services.metering = METERING;
   delete bad.services.chat.nostr;
   assert.throws(() => NetizenManifestSchema.parse(bad));
 });
 
 test("metering requires chain — the facilitator needs the chain RPC", () => {
   const bad = structuredClone(base);
+  bad.services.metering = METERING;
   delete bad.chain;
   assert.throws(() => NetizenManifestSchema.parse(bad));
 });
 
 test("metering requires services.backend — the gateway needs the backend Postgres", () => {
   const bad = structuredClone(base);
+  bad.services.metering = METERING;
   delete bad.services.backend;
   assert.throws(() => NetizenManifestSchema.parse(bad));
 });

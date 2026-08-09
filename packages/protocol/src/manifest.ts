@@ -277,6 +277,36 @@ const Services = z.object({
        */
       agentPubkeys: z.array(z.string().regex(/^[0-9a-f]{64}$/, "agent keys are 64-hex nostr pubkeys")).optional(),
       /**
+       * Resident agents — the runtime half of what `agentPubkeys` admits. Each
+       * entry runs a 24/7 `buzz-acp` harness container ON the node under the
+       * agent's canonical identity (Autar M1: schedules and memory survive
+       * every human logging off). Removing an entry + `netizen up` stops the
+       * runtime; relay-membership revocation stays a `buzz-admin remove-member`
+       * step, recorded in the B0 notes. The image is built ONCE from the pinned
+       * upstream tag (the installer applies, it never compiles).
+       */
+      acpAgents: z
+        .array(
+          z.object({
+            /** Lowercase slug — the same name `deriveAgentIdentity` was given. */
+            name: z.string().regex(/^[a-z0-9-]+$/, "agent name must be a lowercase slug"),
+            /**
+             * The agent's own key, derived ON the box from NODE_AGENT_SECRET
+             * (recipe in the B0 notes). Reference only — an inline key here
+             * would put an identity into git.
+             */
+            privateKey: secretRef,
+            /** Model-provider key for the Claude ACP adapter. Reference only. */
+            anthropicApiKey: secretRef,
+            /**
+             * Our runtime image: upstream `buzz-acp` + `buzz-cli` + the Claude
+             * ACP adapter, built once per upstream tag. Pinned — never latest.
+             */
+            image: z.string().regex(/^netizen\/buzz-acp:v[0-9][a-z0-9.\-]*$/, "pin netizen/buzz-acp:v<upstream-tag> — never latest"),
+          }),
+        )
+        .optional(),
+      /**
        * Required by construction: declaring the workspace without its secrets
        * would render a bundle that crash-loops on first boot. References only.
        */

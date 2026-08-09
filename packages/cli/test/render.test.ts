@@ -585,6 +585,55 @@ test("manifest-declared agent keys become the add-members script; humans-only sh
   assert.equal(renderBundle(humansOnly).files["buzz/add-members.sh"], undefined);
 });
 
+// ---- Resident agents (services.buzz.acpAgents — Autar M1) ----
+
+const residentNode = {
+  ...buzzNode,
+  services: {
+    ...buzzNode.services,
+    buzz: {
+      ...buzzNode.services.buzz,
+      acpAgents: [
+        {
+          name: "mecky",
+          privateKey: "$BUZZ_MECKY_PRIVATE_KEY",
+          anthropicApiKey: "$ANTHROPIC_API_KEY",
+          image: "netizen/buzz-acp:v0.5.2",
+        },
+      ],
+    },
+  },
+};
+
+test("a declared resident agent renders its 24/7 harness container", () => {
+  const compose = renderComposeYml(residentNode);
+  assert.match(compose, /^  buzz-acp-mecky:/m);
+  // Our once-built runtime image, pinned.
+  assert.match(compose, /image: netizen\/buzz-acp:v0\.5\.2/);
+  // Key and model credential stay compose-interpolated refs to the box's .env.
+  assert.match(compose, /BUZZ_PRIVATE_KEY: "\$\{BUZZ_MECKY_PRIVATE_KEY\}"/);
+  assert.match(compose, /ANTHROPIC_API_KEY: "\$\{ANTHROPIC_API_KEY\}"/);
+  // Internal relay URL — a resident agent never depends on public DNS.
+  assert.match(compose, /BUZZ_RELAY_URL: "ws:\/\/buzz:3000"/);
+  assert.match(compose, /BUZZ_ACP_AGENT_COMMAND: "claude-agent-acp"/);
+  // Working memory in a named volume, out of rsync's reach.
+  assert.match(compose, /^  buzz_acp_mecky_data:/m);
+  // The plan step names the resident agent.
+  const step = plan(residentNode).find((s) => s.id === "buzz")!;
+  assert.match(step.title, /resident 24\/7: mecky/);
+  // Both refs surface in the operator checklist.
+  const bundle = renderBundle(residentNode);
+  assert.ok(bundle.secretRefs.includes("$BUZZ_MECKY_PRIVATE_KEY"));
+  assert.ok(bundle.secretRefs.includes("$ANTHROPIC_API_KEY"));
+});
+
+test("no resident agents declared — no harness container renders", () => {
+  const compose = renderComposeYml(buzzNode);
+  assert.doesNotMatch(compose, /buzz-acp-/);
+  assert.doesNotMatch(compose, /buzz_acp_/);
+  assert.doesNotMatch(plan(buzzNode).find((s) => s.id === "buzz")!.title, /resident/);
+});
+
 test("buzz is config-gated — an undeclared workspace changes nothing", () => {
   // The canonical Röbel manifest now declares buzz, so the baseline is a
   // variant with it stripped — the assertion stays: no declaration, no trace.

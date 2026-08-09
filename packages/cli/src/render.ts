@@ -1014,6 +1014,28 @@ ${aliases.map((alias, i) => `      aliasgroup${i + 1}: "${alias}"`).join("\n")}
       '
     restart: "no"`,
     );
+
+    // Resident agents (Autar M1): one 24/7 harness container per declared
+    // agent, under the agent's canonical manifest-declared identity. Internal
+    // relay URL on purpose — a resident agent must not depend on public DNS to
+    // reach a service three containers away. Removing the entry + `netizen up`
+    // stops the runtime; relay-membership revocation is buzz-admin's job.
+    for (const agent of buzz.acpAgents ?? []) {
+      const priv = bref(agent.privateKey, `acpAgents.${agent.name}.privateKey`);
+      const model = bref(agent.anthropicApiKey, `acpAgents.${agent.name}.anthropicApiKey`);
+      svc.push(`  buzz-acp-${agent.name}:      # resident agent "${agent.name}" — 24/7 ACP harness
+    image: ${agent.image}
+    restart: unless-stopped
+    environment:
+      BUZZ_PRIVATE_KEY: "\${${priv}}"
+      BUZZ_RELAY_URL: "ws://buzz:3000"
+      BUZZ_ACP_AGENT_COMMAND: "claude-agent-acp"
+      ANTHROPIC_API_KEY: "\${${model}}"
+    working_dir: /workspace
+    volumes: ["buzz_acp_${agent.name}_data:/workspace"]
+    depends_on:
+      buzz: { condition: service_healthy }`);
+    }
   }
 
   // Postgres backs Matrix, Nextcloud, XWiki and OpenProject — include it if any need it.
@@ -1036,6 +1058,8 @@ ${aliases.map((alias, i) => `      aliasgroup${i + 1}: "${alias}"`).join("\n")}
   // Buzz's state is entirely in named volumes — that is what lets `netizen up`
   // rsync --delete the bundle dir without ever touching workspace data.
   if (buzz) vols.push("buzz_git_data:", "buzz_pg_data:", "buzz_redis_data:", "buzz_minio_data:");
+  // Each resident agent keeps its working memory the same way.
+  for (const a of buzz?.acpAgents ?? []) vols.push(`buzz_acp_${a.name}_data:`);
   if (hasNostr) vols.push("strfry_db:");
   // The vanish work queue: scanner writes, executor drains. Named volume so a
   // container restart never loses a pending deletion request.
@@ -2194,7 +2218,7 @@ export function plan(m: NetizenManifest): Step[] {
     steps.push({
       id: "buzz",
       phase: "workspace",
-      title: `Agentic workspace (Buzz) up at ${m.services.buzz.url} — closed relay, membership relay-signed (kind:13534)${m.services.buzz.agentPubkeys?.length ? "; run buzz/add-members.sh for the declared agents" : ""}`,
+      title: `Agentic workspace (Buzz) up at ${m.services.buzz.url} — closed relay, membership relay-signed (kind:13534)${m.services.buzz.agentPubkeys?.length ? "; run buzz/add-members.sh for the declared agents" : ""}${m.services.buzz.acpAgents?.length ? `; resident 24/7: ${m.services.buzz.acpAgents.map((a) => a.name).join(", ")}` : ""}`,
     });
   if (m.services.indexer && m.services.backend)
     steps.push({

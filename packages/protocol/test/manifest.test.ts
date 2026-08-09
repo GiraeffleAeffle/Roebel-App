@@ -196,3 +196,38 @@ test("buzz without its secrets block is rejected — it would crash-loop on firs
   const bad = { ...roebel, services: { ...roebel.services, buzz: noSecrets } };
   assert.equal(safeParseManifest(bad).success, false);
 });
+
+// ---- services.buzz.acpAgents (resident agents — Autar M1) ----
+
+const meckyResident = {
+  name: "mecky",
+  privateKey: "$BUZZ_MECKY_PRIVATE_KEY",
+  anthropicApiKey: "$ANTHROPIC_API_KEY",
+  image: "netizen/buzz-acp:v0.5.2",
+};
+
+function withAcpAgents(agents: unknown) {
+  return { ...roebel, services: { ...roebel.services, buzz: { ...buzzBlock, acpAgents: agents } } };
+}
+
+test("a resident agent declaration validates", () => {
+  const m = parseManifest(withAcpAgents([meckyResident]));
+  assert.equal(m.services.buzz!.acpAgents![0].name, "mecky");
+});
+
+test("a resident agent with an inline key is rejected — an identity must never enter git", () => {
+  const inlineKey = withAcpAgents([{ ...meckyResident, privateKey: "deadbeef".repeat(8) }]);
+  assert.equal(safeParseManifest(inlineKey).success, false);
+});
+
+test("a resident agent image must be pinned — latest would make every boot a different harness", () => {
+  const latest = withAcpAgents([{ ...meckyResident, image: "netizen/buzz-acp:latest" }]);
+  assert.equal(safeParseManifest(latest).success, false);
+  const upstream = withAcpAgents([{ ...meckyResident, image: "ghcr.io/block/buzz:sha-3e48f1b" }]);
+  assert.equal(safeParseManifest(upstream).success, false);
+});
+
+test("a resident agent name must be a lowercase slug — it names the container and the volume", () => {
+  const bad = withAcpAgents([{ ...meckyResident, name: "Mecky Roebel" }]);
+  assert.equal(safeParseManifest(bad).success, false);
+});
