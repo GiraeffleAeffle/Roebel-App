@@ -54,12 +54,22 @@ Each RP is a block of up to six env vars, keyed by an uppercase prefix:
 "Login-page branding" below). The lowercased prefix becomes
 `RelyingPartyConfig.name`.
 
-- `NEXTCLOUD` — always required; the keystone won't boot without it.
-- `MATRIX`, `WEB`, `ORTIS` — optional; each is registered only when its
-  `<PREFIX>_CLIENT_ID` is set, so the keystone boots unchanged on a node that
-  hasn't stood up that service yet. Once the id is set, the rest of that
-  prefix's vars become required — a missing one throws `Missing required env:
-  <VAR>` at boot.
+- `NEXTCLOUD`, `MATRIX`, `WEB`, `ORTIS` — all optional; each is registered
+  only when its `<PREFIX>_CLIENT_ID` is set, so the keystone boots unchanged
+  on a node that hasn't stood up that service yet. Once the id is set, the
+  rest of that prefix's vars become required — a missing one throws `Missing
+  required env: <VAR>` at boot. `NEXTCLOUD` is listed first only so its
+  position in `relyingParties` (and hence the registered client order) stays
+  first when present — the running `id.roebel.app` instance sets
+  `NEXTCLOUD_*` and is unaffected by this being optional.
+- **At least one relying party must resolve.** A keystone with zero RPs has
+  no OIDC client to serve a login for, so `loadConfig()` throws at boot with
+  a message naming the fix (which `<PREFIX>_CLIENT_ID` vars to set, or
+  `FIRST_PARTY_RPS`) — never a bare `Missing required env:
+  NEXTCLOUD_CLIENT_ID`, which would be actively misleading on an
+  Ortis-only instance that never intends to run Nextcloud. This is what
+  makes a second, community-specific instance possible — see "Running a
+  second instance for another community" below.
 - `FIRST_PARTY_RPS` — optional, comma-separated list of *additional* prefixes
   beyond the four known ones above (`NEXTCLOUD` + the three optional ones,
   e.g. `FIRST_PARTY_RPS=BUZZ`). Every prefix listed here is required to
@@ -159,6 +169,118 @@ artifacts so they don't get baked into the image) and installs/builds with
 fly status -a roebel-id
 curl https://roebel-id.fly.dev/healthz
 ```
+
+## Running a second instance for another community
+
+A vanity CNAME on top of `id.roebel.app` cannot give another community (e.g.
+Ortis, a product for mayors of *other* municipalities) its own-looking login
+domain: `oidc-provider` has one issuer per `Provider` instance, discovery
+advertises that issuer's own endpoints, the ID token's `iss` must match it,
+and the auth bridge derives its SIWE `expectedDomain` straight from
+`config.issuer` (`src/auth-bridge/verify-siwe.ts`) — a mismatch is
+hard-rejected. The fix is a **second Fly app running this same image**, with
+its own `ISSUER_URL` and its own relying-party set. Nothing in this codebase
+is Röbel-specific enough to block that — `NEXTCLOUD` is just another
+optional relying-party prefix (see "Environment variables" above), so an
+instance can register only `ORTIS` and boot with exactly one client.
+
+Below is the full procedure for standing up `ortis-id`, the Ortis instance,
+with issuer `https://id.ortis.app` serving the Ortis app at
+`https://app.ortis.app` (OIDC callback
+`https://app.ortis.app/api/auth/callback`). Substitute names/domains for any
+other community instance.
+
+### 1. Create the Fly app
+
+```bash
+fly apps create ortis-id
+```
+
+### 2. Generate a SEPARATE JWKS
+
+Every instance signs its own ID tokens — never reuse `roebel-id`'s key
+material:
+
+```bash
+pnpm --filter @roebel/roebel-id exec tsx scripts/generate-jwks.ts
+```
+
+Keep the JSON output for `JWKS_JSON` below.
+
+### 3. Set secrets on Fly
+
+```bash
+fly secrets set \
+  ISSUER_URL=https://id.ortis.app \
+  COOKIE_KEYS=<fresh-random-value-1>,<fresh-random-value-2> \
+  GNOSIS_RPC_URL=https://rpc.gnosischain.com \
+  CITIZEN_NFT_ADDRESS=0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5 \
+  ATTESTER_NFT_ADDRESS=0xC587F383696D3c9DF7A6eE03A9160E40Ae1cdb82 \
+  SUPABASE_URL=https://wwbeqhkslxdxhktqzqti.supabase.co \
+  SUPABASE_SERVICE_KEY=<service_role_key> \
+  THIRDWEB_CLIENT_ID=<same_thirdweb_project_as_web_and_expo> \
+  JWKS_JSON='<output_of_generate-jwks_step_2>' \
+  ORTIS_CLIENT_ID=ortis \
+  ORTIS_CLIENT_SECRET=<strong_random_secret> \
+  ORTIS_REDIRECT_URIS=https://app.ortis.app/api/auth/callback \
+  -a ortis-id
+```
+
+Notes on this exact list:
+
+- **`ORTIS_BRANDING` is deliberately omitted** — it defaults to `ortis` (see
+  `PREFIX_BRANDING_DEFAULT` in `src/config.ts`), so the login page never
+  risks rendering Röbel branding for a visiting mayor just because the var
+  was forgotten.
+- **`COOKIE_KEYS` and `JWKS_JSON` must be instance-specific — never reused
+  from `roebel-id`'s secrets.** Session cookies are per-domain already (so
+  reuse wouldn't leak a session across instances), but reusing signing key
+  material collapses the two issuers' trust boundaries for no benefit.
+- No `NEXTCLOUD_*`, `MATRIX_*`, or `WEB_*` vars: this instance's only
+  relying party is Ortis. `loadConfig()` requires at least one relying party
+  to resolve (see "Environment variables" above) — `ORTIS_*` alone
+  satisfies that.
+- **Both instances share the same Supabase `oidc_payloads` table.** This is
+  safe: record ids are random (no cross-instance collision risk) and
+  session cookies are scoped per-domain, so `id.roebel.app` and
+  `id.ortis.app` sessions never mix even though they're backed by the same
+  table.
+
+### 4. Deploy
+
+```bash
+cd apps/roebel-id
+fly deploy -c fly.ortis.toml
+```
+
+`fly.ortis.toml` (next to `fly.toml`) is the same shape as the default
+config — same Dockerfile build, `internal_port = 3010`, `force_https`,
+`min_machines_running = 1`, the `/healthz` check — with `app = "ortis-id"`.
+It deploys the identical image; only the Fly app name differs, since the
+issuer and relying-party set come entirely from the secrets set above.
+
+### 5. Add the TLS cert and DNS record
+
+```bash
+fly certs add id.ortis.app -a ortis-id
+```
+
+Then create the DNS record `fly certs add` asks for (typically a `CNAME`
+for `id.ortis.app` pointing at `ortis-id.fly.dev`, or the `A`/`AAAA` pair
+`fly certs show id.ortis.app -a ortis-id` reports) at whichever registrar
+hosts `ortis.app`.
+
+### 6. Point the Ortis app at its new issuer
+
+In netizen_labs, `apps/ortis/.env`:
+
+```
+OIDC_ISSUER=https://id.ortis.app
+```
+
+Once DNS + cert are live and the Ortis app redeploys with that issuer, the
+login flow for Ortis runs entirely against `id.ortis.app` — the address bar
+never shows `id.roebel.app`.
 
 ## Architecture
 

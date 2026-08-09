@@ -13,9 +13,12 @@ export function buildProvider(deps: {
 
   const configuration: Configuration = {
     adapter: adapterFactory,
-    // Every first-party relying party comes straight from config.relyingParties (Nextcloud
-    // always present; Matrix, the web app, Ortis, and any FIRST_PARTY_RPS extras only when
-    // configured — see src/config.ts). Adding a new service is config-only.
+    // Every first-party relying party comes straight from config.relyingParties (Nextcloud,
+    // Matrix, the web app, Ortis, and any FIRST_PARTY_RPS extras all optional, resolved
+    // per-instance — see src/config.ts; loadConfig() throws at boot if none resolve). Adding
+    // a new service, or standing up a second issuer with a different RP subset (e.g.
+    // ortis-id — see README "Running a second instance for another community"), is
+    // config-only.
     clients: config.relyingParties.map((rp) => ({
       client_id: rp.clientId,
       client_secret: rp.clientSecret,

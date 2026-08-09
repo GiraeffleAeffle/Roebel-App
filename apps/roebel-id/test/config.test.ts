@@ -1,7 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { loadConfig } from '../src/config.js'
 
-const BASE = {
+// Split so the Ortis-only / zero-RP tests below can build an env WITHOUT Nextcloud, while
+// every other test keeps using the full BASE (= CORE + NEXTCLOUD) unchanged.
+const CORE = {
   ISSUER_URL: 'https://id.example',
   COOKIE_KEYS: 'a,b',
   GNOSIS_RPC_URL: 'https://rpc.example',
@@ -10,13 +12,24 @@ const BASE = {
   SUPABASE_URL: 'https://supabase.example',
   SUPABASE_SERVICE_KEY: 'service',
   THIRDWEB_CLIENT_ID: 'tw',
+}
+
+const NEXTCLOUD = {
   NEXTCLOUD_CLIENT_ID: 'nextcloud',
   NEXTCLOUD_CLIENT_SECRET: 'nc-secret',
   NEXTCLOUD_REDIRECT_URIS: 'https://cloud.example/apps/user_oidc/code',
 }
 
+const BASE = { ...CORE, ...NEXTCLOUD }
+
 function withEnv(extra: Record<string, string>) {
   for (const [k, v] of Object.entries({ ...BASE, ...extra })) process.env[k] = v
+}
+
+// Like withEnv, but without Nextcloud's block — for a Nextcloud-less instance, e.g. a second
+// Fly app (its own issuer, its own RP set) for another community that never runs Nextcloud.
+function withEnvNoNextcloud(extra: Record<string, string>) {
+  for (const [k, v] of Object.entries({ ...CORE, ...extra })) process.env[k] = v
 }
 
 // Generic cleanup, not a hardcoded prefix list: any RP env-block subvar (whichever prefix
@@ -186,6 +199,45 @@ describe('redirect uri validation (fail at boot, not in front of a user)', () =>
     expect(loadConfig().relyingParties.find((rp) => rp.name === 'ortis')?.redirectUris).toEqual([
       'http://localhost:3040/api/auth/callback',
     ])
+  })
+})
+
+// A second, community-specific instance of this keystone (its own Fly app, its own
+// ISSUER_URL — see README "Running a second instance for another community") never runs
+// Nextcloud at all. NEXTCLOUD moved into the same optional-prefix list as MATRIX/WEB/ORTIS
+// (see config.ts), so an Ortis-only env must boot cleanly with exactly the Ortis client.
+describe('ortis-only instance (a second Fly app with its own issuer, no Nextcloud)', () => {
+  it('boots with no NEXTCLOUD_* vars set at all, yielding exactly one RP: ortis-branded ortis', () => {
+    withEnvNoNextcloud({
+      ORTIS_CLIENT_ID: 'ortis',
+      ORTIS_CLIENT_SECRET: 'ortis-secret',
+      ORTIS_REDIRECT_URIS: 'https://app.ortis.app/api/auth/callback',
+    })
+    const cfg = loadConfig()
+    expect(cfg.relyingParties).toEqual([
+      {
+        name: 'ortis',
+        clientId: 'ortis',
+        clientSecret: 'ortis-secret',
+        redirectUris: ['https://app.ortis.app/api/auth/callback'],
+        postLogoutRedirectUris: [],
+        branding: { preset: 'ortis' },
+      },
+    ])
+  })
+})
+
+describe('zero relying parties', () => {
+  it('throws a loud, actionable error naming the misconfiguration — not a bare Missing required env: NEXTCLOUD_CLIENT_ID', () => {
+    withEnvNoNextcloud({})
+    expect(() => loadConfig()).toThrow(/relying party/i)
+    expect(() => loadConfig()).not.toThrow(/^Missing required env: NEXTCLOUD_CLIENT_ID$/)
+  })
+
+  it('names at least one concrete way to fix it (a known prefix var, or FIRST_PARTY_RPS)', () => {
+    withEnvNoNextcloud({})
+    expect(() => loadConfig()).toThrow(/CLIENT_ID/)
+    expect(() => loadConfig()).toThrow(/FIRST_PARTY_RPS/)
   })
 })
 

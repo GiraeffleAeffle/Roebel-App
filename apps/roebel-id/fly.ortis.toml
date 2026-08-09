@@ -1,0 +1,27 @@
+# Second Fly app: deploys the SAME image as fly.toml (this directory, same Dockerfile), but
+# as its own OIDC issuer for Ortis — a product for mayors of OTHER municipalities. A vanity
+# CNAME on roebel-id can't do this: oidc-provider has one issuer per Provider instance,
+# discovery advertises that issuer's endpoints, the ID token's `iss` must match it, and the
+# auth bridge derives its SIWE expectedDomain from config.issuer (src/auth-bridge/verify-siwe.ts)
+# — a mismatch is hard-rejected. So this is a separate Fly app (`ortis-id`) running this same
+# codebase with ISSUER_URL=https://id.ortis.app and only the ORTIS_* relying party configured
+# (no NEXTCLOUD_* at all — see src/config.ts, which now only requires that AT LEAST ONE
+# relying party resolve, not Nextcloud specifically). See README.md "Running a second instance
+# for another community" for the full standing-up procedure: fly apps create, fresh JWKS,
+# fly secrets set, fly deploy -c fly.ortis.toml, fly certs add.
+app = "ortis-id"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 3010
+  force_https = true
+  auto_stop_machines = false
+  min_machines_running = 1
+
+[[http_service.checks]]
+  path = "/healthz"
+  interval = "15s"
+  timeout = "2s"

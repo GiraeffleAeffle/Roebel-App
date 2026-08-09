@@ -37,8 +37,12 @@ export interface Config {
   supabaseUrl: string
   supabaseServiceKey: string
   thirdwebClientId: string
-  /** Every first-party RP, Nextcloud first. Nextcloud is always present; the rest is
-   * whatever the env resolved (the known optional prefixes, plus FIRST_PARTY_RPS extras). */
+  /** Every first-party RP that resolved, Nextcloud first when present. All of Nextcloud,
+   * Matrix, Web, and Ortis are optional per-instance (see OPTIONAL_FIRST_PARTY_PREFIXES);
+   * `loadConfig` throws at boot if none resolve — a keystone with no RP has nothing to serve
+   * logins for. A second, community-specific instance (its own Fly app + ISSUER_URL, e.g.
+   * `ortis-id` — see README "Running a second instance for another community") typically sets
+   * only the ORTIS_* block and none of NEXTCLOUD_*. */
   relyingParties: RelyingPartyConfig[]
 }
 
@@ -132,13 +136,18 @@ function loadRelyingParty(prefix: string): RelyingPartyConfig {
   }
 }
 
-// Known first-party RPs beyond Nextcloud (always required): each is registered only when
-// its <PREFIX>_CLIENT_ID is set, so the keystone boots unchanged on a node that hasn't
-// stood up that service yet. Order here becomes client-list order.
-const OPTIONAL_FIRST_PARTY_PREFIXES = ['MATRIX', 'WEB', 'ORTIS']
+// Known first-party RPs: each is registered only when its <PREFIX>_CLIENT_ID is set, so the
+// keystone boots unchanged on a node that hasn't stood up that service yet. NEXTCLOUD is kept
+// FIRST so the existing roebel-id deployment (NEXTCLOUD_* + MATRIX_*/WEB_* set) produces the
+// identical relying-party list, in the identical order, as before it moved into this list —
+// it is no longer unconditionally required. This is what makes a second, community-specific
+// instance possible (e.g. `ortis-id`, ISSUER_URL=https://id.ortis.app, only ORTIS_* set — see
+// README "Running a second instance for another community"). Order here becomes client-list
+// order.
+const OPTIONAL_FIRST_PARTY_PREFIXES = ['NEXTCLOUD', 'MATRIX', 'WEB', 'ORTIS']
 
 export function loadConfig(): Config {
-  const relyingParties: RelyingPartyConfig[] = [loadRelyingParty('NEXTCLOUD')]
+  const relyingParties: RelyingPartyConfig[] = []
 
   for (const prefix of OPTIONAL_FIRST_PARTY_PREFIXES) {
     if (process.env[`${prefix}_CLIENT_ID`]) relyingParties.push(loadRelyingParty(prefix))
@@ -149,6 +158,21 @@ export function loadConfig(): Config {
   // unconditionally — every subvar is required to resolve.
   for (const prefix of csv(process.env.FIRST_PARTY_RPS ?? '')) {
     relyingParties.push(loadRelyingParty(prefix))
+  }
+
+  // A keystone with no relying party has no OIDC client to serve a login for — every
+  // authorize request would 400. This must fail loudly at boot, and the message must name a
+  // concrete fix: a bare `Missing required env: NEXTCLOUD_CLIENT_ID` (what an unconditional
+  // Nextcloud requirement used to throw) would be actively misleading on an Ortis-only
+  // instance that never intends to run Nextcloud at all.
+  if (relyingParties.length === 0) {
+    throw new Error(
+      'No relying party configured: the keystone has no OIDC client to serve logins for. ' +
+        `Set at least one of ${OPTIONAL_FIRST_PARTY_PREFIXES.map((p) => `${p}_CLIENT_ID`).join(
+          ', ',
+        )} (plus that prefix's _CLIENT_SECRET/_REDIRECT_URIS), or list a prefix in ` +
+        'FIRST_PARTY_RPS (e.g. FIRST_PARTY_RPS=BUZZ, plus BUZZ_CLIENT_ID/_CLIENT_SECRET/_REDIRECT_URIS).',
+    )
   }
 
   return {
