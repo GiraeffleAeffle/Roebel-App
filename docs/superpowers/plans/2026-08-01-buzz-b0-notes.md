@@ -303,3 +303,25 @@ desktop-spawned local harness agents (per-(agent,community) since v0.4.23) runni
 Max's Mac under his management — they sleep when the app closes. Node-resident 24/7
 agents under canonical Netizen identities (Mecky via server-side buzz-acp) = M1/B1.1,
 which starts on Max's go.
+
+## 10. Upstream claims reported by the desktop starter agents (2026-08-09 — RE-VERIFY before relying)
+
+During the M0 session Max asked the desktop-managed starter agents (Fizz/Honey/Bumble,
+local harnesses on his Mac) what they knew; Bumble cited its own 2026-07-25 verification
+pass. Recorded here as dated CLAIMS, not facts — verify against upstream before M2/B5
+planning leans on any of them:
+
+1. **Rate limiting defined but not enforced** — four tiers exist as config, only
+   `AlwaysAllowRateLimiter` implemented. Matters before any external pilot.
+2. **Approval gates not wired end-to-end** — `request_approval` suspends but the run is
+   marked `Failed`. If true, the M2 decision queue must OWN the approval surface (batched
+   sell/sign/decide in our layer) rather than lean on upstream workflow approvals — which
+   is how M2 is designed anyway.
+3. **Zero payment/wallet/treasury surface in Buzz** — coordination, not settlement;
+   confirms two-lines B4 (money bounds = Zodiac-scoped budgets in our layer).
+4. **openDesk federation is OIDC-only (v1.4.0+), users matched by username, no inbound
+   SCIM through v1.17.0** — federation authenticates, it does not create identities.
+   Consistent with our line-A research.
+
+Provenance: desktop-agent output relayed by Max, upstream ground truth as of ~2026-07-25.
+Buzz ships near-daily — date-check everything above at B2/M2 planning time.
