@@ -31,6 +31,56 @@
    dürfen das nie sehen (ORTIS_KICKOFF §1b).
 4. Kein Ortis-Client registriert; RP-Config ist pro Service hartverdrahtet.
 
+## 1b. Stand der Umsetzung (2026-08-09) — **I1 + I2 SHIPPED**, Stop-Punkt erreicht
+
+Commits `9abd046c` (I1), `5a7d8f48` + `323254b7` (I2), `362a0c44` (Review-Fixes) auf `main`.
+60/60 Tests grün, `tsc --noEmit` sauber. **Noch NICHT deployed** — Fly-Schritt gehört Max
+(§3-Regel), siehe „Max' Schritte" unten.
+
+- **I1 ✅** Generische First-Party-RP-Liste: `loadRelyingParty(<PREFIX>)` liest jeden RP aus
+  seinem Env-Block, `Config.relyingParties[]` ersetzt die Einzelfelder
+  `config.nextcloud/matrix/web`. Bekannte Prefixe `NEXTCLOUD` (Pflicht) + `MATRIX`/`WEB`/`ORTIS`
+  (optional, greifen bei gesetzter `<PREFIX>_CLIENT_ID`), zusätzliche über `FIRST_PARTY_RPS`.
+  Provider-Client-Registry **und** die `firstPartyClientIds`-Allowlist (Auto-Consent-Grant)
+  leiten sich jetzt aus **derselben** Liste ab — die Trust-Boundary wird dadurch enger, nicht
+  weiter. Env-Schema vollständig in `apps/roebel-id/README.md`.
+- **I2 ✅** Branding pro RP: `<PREFIX>_BRANDING` (`roebel`|`ortis`) + `<PREFIX>_BRANDING_CONTEXT`
+  (freie Kontextzeile, HTML-escaped). Der anfragende `client_id` wählt das Preset.
+  `roebel` rendert **byte-für-byte** wie vor der Parametrisierung (Golden-File-Test).
+  `ORTIS_BRANDING` **defaultet auf `ortis`** — ein vergessener Env-Var darf keinem
+  Bürgermeister „Röbel ID" zeigen.
+
+**Zwei Korrekturen an den Annahmen dieses Dokuments** (beide bewusst, beide getestet):
+1. Das SIWE-`statement` ist jetzt **pro Preset** (`roebel` unverändert `'Anmeldung bei Roebel ID'`,
+   `ortis` → `'Anmeldung bei Ortis'`). Grund: der Konstant landet im `<script>`-Block **jeder**
+   Login-Seite, war für Ortis-Nutzer also im Seitenquelltext sichtbar — ein ASCII-„Roebel"-Leak
+   genau auf der Seite, die laut Lücke #3 nie Röbel zeigen darf. §3 verlangt nur **ASCII**, nicht
+   einen eingefrorenen Text. Server-seitig unkritisch: `verify-siwe.ts` prüft Domain, chainId,
+   Ablauf, Nonce und Signatur — **nie** das `statement`.
+2. Ortis-Copy wörtlich aus §I2: Titel „Anmelden bei Ortis", H1 „Ortis".
+
+**Bekannter Pilot-Vorbehalt (kein Code-Bug, gehört in die I5-Planung):** die Ortis-Login-Seite
+ist im HTML markenrein, wird aber von `id.roebel.app` ausgeliefert — Adressleiste und die
+SIWE-`domain`/`uri` zeigen `roebel.app`. Die naheliegende Abhilfe (Vanity-Host wie
+`id.ortis.<domain>` per CNAME auf dieselbe Fly-App) **bricht den Login**: der Bridge leitet
+`expectedDomain` aus genau einem `config.issuer`-Host ab und `verifySiwe` lehnt bei Abweichung
+hart ab. Multi-Host braucht zuerst ein `expectedDomain`-**Set**. Das ist die eigentliche
+Vorbedingung für „Issuer pro Community" (I5/Phase 3).
+
+**Max' Schritte, damit Ortis-Login live testbar ist:**
+1. `fly secrets set ORTIS_CLIENT_SECRET=<secret> -a roebel-id`
+2. `ORTIS_CLIENT_ID` + `ORTIS_REDIRECT_URIS`
+   (`https://app.ortis.<domain>/api/auth/callback,http://localhost:3000/api/auth/callback`)
+   in `fly.toml`/Secrets setzen; `ORTIS_BRANDING` **weglassen** (defaultet korrekt),
+   `ORTIS_BRANDING_CONTEXT` optional für den Amtsnamen.
+3. Deploy aus `apps/roebel-id/` heraus (Build-Context) — Details in dessen README.
+4. Denselben `client_id`/`secret` in der Ortis-Session (netizen_labs-Monorepo) hinterlegen.
+
+**Offen (nächste Session):** I2b (Keystone-eigener OTP-Versand — zusätzlich blockiert durch Max'
+thirdweb-Dashboard-Task), I3 (QR-Pairing), I4 (`communities`-Claim), I5 (Manifest-Reife).
+Für I4 vormerken: der OIDC-Scope heißt heute `roebel` und die Claims `roebel:*` — der
+Ortis-Client muss also einen Scope „roebel" anfragen. Bewusst entscheiden, wenn `netizen:*` landet.
+
 ## 2. Arbeitspakete (Reihenfolge = Priorität)
 
 ### I1 — Ortis-Client + generische RP-Liste
