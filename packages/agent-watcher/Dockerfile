@@ -1,8 +1,11 @@
 FROM --platform=linux/amd64 docker.io/library/node@sha256:7c269ea419bfbaef1f5eed57e58016395bbe3036176411025a5093e39a948dcf AS builder
 
 ARG SOURCE_REVISION
+ARG SOURCE_DATE_EPOCH
 RUN test "${#SOURCE_REVISION}" -eq 40 \
-    && case "${SOURCE_REVISION}" in *[!0-9a-f]*) exit 1;; esac
+    && case "${SOURCE_REVISION}" in *[!0-9a-f]*) exit 1;; esac \
+    && test -n "${SOURCE_DATE_EPOCH}" \
+    && case "${SOURCE_DATE_EPOCH}" in *[!0-9]*) exit 1;; esac
 
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH

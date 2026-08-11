@@ -33,6 +33,15 @@ describe("Public Mecky image contract", () => {
     assert.doesNotMatch(dockerfile.slice(runtimeIndex), /RUN test "\$\{#SOURCE_REVISION\}"/);
   });
 
+  it("requires a deterministic source date epoch for reproducible OCI output", () => {
+    const runtimeIndex = dockerfile.indexOf(" AS runtime");
+    assert.match(dockerfile.slice(0, runtimeIndex), /ARG SOURCE_DATE_EPOCH/);
+    assert.match(
+      dockerfile.slice(0, runtimeIndex),
+      /test -n "\$\{SOURCE_DATE_EPOCH\}"[\s\S]*case "\$\{SOURCE_DATE_EPOCH\}" in \*\[!0-9\]\*\)/,
+    );
+  });
+
   it("installs only the three-workspace closure from the reviewed lock", () => {
     assert.doesNotMatch(dockerfile, /pnpm fetch/);
     const installIndex = dockerfile.indexOf(
