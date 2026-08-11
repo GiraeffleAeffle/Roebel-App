@@ -25,6 +25,20 @@ describe("Public Mecky image contract", () => {
     assert.match(dockerfile, /ENTRYPOINT \["node", "\/app\/agent-watcher\.cjs"\]/);
   });
 
+  it("hydrates the filtered offline store from the three workspace manifests", () => {
+    const fetchIndex = dockerfile.indexOf("pnpm fetch --filter @netizen-labs/agent-watcher...");
+    assert.ok(fetchIndex > 0);
+    for (const manifest of [
+      "packages/nostr/package.json",
+      "packages/stadtstack-federation-client/package.json",
+      "packages/agent-watcher/package.json",
+    ]) {
+      const copyIndex = dockerfile.indexOf(`COPY ${manifest}`);
+      assert.ok(copyIndex >= 0, `${manifest} must be copied into the dependency layer`);
+      assert.ok(copyIndex < fetchIndex, `${manifest} must be present before pnpm fetch`);
+    }
+  });
+
   it("contains no runtime credential or secret value", () => {
     assert.doesNotMatch(dockerfile, /HETZNER_INFERENCE_API_KEY/);
     assert.doesNotMatch(dockerfile, /NODE_AGENT_SECRET/);
