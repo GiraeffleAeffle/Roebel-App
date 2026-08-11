@@ -982,10 +982,16 @@ importers:
       '@roebel/stadtstack-federation-client':
         specifier: workspace:*
         version: link:../stadtstack-federation-client
+      ws:
+        specifier: 8.20.1
+        version: 8.20.1(bufferutil@4.1.0)(utf-8-validate@6.0.6)
     devDependencies:
       '@types/node':
         specifier: ^22.7.4
         version: 22.19.15
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
       esbuild:
         specifier: ^0.27.7
         version: 0.27.7
