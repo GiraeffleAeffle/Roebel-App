@@ -9,6 +9,7 @@ import {
   createStadtstackReviewedEvidenceReader,
 } from "./public-mecky";
 import { createStadtstackNostrIntakeClient } from "./stadtstack-control";
+import { createNodeRelayClient } from "./node-relay-client";
 import { watchOnce } from "./watcher";
 
 /**
@@ -83,6 +84,7 @@ async function main(): Promise<void> {
   await announceAgentProfile({
     agent,
     relayUrl,
+    makeClient: createNodeRelayClient,
     metadata: {
       name: process.env.AGENT_DISPLAY_NAME ?? agentName[0].toUpperCase() + agentName.slice(1),
       about:
@@ -100,6 +102,7 @@ async function main(): Promise<void> {
         history,
         bounds,
         relayUrl,
+        makeClient: createNodeRelayClient,
         ingestCivicDiscussion: async (event) => {
           await stadtstackIntake.ingestDiscussion(event, [relayUrl]);
         },
