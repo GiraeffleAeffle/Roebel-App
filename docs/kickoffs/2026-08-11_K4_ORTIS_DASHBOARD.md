@@ -38,13 +38,13 @@ below come from production incidents, not theory.
 |---|---|---|
 | Tenant domains | `<slug>.ortis.app`, editable after creation | Strategy §3a |
 | Operator accounts | **Open self-serve signup** | Max, 2026-08-11 |
-| Backend per tenant | **One Supabase project per community** | Max, 2026-08-11 |
+| Backend per tenant | **A database on a Netizen node**, not an external Supabase account — see [K5](2026-08-11_K5_SOVEREIGN_DATA_PLANE.md) | Max, 2026-08-11 (revised same day) |
 | Build approach | Contract-first against a mock | Max, 2026-08-11 |
 | Chain | Shared Gnosis + existing `CommunityRegistry` | Strategy §7.3 (default) |
 
 ## 4. Non-negotiable constraints
 
-1. **Self-serve signup provisions real, paid resources.** Every launch creates a Supabase project, a Vercel deployment, a subdomain, and on-chain records. An unguarded "create community" button is a cost and abuse vector. You **must** ship: email verification before launch, a per-account community limit, rate limiting, a reserved-subdomain list (`app`, `id`, `www`, `api`, `admin`, `mail`, `status`, `docs`, …), and a slug collision check. Whether a launch additionally requires payment or manual approval is [open question 1](#8-open-questions-for-max) — build the gate as a **pluggable policy check** so either answer is a config change, not a refactor.
+1. **Self-serve signup provisions real resources.** Every launch creates a tenant database on a Netizen node, a Vercel deployment, a subdomain, and on-chain records. (The node database makes this cheaper than an external vendor project — see [K5 §7](2026-08-11_K5_SOVEREIGN_DATA_PLANE.md) — but it is still finite capacity.) An unguarded "create community" button is a cost and abuse vector. You **must** ship: email verification before launch, a per-account community limit, rate limiting, a reserved-subdomain list (`app`, `id`, `www`, `api`, `admin`, `mail`, `status`, `docs`, …), and a slug collision check. Whether a launch additionally requires payment or manual approval is [open question 1](#8-open-questions-for-max) — build the gate as a **pluggable policy check** so either answer is a config change, not a refactor.
 2. **Renaming a community is a migration, not a field edit.** Its PWA is installed on residents' home screens and `start_url`/`scope` are origin-bound; if the old subdomain stops resolving, every installed icon dies. The UI must present renaming with that consequence stated in German, and the contract's rename step keeps the old origin redirecting.
 3. **Never show raw wallet addresses** in the UI — resolve to a display name. This is a standing rule across the product.
 4. **Never use network-state vocabulary** on the Ortis surface. Operators are towns, parties, and associations; the copy is civic and plain. Likewise never surface Circles/CRC jargon — the currency is named per tenant.

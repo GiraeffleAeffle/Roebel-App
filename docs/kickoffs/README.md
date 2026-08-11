@@ -14,6 +14,7 @@ decision memo before any code.
 | [K3 — Identity inversion](2026-08-11_K3_IDENTITY_INVERSION.md) | Make a key the user owns the root of identity, not a vendor's smart account | K1 Slice 0 |
 | [Strategy — Ortis one-click community launch](2026-08-11_STRATEGY_ORTIS_ONE_CLICK_COMMUNITY.md) | Few clicks in the Ortis Dashboard → deployed stack + installable PWA for another town or a political party | K1 + K2; decisions in §3a and §7.1 now settled |
 | [K4 — Ortis Dashboard](2026-08-11_K4_ORTIS_DASHBOARD.md) | The operator-facing surface: sign up, describe a community, launch it, manage it | Nothing — contract-first against a mock. Works in `Netizen-Labs`, not this repo |
+| [K5 — Sovereign data plane](2026-08-11_K5_SOVEREIGN_DATA_PLANE.md) | A tenant database on a Netizen node instead of an external Supabase account; the answer for auth, storage, functions and realtime | Decision memo (§8.1) + four questions in §9 |
 
 **Cross-repo note:** the Netizen Accounts packages and the Ortis dashboard live
 in `MaxBrych/Netizen-Labs`, not in this repo. Every doc states which repo its
