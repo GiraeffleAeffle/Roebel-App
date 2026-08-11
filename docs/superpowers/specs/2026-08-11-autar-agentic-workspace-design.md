@@ -82,6 +82,28 @@ omits and the two-lines spec named as whitespace: **identity, money, governance,
 relationship.** UX gets us adopted; the rails keep us. This argues for surfacing Circles, EURe, the
 Safe and MACI *through* the client early rather than treating them as a later layer.
 
+### 1.1a Tracks — a template per user group (Max, 2026-08-11)
+
+Different user groups deploy different clients: **an institution needs more security and pays more; a
+community is leaner.** This is **not new architecture** — `packages/protocol/src/presets.ts` already
+ships the mechanism, documented as *"a preset is INTENT, not deployment output: it yields a
+schema-valid manifest"*, with `PresetId = "town" | "verein" | "genossenschaft" | "company"`.
+
+**A track is a preset plus a policy bundle, and what actually differs between tracks is the
+data-classification ceiling of §9.** That is already the router's hard constraint, so tracks need no
+new enforcement path — they set defaults the router is already obeying.
+
+| Track | Default class | Engines | Retention | Price posture |
+|---|---|---|---|---|
+| **Institution** (`town`) | `sensitive` | **Self-hosted only** | Strict, documented, erasure path rehearsed | Highest — security and compliance are the product |
+| **Community** (`verein`) | `internal` | Hosted tier allowed | Lean defaults | Low / free tier |
+| **Company** (`company`, startups) | `internal` | Hosted allowed, self-host optional | Configurable | Mid, per-seat |
+| **Online community** (Discord-style) | `public` / `internal` | Hosted | Lean | Free with metered agents |
+
+Existing preset IDs cover three of the four; the online-community track is the one addition. Pricing
+attaches to the track, so "institutions pay more" is a property of the manifest rather than a sales
+conversation.
+
 ### 1.2 The compatibility contract
 
 1:1 compatibility is a **permanent treadmill** — Buzz shipped four releases in four days at the end
