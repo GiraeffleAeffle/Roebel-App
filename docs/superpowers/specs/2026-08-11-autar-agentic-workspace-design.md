@@ -55,6 +55,19 @@ Why this inverts the competitive dynamic:
   or relays. Technical users get a customisable, feature-extended Buzz client with the orchestrator,
   the router, and a **mini app marketplace**.
 
+**Four ICPs, one product, four doors** (Max, 2026-08-11). The product is identical; the go-to-market
+is not:
+
+| ICP | Door | Why they come |
+|---|---|---|
+| Verein · restaurant · local org | Community (Ortis/Röbel embed) | Marketing and bureaucracy done for them. German-first, no keys visible |
+| Self-hoster running Buzz on Railway | Hosting (§1.3) | A better deployment. Highest intent, zero education |
+| **Discord community** | Direct | Already runs job boards in channels and understands bots and plugins. Wants its own place with its own branding |
+| **Startup** | Direct | The native Slack-replacement market. Wants kanban, calendar and agents in one place |
+
+**Caution: four ICPs is four go-to-markets against one person's hours.** Design for all four — they
+genuinely share the product — but **sequence the launches deliberately**, or none is served well.
+
 The shape to keep in mind: **Autar is to Buzz what Cursor is to VS Code** — inherit the substrate and
 its ecosystem entirely, then make the intelligence layer the reason to switch. Cleaner than Cursor,
 in fact, because protocol compatibility carries none of a fork's merge burden.
@@ -118,6 +131,146 @@ later step behind the §7 entity gate.
 
 The digest pin and upgrade cadence are shared with §1.2 — the same CI that proves client conformance
 also validates the rendered stack, so the treadmill is walked once, not twice.
+
+#### 1.3a The Aternos model (Max, 2026-08-11)
+
+**North star for the hosting product's UX: Aternos.** Aternos users are not sysadmins — they are
+teenagers who want to play with friends and end up owning a server as a side effect. That is the ICP
+reframed correctly: **nobody wants sovereignty, they want their own place.** Sovereignty is what they
+get, not what they ask for. It names the third thing between "run it yourself" and SaaS: **managed
+self-hosting that feels like one click.**
+
+**Hard architectural consequence: workspaces must sleep.** Aternos is economically possible because
+servers idle down when nobody is playing, and most workspaces are idle most of the time — a Verein
+uses theirs a few hours a week. **Suspend-and-resume is a launch requirement, not an optimisation:**
+relay, Postgres and MinIO must survive cold start with acceptable wake latency, and wake must be
+triggerable by an inbound connection. Retrofitting this later is much harder than designing for it.
+
+**Where the analogy breaks — three places it must not be copied:**
+
+| Aternos | Autar |
+|---|---|
+| Free forever; a Minecraft server has no marginal cost per action | **Agents burn tokens.** Tier is **workspace free, agents metered** — §5g's "try first, pay after" |
+| A Minecraft world is not personal data | Meeting transcripts are. Hosting makes us an *Auftragsverarbeiter* — AVV contracts and TOMs. The real cost of this model, gated on §7 |
+| Aternos owns the infra, so "your server" is nominal | Ours cannot be nominal. **Verified exit** and the forkable manifest keep the claim honest — one command to take the node and leave. Aternos does not attempt this; it is our differentiator, not our imitation |
+
+### 1.4 The marketplace — two surfaces, deliberately separate
+
+Minecraft taught the world what "install a plugin into my server" means, and that mental model
+transfers for free. But **the marketplace is two surfaces, and conflating them would either cripple
+mini apps or make agent installation dangerous:**
+
+| | **Mini apps** | **Agents** |
+|---|---|---|
+| Runs | Client-side, WebView-sandboxed | In the workspace, holding a key |
+| Can | Render, read scoped data | **Act, spend, publish** |
+| Status | **Already built** — `miniapp-sdk` v0.2 on npm, AI `/editor`, MCP endpoint, host WebView pattern solved | The real product |
+| Risk | Bounded by the sandbox | Bounded only by charter, scopes and budget |
+
+**The agent marketplace's permission model already exists in §8.** An installed agent is simply a
+member: an npub, a charter, declared tool scopes, a budget ceiling, and an audit trail. "Install the
+Fördermittel agent into your Verein's workspace" is provisioning a member with a spending limit —
+the security model was designed before the feature existed.
+
+#### 1.4a Stateful plugins — job boards, kanban, calendars
+
+Plugins are not only render surfaces. A **job board, a kanban ticket board, a calendar** need
+persistent state shared across members. On Nostr that state is simply events — a ticket is an event,
+moving it is an event — and it is **multiplayer for free**, because the relay already syncs it.
+
+**The rule that makes the marketplace compound rather than fragment: plugin state lives in Nostr
+events under declared kinds. The plugin owns the UI; the relay owns the data.**
+
+The consequence is the most valuable property in this design: **any plugin storing state as events is
+automatically agent-operable.** An agent reads, creates, moves and comments on a ticket natively with
+its own key — no integration layer, because it is the same event stream the humans are on. This is
+what closes the north-star loop (§6): the meeting produces a follow-up, the follow-up is a ticket, the
+ticket is an event, and the agent acts on it. Slack-plus-Jira cannot do this cleanly; Discord cannot
+do it at all.
+
+Precedent already exists in-repo: the dev-ticket board turns tickets into PRs, and NSP-12's kind
+registry and stage machine are the shape a kanban needs.
+
+**Hard constraint: plugin kinds require their own namespace and must not collide with Buzz's
+registry (§1.2).** Colliding would break compatibility on precisely the feature meant to
+differentiate us. The namespace allocation is owned by the `autar-miniapps` spec.
+
+**This is where the revenue is.** Hosting fees are small and ops-heavy; agents are what people pay
+for (§13a — operated outcomes, never software), and third-party agents make every hosted workspace
+stickier. **The marketplace is the flywheel; hosting is the on-ramp.**
+
+### 1.5 White-label by default (Max, 2026-08-11)
+
+**Anyone can deploy their own state-of-the-art Buzz client with their own branding.** This is what
+makes "everybody can deploy their own" true rather than a slogan, and it completes the Aternos shape:
+Aternos gives you *your* server; Autar gives you *your* workspace, with your name on it.
+
+**The substrate already supports it.** Buzz's multi-tenancy is **host-based** — the B0 upstream notes
+record `host→community resolution before any handler; unknown hosts fail closed`. A custom domain and
+a tenant identity are therefore the same object. This is not bolted on; it is the boundary the relay
+was designed around.
+
+**The rule that prevents drift: one build, runtime-themed.**
+
+- Branding is **configuration the client reads at runtime** — name, logo, palette, typography,
+  domain — and **never a compile-time constant.** The moment per-customer client builds exist, we are
+  back to N codebases wearing different names (§14).
+- `useTheme()` is already the indirection layer and `packages/design-tokens` already exists; the theme
+  sources from workspace config instead of a constant. **roebel-id already ships per-client login
+  branding (`ORTIS_BRANDING`)** — the pattern is proven in this repo.
+- **Web and desktop get full white-label**, custom domain included.
+
+**Mobile is the one real exception, and it is an app-store fact rather than a technical one.** Icon,
+display name and bundle ID bake at build time, so an App Store listing cannot be runtime-themed:
+
+| Tier | Mobile |
+|---|---|
+| **Default — the Slack model** | One Autar app; workspaces are branded *inside* it. No per-customer submission |
+| **Premium** | Per-customer EAS build with own icon, name and listing. Each one carries its own store submission, review cycle and update cadence — priced accordingly |
+
+**Brand posture, decided: Autar is a platform brand, not a consumer brand.** Shopify stores do not say
+Shopify; Aternos servers do not say Aternos in-game. **"Powered by Autar" ships default-on and is
+removable on a paid tier** — the standard playbook, and a clean revenue lever.
+
+#### 1.5a Addressing — `your-client.autar.me`
+
+Every deployed client gets a subdomain — the Aternos pattern (`yourname.aternos.me`). Zero DNS work
+for the customer, a workspace that exists the moment it is created, and a custom domain as the paid
+upgrade.
+
+**Two domains, and the split is a security boundary rather than an aesthetic one** (Max is acquiring
+both, 2026-08-11):
+
+| Domain | Role |
+|---|---|
+| **`autar.app`** | Platform — marketing, dashboard, billing, docs, API |
+| **`autar.me`** | **Tenant workspaces** — `your-client.autar.me`. Wildcard TLS terminates here |
+| `autar.xyz` | Already held — brand/teaser or redirect |
+
+**Why tenants must not live on the platform domain:** a subdomain takeover or XSS on any single
+tenant would otherwise sit inside the same cookie scope as the dashboard and billing. A separate
+registrable domain makes the browser treat tenants as an entirely separate origin family — the reason
+Google serves user content from `googleusercontent.com` and GitHub from `githubusercontent.com`, and
+the reason Aternos splits `aternos.org` from `aternos.me`. **Submit `autar.me` to the Public Suffix
+List**, after which browsers refuse cross-subdomain cookies between tenants outright: the strongest
+available isolation for multi-tenant user content, at no cost. It isolates reputation too — an
+abusive tenant getting `autar.me` blocklisted does not take billing and docs down with it.
+
+**It maps natively onto Buzz's host→community resolution: the subdomain *is* the tenant key**, and
+unknown hosts already fail closed. Nothing new to invent at the substrate.
+
+Four commitments this creates, two of which have already caused incidents in this repo:
+
+| Commitment | Detail |
+|---|---|
+| **Wildcard DNS + TLS on `*.autar.me`** | The single point of failure for *every* customer simultaneously. `*.roebel.site` TLS has already gone down here and needed manual re-verification — **certificate renewal monitoring ships with the first customer, not after the first outage** |
+| **Custom domain = CNAME onto the subdomain** | Two recorded traps apply. Fly's shared IPv4 requires the CNAME to target the app-specific hostname plus a `_fly-ownership` TXT, or verification hangs forever. More seriously, **a vanity CNAME broke login in roebel-id because one provider means one issuer** — Autar's npub identity likely dodges this, but **verify before promising custom domains** if the community door routes through Netizen Accounts/OIDC |
+| **Namespace policy** | Reserved names, brand squatting, a claim and dispute process. Cheap now, expensive once names are taken |
+| **Reputation coupling** | Everything on `*.autar.me` is our domain, so an abusive community there is our abuse report. Aternos carries the same cost. A moderation policy is an obligation of this decision, not an optional extra |
+
+**Gate: the domains.** `autar.xyz` is held; **`autar.app` and `autar.me` are being acquired by Max
+(2026-08-11)**. Wildcard DNS and TLS on `*.autar.me`, plus the PSL submission, are the first
+infrastructure tasks once they land — same shape as the `buzz` A record that gated M0.
 
 ## 2. Scope
 
