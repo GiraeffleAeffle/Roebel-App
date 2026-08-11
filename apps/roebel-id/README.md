@@ -44,6 +44,7 @@ schema. Copy `.env.example` to `.env` for local dev.
 | `SUPABASE_SERVICE_KEY` | yes | |
 | `THIRDWEB_CLIENT_ID` | yes | |
 | `JWKS_JSON` | yes (prod) | See "Generate JWKS" above. |
+| `SIGNER_RESOURCE_URL` | no | The node signer's public URL, e.g. `https://signer.roebel.app`. Enables resource-indicator access tokens for the sovereign Netizen Account. **Must exactly equal `identity.authBridge.signer.url`** in that node's manifest (netizen_labs) — the two live in different repos and cannot be cross-checked at boot; a mismatch presents as the signer rejecting every token. Unset disables resource indicators. |
 
 ### First-party relying parties (RPs)
 
