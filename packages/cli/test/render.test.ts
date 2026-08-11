@@ -81,10 +81,12 @@ test("secrets appear only as references, never resolved values", () => {
   assert.deepEqual(
     collectSecretRefs(roebel).sort(),
     [
-      "$BUZZ_GIT_HOOK_HMAC_SECRET", "$BUZZ_POSTGRES_PASSWORD", "$BUZZ_REDIS_PASSWORD",
+      "$ANTHROPIC_API_KEY", "$BUZZ_GIT_HOOK_HMAC_SECRET", "$BUZZ_MECKY_PRIVATE_KEY",
+      "$BUZZ_POSTGRES_PASSWORD", "$BUZZ_REDIS_PASSWORD",
       "$BUZZ_RELAY_PRIVATE_KEY", "$BUZZ_S3_ACCESS_KEY", "$BUZZ_S3_SECRET_KEY",
-      "$COORDINATOR_PUBKEY", "$GNOSIS_BUNDLER_RPC", "$GNOSIS_RPC", "$MATRIX_CLIENT_SECRET",
-      "$NEXTCLOUD_CLIENT_SECRET", "$ROEBEL_ID_JWKS", "$SUPABASE_URL", "$WEB_CLIENT_SECRET",
+      "$COORDINATOR_PUBKEY", "$GNOSIS_BUNDLER_RPC", "$GNOSIS_RPC",
+      "$HETZNER_INFERENCE_API_KEY", "$MATRIX_CLIENT_SECRET", "$NEXTCLOUD_CLIENT_SECRET",
+      "$ROEBEL_ID_JWKS", "$SUPABASE_URL", "$WEB_CLIENT_SECRET",
     ],
   );
   // the keystone env references the secret, it does not inline a value
@@ -448,25 +450,56 @@ test("a declared watcher becomes a rendered service, not a hand-started containe
     ...roebel,
     agents: {
       ...roebel.agents,
-      watcher: { agent: "mecky", displayName: "Mecky", model: "claude-sonnet-5", perAuthorPerHour: 5, perDay: 100 },
+      watcher: {
+        agent: "mecky",
+        displayName: "Mecky",
+        publicEvidence: {
+          baseUrl: "https://roebel-stadtstack.agentcart.eu",
+          municipalityId: "roebel-mueritz",
+        },
+        inference: {
+          baseUrl: "https://inference.hetzner.com/api/v1",
+          apiKey: "$HETZNER_INFERENCE_API_KEY",
+          model: "DeepSeek-V4-Flash-0731",
+        },
+        perAuthorPerHour: 5,
+        perDay: 100,
+      },
     },
   };
   const compose = renderComposeYml(withWatcher);
-  assert.match(compose, /agent-watcher:/);
-  assert.match(compose, /AGENT_NAME: "mecky"/);
-  assert.match(compose, /AGENT_DISPLAY_NAME: "Mecky"/);
-  assert.match(compose, /ANTHROPIC_MODEL: "claude-sonnet-5"/);
-  assert.match(compose, /AGENT_PER_AUTHOR_PER_HOUR: "5"/);
-  assert.match(compose, /AGENT_PER_DAY: "100"/);
+  const watcherTail = compose.slice(compose.indexOf("agent-watcher:"));
+  const nextServiceIndex = watcherTail.search(/\n  [a-z][a-z0-9-]*:\n/);
+  const watcherBlock = watcherTail.slice(
+    0,
+    nextServiceIndex === -1 ? watcherTail.length : nextServiceIndex,
+  );
+  assert.match(watcherBlock, /agent-watcher:/);
+  assert.match(watcherBlock, /AGENT_NAME: "mecky"/);
+  assert.match(watcherBlock, /AGENT_DISPLAY_NAME: "Mecky"/);
+  assert.match(
+    watcherBlock,
+    /STADTSTACK_PUBLIC_BASE_URL: "https:\/\/roebel-stadtstack\.agentcart\.eu"/,
+  );
+  assert.match(watcherBlock, /MECKY_MUNICIPALITY_ID: "roebel-mueritz"/);
+  assert.match(
+    watcherBlock,
+    /MECKY_INFERENCE_BASE_URL: "https:\/\/inference\.hetzner\.com\/api\/v1"/,
+  );
+  assert.match(watcherBlock, /MECKY_INFERENCE_MODEL: "DeepSeek-V4-Flash-0731"/);
+  assert.match(watcherBlock, /AGENT_PER_AUTHOR_PER_HOUR: "5"/);
+  assert.match(watcherBlock, /AGENT_PER_DAY: "100"/);
   // Secrets are compose-interpolated from the box's .env, never inlined —
   // and ONLY the two the watcher needs. The old hand-rolled `docker run
   // --env-file .env` handed the agent the Supabase service key too.
-  assert.match(compose, /ANTHROPIC_API_KEY: "\$\{ANTHROPIC_API_KEY\}"/);
-  assert.match(compose, /NODE_AGENT_SECRET: "\$\{NODE_AGENT_SECRET\}"/);
-  const watcherBlock = compose.slice(compose.indexOf("agent-watcher:"));
-  const nextService = watcherBlock.slice(watcherBlock.indexOf("\n  "));
+  assert.match(
+    watcherBlock,
+    /MECKY_INFERENCE_API_KEY: "\$\{HETZNER_INFERENCE_API_KEY\}"/,
+  );
+  assert.doesNotMatch(watcherBlock, /ANTHROPIC_API_KEY/);
+  assert.match(watcherBlock, /NODE_AGENT_SECRET: "\$\{NODE_AGENT_SECRET\}"/);
   assert.ok(
-    !watcherBlock.slice(0, watcherBlock.length - nextService.length).includes("SUPABASE"),
+    !watcherBlock.includes("SUPABASE"),
     "the watcher must not receive Supabase credentials",
   );
 

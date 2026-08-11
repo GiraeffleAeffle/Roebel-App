@@ -979,6 +979,9 @@ importers:
       '@netizen-labs/nostr':
         specifier: workspace:*
         version: link:../nostr
+      '@roebel/stadtstack-federation-client':
+        specifier: workspace:*
+        version: link:../stadtstack-federation-client
     devDependencies:
       '@types/node':
         specifier: ^22.7.4

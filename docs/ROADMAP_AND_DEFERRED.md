@@ -113,15 +113,22 @@ Tag Mecky in the app's Nostr test section and it answers in place.
   answer is produced**, and before the model is even called: never answers itself, never answers
   another agent (two bots would talk until someone sees the bill), one answer per question,
   5/author/hour, 100/day, and a kill switch.
-- The system prompt carries the one instruction that matters in a civic feed: say plainly when
-  you do not know, and never invent a decision, date, figure or municipal responsibility. An
-  agent that confabulates municipal facts is worse than none, because it does so wearing the
-  town's identity.
+- The permanent source path is evidence-gated: it loads only checksum-bound, reviewed public
+  Stadtstack cases and requires every generated answer to cite at least one of them. A missing
+  source, provider failure, or unknown citation declines the mention instead of publishing.
+- Review happens once at the civic evidence boundary, not on every Mecky answer. That keeps
+  administration in control of what is verified without turning routine public questions into
+  an administrative approval queue.
+- Inference sits behind an OpenAI-compatible seam. The Röbel manifest declares Hetzner's
+  experimental endpoint and a scoped secret reference; changing provider does not change
+  Mecky's Nostr identity or evidence contract.
 
 **Verified live:** a citizen asked "was ist Nostr in einem Satz?" and Mecky answered on the
 relay — threaded onto the question, addressed back to the asker, and tagged `netizen_agent`.
 
-**Rotate the `ANTHROPIC_API_KEY`** — it was pasted into a chat log on 2026-07-28.
+The historical live proof used Anthropic. The replacement watcher no longer receives that
+secret; it receives only `HETZNER_INFERENCE_API_KEY` plus `NODE_AGENT_SECRET`. Other Röbel
+services that still use Anthropic remain separate and are not silently rerouted.
 
 **Rotate `NODE_AGENT_SECRET` before this is public.** It currently holds a demonstration value
 that appeared in a chat log, and it determines Mecky's identity — someone holding it could

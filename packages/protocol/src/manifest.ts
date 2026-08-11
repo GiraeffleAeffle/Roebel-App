@@ -439,11 +439,27 @@ const Agents = z.object({
       /** Agent name slug — the identity is derived from (node secret, node id, this). */
       agent: z.string().regex(/^[a-z0-9-]+$/, "agent name must be a lowercase slug"),
       displayName: z.string().optional(),
-      /** Model for answers. The watcher's own default applies when omitted. */
-      model: z.string().optional(),
+      /** Exact reviewed public evidence origin; private packages never cross this seam. */
+      publicEvidence: z
+        .object({
+          baseUrl: z.string().url(),
+          municipalityId: z
+            .string()
+            .regex(/^[a-z0-9][a-z0-9-]{0,119}$/, "municipality id must be a lowercase slug"),
+        })
+        .strict(),
+      /** Replaceable OpenAI-compatible inference provider. The key stays a reference. */
+      inference: z
+        .object({
+          baseUrl: z.string().url(),
+          apiKey: secretRef,
+          model: z.string().trim().min(1),
+        })
+        .strict(),
       perAuthorPerHour: z.number().int().positive().optional(),
       perDay: z.number().int().positive().optional(),
     })
+    .strict()
     .optional(),
 });
 
