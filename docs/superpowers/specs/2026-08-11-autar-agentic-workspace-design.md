@@ -6,6 +6,10 @@
 > engine), `netizen_labs/docs/AUTAR_KICKOFF.md` (M0–M2).
 > **Confirms, does not overturn:** the [chat protocol decision](../../future-research/2026-07-26_CHAT_PROTOCOL_DECISION.md)
 > — Autar stays Nostr-native, Matrix stays in line A, unified at identity with no message bridge.
+> **Product strategy (Max, 2026-08-11, §1.1):** Autar is **not a Buzz competitor — it is a 1:1
+> Buzz-compatible client** differentiating on distribution, UX, adoption and an extended feature set,
+> including the **web client Buzz does not have** and a mini app marketplace. Usable by everyone, not
+> only technical AI people.
 > **Direction from Max (2026-08-11):** build the Slack/Teams-shaped workspace whose intelligence
 > matches the Claude Code harness; full Nostr interoperability because agents are keypair-native
 > there; calls on LiveKit driven by our own client; an AI Agent Orchestrator performs model routing;
@@ -27,6 +31,59 @@ to a contributor, ask the agent questions by marking it and otherwise it listens
 the channel holds a transcript file and an agent-written summary; findings become work by marking the
 agent, or by the agent proposing the follow-ups itself. Onboarding happens at the link.
 
+### 1.1 Product strategy: a Buzz-compatible client, not a competitor (Max, 2026-08-11)
+
+**Autar does not compete with Buzz. Autar is a 1:1 protocol-compatible Buzz client** that
+differentiates on distribution, UX, adoption, and an extended feature set. Buzz is growing and being
+adopted; building a rival workspace against that is a losing position, while building the best client
+for it is a compounding one.
+
+Why this inverts the competitive dynamic:
+
+- **Positive-sum instead of zero-sum.** Every Buzz user is a prospective Autar user at zero migration
+  cost — same relay, same identity, same channels. We win users *inside* Buzz, not away from it.
+- **Upstream velocity becomes distribution**, not a threat. It was already free R&D; now it is free
+  reach.
+- **Fork-last is settled permanently, in its strongest form: we never fork, because we were never the
+  server.** The relay stays stock Buzz, digest-pinned and installer-rendered. There is no divergence
+  to maintain, ever.
+- **The web client is the wedge.** Buzz ships Tauri desktop, Flutter mobile and a CLI — **no web
+  client.** Web is the lowest-friction way to try anything, the only way link-based guest joins work
+  for meetings (§6.2), and the only surface a restaurant owner will touch. The one-Expo-codebase
+  decision (§14) produces it as a by-product; the wedge and the architecture already agree.
+- **Two audiences, one client.** Non-technical users get a workspace that never mentions Nostr, keys
+  or relays. Technical users get a customisable, feature-extended Buzz client with the orchestrator,
+  the router, and a **mini app marketplace**.
+
+The shape to keep in mind: **Autar is to Buzz what Cursor is to VS Code** — inherit the substrate and
+its ecosystem entirely, then make the intelligence layer the reason to switch. Cleaner than Cursor,
+in fact, because protocol compatibility carries none of a fork's merge burden.
+
+**The mini app marketplace is mostly a port, not a build.** `miniapp-sdk` v0.2 is published on npm,
+the AI `/editor` ships, the public MCP endpoint is live, two Röbel mini-apps run in production, and
+the Expo host WebView pattern is already solved. Existing inventory, not new work.
+
+**What this strategy cannot buy: UX is copyable.** If Autar proves a web client matters, Block can
+ship one. The durable moat therefore cannot be the client — it must be exactly what Buzz deliberately
+omits and the two-lines spec named as whitespace: **identity, money, governance, and the community
+relationship.** UX gets us adopted; the rails keep us. This argues for surfacing Circles, EURe, the
+Safe and MACI *through* the client early rather than treating them as a later layer.
+
+### 1.2 The compatibility contract
+
+1:1 compatibility is a **permanent treadmill** — Buzz shipped four releases in four days at the end
+of July 2026 — and the day we fall behind, the core promise is false. It therefore needs a mechanism,
+not diligence.
+
+| Rule | Detail |
+|---|---|
+| **Conformance is a P0 invariant** | Autar implements Buzz's NIP set (01, 09, 10, 11, 17, 25, 29, 42, 43, 50, 70) and its custom kind registry (9000–9022 group ops, 9030–9033 NIP-43 admin, 13534 relay-signed membership, 20001/20002 presence/typing, 39000–39002 discovery, 40002–40003 rich content, 44100–44101 membership notifications) |
+| **CI proves it** | A **digest-pinned stock Buzz relay** runs in CI; Autar must interoperate against it. Breaking interop fails the build. This, not vigilance, is what keeps the promise true |
+| **Conforming, not complete** | Implement the kinds we actually need. Being a conforming client is the requirement; reimplementing all of Buzz is not |
+| **Extensions degrade gracefully** | Autar-only features use new kinds that stock Buzz ignores by Nostr convention. **No Autar-only event may be load-bearing in a conversation that includes stock-Buzz participants** — a Buzz user in an Autar channel must never see a broken or empty thread |
+| **Never ship a server** | The relay is stock Buzz. Autar ships clients and agents only |
+| **Platform risk is bounded** | Buzz is Apache-2.0 and Nostr-based, so the protocol stays open even if the product changes direction. Our relay is ours; the exit is real |
+
 ## 2. Scope
 
 The full "AI + crypto M365" is eight-plus independent subsystems and cannot be one spec. **This spec
@@ -45,7 +102,8 @@ mail/calendar, mobile clients, and the public GTM surface.
 | # | Decision | Rationale |
 |---|---|---|
 | D1 | **Shell is Slack/Teams-shaped** — channels, threads, DMs. No new paradigm to learn. | Familiarity is a feature; the differentiation is agent depth, not navigation |
-| D2 | **Substrate is Nostr, chat and channels included** (stock Buzz first, fork-last) | An agent *is* a keypair — no account provisioning, no device-key ceremony. Matrix's E2EE was designed around human devices doing verification, which is the wrong shape for an agent fleet |
+| D0 | **Autar is a 1:1 Buzz-compatible client, not a competitor** | Positive-sum: Buzz's growth becomes distribution. The web client Buzz lacks is the wedge. Moat is the rails, not the UI (§1.1) |
+| D2 | **Substrate is Nostr, chat and channels included** — **stock Buzz, never forked** | An agent *is* a keypair — no account provisioning, no device-key ceremony. Matrix's E2EE was designed around human devices doing verification, which is the wrong shape for an agent fleet. We ship no server (§1.2) |
 | D3 | **Matrix is not used in Autar.** It stays in line A for German institutions | One identity plane (npub). Adding MXID re-splits the thing Autar exists to unify |
 | D4 | **Calls: LiveKit SFU driven by our own client**, with Nostr carrying identity, membership, call announcement and post-call artifacts | Keeps one identity plane; guest links become a design problem, not an integration problem; LiveKit's agent framework makes an AI participant native |
 | D5 | **Harness per agent role**, declared in the agent's Nostr profile | ACP's bring-your-own-harness contract already models this; costs nothing architecturally |
@@ -374,6 +432,10 @@ DPIA problem is designed out rather than managed.
 
 ## 10. What we deliberately do not build
 
+- **A competing workspace.** Autar is a Buzz client (§1.1). Building a rival to a substrate that is
+  winning adoption is the losing position.
+- **A server, of any kind.** The relay is stock Buzz, digest-pinned. No fork, no patches, no
+  Autar-operated protocol server — ever.
 - **E2EE group chat.** Marmot / NIP-EE is not production-grade. Watch, do not build.
 - **Cross-org federated channels.** NIP-29 groups live on one relay; the ICP is single-org. Revisit
   when a real second org asks.
@@ -387,6 +449,10 @@ DPIA problem is designed out rather than managed.
 - **The scenario is the acceptance test.** A meeting with Max + one contributor + one agent that
   produces a transcript file, a summary message and at least one approved follow-up is the pass
   condition. Anything less is not M-complete.
+- **Conformance tests are the product promise.** A digest-pinned stock Buzz relay runs in CI; assert
+  that an Autar client and a stock Buzz client interoperate in the same channel, and that a
+  stock-Buzz participant sees a coherent thread when Autar-only extension kinds are present (§1.2).
+  This suite failing is a P0, not a flaky test.
 - **Router tests are cost tests.** Assert that a known-shape request never triggers a slow-path model
   call, and that the logged cost of a summary job stays under a fixed ceiling.
 - **Latency tests are budget tests.** Assert measured TTFT for an in-call answer stays under the
@@ -412,6 +478,9 @@ DPIA problem is designed out rather than managed.
 | `autar-engine-registry` | Manifest schema, installer rendering, self-hosted GLM on the GPU node, LiteLLM wiring, flash-tier benchmarking | this spec §5.5 |
 | `autar-agent-roster` | Per-agent charters, tool adapters, the marketing and bureaucracy tool bus | this spec §7 |
 | `autar-roebel-embed` | The org-dashboard embed, CitizenNFT→membership provisioning, German-first surface | client shell |
+| `autar-buzz-conformance` | The kind/NIP conformance suite, digest-pinned stock relay in CI, extension-kind rules, upstream tracking cadence | this spec §1.2 |
+| `autar-miniapps` | Porting `miniapp-sdk` v0.2 + the `/editor` + MCP into the Autar client; the marketplace surface | client shell |
+| `autar-rails` | Surfacing identity, Circles/EURe/Safe and governance through the client — the non-copyable moat (§1.1) | client shell |
 | `autar-documents` | Fileverse plane, E2EE documents and sheets | independent |
 
 ## 13. Resolved by Max (2026-08-11)
