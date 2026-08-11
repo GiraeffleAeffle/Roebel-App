@@ -57,6 +57,8 @@ mail/calendar, mobile clients, and the public GTM surface.
 | D11 | **Unit of account is EUR; payment rails are pluggable** | Münzen is one rail among many to come, not the accounting unit. Launch simple: EUR budgets, Stripe subscriptions (§8.1) |
 | D12 | **The in-call agent splits by question type, not data class** | Retrieval runs live and local; reasoning is acknowledged and deferred. Removes the apparent privacy/UX trade-off (§5.4) |
 | D13 | **A meeting creates its own channel** | Matches the Teams shape and makes guest history a non-question (§6.2) |
+| D14 | **One Expo codebase for every platform from the start** | Codebase drift is the failure mode that kills solo-maintained cross-platform products; worth a lower desktop-interaction ceiling (§14) |
+| D15 | **Electron, not Tauri, for desktop** | Electron bundles Chromium, so desktop WebRTC is identical to the tested browser stack. Tauri's Linux WebKitGTK media support is the risk, and calls are the north star (§14.1) |
 
 ## 4. The Orchestrator
 
@@ -405,7 +407,7 @@ DPIA problem is designed out rather than managed.
 
 | Spec | Covers | Depends on |
 |---|---|---|
-| `autar-client-shell` | The web client: navigation, thread view, agent presence, approval cards, design language | this spec |
+| `autar-client-shell` | The Expo client: navigation, thread view, agent presence, approval cards, design language, Electron packaging | this spec §14 |
 | `autar-calls` | LiveKit integration, guest join, agent participant, recording and retention | this spec |
 | `autar-engine-registry` | Manifest schema, installer rendering, self-hosted GLM on the GPU node, LiteLLM wiring, flash-tier benchmarking | this spec §5.5 |
 | `autar-agent-roster` | Per-agent charters, tool adapters, the marketing and bureaucracy tool bus | this spec §7 |
@@ -429,7 +431,66 @@ than the answers.
 6. **The `sensitive` + live trade-off dissolves** once the in-call agent is split by question type
    rather than data class — see §5.4.
 
-## 14. Dogfood targets — both doors in parallel
+## 14. Client architecture — one codebase, all platforms
+
+**Decision (Max, 2026-08-11): a single Expo codebase targeting every platform from the beginning,
+with Electron for desktop.** Not phased, not split.
+
+**Rationale — drift, not polish.** The failure mode that kills a solo-maintained cross-platform
+product is not a slightly-off scrollbar; it is two codebases falling out of sync until keeping them
+current becomes the whole job. One codebase is worth accepting a lower ceiling on desktop-specific
+interaction, and the ceiling is manageable (below).
+
+| Target | Path |
+|---|---|
+| Web · PWA | Expo Router + react-native-web, `output: single` |
+| iOS · Android | EAS build |
+| macOS · Windows · Linux | **Electron** wrapping the Expo web export |
+
+### 14.1 Electron over Tauri — decided on the call stack
+
+Tauri wins on binary size (3–10MB vs 85–150MB) and memory, and upstream Buzz's own desktop client is
+Tauri + React. Autar still takes Electron, for one reason: **Tauri renders in the OS webview** —
+WKWebView, WebView2, and **WebKitGTK on Linux**, where WebRTC support (screen sharing, codec
+coverage, device enumeration) is historically weakest. **Electron bundles Chromium**, so the desktop
+WebRTC stack is identical to the one developed and tested in the browser.
+
+When the north-star scenario is *a meeting works*, call predictability outranks binary size. Slack,
+Discord, Teams and VS Code all ship Electron for the same reason. Revisit only if Tauri's Linux
+media story demonstrably closes.
+
+### 14.2 Deliberate platform splits
+
+One codebase does not mean zero platform code. These four splits are planned, bounded, and reviewed —
+anything beyond them is drift and gets rejected:
+
+| Split | Why it is unavoidable | Containment |
+|---|---|---|
+| **Call layer** | LiveKit ships separate SDKs: `@livekit/react-native` and `livekit-client` | One `CallProvider` interface, two implementations. Requires a dev/EAS build — not Expo Go |
+| **Chat list virtualization** | `FlatList` on web underperforms real windowing; chat history is the stress case | Platform-split that single component |
+| **Desktop interaction** | Keyboard shortcuts, context menus, text selection, drag-and-drop | `Platform.OS === 'web'` escape hatches with raw DOM handlers |
+| **Marketing site** | autar.xyz must not ship the app bundle | A small separate static site. A landing page is not a second app codebase |
+
+### 14.3 One styling system, unlike Röbel
+
+Autar uses **`StyleSheet.create()` + `useTheme()` on every platform, web included.** Röbel carries
+two systems (Tailwind on web, StyleSheet in Expo) and the NativeWind attempt to unify them broke the
+app and was reverted. Autar starts on the far side of that problem and **must not** acquire a second
+styling system.
+
+### 14.4 Tuition already paid in this repo
+
+These traps are known from `apps/expo` and transfer directly — re-learning them would be waste:
+
+- **`app.config.ts` is authoritative**; `app.json` is ignored. Config bakes at EAS build time, not
+  via OTA.
+- **PWA head tags ship via `public/index.html`** — `+html.tsx` is unused at `output: single`.
+- **Service worker must precache entry scripts** or offline never boots.
+- **Metro workspace imports must be extensionless**; a `.js` suffix breaks `eas update` silently.
+- **Max runs EAS builds and updates himself.** Done means committed and pushed — never run
+  `eas update` unasked.
+
+## 15. Dogfood targets — both doors in parallel
 
 §5g sequenced the doors (audience-of-one first, Röbel orgs later). Max's answer runs them **in
 parallel**, which tests both ICPs at once and gives the community door a named first business:
