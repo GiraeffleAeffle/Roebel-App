@@ -1,12 +1,82 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { buildCivicDiscussionEvent } from "@netizen-labs/nostr";
 import {
   createOpenAICompatiblePublicMeckyInference,
   createPublicMecky,
+  createPublicMeckyRelayReply,
   createStadtstackReviewedEvidenceReader,
 } from "../src/public-mecky";
 
 const EVIDENCE_ID = `sha256:${"a".repeat(64)}`;
+
+it("binds a civic Mecky reply to the signed discussion, Case and reviewed evidence", () => {
+  const discussion = buildCivicDiscussionEvent(new Uint8Array(32).fill(42), {
+    municipalityId: "roebel-mueritz",
+    sourceCaseId: "marienfelder-strasse",
+    canonicalCaseId:
+      "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
+    agentPubkey: "c".repeat(64),
+    content: "@Mecky Kann hier eine sichere Querung geprüft werden?",
+    createdAt: 1_786_464_000,
+  });
+  const reply = createPublicMeckyRelayReply({
+    discussion,
+    binding: {
+      municipalityId: "roebel-mueritz",
+      sourceCaseId: "marienfelder-strasse",
+      canonicalCaseId:
+        "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
+    },
+    result: {
+      status: "answered",
+      content:
+        "KI-Zusammenfassung: Eine Prüfung ist möglich.\n\nGeprüfte Quelle: Marienfelder Straße – https://stadtstack.example/case",
+      evidenceRefs: [
+        {
+          evidenceId: EVIDENCE_ID,
+          title: "Marienfelder Straße",
+          publicCaseUrl: "https://stadtstack.example/case",
+        },
+      ],
+    },
+  });
+
+  assert.match(reply.receiptId, /^urn:stadtstack:mecky-answer:[0-9a-f]{64}$/);
+  assert.deepEqual(reply.tags, [
+    ["mecky-receipt", reply.receiptId],
+    ["municipality", "roebel-mueritz"],
+    ["case", "marienfelder-strasse"],
+    [
+      "stadtstack-case",
+      "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
+    ],
+    ["evidence", EVIDENCE_ID, "https://stadtstack.example/case"],
+  ]);
+  assert.deepEqual(
+    createPublicMeckyRelayReply({
+      discussion,
+      binding: {
+        municipalityId: "roebel-mueritz",
+        sourceCaseId: "marienfelder-strasse",
+        canonicalCaseId:
+          "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
+      },
+      result: {
+        status: "answered",
+        content: reply.content,
+        evidenceRefs: [
+          {
+            evidenceId: EVIDENCE_ID,
+            title: "Marienfelder Straße",
+            publicCaseUrl: "https://stadtstack.example/case",
+          },
+        ],
+      },
+    }),
+    reply,
+  );
+});
 
 describe("Public Mecky", () => {
   it("answers a public mention from reviewed Stadtstack evidence and cites it", async () => {

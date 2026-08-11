@@ -26,11 +26,17 @@ export default function GovernanceView({
   initialProposalId = null,
   initialCivicTopicBinding = null,
   onOpenMunicipalCase,
+  onDiscussMunicipalCase,
   publicDemoOnly = false,
 }: {
   initialProposalId?: string | null;
   initialCivicTopicBinding?: CivicTopicBindingV1 | null;
   onOpenMunicipalCase: (url: string) => void;
+  onDiscussMunicipalCase?: (target: {
+    municipalityId: string;
+    sourceCaseId: string;
+    title: string;
+  }) => void;
   /** A standalone read-only staging build: no treasury, proposals or wallet paths. */
   publicDemoOnly?: boolean;
 }) {
@@ -165,6 +171,7 @@ export default function GovernanceView({
           become on-chain proposals and this mini app never writes back. */}
       <MunicipalDecisionCasesSection
         onOpenCase={onOpenMunicipalCase}
+        onDiscussCase={onDiscussMunicipalCase}
         onOpenDemoTopic={(binding) => {
           setSelectedId(null);
           setSelectedTopic(binding);

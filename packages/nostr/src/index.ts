@@ -69,3 +69,15 @@ export type { OrgIdentity } from "./org";
 
 export { RelayClient } from "./relay";
 export type { Filter, PublishResult, RelayOptions } from "./relay";
+
+export {
+  buildCitizenSignedSuggestion,
+  buildCivicDiscussionEvent,
+} from "./civic";
+export type {
+  CitizenSignedSuggestionInput,
+  CitizenSignedSuggestionV1,
+  CivicCaseBinding,
+  CivicDiscussionInput,
+  PublicMeckySuggestionDraftV1,
+} from "./civic";

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildAgentNoteEvent, buildNoteEvent, deriveAgentIdentity, deriveNostrSecretKey, type NostrEvent } from "@netizen-labs/nostr";
+import { buildAgentNoteEvent, buildCivicDiscussionEvent, buildNoteEvent, deriveAgentIdentity, deriveNostrSecretKey, type NostrEvent } from "@netizen-labs/nostr";
 import { DEFAULT_BOUNDS, emptyHistory } from "../src/bounds";
-import { watchOnce } from "../src/watcher";
+import { watchOnce, type WatcherDeps } from "../src/watcher";
 
 const MECKY = deriveAgentIdentity("a-node-secret-with-plenty-of-entropy-0123456789", "roebel", "mecky");
 const CITIZEN = deriveNostrSecretKey("0x" + "9c".repeat(65));
@@ -36,11 +36,65 @@ function harness(
         },
         close: () => {},
       }),
-    } as never,
+    } as WatcherDeps,
   };
 }
 
 describe("answering a mention", () => {
+  it("ingests a civic discussion into Stadtstack before Mecky answers it", async () => {
+    const question = buildCivicDiscussionEvent(CITIZEN, {
+      municipalityId: "roebel-mueritz",
+      sourceCaseId: "marienfelder-strasse",
+      canonicalCaseId:
+        "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
+      agentPubkey: MECKY.publicKey,
+      content: "@Mecky Kann hier eine sichere Querung geprüft werden?",
+      createdAt: NOW - 5,
+    });
+    const order: string[] = [];
+    const h = harness([question], async () => {
+      order.push("think");
+      return "Aus geprüften Quellen.";
+    });
+    h.deps.ingestCivicDiscussion = async (event: NostrEvent) => {
+      assert.equal(event.id, question.id);
+      order.push("intake");
+    };
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.answered, 1);
+    assert.deepEqual(order, ["intake", "think"]);
+  });
+
+  it("does not answer or consume a civic question when Stadtstack intake fails", async () => {
+    const question = buildCivicDiscussionEvent(CITIZEN, {
+      municipalityId: "roebel-mueritz",
+      sourceCaseId: "marienfelder-strasse",
+      canonicalCaseId:
+        "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
+      agentPubkey: MECKY.publicKey,
+      content: "@Mecky Bitte mit dem Case verbinden.",
+      createdAt: NOW - 5,
+    });
+    let thought = 0;
+    const h = harness([question], async () => {
+      thought += 1;
+      return "Nicht senden";
+    });
+    h.deps.ingestCivicDiscussion = async () => {
+      throw new Error("stadtstack unavailable");
+    };
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.answered, 0);
+    assert.equal(result.refused["stadtstack-intake-failed"], 1);
+    assert.equal(thought, 0);
+    assert.equal(h.published.length, 0);
+    assert.equal(h.deps.history.answered.has(question.id), false);
+  });
+
   it("asks the relay for events tagging the agent", async () => {
     const h = harness([]);
     await watchOnce(h.deps);
@@ -61,6 +115,35 @@ describe("answering a mention", () => {
     assert.ok(reply.tags.some((t) => t[0] === "p" && t[1] === question.pubkey));
     // and unmistakably machine-authored
     assert.ok(reply.tags.some((t) => t[0] === "netizen_agent"));
+  });
+
+  it("keeps a deterministic civic receipt on the signed Mecky reply", async () => {
+    const question = buildCivicDiscussionEvent(CITIZEN, {
+      municipalityId: "roebel-mueritz",
+      sourceCaseId: "marienfelder-strasse",
+      canonicalCaseId:
+        "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
+      agentPubkey: MECKY.publicKey,
+      content: "@Mecky Kann hier eine sichere Querung geprüft werden?",
+      createdAt: NOW - 5,
+    });
+    const receiptId = `urn:stadtstack:mecky-answer:${"a".repeat(64)}`;
+    const h = harness([question], async () => ({
+      content: "Nur aus geprüften Quellen beantwortet.",
+      tags: [
+        ["mecky-receipt", receiptId],
+        ["municipality", "roebel-mueritz"],
+        ["case", "marienfelder-strasse"],
+      ],
+    }) as never);
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.answered, 1);
+    assert.equal(h.published[0]?.content, "Nur aus geprüften Quellen beantwortet.");
+    assert.ok(h.published[0]?.tags.some((tag) => tag[0] === "mecky-receipt" && tag[1] === receiptId));
+    assert.ok(h.published[0]?.tags.some((tag) => tag[0] === "municipality" && tag[1] === "roebel-mueritz"));
+    assert.ok(h.published[0]?.tags.some((tag) => tag[0] === "case" && tag[1] === "marienfelder-strasse"));
   });
 
   it("answers a burst oldest-first, in the order asked", async () => {

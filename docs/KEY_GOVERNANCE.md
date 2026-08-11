@@ -87,6 +87,7 @@ and the model to aim other keys toward.
 | `ANTHROPIC_API_KEY` | billing, and the agent's voice |
 | `HETZNER_INFERENCE_API_KEY` | Public Mecky inference quota; receives only public questions and reviewed public evidence |
 | `NODE_AGENT_SECRET` | every agent **and organisation** identity on the node |
+| `STADTSTACK_NOSTR_INGESTOR_TOKEN` | records only signature-valid Röbel civic discussions in the bound Stadtstack Case; never steward admission, administration review, publication, or voting |
 | `POSTGRES_PASSWORD`, Matrix/Nextcloud client secrets | the respective service |
 
 All live in `/opt/netizen/roebel/.env` (mode 600) and **never** in the repo or a rendered

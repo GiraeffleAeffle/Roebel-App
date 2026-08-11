@@ -83,9 +83,15 @@ const lifecycleLabel: Record<
 
 export default function MunicipalDecisionCasesSection({
   onOpenCase,
+  onDiscussCase,
   onOpenDemoTopic,
 }: {
   onOpenCase: (url: string) => void;
+  onDiscussCase?: (target: {
+    municipalityId: string;
+    sourceCaseId: string;
+    title: string;
+  }) => void;
   onOpenDemoTopic: (binding: CivicTopicBindingV1) => void;
 }) {
   const [state, setState] = useState<ViewState>({ status: "loading" });
@@ -167,6 +173,16 @@ export default function MunicipalDecisionCasesSection({
               key={entry.summary.decisionCaseSlug}
               entry={entry}
               onOpen={() => onOpenCase(entry.summary.publicCaseUrl)}
+              onDiscuss={
+                onDiscussCase
+                  ? () =>
+                      onDiscussCase({
+                        municipalityId: entry.stageMap.caseKey.municipalityId,
+                        sourceCaseId: entry.summary.decisionCaseSlug,
+                        title: entry.summary.title,
+                      })
+                  : undefined
+              }
             />
           ))}
         </div>
@@ -574,9 +590,11 @@ function FederationStateNotice({
 function MunicipalCaseCard({
   entry,
   onOpen,
+  onDiscuss,
 }: {
   entry: ReviewedCivicCase;
   onOpen: () => void;
+  onDiscuss?: () => void;
 }) {
   const { summary, stageMap } = entry;
   const current = stageMap.current;
@@ -637,6 +655,26 @@ function MunicipalCaseCard({
             Nur checksum-gebundene, veröffentlichte Nachweise. Rohdaten und ungeprüfte Verwaltungsunterlagen bleiben verborgen.
           </p>
         </div>
+
+        {onDiscuss && (
+          <div className="rounded-[10px] border border-[#00498B]/25 bg-[#00498B]/[0.035] p-3.5">
+            <p className="text-[12.5px] font-semibold text-foreground">
+              Öffentliche Diskussion mit Mecky
+            </p>
+            <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">
+              Deine Frage wird öffentlich und signiert veröffentlicht. Mecky
+              antwortet nur aus geprüften öffentlichen Belegen. Daraus wird
+              noch kein Vorschlag, keine Abstimmung und keine amtliche Aussage.
+            </p>
+            <button
+              type="button"
+              onClick={onDiscuss}
+              className="mt-3 inline-flex w-full items-center justify-center rounded-[10px] border border-[#00498B] bg-card px-3 py-2.5 text-[12.5px] font-semibold text-[#00498B] transition hover:bg-[#00498B]/5 active:scale-[0.99]"
+            >
+              Mit Mecky diskutieren
+            </button>
+          </div>
+        )}
 
         {/* Deliberately open only the URL confined and resolved from the case
             index. proofRefs and availablePublicAction are never rendered. */}

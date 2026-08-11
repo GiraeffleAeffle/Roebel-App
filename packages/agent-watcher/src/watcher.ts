@@ -22,11 +22,21 @@ export interface WatcherDeps {
   history: ReplyHistory;
   bounds?: Bounds;
   /** Produce the answer. Returning null declines to answer at all. */
-  think: (question: string, event: NostrEvent) => Promise<string | null>;
+  think: (
+    question: string,
+    event: NostrEvent,
+  ) => Promise<string | WatcherReply | null>;
+  /** Persist the signed civic discussion before producing a public answer. */
+  ingestCivicDiscussion?: (event: NostrEvent) => Promise<void>;
   now?: () => number;
   log?: (message: string) => void;
   makeClient?: (url: string) => Pick<RelayClient, "query" | "publish" | "close">;
   relayUrl: string;
+}
+
+export interface WatcherReply {
+  content: string;
+  tags: string[][];
 }
 
 export interface PassResult {
@@ -39,6 +49,45 @@ export interface PassResult {
 const LOOKBACK_SECONDS = 900;
 const DAY_SECONDS = 86_400;
 const MAX_RELAY_REPLY_HISTORY = 500;
+const REPLY_TAG_NAMES = new Set([
+  "mecky-receipt",
+  "municipality",
+  "case",
+  "stadtstack-case",
+  "evidence",
+]);
+
+function normalizeReply(value: string | WatcherReply | null): WatcherReply | null {
+  if (value === null) return null;
+  if (typeof value === "string") return { content: value.trim(), tags: [] };
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).sort().join(",") !== "content,tags" ||
+    typeof value.content !== "string" ||
+    !Array.isArray(value.tags)
+  ) {
+    throw new Error("watcher_reply_invalid");
+  }
+  const content = value.content.trim();
+  if (!content || content.length > 2_000 || value.tags.length > 8) {
+    throw new Error("watcher_reply_invalid");
+  }
+  const tags = value.tags.map((tag) => {
+    if (
+      !Array.isArray(tag) ||
+      tag.length < 2 ||
+      tag.length > 3 ||
+      tag.some((part) => typeof part !== "string" || part.length === 0) ||
+      !REPLY_TAG_NAMES.has(tag[0]!)
+    ) {
+      throw new Error("watcher_reply_invalid");
+    }
+    return [...tag];
+  });
+  return { content, tags };
+}
 
 function restorePublishedReply(history: ReplyHistory, event: NostrEvent): void {
   const parentId = event.tags.find(
@@ -121,14 +170,27 @@ export async function watchOnce(deps: WatcherDeps): Promise<PassResult> {
         continue;
       }
 
-      let answer: string | null = null;
+      const civicDiscussion = event.tags.some(
+        (tag) => tag[0] === "t" && tag[1] === "stadtstack-civic-discussion",
+      );
+      if (civicDiscussion && deps.ingestCivicDiscussion) {
+        try {
+          await deps.ingestCivicDiscussion(event);
+        } catch (error) {
+          log(`Stadtstack intake failed for ${event.id.slice(0, 12)}: ${(error as Error).message}`);
+          refused["stadtstack-intake-failed"] = (refused["stadtstack-intake-failed"] ?? 0) + 1;
+          continue;
+        }
+      }
+
+      let answer: WatcherReply | null = null;
       try {
-        answer = await deps.think(event.content, event);
+        answer = normalizeReply(await deps.think(event.content, event));
       } catch (error) {
         log(`thinking failed for ${event.id.slice(0, 12)}: ${(error as Error).message}`);
       }
 
-      if (!answer?.trim()) {
+      if (!answer) {
         // Mark it answered anyway: a question the agent cannot answer must not be
         // retried forever on every pass.
         recordReply(deps.history, event, now);
@@ -136,10 +198,11 @@ export async function watchOnce(deps: WatcherDeps): Promise<PassResult> {
         continue;
       }
 
-      const reply = buildAgentNoteEvent(deps.agent, answer.trim(), {
+      const reply = buildAgentNoteEvent(deps.agent, answer.content, {
         tags: [
           ["e", event.id, "", "reply"],
           ["p", event.pubkey],
+          ...answer.tags,
         ],
       });
       const result = await client.publish(reply);

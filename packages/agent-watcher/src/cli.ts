@@ -5,8 +5,10 @@ import { announceAgentProfile } from "./profile";
 import {
   createOpenAICompatiblePublicMeckyInference,
   createPublicMecky,
+  createPublicMeckyRelayReply,
   createStadtstackReviewedEvidenceReader,
 } from "./public-mecky";
+import { createStadtstackNostrIntakeClient } from "./stadtstack-control";
 import { watchOnce } from "./watcher";
 
 /**
@@ -34,7 +36,11 @@ async function main(): Promise<void> {
   const agentName = process.env.AGENT_NAME ?? "mecky";
   const relayUrl = required("RELAY_URL");
   const publicEvidenceBaseUrl = required("STADTSTACK_PUBLIC_BASE_URL");
+  const stadtstackControlBaseUrl = required("STADTSTACK_CONTROL_BASE_URL");
+  const stadtstackIngestorToken = required("STADTSTACK_NOSTR_INGESTOR_TOKEN");
   const municipalityId = required("MECKY_MUNICIPALITY_ID");
+  const sourceCaseId = required("MECKY_SOURCE_CASE_ID");
+  const canonicalCaseId = required("MECKY_CANONICAL_CASE_ID");
   const inferenceBaseUrl = required("MECKY_INFERENCE_BASE_URL");
   const inferenceModel = required("MECKY_INFERENCE_MODEL");
   const inferenceApiKey = required("MECKY_INFERENCE_API_KEY");
@@ -50,6 +56,10 @@ async function main(): Promise<void> {
       apiKey: inferenceApiKey,
       model: inferenceModel,
     }),
+  });
+  const stadtstackIntake = createStadtstackNostrIntakeClient({
+    baseUrl: stadtstackControlBaseUrl,
+    actorToken: stadtstackIngestorToken,
   });
 
   const agent = deriveAgentIdentity(required("NODE_AGENT_SECRET"), nodeId, agentName);
@@ -90,9 +100,25 @@ async function main(): Promise<void> {
         history,
         bounds,
         relayUrl,
-        think: async (question) => {
+        ingestCivicDiscussion: async (event) => {
+          await stadtstackIntake.ingestDiscussion(event, [relayUrl]);
+        },
+        think: async (question, event) => {
           const answer = await publicMecky.answerMention(question);
-          if (answer.status === "answered") return answer.content;
+          if (answer.status === "answered") {
+            const civic = event.tags.some(
+              (tag) =>
+                tag[0] === "t" &&
+                tag[1] === "stadtstack-civic-discussion",
+            );
+            return civic
+              ? createPublicMeckyRelayReply({
+                  discussion: event,
+                  binding: { municipalityId, sourceCaseId, canonicalCaseId },
+                  result: answer,
+                })
+              : answer.content;
+          }
           console.log(
             `[${new Date().toISOString()}] declined public Mecky answer: ${answer.reason}`,
           );

@@ -202,6 +202,15 @@ also evidence-gated: Mecky reads only checksum-bound, reviewed Stadtstack projec
 publishes the public case link it used. Administration reviews the evidence boundary once;
 individual answers do not wait in an approval queue.
 
+For a reviewed municipal Case, the Mitmachen surface opens one explicit signed flow:
+the citizen asks `@Mecky` in the normal Röbel feed; the server-side watcher first records that
+signed Nostr discussion in Stadtstack, then answers from reviewed public evidence; the citizen
+may edit and sign a suggestion candidate; and only a separately authenticated human Case
+steward may admit that exact citizen/Mecky/discussion signature chain. The watcher has only the
+ingestor token and cannot admit, review, vote, or publish an official decision. Citizen Briefs,
+advisory participation, and reviewed outcomes return through the same public Stadtstack Case
+projection; they are not silently converted into the app's formal governance ballot.
+
 ### Portability, tested rather than promised
 
 Sovereignty that has never been exercised is a hope. On **2026-07-29** the full export path was

@@ -446,6 +446,32 @@ const Agents = z.object({
           municipalityId: z
             .string()
             .regex(/^[a-z0-9][a-z0-9-]{0,119}$/, "municipality id must be a lowercase slug"),
+          sourceCaseId: z
+            .string()
+            .regex(/^[a-z0-9][a-z0-9-]{0,119}$/, "source case id must be a lowercase slug"),
+          canonicalCaseId: z.string().regex(
+            /^urn:stadtstack:case:municipality:[a-z0-9][a-z0-9-]{0,119}:[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+            "expected a municipality-scoped Stadtstack UUIDv7 Case id",
+          ),
+        })
+        .strict()
+        .superRefine((evidence, context) => {
+          if (
+            evidence.canonicalCaseId.split(":")[4] !==
+            evidence.municipalityId
+          ) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["canonicalCaseId"],
+              message: "canonical case municipality must match public evidence municipality",
+            });
+          }
+        }),
+      /** Actor-bound, cluster-internal bridge for persisting signed discussions. */
+      stadtstackControl: z
+        .object({
+          baseUrl: z.string().url(),
+          nostrIngestorToken: secretRef,
         })
         .strict(),
       /** Replaceable OpenAI-compatible inference provider. The key stays a reference. */
