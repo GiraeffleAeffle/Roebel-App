@@ -78,11 +78,45 @@ again on every single deploy. Running it repeatedly against the same
 Vercel project (after the first-deploy steps below) ships a new
 production deployment each time, non-interactively.
 
+## Deployment state (2026-08-11)
+
+The project exists and is live; steps 1–3 below are already done.
+
+- Vercel project: **`roebel-pwa`** (team `maxbrychs-projects`), production
+  URL `https://roebel-pwa.vercel.app`.
+- The project link is persisted at `apps/expo/.vercel`, so `pnpm deploy:web`
+  runs non-interactively.
+- Deployment protection is `all_except_custom_domains`: the `*.vercel.app`
+  URLs require a Vercel login, while `app.roebel.app` serves publicly as
+  soon as its DNS resolves.
+- `app.roebel.app` is attached to the project. **Open gate:** `roebel.app`
+  uses IONOS nameservers (`ui-dns.*`), so the record must be created at
+  IONOS by hand — `A` record, host `app`, value `76.76.21.21`. Until then
+  the domain does not resolve.
+
+### Two traps that cost a deploy
+
+1. **`dist/` is shared scratch.** A native `expo export` or an `eas update`
+   run overwrites `dist/` with Hermes bundles and deletes `index.html`. A
+   deploy right after one of those ships a broken site whose loose assets
+   still 200, which looks healthy. **Always run `pnpm export:web`
+   immediately before `pnpm deploy:web`** (the script does this for you) and
+   never deploy a `dist/` you did not just build.
+2. **`app/+html.tsx` does not affect this build.** With
+   `web.output: 'single'` the Expo CLI builds `index.html` from
+   `public/index.html`; `+html.tsx` is only read for static rendering. The
+   PWA head tags (manifest link, theme-color, apple-touch-icon) live in
+   `public/index.html`. Without the manifest link no browser offers an
+   install prompt — and `pnpm smoke:web` still passes, because the app boots
+   fine either way. After changing head tags, verify against the built
+   artifact: `grep -c 'rel="manifest"' dist/index.html`.
+
 ## First deploy (USER steps)
 
 These steps require a human with Vercel account access and DNS control
 for `roebel.app`. They are documented here, not automated — nothing in
-this repo runs `vercel` on your behalf.
+this repo runs `vercel` on your behalf. For the Röbel deployment above,
+steps 1–3 are already complete; the DNS and thirdweb steps remain.
 
 1. **Authenticate the Vercel CLI once per machine:**
    ```bash
