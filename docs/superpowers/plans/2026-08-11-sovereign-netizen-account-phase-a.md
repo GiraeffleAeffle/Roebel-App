@@ -1462,3 +1462,57 @@ These are deploys, which this plan does not perform. **Order matters.**
 - **`/v1/export` 403s for everyone**, by design — `netizen_step_up` is always `false` until Phase C.
 - **Ortis cannot reach a signer.** The one signer trusts `id.roebel.app`; Ortis authenticates at `id.ortis.app`. Autar and Röbel citizens are served; Ortis waits for its own node.
 - **thirdweb still mints accounts.** Doctor's warning stays accurate.
+
+---
+
+## Follow-ups carried out of Phase A
+
+Phase A shipped complete: 10 tasks, 3 fix rounds, one final fix wave, 499 tests green
+(roebel-id 83, signer 192, accounts 12, cli 161, protocol 51). These are the items the
+review loop deliberately deferred rather than dropped.
+
+**Decide before the signer is publicly reachable:**
+
+- **No per-client restriction on who may request the signer resource.**
+  `apps/roebel-id/src/oidc/resource.ts`'s `getResourceServerInfo` ignores its `client`
+  argument, so any first-party RP — Nextcloud, Matrix, the web app, Ortis — can add
+  `resource=<signer>` and receive a token controlling its logged-in user's EOA. All four are
+  node-operated today, so this is defense in depth rather than a live hole. Narrowing it is
+  two lines, but *which* clients should hold custody is a decision, not a cleanup.
+
+**Correctness, cheap:**
+
+- A whitespace-only `SIGNER_RESOURCE_URL` trims to `undefined` and silently disables resource
+  indicators — the exact "healthy service that authorizes nobody" outcome §5.2's boot check
+  exists to prevent.
+- No test asserts `/v1/accounts` does **not** emit `message.signed`. The code is correct; the
+  double-counting invariant is undefended.
+- `packages/accounts` `netizen.ts` guards the Nostr fields but the signer/SDK version skew
+  deserves a documented compatibility note.
+- `NETIZEN_ACCESS_TOKEN_TTL` duplicates `provider.ts`'s `ttl.AccessToken`. One should derive
+  from the other.
+
+**Coverage:**
+
+- `/.well-known/netizen-branding` has no HTTP-level test (404 path and `Cache-Control`
+  verified by reading only).
+- Ortis `exchangeCode()`'s JWT-verify / nonce / audience path is untested — the higher-risk
+  half of that file.
+- The discovery test samples 2 of 5 `netizen:*` claim names.
+- `vi.stubGlobal` in the Ortis test has no paired `afterAll` unstub.
+
+**Operational / hygiene:**
+
+- **DAO_test's `packages/cli` + `packages/protocol` are a stale fork** with zero signer
+  support. Step 6's warning covers the immediate hazard; converging or retiring the fork is
+  unresolved. `docs/MISSION_AND_GOALS.md:92` and `docs/WORKSPACE_STATE_AND_NEXT.md:22,28`
+  still point operators at it.
+- `apps/web/src/lib/workspace/oidc.ts` still requests the `roebel` scope. Migrating it is
+  gated on the keystone deploy, same as Ortis. **All three consumers must migrate before the
+  `roebel` alias can be removed.**
+- `SIGNER_EVENTS_PATH` is undocumented in `packages/signer/README.md`, and `FileEventSink`
+  is an unbounded JSONL on the node volume — same shape as the pre-existing `FileAuditSink`.
+  One rotation/retention story should cover both.
+- `docs/NETIZEN_IDENTITY_KICKOFF.md:22` still says `roebel:actor_type`.
+- Pre-existing, untouched: `audit.record` calls in the signer remain unguarded against a
+  throwing sink (the event sink was fixed; the audit sink was deliberately left alone).
