@@ -19,9 +19,11 @@ COPY packages/agent-watcher/package.json ./packages/agent-watcher/package.json
 COPY packages/nostr ./packages/nostr
 COPY packages/stadtstack-federation-client ./packages/stadtstack-federation-client
 COPY packages/agent-watcher ./packages/agent-watcher
-RUN --mount=type=bind,from=pnpm-store,source=.,target=/pnpm/store,ro \
+RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
+    --mount=type=bind,from=pnpm-store,source=.,target=/pnpm/store,ro \
     pnpm --filter @netizen-labs/agent-watcher... install --frozen-lockfile --offline
-RUN pnpm --filter @netizen-labs/agent-watcher build
+RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
+    pnpm --filter @netizen-labs/agent-watcher build
 
 FROM --platform=linux/amd64 docker.io/library/node@sha256:7c269ea419bfbaef1f5eed57e58016395bbe3036176411025a5093e39a948dcf AS runtime
 
