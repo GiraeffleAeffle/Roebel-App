@@ -286,6 +286,7 @@ export function createStadtstackReviewedEvidenceReader(
     const result = await load({
       baseUrl: options.baseUrl,
       municipalityId: options.municipalityId,
+      allowClusterInternalHttp: true,
     });
     return result.cases.map((entry) => ({
       evidenceId: entry.manifest.stageMap.contentSha256,

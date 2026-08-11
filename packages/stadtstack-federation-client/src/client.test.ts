@@ -413,3 +413,21 @@ test("fails closed on 410, oversized bodies and request timeouts", async () => {
     "timeout",
   );
 });
+
+test("permits an explicit cluster-internal HTTP origin only for the server-side adapter", async () => {
+  const baseUrl = "http://stadtstack-public.stadtstack-roebel-workflow.svc.cluster.local:18080";
+  await expectCode(loadReviewedCivicCases({
+    baseUrl,
+    fetch: (async () => new Response("{}", { status: 503, headers: { "content-type": "application/json" } })) as typeof fetch,
+  }), "configuration");
+  let requested = "";
+  await expectCode(loadReviewedCivicCases({
+    baseUrl,
+    allowClusterInternalHttp: true,
+    fetch: (async (input) => {
+      requested = String(input);
+      return new Response("{}", { status: 503, headers: { "content-type": "application/json" } });
+    }) as typeof fetch,
+  }), "http");
+  assert.equal(requested, `${baseUrl}/api/federation/v1/municipalities/roebel-mueritz/cases`);
+});

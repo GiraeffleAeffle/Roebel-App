@@ -35,6 +35,7 @@ export class StadtstackFederationError extends Error {
 
 export interface StadtstackFederationClientOptions {
   baseUrl: string;
+  allowClusterInternalHttp?: boolean;
   municipalityId?: string;
   timeoutMs?: number;
   maxResponseBytes?: number;
@@ -79,14 +80,18 @@ function federationError(
   return new StadtstackFederationError(code, message, status);
 }
 
-function providerOrigin(value: string): URL {
+function providerOrigin(value: string, allowClusterInternalHttp = false): URL {
   try {
     const url = new URL(value.trim());
     const localHttp =
       url.protocol === "http:" &&
       ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname);
+    const clusterInternalHttp =
+      allowClusterInternalHttp &&
+      url.protocol === "http:" &&
+      /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.svc\.cluster\.local$/.test(url.hostname);
     if (
-      (url.protocol !== "https:" && !localHttp) ||
+      (url.protocol !== "https:" && !localHttp && !clusterInternalHttp) ||
       url.username ||
       url.password ||
       url.search ||
@@ -100,7 +105,7 @@ function providerOrigin(value: string): URL {
   } catch {
     throw federationError(
       "configuration",
-      "Stadtstack baseUrl must be an HTTPS origin (or localhost HTTP in development).",
+      "Stadtstack baseUrl must be HTTPS, localhost HTTP, or an explicitly allowed cluster Service origin.",
     );
   }
 }
@@ -401,7 +406,10 @@ async function readCase(
 export async function loadReviewedCivicCases(
   options: StadtstackFederationClientOptions,
 ): Promise<ReviewedCivicCasesResult> {
-  const provider = providerOrigin(options.baseUrl);
+  if (options.allowClusterInternalHttp !== undefined && typeof options.allowClusterInternalHttp !== "boolean") {
+    throw federationError("configuration", "Invalid cluster-internal HTTP option.");
+  }
+  const provider = providerOrigin(options.baseUrl, options.allowClusterInternalHttp === true);
   const municipalityId = options.municipalityId ?? DEFAULT_MUNICIPALITY_ID;
   if (!/^[a-z0-9][a-z0-9-]{0,119}$/.test(municipalityId)) {
     throw federationError("configuration", "Invalid municipality id.");
