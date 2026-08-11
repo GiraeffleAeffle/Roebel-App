@@ -54,6 +54,9 @@ mail/calendar, mobile clients, and the public GTM surface.
 | D8 | **Marketing-first tool bus**, not a repo tool bus (§7) | Code is not the priority. The ICP is a Verein and a restaurant |
 | D9 | **Open weights self-hosted for sensitive data** | The GDPR/DPIA argument, not the price argument (§5.3) |
 | D10 | **Routing resolves three axes in order: classification → latency → cost** | Speed and privacy are requirements; price is what we optimise inside them (§5.1) |
+| D11 | **Unit of account is EUR; payment rails are pluggable** | Münzen is one rail among many to come, not the accounting unit. Launch simple: EUR budgets, Stripe subscriptions (§8.1) |
+| D12 | **The in-call agent splits by question type, not data class** | Retrieval runs live and local; reasoning is acknowledged and deferred. Removes the apparent privacy/UX trade-off (§5.4) |
+| D13 | **A meeting creates its own channel** | Matches the Teams shape and makes guest history a non-question (§6.2) |
 
 ## 4. The Orchestrator
 
@@ -196,13 +199,31 @@ Model choice is only one of the levers, and not the largest. In descending order
    needing more is acknowledged immediately and completed after the meeting.
 6. **Then, and only then, pick a faster engine.**
 
-**The hard cell is `sensitive` + live.** Flash-class latency on hosted infrastructure (Groq-class LPUs,
-Gemini Flash-Lite) is not reachable on our own GPU box, so a live in-call answer over `sensitive`
-data must run a small self-hosted model and will be slower than the hosted path. We do not resolve
-this by relaxing the classification. Options, to be decided at implementation: accept the slower
-answer, restrict live agent Q&A to `internal` channels, or keep the agent silent-and-transcribing in
-`sensitive` meetings and answer afterwards. **Stating the constraint is part of the design; hiding it
-would not be.**
+**The `sensitive` + live cell, resolved (Max, 2026-08-11): split the in-call agent by question type,
+not by data classification.**
+
+Flash-class latency on hosted infrastructure is not reachable on our own GPU box. But that constraint
+turns out not to bind, because what people actually ask an agent mid-meeting is overwhelmingly
+**retrieval and capture**, not reasoning: *what did we decide last week · what number was that ·
+note that as an action item · who owns this*. That is short-context lookup over the running
+transcript and the context graph, and a small self-hosted model serves it inside the budget precisely
+because the model is small and the context is short and cached.
+
+| In-call ask | Handling |
+|---|---|
+| Retrieval, capture, clarification | Answered live by a **small self-hosted model** over the running transcript + context graph. Sub-second, nothing leaves the node |
+| Reasoning, drafting, analysis | **Acknowledged immediately**, queued, completed after the call on the correct engine with full classification enforcement (§9) |
+
+**The latency ceiling is a meeting-UX requirement, not a privacy compromise.** Nobody wants a
+40-second agent monologue mid-conversation even from an infinitely fast hosted frontier model. Privacy
+and UX point the same way here, so no trade-off is being made — the earlier framing of this as a
+trade-off was wrong.
+
+Two rules make the privacy posture explicit rather than merely adequate:
+
+- **The agent is always a visible participant.** Never a silent listener absent from the roster.
+- **The join screen states that the meeting is transcribed**, and by which agent account, before
+  anyone joins. Transparent by construction, and the GDPR-correct thing regardless.
 
 ### 5.5 Engine registry
 
@@ -221,7 +242,7 @@ The north-star scenario, decomposed into the seven capabilities it actually requ
 | 1 | Start a call from a channel | build | Call announcement published as a Nostr event in the channel |
 | 2 | Add the project agent to the call | build | Agent joins as a LiveKit participant under its own npub |
 | 3 | Send a join link to a non-member | **primitive exists** | Buzz `POST /api/invites` mints use-limited codes (NIP-98 signed, owner/admin role) |
-| 4 | Agent silent by default, answers when marked | build | Wake-word is the mention; otherwise transcribe-only |
+| 4 | Agent silent by default, answers when marked | build | Wake-word is the mention; otherwise transcribe-only. **Output mode is user-selectable per channel** — speak (TTS), post to the thread, or both. The agent is always visible in the participant roster |
 | 5 | Live transcription | **partly exists** | Buzz v0.5.3 huddles ship automatic agent transcription; our client needs its own path on LiveKit |
 | 6 | On hang-up: transcript file + agent summary posted to the channel | build | Summary is a Batch-API job at the cheap tier |
 | 7 | Meeting → work: mark the agent to act, or it proposes follow-ups | build | This is the delegation loop of §4 |
@@ -250,11 +271,31 @@ the call announcement, the transcript and the summary are all signed Nostr event
 
 ### 6.2 Onboarding at the link
 
-The guest opens the link and sees a join screen: their name, one button. A Nostr key is derived and
-held client-side; they are added to the channel as a scoped guest member for the duration plus a
-grace period. **No install, no signup, no visible key.** The custody rule from §5g carries: keys are
-client-held, no Autar server ever sees an nsec, and no surface may invite a user to paste a private
-key anywhere except a client's import field.
+The guest opens the link and sees a join screen: their name, a notice that the meeting is transcribed
+and by which agent account, one button. A Nostr key is derived and held client-side; they are added
+as a scoped guest member for the duration plus a grace period. **No install, no signup, no visible
+key.** The custody rule from §5g carries: keys are client-held, no Autar server ever sees an nsec,
+and no surface may invite a user to paste a private key anywhere except a client's import field.
+
+**A meeting creates its own channel** (the Teams shape). Because the channel is new, a guest has no
+prior history to see and the question does not arise. For the separate case of inviting someone into
+an *existing* channel, the invite carries a **`share_history` flag** — an explicit "Share history"
+choice made per invitation, defaulting to off.
+
+### 6.3 Transcript lifecycle
+
+- **The transcript is authored by the agent's own account** and published as a signed Nostr event on
+  the private relay, blob attached. Provenance is therefore intrinsic — the transcript names its
+  author the way every other event does.
+- **Deletion uses NIP-09** (event deletion request, kind 5), which the Buzz relay already implements.
+  The event's author signs the request, so a human asks the agent and the agent issues the deletion.
+- **On our own closed relay, deletion is enforceable.** NIP-09 is only a *request* that public relays
+  may ignore; on the membership-gated private plane we control the store and actually delete. This is
+  a substantive reason to keep transcripts on the private plane and never mirror them to the public
+  relay.
+- **An operator hard-delete path exists alongside it.** A data subject's right to erasure must not
+  depend on an agent account cooperating or still existing, so relay-level deletion is available to
+  the org owner independently of the agent's signature.
 
 ## 7. Agent roster and tool bus
 
@@ -281,6 +322,22 @@ identity, budget and audit trail are one object on Nostr regardless of which eng
 turn.
 
 ## 8. Budgets, approvals, audit
+
+### 8.1 Unit of account is not payment rail
+
+Two separate concerns, deliberately decoupled (Max, 2026-08-11):
+
+- **Unit of account: EUR** (USDC as the crypto-native equivalent). All agent budgets, costs and
+  routing telemetry are denominated here. One unit, everywhere, always.
+- **Payment rail: pluggable.** Stripe for subscriptions at launch; USDC onchain; **Röbel Münzen as
+  an alternative rail for Röbel businesses and public organisations only.**
+
+Münzen is one instance of a general slot, not a special case — a community-derived local currency
+among many that will follow. Any Autar deployer could later issue their own. **That generality is
+deliberately not built now**; keeping the launch simple means EUR budgets and Stripe subscriptions,
+with the rail abstraction present so the later ones are additions rather than a rewrite.
+
+### 8.2 Mechanics
 
 - **Every agent carries a budget** declared in its profile (per week, denominated in EUR). The
   orchestrator refuses dispatch that would exceed it and posts an approval card instead.
@@ -335,8 +392,13 @@ DPIA problem is designed out rather than managed.
   rejected at dispatch rather than discovered by a waiting human.
 - **Classification tests are refusal tests.** Assert the router refuses a `sensitive` payload against
   a hosted engine, including on fallback paths (§4.4) — the fallback is where this leaks.
-- **Guest-link tests** cover expiry, single-use, revocation, and that a guest cannot read channel
-  history from before the invite.
+- **Guest-link tests** cover expiry, single-use, revocation, that `share_history` defaults to off, and
+  that a guest cannot read channel history from before the invite unless the flag was set.
+- **Transparency tests.** Assert the agent appears in the participant roster whenever it is in a
+  call, and that the join screen shows the transcription notice before the join button is reachable.
+  A regression here is a legal problem, not a cosmetic one.
+- **Deletion tests.** Assert a NIP-09 request from the agent removes the transcript from the relay
+  store, and that the operator hard-delete path works **without** the agent's signature.
 - **No claim of completion without the command output.** Standing verification rule.
 
 ## 12. Decomposition — follow-on specs
@@ -350,17 +412,33 @@ DPIA problem is designed out rather than managed.
 | `autar-roebel-embed` | The org-dashboard embed, CitizenNFT→membership provisioning, German-first surface | client shell |
 | `autar-documents` | Fileverse plane, E2EE documents and sheets | independent |
 
-## 13. Open questions for Max
+## 13. Resolved by Max (2026-08-11)
 
-1. **Budget denomination** — EUR per agent per week is assumed. Röbel Münzen instead, or alongside?
-2. **Meeting retention** — how long do transcripts and recordings live, and who can delete them? This
-   is a GDPR answer before it is a product answer.
-3. **Guest scope** — should a guest see channel history from before their invite? Assumed **no**.
-4. **Orchestrator voice in calls** — when marked during a meeting, does the agent speak (TTS) or only
-   post to the thread? Assumed **both, user-selectable per channel**.
-5. **First dogfood target** — the next Netizen Labs contributor meeting, or a Röbel org first?
-   §5g says audience-of-one first, which implies the former.
-6. **`sensitive` + live is the one unresolved trade-off** (§5.4). In a meeting classified `sensitive`,
-   pick one: accept a slower self-hosted answer, restrict live agent Q&A to `internal` channels, or
-   have the agent transcribe silently and answer after the call. This is a product call, not a
-   technical one.
+All six questions from the first draft are closed. Recorded here because the reasoning matters more
+than the answers.
+
+1. **Budgets in EUR** (USDC equivalent), payment rails pluggable, Stripe for subscriptions, Münzen
+   only as an alternative rail for Röbel businesses and public organisations. **Keep the launch
+   simple** — see §8.1.
+2. **Transcripts authored by the agent account**, deleted via NIP-09, enforceable because the relay
+   is ours, with an operator hard-delete path for erasure rights — see §6.3.
+3. **A meeting creates its own channel**, so guest history is a non-question by default; an explicit
+   `share_history` flag covers invites into existing channels — see §6.2.
+4. **Output mode is user-selectable per channel** — speak, post, or both.
+5. **Two dogfood targets, one per door** (§14).
+6. **The `sensitive` + live trade-off dissolves** once the in-call agent is split by question type
+   rather than data class — see §5.4.
+
+## 14. Dogfood targets — both doors in parallel
+
+§5g sequenced the doors (audience-of-one first, Röbel orgs later). Max's answer runs them **in
+parallel**, which tests both ICPs at once and gives the community door a named first business:
+
+| Target | Door | What it proves |
+|---|---|---|
+| **MüritzPhone** — a business account in Röbel/Müritz | Community door (§5g door 2) | The real small-business case: marketing, bureaucracy, outreach. German-first, no visible key management, no client install |
+| **Netizen Labs itself** | Direct door (§5g door 1) | The larger-org case: meetings, strategy, planning, a codebase. English-first |
+
+The two targets exercise different halves of the tool bus (§7) — MüritzPhone leans on the marketing
+and bureaucracy agents, Netizen Labs on strategy, meetings and dev. Neither alone would surface the
+gaps in the other.
