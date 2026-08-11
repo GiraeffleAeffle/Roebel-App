@@ -257,6 +257,16 @@ headless and explicitly skips service-worker registration.
   Confirm either the cached app shell renders (if it was already visited
   while online) or the German offline page (`public/offline.html`)
   renders — never a blank screen or a browser network-error page.
+
+  Verified live on 2026-08-11: an offline reload boots the real app (the
+  Datenschutz screen renders with the network off). This works because
+  `sw.js` v2 precaches the shell's `<script src>` entries — caching `/`
+  alone is not enough, since those content-hashed chunks load *before* the
+  worker activates, so nothing else would ever cache them and the offline
+  shell would come up blank. If the entry scripts are somehow missing from
+  the cache, the navigate handler deliberately serves `offline.html`
+  instead of a shell it knows cannot boot. Cached data beyond the shell is
+  still out of scope, so screens needing Supabase stay empty offline.
 - **Lighthouse installability:** after the first production deploy, run
   ```bash
   npx lighthouse https://app.roebel.app --only-categories=pwa --view
