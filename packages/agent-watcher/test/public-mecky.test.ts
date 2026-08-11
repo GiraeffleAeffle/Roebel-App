@@ -154,6 +154,7 @@ describe("Public Mecky", () => {
       loadReviewedCases: async (options) => {
         assert.equal(options.baseUrl, "https://stadtstack.example");
         assert.equal(options.municipalityId, "roebel-mueritz");
+        assert.equal(options.allowClusterInternalHttp, true);
         return {
           municipality: {
             id: "roebel-mueritz",
