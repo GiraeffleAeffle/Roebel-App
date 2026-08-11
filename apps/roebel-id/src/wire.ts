@@ -7,7 +7,7 @@ import { createThirdwebAuthBridge } from './auth-bridge/thirdweb-bridge.js'
 import type { AuthBridge } from './auth-bridge/types.js'
 import { createReaders } from './claims/readers.js'
 import { createClaimsResolver } from './claims/resolver.js'
-import type { RoebelClaims } from './claims/types.js'
+import type { NetizenClaims } from './claims/types.js'
 import { makeSupabaseAdapterFactory } from './store/supabase-adapter.js'
 import { buildProvider } from './oidc/provider.js'
 import { createInteractionRouter } from './interaction/router.js'
@@ -15,7 +15,7 @@ import { createApp } from './app.js'
 
 export interface WireOverrides {
   bridge?: AuthBridge
-  resolveClaims?: (address: string) => Promise<RoebelClaims>
+  resolveClaims?: (address: string) => Promise<NetizenClaims>
   adapterFactory?: (name: string) => Adapter
 }
 

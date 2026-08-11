@@ -8,7 +8,7 @@ import type { Adapter, AdapterPayload } from 'oidc-provider'
 import { wireApp } from '../src/wire.js'
 import type { Config } from '../src/config.js'
 import type { AuthBridge } from '../src/auth-bridge/types.js'
-import type { RoebelClaims } from '../src/claims/types.js'
+import type { NetizenClaims } from '../src/claims/types.js'
 
 // Full IdP-conformance proof (spec §8.1): stand up the real interaction router + panva provider
 // wired through wireApp's DI seam (no Supabase/thirdweb/Gnosis involved — those are stubbed),
@@ -29,14 +29,14 @@ const stubBridge: AuthBridge = {
   verifyLogin: async () => ({ address: ADDRESS }),
 }
 
-const stubClaims = async (address: string): Promise<RoebelClaims> => ({
+const stubClaims = async (address: string): Promise<NetizenClaims> => ({
   sub: address,
   email: 'e@x.de',
   name: 'Test',
   preferred_username: 'Test',
   groups: ['citizen', 'org:o1:admin'],
-  'roebel:citizen': true,
-  'roebel:attester': false,
+  'netizen:citizen': true,
+  'netizen:attester': false,
 })
 
 // Plain Map-backed Adapter — panva's public Adapter contract implemented directly (no

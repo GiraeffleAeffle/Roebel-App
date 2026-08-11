@@ -1,12 +1,12 @@
 import Provider, { type Adapter, type Configuration } from 'oidc-provider'
 import type { Config } from '../config.js'
-import type { RoebelClaims } from '../claims/types.js'
+import type { NetizenClaims } from '../claims/types.js'
 import { loadJwks } from './jwks.js'
 
 export function buildProvider(deps: {
   config: Config
   adapterFactory: (name: string) => Adapter
-  resolveClaims: (address: string) => Promise<RoebelClaims>
+  resolveClaims: (address: string) => Promise<NetizenClaims>
 }): Provider {
   const { config, adapterFactory, resolveClaims } = deps
   const jwks = loadJwks()

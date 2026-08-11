@@ -18,7 +18,7 @@ describe('discovery', () => {
     const provider = buildProvider({
       config,
       adapterFactory: makeSupabaseAdapterFactory({ client: memClient() as any }),
-      resolveClaims: async (a) => ({ sub: a, groups: [], 'roebel:citizen': false, 'roebel:attester': false }),
+      resolveClaims: async (a) => ({ sub: a, groups: [], 'netizen:citizen': false, 'netizen:attester': false }),
     })
     const app = (await import('express')).default()
     app.use('/oidc', provider.callback())
