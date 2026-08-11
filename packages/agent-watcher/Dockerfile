@@ -8,7 +8,8 @@ ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH
 
 WORKDIR /workspace
-RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
+    corepack enable && corepack prepare pnpm@9.15.0 --activate
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/nostr/package.json ./packages/nostr/package.json
