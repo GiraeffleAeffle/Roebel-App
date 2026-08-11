@@ -97,11 +97,22 @@ SIWE-`statement` „Anmeldung bei Ortis", **null** Treffer für `/r(ö|oe)bel/i`
    „Not verified", weil die App eine **geteilte** IPv4 hat und Fly den Besitz nicht aus der
    IP ableiten kann. `force_https` beantwortet die HTTP-01-Challenge zudem mit 301.
 
-**Offen (Vercel-Seite, gehört der Ortis-Session):** `OIDC_ISSUER=https://id.ortis.app`,
-`OIDC_CLIENT_ID=ortis`, das **neue** `OIDC_CLIENT_SECRET` (frisch erzeugt für `ortis-id`;
-das alte lag im Chatverlauf und stirbt mit Schritt danach), `ORTIS_DEV_AUTH=0`.
-**Danach:** `fly secrets unset ORTIS_CLIENT_ID ORTIS_CLIENT_SECRET ORTIS_REDIRECT_URIS -a roebel-id`
-— erst dann, sonst bricht der aktuell funktionierende Login über `id.roebel.app` weg.
+**Vercel-Seite steht (2026-08-11):** `OIDC_ISSUER=https://id.ortis.app`, `OIDC_CLIENT_ID=ortis`,
+`ORTIS_BASE_URL=https://app.ortis.app`, `ORTIS_DEV_AUTH=0`, und das `OIDC_CLIENT_SECRET`
+stimmt mit `ortis-id` überein — verifiziert am Token-Endpunkt: richtiges Secret →
+`invalid_grant` (Client-Auth bestanden, nur der Testcode scheitert), falsches → `invalid_client`.
+Kette von außen geprüft: `app.ortis.app/api/auth/login` → Seite mit Titel „Anmelden bei Ortis".
+
+**Alter Client auf `roebel-id` abgeräumt** (`fly secrets unset ORTIS_CLIENT_ID
+ORTIS_CLIENT_SECRET ORTIS_REDIRECT_URIS`), damit stirbt auch das im Chat gelandete Secret.
+`roebel-id` läuft jetzt auf dem `main`-Stand; `nextcloud`, `matrix` und `roebel-web` sind
+weiterhin registriert, `ortis` dort erwartungsgemäß nicht mehr.
+
+**Umgebungs-Stolperstein beim Testen:** aus Max' lokalem Netz werden TLS-Verbindungen mit
+SNI `*.ortis.app` beim Handshake zurückgesetzt (`connection reset`, curl-Exit 35) — beide
+Hosts, obwohl sie auf verschiedene Anbieter zeigen; dieselbe Fly-IP antwortet mit SNI
+`ortis-id.fly.dev` normal. Der Dienst ist öffentlich erreichbar (Gegenprobe über einen
+externen Fetcher: `{"status":"ok"}`). Nicht als Ausfall fehldeuten — über Mobilfunk/VPN prüfen.
 
 **Offen (nächste Session):** I2b (Keystone-eigener OTP-Versand — zusätzlich blockiert durch Max'
 thirdweb-Dashboard-Task), I3 (QR-Pairing), I4 (`communities`-Claim), I5 (Manifest-Reife).
