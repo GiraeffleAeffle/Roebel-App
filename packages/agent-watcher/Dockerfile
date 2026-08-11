@@ -9,6 +9,9 @@ WORKDIR /workspace
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/nostr/package.json ./packages/nostr/package.json
+COPY packages/stadtstack-federation-client/package.json ./packages/stadtstack-federation-client/package.json
+COPY packages/agent-watcher/package.json ./packages/agent-watcher/package.json
 RUN --mount=type=cache,id=roebel-public-mecky-pnpm-v9-linux-amd64,target=/pnpm/store,sharing=locked \
     pnpm fetch --filter @netizen-labs/agent-watcher...
 
