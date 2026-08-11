@@ -40,6 +40,34 @@ Two more gates block *self-serve* onboarding today:
 1. **thirdweb** requires a client ID and a per-domain origin allowlist that only an account holder can configure — a manual dashboard step in the middle of an otherwise automatable flow. **[K1](2026-08-11_K1_NETIZEN_ACCOUNTS_REPLACES_THIRDWEB.md) removes this**, which is why K1 is a prerequisite for "one click", not merely a sovereignty nicety.
 2. **Supabase** — every tenant needs a backend. Without [K2](2026-08-11_K2_NOSTR_READ_FALLBACK.md), a tenant cannot even run read-only without one.
 
+## 3a. DECIDED — domains are `<name>.ortis.app` (2026-08-11, Max)
+
+Every tenant gets a subdomain of `ortis.app`, derived from the project name and
+**editable afterwards**: an operator who creates "Strausberg" lands on
+`strausberg.ortis.app`. A custom domain stays possible later, but is never
+required to launch.
+
+This removes the single worst step from the launch flow. Röbel needed a manual
+IONOS `A` record because `roebel.app` is on third-party nameservers; **`ortis.app`
+is already on Vercel nameservers**, so tenant subdomains can be created through
+the Vercel API with no human DNS step and no registrar access. Combined with the
+observed cert issuance (~1 minute), a launch can be fully automated end to end.
+
+Implications the pipeline must handle:
+
+- **Name → subdomain slugification** with a reserved list (`app`, `id`, `www`,
+  `api`, `admin`, …) and a collision check against existing tenants.
+- **Renaming** must move the domain and leave the old subdomain redirecting, not
+  dangling — the PWA is installed on people's home screens, and `start_url` is
+  origin-bound. An installed app whose origin disappears is a dead icon.
+  Treat rename as a migration, not a config edit.
+- **Per-tenant PWA identity**: `manifest.json` `id`/`start_url`/`scope` are
+  origin-scoped, so each tenant's manifest is generated, not shared.
+- The wildcard makes tenant isolation a *browser origin* boundary too: separate
+  localStorage, separate service worker, separate installed app. Good default.
+- One Vercel project per tenant vs one project with many domains is now the open
+  sub-question (see §7.4); the subdomain decision does not settle it.
+
 ## 4. Architecture: one tenant manifest, four consumers
 
 Extend the existing manifest philosophy rather than inventing a parallel config
@@ -99,7 +127,7 @@ K1 and K2 are parallelizable and both unblock P0's "tenant without our infrastru
 1. **Backend per tenant.** One Supabase project per community (clean isolation, N projects to operate) vs one multi-tenant database with RLS (one project, higher blast radius, harder DSGVO story) vs record-only tenants with no Supabase at all. This is the biggest architectural fork in the whole plan and it gates P0's config shape.
 2. **Who is the data controller?** Each community almost certainly must be its own controller under DSGVO, which means per-tenant DPIA, imprint, and policy documents — a product surface, not just paperwork. Selling to an Amt or a party makes this load-bearing.
 3. **Chain per tenant.** Do all communities share Gnosis and the existing registry, or does a tenant get to choose? Shared is far simpler and the registry is already unowned and admin-free.
-4. **Hosting.** Vercel per tenant (proven this week, needs an account per customer or one account with N projects) vs their own node via `netizen up` (more sovereign, more support burden).
+4. **Hosting shape.** Now that domains are settled (§3a): one Vercel project per tenant (clean separation, per-tenant deploy history and rollback, N projects to manage) vs one project serving many tenant domains (one deploy, cheaper, but a bad deploy hits every community at once). Self-hosting via `netizen up` remains the sovereign option for tenants who want it.
 5. **Native apps.** Do tenants ever get iOS/Android builds, or is store-free PWA the whole product? PWA-only keeps launches self-serve; native requires an Apple account per tenant and re-introduces exactly the gate this work removes.
 6. **Naming.** "Röbel Münzen" is community-specific; each tenant needs its own currency noun (or none). Confirm the copy layer covers this.
 
