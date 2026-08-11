@@ -25,9 +25,12 @@ describe("Public Mecky image contract", () => {
     assert.match(dockerfile, /ENTRYPOINT \["node", "\/app\/agent-watcher\.cjs"\]/);
   });
 
-  it("hydrates the filtered offline store from the three workspace manifests", () => {
-    const fetchIndex = dockerfile.indexOf("pnpm fetch --filter @netizen-labs/agent-watcher...");
-    assert.ok(fetchIndex > 0);
+  it("installs only the three-workspace closure from the reviewed lock", () => {
+    assert.doesNotMatch(dockerfile, /pnpm fetch/);
+    const installIndex = dockerfile.indexOf(
+      "pnpm --filter @netizen-labs/agent-watcher... install --frozen-lockfile",
+    );
+    assert.ok(installIndex > 0);
     for (const manifest of [
       "packages/nostr/package.json",
       "packages/stadtstack-federation-client/package.json",
@@ -35,7 +38,7 @@ describe("Public Mecky image contract", () => {
     ]) {
       const copyIndex = dockerfile.indexOf(`COPY ${manifest}`);
       assert.ok(copyIndex >= 0, `${manifest} must be copied into the dependency layer`);
-      assert.ok(copyIndex < fetchIndex, `${manifest} must be present before pnpm fetch`);
+      assert.ok(copyIndex < installIndex, `${manifest} must be present before pnpm install`);
     }
   });
 
