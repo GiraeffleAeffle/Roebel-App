@@ -1,3 +1,10 @@
+import { createHash } from "node:crypto";
+
+import {
+  verifyEvent,
+  type CivicCaseBinding,
+  type NostrEvent,
+} from "@netizen-labs/nostr";
 import {
   loadReviewedCivicCases,
   type ReviewedCivicCasesResult,
@@ -53,6 +60,108 @@ export type PublicMeckyResult =
 
 export interface PublicMecky {
   answerMention(question: string): Promise<PublicMeckyResult>;
+}
+
+export interface PublicMeckyRelayReply {
+  content: string;
+  receiptId: string;
+  tags: string[][];
+}
+
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonical(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function tagValue(event: NostrEvent, name: string): string | null {
+  const matches = event.tags.filter(
+    (tag) => tag[0] === name && typeof tag[1] === "string",
+  );
+  return matches.length === 1 ? matches[0]![1]! : null;
+}
+
+export function createPublicMeckyRelayReply(input: {
+  discussion: NostrEvent;
+  binding: CivicCaseBinding;
+  result: Extract<PublicMeckyResult, { status: "answered" }>;
+}): PublicMeckyRelayReply {
+  if (
+    !verifyEvent(input.discussion) ||
+    input.discussion.kind !== 1 ||
+    tagValue(input.discussion, "municipality") !== input.binding.municipalityId ||
+    tagValue(input.discussion, "case") !== input.binding.sourceCaseId ||
+    tagValue(input.discussion, "stadtstack-case") !== input.binding.canonicalCaseId
+  ) {
+    throw new Error("public_mecky_discussion_binding_invalid");
+  }
+  if (
+    !input.result.content.trim() ||
+    input.result.content.length > 2_000 ||
+    input.result.evidenceRefs.length === 0 ||
+    input.result.evidenceRefs.length > 3 ||
+    new Set(input.result.evidenceRefs.map((entry) => entry.evidenceId)).size !==
+      input.result.evidenceRefs.length
+  ) {
+    throw new Error("public_mecky_reply_invalid");
+  }
+  for (const evidence of input.result.evidenceRefs) {
+    if (!/^sha256:[0-9a-f]{64}$/.test(evidence.evidenceId)) {
+      throw new Error("public_mecky_reply_invalid");
+    }
+    let url: URL;
+    try {
+      url = new URL(evidence.publicCaseUrl);
+    } catch {
+      throw new Error("public_mecky_reply_invalid");
+    }
+    if (url.protocol !== "https:" || url.username || url.password) {
+      throw new Error("public_mecky_reply_invalid");
+    }
+  }
+  const receiptCore = {
+    schemaVersion: "public_mecky_relay_answer_receipt_v1",
+    discussionId: input.discussion.id,
+    discussionPubkey: input.discussion.pubkey,
+    municipalityId: input.binding.municipalityId,
+    sourceCaseId: input.binding.sourceCaseId,
+    canonicalCaseId: input.binding.canonicalCaseId,
+    answer: input.result.content,
+    evidenceRefs: input.result.evidenceRefs.map((entry) => ({
+      evidenceId: entry.evidenceId,
+      title: entry.title,
+      publicCaseUrl: entry.publicCaseUrl,
+    })),
+    authorityBinding: "none",
+    effects: {
+      civicStateMutation: false,
+      suggestionSubmission: false,
+      vote: false,
+    },
+  };
+  const hash = createHash("sha256").update(canonical(receiptCore), "utf8").digest("hex");
+  const receiptId = `urn:stadtstack:mecky-answer:${hash}`;
+  return {
+    content: input.result.content,
+    receiptId,
+    tags: [
+      ["mecky-receipt", receiptId],
+      ["municipality", input.binding.municipalityId],
+      ["case", input.binding.sourceCaseId],
+      ["stadtstack-case", input.binding.canonicalCaseId],
+      ...input.result.evidenceRefs.map((entry) => [
+        "evidence",
+        entry.evidenceId,
+        entry.publicCaseUrl,
+      ]),
+    ],
+  };
 }
 
 export interface OpenAICompatiblePublicMeckyInferenceOptions {

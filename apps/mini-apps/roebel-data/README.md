@@ -56,6 +56,7 @@ section. Configure its public provider origin with:
 
 ```bash
 NEXT_PUBLIC_STADTSTACK_PUBLIC_BASE_URL=https://your-stadtstack.example
+NEXT_PUBLIC_STADTSTACK_CANONICAL_CASE_ID=urn:stadtstack:case:municipality:roebel-mueritz:<uuid-v7>
 ```
 
 Leaving the value empty produces an explicit "not configured" state. The
@@ -64,6 +65,15 @@ case-index, manifest and seven-stage snapshots, confine linked resources to the
 configured provider, verify the stable stage-map SHA-256 with Web Crypto, and
 fail closed on invalid, missing, withdrawn, oversized or timed-out reads. It
 never authenticates, writes, rewards, opens a wallet or calls Supabase.
+
+When the exact canonical Case ID is configured, each reviewed Case card also
+offers **Mit Mecky diskutieren**. The Mini App does not publish anything itself:
+it opens the host-owned `roebel://civic-discussion` composer with the reviewed
+municipality, source Case, canonical Case and title. The host validates the
+binding again before creating an ordinary visible feed post and its parallel
+citizen-signed Nostr record. Mecky's reply is evidence-bound but has no civic
+authority; a later citizen signature and human steward admission remain
+separate gates before Stadtstack treats anything as a suggestion.
 
 For a stakeholder build that must demonstrate the administration feedback loop
 before a real Röbel case has completed local review, opt in explicitly:

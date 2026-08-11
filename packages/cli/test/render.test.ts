@@ -86,7 +86,7 @@ test("secrets appear only as references, never resolved values", () => {
       "$BUZZ_RELAY_PRIVATE_KEY", "$BUZZ_S3_ACCESS_KEY", "$BUZZ_S3_SECRET_KEY",
       "$COORDINATOR_PUBKEY", "$GNOSIS_BUNDLER_RPC", "$GNOSIS_RPC",
       "$HETZNER_INFERENCE_API_KEY", "$MATRIX_CLIENT_SECRET", "$NEXTCLOUD_CLIENT_SECRET",
-      "$ROEBEL_ID_JWKS", "$SUPABASE_URL", "$WEB_CLIENT_SECRET",
+      "$ROEBEL_ID_JWKS", "$STADTSTACK_NOSTR_INGESTOR_TOKEN", "$SUPABASE_URL", "$WEB_CLIENT_SECRET",
     ],
   );
   // the keystone env references the secret, it does not inline a value
@@ -456,6 +456,13 @@ test("a declared watcher becomes a rendered service, not a hand-started containe
         publicEvidence: {
           baseUrl: "https://roebel-stadtstack.agentcart.eu",
           municipalityId: "roebel-mueritz",
+          sourceCaseId: "marienfelder-strasse",
+          canonicalCaseId:
+            "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
+        },
+        stadtstackControl: {
+          baseUrl: "http://stadtstack-control.stadtstack-system.svc.cluster.local:18081",
+          nostrIngestorToken: "$STADTSTACK_NOSTR_INGESTOR_TOKEN",
         },
         inference: {
           baseUrl: "https://inference.hetzner.com/api/v1",
@@ -481,7 +488,20 @@ test("a declared watcher becomes a rendered service, not a hand-started containe
     watcherBlock,
     /STADTSTACK_PUBLIC_BASE_URL: "https:\/\/roebel-stadtstack\.agentcart\.eu"/,
   );
+  assert.match(
+    watcherBlock,
+    /STADTSTACK_CONTROL_BASE_URL: "http:\/\/stadtstack-control\.stadtstack-system\.svc\.cluster\.local:18081"/,
+  );
+  assert.match(
+    watcherBlock,
+    /STADTSTACK_NOSTR_INGESTOR_TOKEN: "\$\{STADTSTACK_NOSTR_INGESTOR_TOKEN\}"/,
+  );
   assert.match(watcherBlock, /MECKY_MUNICIPALITY_ID: "roebel-mueritz"/);
+  assert.match(watcherBlock, /MECKY_SOURCE_CASE_ID: "marienfelder-strasse"/);
+  assert.match(
+    watcherBlock,
+    /MECKY_CANONICAL_CASE_ID: "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001"/,
+  );
   assert.match(
     watcherBlock,
     /MECKY_INFERENCE_BASE_URL: "https:\/\/inference\.hetzner\.com\/api\/v1"/,

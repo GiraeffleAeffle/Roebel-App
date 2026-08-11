@@ -11,6 +11,8 @@ import type {
   PollVoteRecord,
   LinkedMiniAppRef,
 } from './types/feed';
+import type { CivicCaseBinding, NostrEvent } from '@netizen-labs/nostr';
+import type { PublicationStatus } from './nostr/publish';
 
 const PAGE_SIZE = 15;
 
@@ -380,7 +382,14 @@ function parsePostingDenial(message: string | undefined): PostingDeniedError | n
  * `if (!post)` branch and just add a `catch (PostingDeniedError)` for the new
  * gated path.
  */
-export async function createPost(input: CreatePostInput): Promise<PostRecord | null> {
+async function createPostInternal(
+  input: CreatePostInput,
+  awaitCivicPublication: boolean,
+): Promise<{
+  post: PostRecord | null;
+  civicPublicationStatus: PublicationStatus | null;
+  civicDiscussionEvent: NostrEvent | null;
+}> {
   const { data, error } = await supabase
     .from('posts')
     .insert({
@@ -419,7 +428,11 @@ export async function createPost(input: CreatePostInput): Promise<PostRecord | n
     const denied = parsePostingDenial(error.message);
     if (denied) throw denied;
     console.error('Error creating post:', error);
-    return null;
+    return {
+      post: null,
+      civicPublicationStatus: null,
+      civicDiscussionEvent: null,
+    };
   }
 
   const post = mergeAccountIntoAuthor(data as PostRecord);
@@ -439,15 +452,72 @@ export async function createPost(input: CreatePostInput): Promise<PostRecord | n
   // slice, and a Citizen without a Nostr identity (or not yet allow-listed)
   // simply posts as before. Only main-feed human posts are mirrored — nothing
   // private, nothing auto-generated.
+  let civicPublicationStatus: PublicationStatus | null = null;
+  let civicDiscussionEvent: NostrEvent | null = null;
   if ((post.post_type === 'user' || post.post_type === 'repost') && post.feed_type === 'main') {
-    void mirrorPostToNostr(post);
+    if (input.civicBinding && awaitCivicPublication) {
+      const { publishCivicDiscussionDetailed } = await import('./nostr/publish');
+      const createdSec = post.created_at
+        ? Math.floor(Date.parse(post.created_at) / 1_000)
+        : undefined;
+      const publication = await publishCivicDiscussionDetailed(
+        post.id,
+        post.content,
+        input.civicBinding,
+        createdSec,
+      );
+      civicPublicationStatus = publication.status;
+      civicDiscussionEvent = publication.event;
+    } else {
+      void mirrorPostToNostr(post, input.civicBinding);
+    }
   }
 
-  return post;
+  return { post, civicPublicationStatus, civicDiscussionEvent };
+}
+
+export async function createPost(input: CreatePostInput): Promise<PostRecord | null> {
+  return (await createPostInternal(input, false)).post;
+}
+
+/**
+ * Create the app-visible citizen discussion and wait for its parallel signed
+ * Nostr publication attempt. The Supabase post remains visible if the relay is
+ * temporarily unavailable, but the caller receives that honest `pending`
+ * state and must not present the workflow as admitted or submitted.
+ */
+export async function createCivicDiscussionPost(input: {
+  wallet_address: string;
+  content: string;
+  civicBinding: CivicCaseBinding;
+}): Promise<{
+  post: PostRecord | null;
+  publicationStatus: PublicationStatus;
+  discussionEvent: NostrEvent | null;
+}> {
+  const result = await createPostInternal(
+    {
+      wallet_address: input.wallet_address,
+      content: input.content,
+      category: 'frage',
+      feed_type: 'main',
+      post_type: 'user',
+      civicBinding: input.civicBinding,
+    },
+    true,
+  );
+  return {
+    post: result.post,
+    publicationStatus: result.civicPublicationStatus ?? 'pending',
+    discussionEvent: result.civicDiscussionEvent,
+  };
 }
 
 /** Publish a post to the relay if this device holds a Nostr identity. Swallows everything. */
-async function mirrorPostToNostr(post: PostRecord): Promise<void> {
+async function mirrorPostToNostr(
+  post: PostRecord,
+  civicBinding?: import('@netizen-labs/nostr').CivicCaseBinding,
+): Promise<PublicationStatus | null> {
   try {
     // Organisation-account posts are published by the NODE under the org's own
     // key; a citizen's key must never sign an organisation's words.
@@ -457,20 +527,23 @@ async function mirrorPostToNostr(post: PostRecord): Promise<void> {
         .select('account_type')
         .eq('id', post.account_id)
         .maybeSingle();
-      if (acct?.account_type === 'organisation') return;
+      if (acct?.account_type === 'organisation') return null;
     }
-    const { publishPost, publishRepost } = await import('./nostr/publish');
+    const { publishCivicDiscussion, publishPost, publishRepost } = await import('./nostr/publish');
     if (post.quoted_post_id) {
       // NIP-18: bare repost = kind 6; quote with own words = kind 1 + q tag.
-      await publishRepost(post.id, post.quoted_post_id, post.content || undefined);
-      return;
+      return publishRepost(post.id, post.quoted_post_id, post.content || undefined);
     }
     const media = (post.media_urls ?? []).join('\n');
     const content = media ? `${post.content}\n\n${media}` : post.content;
     const createdSec = post.created_at ? Math.floor(Date.parse(post.created_at) / 1000) : undefined;
-    await publishPost(post.id, content, createdSec);
+    if (civicBinding) {
+      return publishCivicDiscussion(post.id, content, civicBinding, createdSec);
+    }
+    return publishPost(post.id, content, createdSec);
   } catch (err) {
     console.warn('[nostr] post mirror skipped', (err as Error)?.message);
+    return null;
   }
 }
 

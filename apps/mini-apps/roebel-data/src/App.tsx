@@ -21,6 +21,7 @@ import {
   isMarienfelderPublicDemo,
   withMiniAppBasePath,
 } from "./lib/publicDemoMode";
+import { buildCivicDiscussionDeepLink } from "./lib/civicDiscussionLink";
 
 // Brand mark ships in /public. Prefix it so a shared-host staging deployment
 // also works below NEXT_PUBLIC_MINIAPP_BASE_PATH.
@@ -28,6 +29,8 @@ const logoData = withMiniAppBasePath("/assets/Logo-data.png");
 const publicDemoOnly = isMarienfelderPublicDemo(
   process.env.NEXT_PUBLIC_STADTSTACK_PUBLIC_DEMO_MODE,
 );
+const permanentCanonicalCaseId =
+  process.env.NEXT_PUBLIC_STADTSTACK_CANONICAL_CASE_ID?.trim() ?? "";
 
 type Tab = "town" | "economy" | "governance";
 // Invite + Event + Documentary are not top-level tabs — they live inside the Town
@@ -207,6 +210,26 @@ export default function App() {
     // Stadtstack origin and exact public-case path. The shell owns navigation.
     void sdk.actions.openUrl(url).catch(() => {});
   }, []);
+  const openCivicDiscussion = useCallback(
+    (target: {
+      municipalityId: string;
+      sourceCaseId: string;
+      title: string;
+    }) => {
+      if (publicDemoOnly || !permanentCanonicalCaseId) return;
+      try {
+        const url = buildCivicDiscussionDeepLink({
+          ...target,
+          canonicalCaseId: permanentCanonicalCaseId,
+        });
+        void sdk.actions.openUrl(url).catch(() => {});
+      } catch {
+        // A malformed deployment binding must fail closed before the host can
+        // ask a citizen to sign against the wrong municipal Case.
+      }
+    },
+    [],
+  );
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-xl flex-col">
@@ -290,6 +313,9 @@ export default function App() {
                 governanceTarget.civicTopicBinding
               }
               onOpenMunicipalCase={openReviewedMunicipalCase}
+              onDiscussMunicipalCase={
+                permanentCanonicalCaseId ? openCivicDiscussion : undefined
+              }
               publicDemoOnly={publicDemoOnly}
             />
           )}
