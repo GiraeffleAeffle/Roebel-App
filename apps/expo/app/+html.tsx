@@ -4,6 +4,14 @@ import { type PropsWithChildren } from 'react';
 /**
  * This file is web-only and used to configure the root HTML for every web page during static rendering.
  * The contents of this function only run in Node.js environments and do not have access to the DOM or browser APIs.
+ *
+ * NOTE: it is NOT used by the current build. `app.config.ts` sets
+ * `web.output: 'single'`, and in that mode the Expo CLI builds index.html from
+ * `public/index.html` instead (see @expo/cli webTemplate.getTemplateIndexHtmlAsync);
+ * +html.tsx is only consulted for static rendering. The PWA head tags
+ * (manifest link, theme-color, apple-touch-icon) therefore live in
+ * `public/index.html` — edit them there. Keep the two in sync if the output
+ * mode ever changes to 'static'.
  */
 export default function Root({ children }: PropsWithChildren) {
   return (
