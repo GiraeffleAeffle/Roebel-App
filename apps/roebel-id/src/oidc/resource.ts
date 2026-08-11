@@ -45,8 +45,25 @@ export function buildResourceIndicators(
 
   return {
     enabled: true,
-    // Clients that ask for no resource still get the signer token; there is only one.
-    defaultResource: () => canonicalResource,
+    // No `defaultResource` override — deliberately. oidc-provider's `checkResource` middleware
+    // (lib/shared/check_resource.js) calls `defaultResource(ctx, client)` on EVERY authorize
+    // request that omits a `resource` param, not only ones headed for the signer. Returning
+    // `canonicalResource` there (as an earlier version of this file did, per the task brief's
+    // own now-corrected snippet) meant every first-party login — Nextcloud, Matrix, the web
+    // app, Ortis — silently received a signer-audienced JWT access token instead of a plain
+    // opaque one the moment SIGNER_RESOURCE_URL was configured, and /userinfo then 401s for
+    // all of them (a JWT audienced at the signer isn't valid at the userinfo endpoint).
+    //
+    // Omitting the key is not just "no worse" than that: it's `undefined`, and the library's
+    // OWN default (lib/helpers/defaults.js `defaultResource`) is `(ctx, client, oneOf) =>
+    // oneOf ? oneOf : undefined` — i.e. resolve to nothing unless the token-exchange step
+    // needs to disambiguate between multiple already-granted resources, which never happens
+    // here since this allowlist only ever grants one. `merge()` in
+    // lib/helpers/configuration.js deep-merges `features.resourceIndicators`, so leaving this
+    // key out of our returned object inherits that library default intact rather than
+    // clobbering it with `undefined`. Net effect: a client that never asks for the signer
+    // resource keeps getting an ordinary opaque token; only an explicit
+    // `resource=<signerResourceUrl>` on the request reaches `getResourceServerInfo` below.
     useGrantedResource: () => true,
     // Async so a rejection (an indicator outside the allowlist) surfaces as a rejected
     // promise rather than a synchronous throw — oidc-provider awaits this either way

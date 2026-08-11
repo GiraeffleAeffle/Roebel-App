@@ -61,6 +61,25 @@ export function createInteractionRouter(deps: {
       // the interaction resolves in one round trip.
       const grant = new provider.Grant({ accountId: address, clientId: String(params.client_id) })
       if (typeof params.scope === 'string' && params.scope.length > 0) grant.addOIDCScope(params.scope)
+      // A request that combines an OIDC scope grant with a resource indicator (e.g.
+      // `resource=<signerResourceUrl>&scope=openid netizen`) also needs a grant on that
+      // resource — oidc-provider's consent prompt (`rs_scopes_missing` in
+      // interaction_policy/prompts/consent.js) checks `grant.getResourceScopeEncountered` per
+      // resource server independently of the OIDC scope grant above. Without this, the same
+      // account's first request for the signer resource always bounces into a second consent
+      // interaction instead of finishing in this one round trip, no matter what the OIDC
+      // scope grant already covers. `params.resource` is only ever present here as the single
+      // allowlisted signer URL (or absent) — buildResourceIndicators/getResourceServerInfo
+      // (src/oidc/resource.ts) already rejected anything else before this interaction could
+      // exist.
+      if (
+        typeof params.resource === 'string' &&
+        params.resource.length > 0 &&
+        typeof params.scope === 'string' &&
+        params.scope.length > 0
+      ) {
+        grant.addResourceScope(params.resource, params.scope)
+      }
       const grantId = await grant.save()
 
       const redirectTo = await provider.interactionResult(
