@@ -47,7 +47,7 @@ export function wireApp(config: Config = loadConfig(), overrides: WireOverrides 
 
   // Interaction routes must be mounted before provider.callback() so panva's catch-all OIDC
   // routes never shadow /interaction/*.
-  const app = createApp({ provider, interactionRouter })
+  const app = createApp({ provider, interactionRouter, relyingParties: config.relyingParties })
 
   return { app, provider, bridge }
 }

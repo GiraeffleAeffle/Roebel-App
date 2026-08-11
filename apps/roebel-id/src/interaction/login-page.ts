@@ -16,7 +16,9 @@
 // the page before branding was parametrized; new presets are pure data.
 import type { BrandingConfig, BrandingPreset } from '../config.js'
 
-interface PresetCopy {
+export type { BrandingPreset }
+
+export interface PresetCopy {
   title: string
   heading: string
   intro: string
@@ -35,7 +37,7 @@ interface PresetCopy {
   siweStatement: string
 }
 
-const PRESETS: Record<BrandingPreset, PresetCopy> = {
+export const PRESETS: Record<BrandingPreset, PresetCopy> = {
   roebel: {
     title: 'Bei Röbel anmelden',
     heading: 'Röbel ID',
