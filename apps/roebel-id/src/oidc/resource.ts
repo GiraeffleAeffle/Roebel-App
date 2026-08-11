@@ -23,9 +23,11 @@ export const NETIZEN_RESOURCE_SCOPE = 'netizen'
 
 /**
  * Strip trailing slashes so `https://signer.roebel.app` and `https://signer.roebel.app/`
- * compare equal. Mirrors how the signer service normalizes its own issuer
- * (`opts.issuer.replace(/\/+$/, "")`) — the two sides of this handshake must agree on what
- * "the same resource" means.
+ * compare equal. Mirrors how the signer service normalizes both its issuer
+ * (`opts.issuer.replace(/\/+$/, "")`) and, since the aud-normalization fix, its configured
+ * audience (`opts.audience?.replace(/\/+$/, "")`) — see `packages/signer/src/auth.ts` in
+ * netizen_labs. `jose` compares `aud` by exact string, so the two sides of this handshake
+ * must agree on what "the same resource" means, however the manifest or operator spelled it.
  */
 function stripTrailingSlashes(url: string): string {
   return url.replace(/\/+$/, '')

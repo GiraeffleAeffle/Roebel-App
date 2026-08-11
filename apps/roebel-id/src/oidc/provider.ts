@@ -60,12 +60,18 @@ export function buildProvider(deps: {
       profile: ['name', 'preferred_username', 'picture'],
       netizen: NETIZEN_SCOPE_CLAIMS,
       // DEPRECATED ALIAS. Resolves to exactly the same claims as `netizen`.
-      // Nextcloud (cloud.roebel.app) and Matrix (auth.roebel.app) request this scope from
-      // configs that live on the node, outside this repo, and `groups` — the ACL every
-      // relying party gates on — rides on it. Dropping it here silently stops `groups`
-      // being issued: login succeeds, the claim never arrives, the workspace refuses the
-      // user. That exact failure has happened once already (see conformIdTokenClaims below).
-      // REMOVE ONLY once both RP configs request `netizen` instead.
+      // THREE consumers request this scope today, not two:
+      //   1. Nextcloud (cloud.roebel.app) — config lives on the node, outside this repo.
+      //   2. Matrix (auth.roebel.app) — config lives on the node, outside this repo.
+      //   3. This repo's own web app: `apps/web/src/lib/workspace/oidc.ts`'s
+      //      `WORKSPACE_SCOPES = "openid profile email roebel"`, feeding the `groups` ACL at
+      //      `apps/web/src/lib/workspace/context.ts`.
+      // `groups` — the ACL every relying party gates on — rides on this scope for all three.
+      // Dropping it here silently stops `groups` being issued: login succeeds, the claim
+      // never arrives, the workspace refuses the user. That exact failure has happened once
+      // already (see conformIdTokenClaims below).
+      // REMOVE ONLY once ALL THREE consumers request `netizen` instead — migrating just the
+      // two node-side RP configs is not enough, and this repo's own web app is not exempt.
       roebel: NETIZEN_SCOPE_CLAIMS,
     },
     scopes: ['openid', 'email', 'profile', 'netizen', 'roebel'],
