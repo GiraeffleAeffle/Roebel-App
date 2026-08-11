@@ -41,6 +41,10 @@ describe("Public Mecky image contract", () => {
     assert.ok(installIndex > 0);
     assert.match(dockerfile, /--mount=type=bind,from=pnpm-store,source=\.,target=\/pnpm\/store,ro/);
     assert.match(dockerfile, /--mount=type=bind,from=corepack-cache,source=\.,target=\/root\/.cache\/node\/corepack,ro/);
+    assert.equal(
+      dockerfile.match(/--mount=type=bind,from=corepack-cache,source=\.,target=\/root\/.cache\/node\/corepack,ro/g)?.length,
+      3,
+    );
     for (const manifest of [
       "packages/nostr/package.json",
       "packages/stadtstack-federation-client/package.json",
