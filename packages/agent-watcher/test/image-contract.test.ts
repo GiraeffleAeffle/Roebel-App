@@ -36,9 +36,10 @@ describe("Public Mecky image contract", () => {
   it("installs only the three-workspace closure from the reviewed lock", () => {
     assert.doesNotMatch(dockerfile, /pnpm fetch/);
     const installIndex = dockerfile.indexOf(
-      "pnpm --filter @netizen-labs/agent-watcher... install --frozen-lockfile",
+      "pnpm --filter @netizen-labs/agent-watcher... install --frozen-lockfile --offline",
     );
     assert.ok(installIndex > 0);
+    assert.match(dockerfile, /--mount=type=bind,from=pnpm-store,source=\.,target=\/pnpm\/store,ro/);
     for (const manifest of [
       "packages/nostr/package.json",
       "packages/stadtstack-federation-client/package.json",
