@@ -13,12 +13,12 @@ describe('claims resolver', () => {
     const claims = await resolve(ADDR)
     expect(claims.sub).toBe(ADDR.toLowerCase())
     expect(claims.email).toBe('a@b.de')
-    expect(claims['roebel:citizen']).toBe(true)
-    expect(claims['roebel:attester']).toBe(false)
+    expect(claims['netizen:citizen']).toBe(true)
+    expect(claims['netizen:attester']).toBe(false)
     expect(claims.groups).toContain('citizen')
     expect(claims.groups).toContain('org:org-1:admin')
     expect(claims.groups).not.toContain('attester')
-    expect(claims['roebel:actor_type']).toBe('human')
+    expect(claims['netizen:actor_type']).toBe('human')
   })
 
   it('tolerates a missing profile row', async () => {

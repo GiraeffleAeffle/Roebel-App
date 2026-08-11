@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { RoebelClaims, ProfileReader, OrgReader, ChainStatusReader } from './types.js'
+import type { NetizenClaims, ProfileReader, OrgReader, ChainStatusReader } from './types.js'
 
 /**
  * A stable, pseudonymous handle for a member.
@@ -23,8 +23,8 @@ export function memberHandle(address: string, username?: string): string {
 
 export function createClaimsResolver(deps: {
   profile: ProfileReader; orgs: OrgReader; chain: ChainStatusReader
-}): (address: string) => Promise<RoebelClaims> {
-  return async (rawAddress: string): Promise<RoebelClaims> => {
+}): (address: string) => Promise<NetizenClaims> {
+  return async (rawAddress: string): Promise<NetizenClaims> => {
     const sub = rawAddress.toLowerCase()
     const [profile, orgs, status] = await Promise.all([deps.profile(sub), deps.orgs(sub), deps.chain(sub)])
 
@@ -41,10 +41,10 @@ export function createClaimsResolver(deps: {
       preferred_username: memberHandle(sub, profile?.name),
       picture: profile?.picture,
       groups,
-      'roebel:citizen': status.citizen,
-      'roebel:attester': status.attester,
-      'roebel:tier': profile?.tier,
-      'roebel:actor_type': 'human', // v1 issues human principals only; agents reserved (spec §10)
+      'netizen:citizen': status.citizen,
+      'netizen:attester': status.attester,
+      'netizen:tier': profile?.tier,
+      'netizen:actor_type': 'human', // Phase A issues human principals only (spec §5.2)
     }
   }
 }

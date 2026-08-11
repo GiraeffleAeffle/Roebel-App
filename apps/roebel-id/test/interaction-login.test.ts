@@ -7,7 +7,7 @@ import type { Adapter, AdapterPayload } from 'oidc-provider'
 import { wireApp } from '../src/wire.js'
 import type { Config } from '../src/config.js'
 import type { AuthBridge } from '../src/auth-bridge/types.js'
-import type { RoebelClaims } from '../src/claims/types.js'
+import type { NetizenClaims } from '../src/claims/types.js'
 
 // Covers the login POST's failure path: when AuthBridge.verifyLogin rejects (bad signature,
 // replayed/unknown nonce, expired SIWE message, ...), the router must respond 401 with a
@@ -21,11 +21,11 @@ const rejectingBridge: AuthBridge = {
   verifyLogin: async () => { throw new Error('signature verification failed: leaked-secret-detail') },
 }
 
-const stubClaims = async (address: string): Promise<RoebelClaims> => ({
+const stubClaims = async (address: string): Promise<NetizenClaims> => ({
   sub: address,
   groups: [],
-  'roebel:citizen': false,
-  'roebel:attester': false,
+  'netizen:citizen': false,
+  'netizen:attester': false,
 })
 
 function inMemoryAdapterFactory(): (name: string) => Adapter {

@@ -1425,7 +1425,21 @@ These are deploys, which this plan does not perform. **Order matters.**
 3. **Verify the alias survived**, before touching the node: log in to Nextcloud and confirm file access still works. That proves `groups` is still being issued.
 4. **Generate the signer master key** and place it as `SIGNER_MASTER_KEY` in the node's `.env`. It is the root of the vault; losing it loses every member's sovereign key.
 5. **DNS:** point `signer.roebel.app` at the Genesis node.
-6. **Render and bring up:** `netizen render` then `netizen up`. Confirm the rendered `docker-compose.yml` shows the signer with both `OIDC_ISSUER` and `OIDC_AUDIENCE`.
+6. **Render and bring up — RUN THIS FROM `netizen_labs`, NOT FROM `DAO_test`.**
+   > **WARNING — two `packages/cli` copies exist, only one has signer support.** `DAO_test`
+   > (this repo) carries its own `packages/cli` + `packages/protocol` — a stale fork that
+   > predates the netizen_labs spin-out. That copy has **zero** signer support: no
+   > `authBridge.signer` handling, no `OIDC_AUDIENCE` emission, and its own
+   > `packages/protocol/examples/roebel.netizen.json` has no `signer` block at all. Running
+   > `netizen render` / `netizen up` from `DAO_test` silently produces a `docker-compose.yml`
+   > with **no signer service** — a healthy-looking render with the one thing this whole phase
+   > exists to deploy missing from it. The live `packages/cli` + `packages/protocol` are in
+   > **netizen_labs** (`~/Documents/privat/side_projects/netizen/netizen_labs`); that is the
+   > only copy Task 8 touched, and the only copy with `signer.url` -> `OIDC_AUDIENCE` wiring.
+   > Do not attempt to sync or delete the `DAO_test` fork — that is a separate cleanup, not part
+   > of this handoff.
+
+   From `netizen_labs`: `netizen render` then `netizen up`. Confirm the rendered `docker-compose.yml` shows the signer with both `OIDC_ISSUER` and `OIDC_AUDIENCE`.
 7. **Ortis:** deploy `id.ortis.app` with the same keystone image before the Ortis app change reaches production, or Ortis logins fail with `invalid_scope`.
 
 **Acceptance, against the deployed signer** (spec §6):
@@ -1448,3 +1462,57 @@ These are deploys, which this plan does not perform. **Order matters.**
 - **`/v1/export` 403s for everyone**, by design — `netizen_step_up` is always `false` until Phase C.
 - **Ortis cannot reach a signer.** The one signer trusts `id.roebel.app`; Ortis authenticates at `id.ortis.app`. Autar and Röbel citizens are served; Ortis waits for its own node.
 - **thirdweb still mints accounts.** Doctor's warning stays accurate.
+
+---
+
+## Follow-ups carried out of Phase A
+
+Phase A shipped complete: 10 tasks, 3 fix rounds, one final fix wave, 499 tests green
+(roebel-id 83, signer 192, accounts 12, cli 161, protocol 51). These are the items the
+review loop deliberately deferred rather than dropped.
+
+**Decide before the signer is publicly reachable:**
+
+- **No per-client restriction on who may request the signer resource.**
+  `apps/roebel-id/src/oidc/resource.ts`'s `getResourceServerInfo` ignores its `client`
+  argument, so any first-party RP — Nextcloud, Matrix, the web app, Ortis — can add
+  `resource=<signer>` and receive a token controlling its logged-in user's EOA. All four are
+  node-operated today, so this is defense in depth rather than a live hole. Narrowing it is
+  two lines, but *which* clients should hold custody is a decision, not a cleanup.
+
+**Correctness, cheap:**
+
+- A whitespace-only `SIGNER_RESOURCE_URL` trims to `undefined` and silently disables resource
+  indicators — the exact "healthy service that authorizes nobody" outcome §5.2's boot check
+  exists to prevent.
+- No test asserts `/v1/accounts` does **not** emit `message.signed`. The code is correct; the
+  double-counting invariant is undefended.
+- `packages/accounts` `netizen.ts` guards the Nostr fields but the signer/SDK version skew
+  deserves a documented compatibility note.
+- `NETIZEN_ACCESS_TOKEN_TTL` duplicates `provider.ts`'s `ttl.AccessToken`. One should derive
+  from the other.
+
+**Coverage:**
+
+- `/.well-known/netizen-branding` has no HTTP-level test (404 path and `Cache-Control`
+  verified by reading only).
+- Ortis `exchangeCode()`'s JWT-verify / nonce / audience path is untested — the higher-risk
+  half of that file.
+- The discovery test samples 2 of 5 `netizen:*` claim names.
+- `vi.stubGlobal` in the Ortis test has no paired `afterAll` unstub.
+
+**Operational / hygiene:**
+
+- **DAO_test's `packages/cli` + `packages/protocol` are a stale fork** with zero signer
+  support. Step 6's warning covers the immediate hazard; converging or retiring the fork is
+  unresolved. `docs/MISSION_AND_GOALS.md:92` and `docs/WORKSPACE_STATE_AND_NEXT.md:22,28`
+  still point operators at it.
+- `apps/web/src/lib/workspace/oidc.ts` still requests the `roebel` scope. Migrating it is
+  gated on the keystone deploy, same as Ortis. **All three consumers must migrate before the
+  `roebel` alias can be removed.**
+- `SIGNER_EVENTS_PATH` is undocumented in `packages/signer/README.md`, and `FileEventSink`
+  is an unbounded JSONL on the node volume — same shape as the pre-existing `FileAuditSink`.
+  One rotation/retention story should cover both.
+- `docs/NETIZEN_IDENTITY_KICKOFF.md:22` still says `roebel:actor_type`.
+- Pre-existing, untouched: `audit.record` calls in the signer remain unguarded against a
+  throwing sink (the event sink was fixed; the audit sink was deliberately left alone).

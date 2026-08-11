@@ -1,15 +1,29 @@
 import Provider, { type Adapter, type Configuration } from 'oidc-provider'
 import type { Config } from '../config.js'
-import type { RoebelClaims } from '../claims/types.js'
+import type { NetizenClaims } from '../claims/types.js'
 import { loadJwks } from './jwks.js'
+import { buildResourceIndicators, buildExtraTokenClaims } from './resource.js'
+
+/** The claims both the `netizen` scope and its deprecated `roebel` alias resolve to.
+ *  One constant so the two can never drift apart.
+ *  (Typed `string[]`, not `as const`, because oidc-provider's `Configuration['claims']`
+ *  values are `string[]`, not `readonly string[]` — a readonly tuple fails TS4104 here.) */
+const NETIZEN_SCOPE_CLAIMS: string[] = [
+  'groups',
+  'netizen:citizen',
+  'netizen:attester',
+  'netizen:tier',
+  'netizen:actor_type',
+]
 
 export function buildProvider(deps: {
   config: Config
   adapterFactory: (name: string) => Adapter
-  resolveClaims: (address: string) => Promise<RoebelClaims>
+  resolveClaims: (address: string) => Promise<NetizenClaims>
 }): Provider {
   const { config, adapterFactory, resolveClaims } = deps
   const jwks = loadJwks()
+  const resourceIndicators = buildResourceIndicators(config)
 
   const configuration: Configuration = {
     adapter: adapterFactory,
@@ -31,16 +45,36 @@ export function buildProvider(deps: {
     ...(jwks.keys.length ? { jwks } : {}),
     cookies: { keys: config.cookieKeys },
     pkce: { required: () => true },
-    features: { devInteractions: { enabled: false } },
+    features: {
+      devInteractions: { enabled: false },
+      // Spread rather than assigned: when no signer resource is configured the key must be
+      // absent entirely, not present-and-undefined.
+      ...(resourceIndicators ? { resourceIndicators } : {}),
+    },
+    extraTokenClaims: buildExtraTokenClaims(),
     interactions: { url: (_ctx, interaction) => `/interaction/${interaction.uid}` },
     ttl: { AuthorizationCode: 60, IdToken: 3600, AccessToken: 3600, Session: 1209600 },
     claims: {
       openid: ['sub'],
       email: ['email', 'email_verified'],
       profile: ['name', 'preferred_username', 'picture'],
-      roebel: ['groups', 'roebel:citizen', 'roebel:attester', 'roebel:tier', 'roebel:actor_type'],
+      netizen: NETIZEN_SCOPE_CLAIMS,
+      // DEPRECATED ALIAS. Resolves to exactly the same claims as `netizen`.
+      // THREE consumers request this scope today, not two:
+      //   1. Nextcloud (cloud.roebel.app) — config lives on the node, outside this repo.
+      //   2. Matrix (auth.roebel.app) — config lives on the node, outside this repo.
+      //   3. This repo's own web app: `apps/web/src/lib/workspace/oidc.ts`'s
+      //      `WORKSPACE_SCOPES = "openid profile email roebel"`, feeding the `groups` ACL at
+      //      `apps/web/src/lib/workspace/context.ts`.
+      // `groups` — the ACL every relying party gates on — rides on this scope for all three.
+      // Dropping it here silently stops `groups` being issued: login succeeds, the claim
+      // never arrives, the workspace refuses the user. That exact failure has happened once
+      // already (see conformIdTokenClaims below).
+      // REMOVE ONLY once ALL THREE consumers request `netizen` instead — migrating just the
+      // two node-side RP configs is not enough, and this repo's own web app is not exempt.
+      roebel: NETIZEN_SCOPE_CLAIMS,
     },
-    scopes: ['openid', 'email', 'profile', 'roebel'],
+    scopes: ['openid', 'email', 'profile', 'netizen', 'roebel'],
     /**
      * Put the scoped claims — `groups` above all — into the ID Token.
      *
