@@ -55,7 +55,7 @@ export default function InhalteMeldenPage() {
             >
               {CONTACT_EMAIL}
             </a>{" "}
-            mit dem Betreff „Meldung rechtswidriger Inhalt". Damit wir die Meldung
+            mit dem Betreff „Meldung rechtswidriger Inhalt“. Damit wir die Meldung
             bearbeiten können, nennen Sie bitte (Art. 16 Abs. 2 DSA):
           </p>
           <ul className="list-disc pl-6 text-gray-700 dark:text-gray-300 leading-relaxed space-y-2">
