@@ -2,6 +2,7 @@ import Provider, { type Adapter, type Configuration } from 'oidc-provider'
 import type { Config } from '../config.js'
 import type { NetizenClaims } from '../claims/types.js'
 import { loadJwks } from './jwks.js'
+import { buildResourceIndicators, buildExtraTokenClaims } from './resource.js'
 
 /** The claims both the `netizen` scope and its deprecated `roebel` alias resolve to.
  *  One constant so the two can never drift apart.
@@ -22,6 +23,7 @@ export function buildProvider(deps: {
 }): Provider {
   const { config, adapterFactory, resolveClaims } = deps
   const jwks = loadJwks()
+  const resourceIndicators = buildResourceIndicators(config)
 
   const configuration: Configuration = {
     adapter: adapterFactory,
@@ -43,7 +45,13 @@ export function buildProvider(deps: {
     ...(jwks.keys.length ? { jwks } : {}),
     cookies: { keys: config.cookieKeys },
     pkce: { required: () => true },
-    features: { devInteractions: { enabled: false } },
+    features: {
+      devInteractions: { enabled: false },
+      // Spread rather than assigned: when no signer resource is configured the key must be
+      // absent entirely, not present-and-undefined.
+      ...(resourceIndicators ? { resourceIndicators } : {}),
+    },
+    extraTokenClaims: buildExtraTokenClaims(),
     interactions: { url: (_ctx, interaction) => `/interaction/${interaction.uid}` },
     ttl: { AuthorizationCode: 60, IdToken: 3600, AccessToken: 3600, Session: 1209600 },
     claims: {
