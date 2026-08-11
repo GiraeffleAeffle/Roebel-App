@@ -127,9 +127,35 @@ The mock must be able to replay a realistic timeline **including failures** —
 step 2 failing on quota, step 6 failing on certificate issuance. Build the UI so
 a partial failure is recoverable (retry that step), not a dead end.
 
+### 5.4 Managing the tenant's node database
+
+A launched community owns a database on a Netizen node ([K5](2026-08-11_K5_SOVEREIGN_DATA_PLANE.md)). The dashboard is
+where an operator sees and controls it — otherwise "sovereign" just means
+"someone else's server you cannot inspect". Mock these too:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/communities/:id/health` | Node + database status: up/degraded/down, storage used, DB size, last backup. |
+| `GET` | `/api/communities/:id/backups` | List. Each `{ id, createdAt, size, kind: "auto"\|"manual" }`. |
+| `POST` | `/api/communities/:id/backups` | Take one now. |
+| `POST` | `/api/communities/:id/backups/:backupId/restore` | Restore. Destructive → same typed-confirmation treatment as delete. |
+| `POST` | `/api/communities/:id/export` | Full data export (DB dump + media + the community's signed public record). Returns a job, then a download link. |
+| `GET` | `/api/communities/:id/members` | Community members and roles. Display names only — **never raw wallet addresses** (§4.3). |
+| `GET` | `/api/communities/:id/storage` | Buckets, usage, and each bucket's `deletable` flag (K5 §4). |
+| `GET` | `/api/communities/:id/functions` | Deployed functions + recent invocation status. |
+| `GET` | `/api/communities/:id/logs?source=` | Recent logs (app / functions / database), paginated. |
+
+**Export is the sovereignty proof and must be first-class UI, not buried** — an
+operator who cannot walk away with their data does not have a sovereign platform.
+Treat "Daten exportieren" as a primary action on the community page.
+
+Deliberately **not** in v1: a SQL console or table browser. That is a Studio-sized
+feature; if an operator needs it, link out to a Studio instance scoped to their
+database rather than rebuilding it. Flag it if the design pulls that way.
+
 ## 6. Scope
 
-**In scope:** operator signup/login (self-serve, via the existing `id.ortis.app` issuer) · account settings · community creation wizard (name → slug preview → type/preset → branding → review → launch) · live launch progress · community detail + management (status, endpoints, redeploy, branding, features, agent settings, rename, delete) · the abuse/limit gates from §4.1 · the mock service.
+**In scope:** operator signup/login (self-serve, via the existing `id.ortis.app` issuer) · account settings · community creation wizard (name → slug preview → type/preset → branding → review → launch) · live launch progress · community detail + management (status, endpoints, redeploy, branding, features, agent settings, rename, delete) · **the node-database surface in §5.4 (health, backups, restore, export, members, storage, functions, logs)** · the abuse/limit gates from §4.1 · the mock service.
 
 **Out of scope:** the real pipeline (P1) · multi-tenant app build (P0) · contract deployment · Supabase provisioning · billing implementation (leave the policy hook) · anything in this repo (`Roebel-App`).
 
@@ -141,9 +167,10 @@ a partial failure is recoverable (retry that step), not a dead end.
 4. **Creation wizard** with live slug availability, reserved-list handling, and preset defaults per type.
 5. **Launch progress view** — SSE consumption, per-step states, failure + retry, survives reload (reconnects to the stream).
 6. **Community management** — detail page, redeploy, branding/feature edits, rename-as-migration with its warning, guarded delete.
-7. **Gates** — email verification, per-account limit, rate limiting, pluggable launch policy.
+7. **Node-database surface** — health, backups + restore, export as a primary action, members, storage, functions, logs (§5.4).
+8. **Gates** — email verification, per-account limit, rate limiting, pluggable launch policy.
 
-Slices 2–7 each end with a working, reviewable UI.
+Slices 2–8 each end with a working, reviewable UI.
 
 ## 8. Open questions for Max
 
