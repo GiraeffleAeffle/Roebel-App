@@ -445,6 +445,16 @@ test("declared agent pubkeys are passed through to the syncer", () => {
   assert.match(renderComposeYml(withAgent), new RegExp(`AGENT_PUBKEYS: "${"a".repeat(64)},${"b".repeat(64)}"`));
 });
 
+test("Röbel authorizes the currently deployed public Mecky identity", () => {
+  const currentPublicMecky =
+    "f554072cc564dba1e7f101f932afdcf0920e7870e22459f6a7a6e192983d3f7f";
+  assert.ok(roebel.agents.a2a.relayPubkeys.includes(currentPublicMecky));
+  assert.match(
+    renderComposeYml(roebel),
+    new RegExp(`AGENT_PUBKEYS: "[^"]*${currentPublicMecky}[^"]*"`),
+  );
+});
+
 test("a declared watcher becomes a rendered service, not a hand-started container", () => {
   const withWatcher = {
     ...roebel,
