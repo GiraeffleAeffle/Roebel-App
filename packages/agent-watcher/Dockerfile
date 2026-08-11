@@ -2,6 +2,10 @@
 
 FROM --platform=linux/amd64 docker.io/library/node@sha256:7c269ea419bfbaef1f5eed57e58016395bbe3036176411025a5093e39a948dcf AS builder
 
+ARG SOURCE_REVISION
+RUN test "${#SOURCE_REVISION}" -eq 40 \
+    && case "${SOURCE_REVISION}" in *[!0-9a-f]*) exit 1;; esac
+
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH
 
@@ -23,8 +27,6 @@ RUN pnpm --filter @netizen-labs/agent-watcher build
 FROM --platform=linux/amd64 docker.io/library/node@sha256:7c269ea419bfbaef1f5eed57e58016395bbe3036176411025a5093e39a948dcf AS runtime
 
 ARG SOURCE_REVISION
-RUN test "${#SOURCE_REVISION}" -eq 40 \
-    && case "${SOURCE_REVISION}" in *[!0-9a-f]*) exit 1;; esac
 
 LABEL org.opencontainers.image.source="https://github.com/GiraeffleAeffle/Roebel-App" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \

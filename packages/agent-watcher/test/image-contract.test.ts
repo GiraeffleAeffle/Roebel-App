@@ -25,6 +25,14 @@ describe("Public Mecky image contract", () => {
     assert.match(dockerfile, /ENTRYPOINT \["node", "\/app\/agent-watcher\.cjs"\]/);
   });
 
+  it("validates source provenance outside the final runtime stage", () => {
+    const runtimeMarker = " AS runtime";
+    const runtimeIndex = dockerfile.indexOf(runtimeMarker);
+    assert.ok(runtimeIndex > 0);
+    assert.match(dockerfile.slice(0, runtimeIndex), /ARG SOURCE_REVISION[\s\S]*RUN test "\$\{#SOURCE_REVISION\}" -eq 40/);
+    assert.doesNotMatch(dockerfile.slice(runtimeIndex), /RUN test "\$\{#SOURCE_REVISION\}"/);
+  });
+
   it("installs only the three-workspace closure from the reviewed lock", () => {
     assert.doesNotMatch(dockerfile, /pnpm fetch/);
     const installIndex = dockerfile.indexOf(
