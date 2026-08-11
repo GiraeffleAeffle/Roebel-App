@@ -84,6 +84,41 @@ not diligence.
 | **Never ship a server** | The relay is stock Buzz. Autar ships clients and agents only |
 | **Platform risk is bounded** | Buzz is Apache-2.0 and Nostr-based, so the protocol stays open even if the product changes direction. Our relay is ours; the exit is real |
 
+### 1.3 Hosting — the third door (Max, 2026-08-11)
+
+People already self-host Buzz on Railway. **Netizen Labs offers the better deployment**, and the
+engineering is largely done: `services.buzz` already renders from the manifest (commit `99dd526`),
+`netizen render / up / doctor` exist, and the Genesis Node runs on Hetzner. What is missing is
+packaging and positioning, not code.
+
+**Do not compete with Railway on ease of deploy. Compete on what lands.** Railway hosts *a
+container* — the customer still assembles Buzz's five services, TLS, media and backups, and gets
+nothing above the relay. `netizen up` renders relay, Postgres, Redis, MinIO and Caddy/TLS **plus
+identity, the agent fleet, the router, mini apps and the public-record relay, already wired
+together**, on hardware the customer owns in Germany. That is a different category, not a better
+price.
+
+**The strategic payoff exceeds the revenue: whoever hosts the node ships the default client.** Host
+someone's Buzz and their users arrive in Autar. Hosting and the client strategy (§1.1) feed each
+other.
+
+**This is a third door**, unnamed in STRATEGY §5g: the **self-hoster**. Someone paying Railway to run
+Buzz has already decided they want sovereign chat and will operate infrastructure — highest intent,
+zero education required, shortest path from stranger to Autar user.
+
+**Sell the node, not the babysitting.** Hosting is an ops business — uptime, backups, upgrades,
+support — against a day job. The product is the **installer**; managed operation is a deliberate
+later step behind the §7 entity gate.
+
+| Tier | What it is | Ops burden |
+|---|---|---|
+| **Self-host** | `netizen up` renders the whole stack on the customer's own box. Open, free | None — this is the Railway-beater |
+| **Managed node** | Operated on Hetzner under the customer's domain; they keep keys and a verified exit | Real. Gate behind the §7 entity check |
+| **Community node** | Multi-tenant for orgs that will never touch infrastructure. Buzz's `community_id` tenant boundary means one deployment serves many communities — the B0 upstream notes flagged this as "directly relevant to the later hosted-workspaces product" | Real, but amortised |
+
+The digest pin and upgrade cadence are shared with §1.2 — the same CI that proves client conformance
+also validates the rendered stack, so the treadmill is walked once, not twice.
+
 ## 2. Scope
 
 The full "AI + crypto M365" is eight-plus independent subsystems and cannot be one spec. **This spec
@@ -103,6 +138,7 @@ mail/calendar, mobile clients, and the public GTM surface.
 |---|---|---|
 | D1 | **Shell is Slack/Teams-shaped** — channels, threads, DMs. No new paradigm to learn. | Familiarity is a feature; the differentiation is agent depth, not navigation |
 | D0 | **Autar is a 1:1 Buzz-compatible client, not a competitor** | Positive-sum: Buzz's growth becomes distribution. The web client Buzz lacks is the wedge. Moat is the rails, not the UI (§1.1) |
+| D0b | **Netizen hosting is the third door; sell the installer, not the babysitting** | Whoever hosts the node ships the default client. Compete on what lands, not on ease of deploy. Managed operation waits behind the §7 entity gate (§1.3) |
 | D2 | **Substrate is Nostr, chat and channels included** — **stock Buzz, never forked** | An agent *is* a keypair — no account provisioning, no device-key ceremony. Matrix's E2EE was designed around human devices doing verification, which is the wrong shape for an agent fleet. We ship no server (§1.2) |
 | D3 | **Matrix is not used in Autar.** It stays in line A for German institutions | One identity plane (npub). Adding MXID re-splits the thing Autar exists to unify |
 | D4 | **Calls: LiveKit SFU driven by our own client**, with Nostr carrying identity, membership, call announcement and post-call artifacts | Keeps one identity plane; guest links become a design problem, not an integration problem; LiveKit's agent framework makes an AI participant native |
