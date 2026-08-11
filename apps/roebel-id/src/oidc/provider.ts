@@ -3,6 +3,18 @@ import type { Config } from '../config.js'
 import type { NetizenClaims } from '../claims/types.js'
 import { loadJwks } from './jwks.js'
 
+/** The claims both the `netizen` scope and its deprecated `roebel` alias resolve to.
+ *  One constant so the two can never drift apart.
+ *  (Typed `string[]`, not `as const`, because oidc-provider's `Configuration['claims']`
+ *  values are `string[]`, not `readonly string[]` — a readonly tuple fails TS4104 here.) */
+const NETIZEN_SCOPE_CLAIMS: string[] = [
+  'groups',
+  'netizen:citizen',
+  'netizen:attester',
+  'netizen:tier',
+  'netizen:actor_type',
+]
+
 export function buildProvider(deps: {
   config: Config
   adapterFactory: (name: string) => Adapter
@@ -38,9 +50,17 @@ export function buildProvider(deps: {
       openid: ['sub'],
       email: ['email', 'email_verified'],
       profile: ['name', 'preferred_username', 'picture'],
-      roebel: ['groups', 'roebel:citizen', 'roebel:attester', 'roebel:tier', 'roebel:actor_type'],
+      netizen: NETIZEN_SCOPE_CLAIMS,
+      // DEPRECATED ALIAS. Resolves to exactly the same claims as `netizen`.
+      // Nextcloud (cloud.roebel.app) and Matrix (auth.roebel.app) request this scope from
+      // configs that live on the node, outside this repo, and `groups` — the ACL every
+      // relying party gates on — rides on it. Dropping it here silently stops `groups`
+      // being issued: login succeeds, the claim never arrives, the workspace refuses the
+      // user. That exact failure has happened once already (see conformIdTokenClaims below).
+      // REMOVE ONLY once both RP configs request `netizen` instead.
+      roebel: NETIZEN_SCOPE_CLAIMS,
     },
-    scopes: ['openid', 'email', 'profile', 'roebel'],
+    scopes: ['openid', 'email', 'profile', 'netizen', 'roebel'],
     /**
      * Put the scoped claims — `groups` above all — into the ID Token.
      *
