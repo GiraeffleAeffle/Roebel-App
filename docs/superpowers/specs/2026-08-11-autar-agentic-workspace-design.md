@@ -97,6 +97,31 @@ not diligence.
 | **Never ship a server** | The relay is stock Buzz. Autar ships clients and agents only |
 | **Platform risk is bounded** | Buzz is Apache-2.0 and Nostr-based, so the protocol stays open even if the product changes direction. Our relay is ours; the exit is real |
 
+#### 1.2a The upstream watcher — a standing agent, not a chore (Max, 2026-08-11)
+
+**Autar must always carry Buzz's fundamental features and bug fixes.** Tracking a near-daily-release
+upstream by hand fails the first busy week, so tracking is **a resident agent**, not a recurring
+task — the "Buzz embassy" already named in AUTAR_KICKOFF M1, made concrete. Pleasingly
+self-referential: the first agent Autar runs is the one that keeps Autar compatible.
+
+The watcher runs continuously and:
+
+- **Watches `github.com/block/buzz`** — releases, tags, published image digests, and changes to
+  `NOSTR.md` (the NIP set and custom kind registry) and `deploy/compose/`.
+- **Classifies each change** into: protocol-affecting (new/changed kinds, membership or auth
+  semantics), stack-affecting (compose services, env contract, image digest), feature-relevant, or
+  ignorable.
+- **Opens work rather than reporting news.** Protocol- and stack-affecting changes become tickets on
+  the board (§1.4a) with the diff attached — which is exactly the stateful-plugin property paying
+  off, since the agent files the ticket as an event and a human approves it.
+- **Escalates a broken conformance run to P0** (§1.2), because that means the compatibility promise is
+  currently false.
+- **Proposes the digest bump** to the manifest, so the client and the hosted stack move together and
+  the treadmill is walked once (§1.3).
+
+This is also the cleanest first dogfood: it exercises the orchestrator, the router, budgets, approval
+cards and the ticket board on work Max needs done regardless of whether Autar exists.
+
 ### 1.3 Hosting — the third door (Max, 2026-08-11)
 
 People already self-host Buzz on Railway. **Netizen Labs offers the better deployment**, and the
@@ -554,6 +579,7 @@ sit at the bottom.
 | Agent | Role | Default engine | Core tools |
 |---|---|---|---|
 | **Orchestrator** | Routing, delegation, the decision queue | fast path + Claude on escalation | delegation, budget, audit |
+| **Upstream watcher** ("Buzz embassy") | Tracks `block/buzz` releases, kind-registry and compose changes; files tickets; proposes digest bumps (§1.2a) | cheap tier for diffing, Claude for classification | GitHub read, conformance suite, ticket board, manifest proposal |
 | **Meeting** | Transcription, summary, follow-up proposals | cheap tier + Batch | STT, transcript store, summariser |
 | **Strategy** | Planning, ideation, analysis | Claude Opus 5 | context graph, web research, document production |
 | **Marketing** | Flyers, copy, social, campaigns | GLM for bulk, Claude for final German copy | image generation (kie.ai), CMS publishing, templates |
