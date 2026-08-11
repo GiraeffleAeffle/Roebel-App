@@ -3,6 +3,7 @@ import type Provider from 'oidc-provider'
 import type { AuthBridge } from '../auth-bridge/types.js'
 import type { BrandingConfig, RelyingPartyConfig } from '../config.js'
 import { renderLoginPage } from './login-page.js'
+import { NETIZEN_RESOURCE_SCOPE } from '../oidc/resource.js'
 
 // Fallback for a client_id the router can't resolve to a configured RP — shouldn't happen for
 // a first-party-only IdP (every registered OIDC client comes straight from relyingParties), but
@@ -72,13 +73,33 @@ export function createInteractionRouter(deps: {
       // allowlisted signer URL (or absent) — buildResourceIndicators/getResourceServerInfo
       // (src/oidc/resource.ts) already rejected anything else before this interaction could
       // exist.
+      //
+      // Only the scopes the resource server actually declares (NETIZEN_RESOURCE_SCOPE) go onto
+      // the resource ledger — NOT the full raw request scope string. The authorization_code
+      // grant path (oidc-provider's actions/grants/authorization_code.js) computes
+      // `at.scope = grant.getResourceScopeFiltered(resource, code.scopes)`, which intersects
+      // against `code.scopes` — the request's OVERALL scope set (e.g. openid+email+profile+
+      // netizen) — not against the resource server's declared scope. Granting the raw string
+      // here would therefore serialize e.g. "openid email profile netizen" straight into the
+      // minted JWT's `scope` claim instead of just "netizen"; no filtering against the
+      // resource server's declared scope exists anywhere on that path (only
+      // grants/refresh_token.js does that, and only for the refresh_token grant, not this
+      // one). This mirrors what oidc-provider's own default consent handler grants
+      // (actions/interaction.js): only `missingResourceScopes`, itself computed by
+      // consent.js's `rs_scopes_missing` check intersecting the request scope against the
+      // resource server's declared scope.
       if (
         typeof params.resource === 'string' &&
         params.resource.length > 0 &&
         typeof params.scope === 'string' &&
         params.scope.length > 0
       ) {
-        grant.addResourceScope(params.resource, params.scope)
+        const availableResourceScopes = new Set(NETIZEN_RESOURCE_SCOPE.split(' '))
+        const resourceScope = params.scope
+          .split(' ')
+          .filter((scope) => availableResourceScopes.has(scope))
+          .join(' ')
+        if (resourceScope) grant.addResourceScope(params.resource, resourceScope)
       }
       const grantId = await grant.save()
 

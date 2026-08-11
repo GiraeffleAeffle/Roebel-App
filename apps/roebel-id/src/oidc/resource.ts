@@ -12,6 +12,16 @@ export const NETIZEN_IDENTITY_CLASS = 'citizen'
 export const NETIZEN_ACCESS_TOKEN_TTL = 3600
 
 /**
+ * The only scope(s) the signer resource server declares — the `scope` field
+ * `getResourceServerInfo` returns below. Exported so callers that pre-grant a resource scope
+ * (see `interaction/router.ts`) can intersect the request's scope against this exact value
+ * instead of hardcoding `'netizen'` a second time, which would let the two drift apart.
+ * Space-separated the same way oidc-provider's own scope strings are, in case this ever
+ * grows beyond one scope.
+ */
+export const NETIZEN_RESOURCE_SCOPE = 'netizen'
+
+/**
  * Strip trailing slashes so `https://signer.roebel.app` and `https://signer.roebel.app/`
  * compare equal. Mirrors how the signer service normalizes its own issuer
  * (`opts.issuer.replace(/\/+$/, "")`) — the two sides of this handshake must agree on what
@@ -73,7 +83,7 @@ export function buildResourceIndicators(
         throw new errors.InvalidTarget(`unknown resource indicator: ${resourceIndicator}`)
       }
       return {
-        scope: 'netizen',
+        scope: NETIZEN_RESOURCE_SCOPE,
         audience: canonicalResource,
         accessTokenTTL: NETIZEN_ACCESS_TOKEN_TTL,
         accessTokenFormat: 'jwt',
