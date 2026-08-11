@@ -85,6 +85,7 @@ and the model to aim other keys toward.
 |---|---|
 | `SUPABASE_SERVICE_KEY` | **RLS bypassed project-wide.** The most powerful credential on the box |
 | `ANTHROPIC_API_KEY` | billing, and the agent's voice |
+| `HETZNER_INFERENCE_API_KEY` | Public Mecky inference quota; receives only public questions and reviewed public evidence |
 | `NODE_AGENT_SECRET` | every agent **and organisation** identity on the node |
 | `POSTGRES_PASSWORD`, Matrix/Nextcloud client secrets | the respective service |
 
