@@ -1425,7 +1425,21 @@ These are deploys, which this plan does not perform. **Order matters.**
 3. **Verify the alias survived**, before touching the node: log in to Nextcloud and confirm file access still works. That proves `groups` is still being issued.
 4. **Generate the signer master key** and place it as `SIGNER_MASTER_KEY` in the node's `.env`. It is the root of the vault; losing it loses every member's sovereign key.
 5. **DNS:** point `signer.roebel.app` at the Genesis node.
-6. **Render and bring up:** `netizen render` then `netizen up`. Confirm the rendered `docker-compose.yml` shows the signer with both `OIDC_ISSUER` and `OIDC_AUDIENCE`.
+6. **Render and bring up — RUN THIS FROM `netizen_labs`, NOT FROM `DAO_test`.**
+   > **WARNING — two `packages/cli` copies exist, only one has signer support.** `DAO_test`
+   > (this repo) carries its own `packages/cli` + `packages/protocol` — a stale fork that
+   > predates the netizen_labs spin-out. That copy has **zero** signer support: no
+   > `authBridge.signer` handling, no `OIDC_AUDIENCE` emission, and its own
+   > `packages/protocol/examples/roebel.netizen.json` has no `signer` block at all. Running
+   > `netizen render` / `netizen up` from `DAO_test` silently produces a `docker-compose.yml`
+   > with **no signer service** — a healthy-looking render with the one thing this whole phase
+   > exists to deploy missing from it. The live `packages/cli` + `packages/protocol` are in
+   > **netizen_labs** (`~/Documents/privat/side_projects/netizen/netizen_labs`); that is the
+   > only copy Task 8 touched, and the only copy with `signer.url` -> `OIDC_AUDIENCE` wiring.
+   > Do not attempt to sync or delete the `DAO_test` fork — that is a separate cleanup, not part
+   > of this handoff.
+
+   From `netizen_labs`: `netizen render` then `netizen up`. Confirm the rendered `docker-compose.yml` shows the signer with both `OIDC_ISSUER` and `OIDC_AUDIENCE`.
 7. **Ortis:** deploy `id.ortis.app` with the same keystone image before the Ortis app change reaches production, or Ortis logins fail with `invalid_scope`.
 
 **Acceptance, against the deployed signer** (spec §6):
