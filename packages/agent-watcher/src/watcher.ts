@@ -2,6 +2,7 @@ import {
   RelayClient,
   buildAgentNoteEvent,
   isAgentEvent,
+  verifyEvent,
   type AgentIdentity,
   type NostrEvent,
 } from "@netizen-labs/nostr";
@@ -36,6 +37,28 @@ export interface PassResult {
 
 /** Look back a little so an event written during the previous pass is not missed. */
 const LOOKBACK_SECONDS = 900;
+const DAY_SECONDS = 86_400;
+const MAX_RELAY_REPLY_HISTORY = 500;
+
+function restorePublishedReply(history: ReplyHistory, event: NostrEvent): void {
+  const parentId = event.tags.find(
+    (tag) => tag[0] === "e" && tag[3] === "reply" && typeof tag[1] === "string",
+  )?.[1];
+  if (!parentId || history.answered.has(parentId)) return;
+
+  history.answered.add(parentId);
+  history.repliedAt.push(event.created_at);
+  const author = event.tags.find(
+    (tag) => tag[0] === "p" && typeof tag[1] === "string",
+  )?.[1];
+  if (author) {
+    const normalized = author.toLowerCase();
+    history.byAuthor.set(normalized, [
+      ...(history.byAuthor.get(normalized) ?? []),
+      event.created_at,
+    ]);
+  }
+}
 
 export async function watchOnce(deps: WatcherDeps): Promise<PassResult> {
   const log = deps.log ?? (() => {});
@@ -49,14 +72,39 @@ export async function watchOnce(deps: WatcherDeps): Promise<PassResult> {
   let mentions: NostrEvent[] = [];
 
   try {
-    mentions = await client.query([
+    const events = await client.query([
       {
         kinds: [1],
         "#p": [deps.agent.publicKey],
         since: now - LOOKBACK_SECONDS,
         limit: 100,
       },
+      {
+        kinds: [1],
+        authors: [deps.agent.publicKey],
+        since: now - DAY_SECONDS,
+        limit: MAX_RELAY_REPLY_HISTORY,
+      },
     ]);
+
+    // Relay filters are a transport convenience, not a trust boundary. Only a
+    // signature-valid event may suppress a reply or consume a rate-limit slot.
+    const verifiedEvents = events.filter(verifyEvent);
+
+    for (const event of verifiedEvents) {
+      if (
+        event.pubkey.toLowerCase() === deps.agent.publicKey.toLowerCase() &&
+        isAgentEvent(event)
+      ) {
+        restorePublishedReply(deps.history, event);
+      }
+    }
+    // The relay applies the first filter, so every non-self result is a mention.
+    // The second filter adds our own published replies solely as durable
+    // idempotency/rate-limit evidence; never feed those back into shouldAnswer.
+    mentions = verifiedEvents.filter(
+      (event) => event.pubkey.toLowerCase() !== deps.agent.publicKey.toLowerCase(),
+    );
 
     // Oldest first, so a burst is answered in the order it was asked.
     for (const event of [...mentions].sort((a, b) => a.created_at - b.created_at)) {

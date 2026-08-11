@@ -13,10 +13,10 @@ import { watchOnce } from "./watcher";
  * `netizen-agent-watcher` — runs beside the relay and answers mentions from
  * checksum-bound, publicly reviewed Stadtstack evidence.
  *
- * Deliberately stateless across restarts except for what it can re-derive: the
- * lookback window plus the relay's own record mean a restart re-reads recent
- * mentions rather than losing them, and the answered-set stops duplicates within
- * a run. A missed answer is recoverable; a double answer is not.
+ * Deliberately stateless across restarts except for what it can re-derive from
+ * the relay: each pass reads recent mentions plus its own published replies.
+ * Those reply events restore the answered-set and rate-limit history, so a
+ * restart neither loses a question nor answers it twice.
  */
 
 function required(name: string): string {

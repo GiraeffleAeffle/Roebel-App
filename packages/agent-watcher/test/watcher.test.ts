@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildAgentNoteEvent, buildNoteEvent, deriveAgentIdentity, deriveNostrSecretKey, type NostrEvent } from "@netizen-labs/nostr";
-import { emptyHistory } from "../src/bounds";
+import { DEFAULT_BOUNDS, emptyHistory } from "../src/bounds";
 import { watchOnce } from "../src/watcher";
 
 const MECKY = deriveAgentIdentity("a-node-secret-with-plenty-of-entropy-0123456789", "roebel", "mecky");
 const CITIZEN = deriveNostrSecretKey("0x" + "9c".repeat(65));
 const NOW = 1_785_000_000;
 
-function harness(mentions: NostrEvent[], think: (q: string) => Promise<string | null> = async () => "Antwort") {
+function harness(
+  mentions: NostrEvent[],
+  think: (q: string) => Promise<string | null> = async () => "Antwort",
+  bounds = DEFAULT_BOUNDS,
+) {
   const published: NostrEvent[] = [];
   const filters: Record<string, unknown>[] = [];
   return {
@@ -17,12 +21,13 @@ function harness(mentions: NostrEvent[], think: (q: string) => Promise<string | 
     deps: {
       agent: MECKY,
       history: emptyHistory(),
+      bounds,
       relayUrl: "ws://relay",
       now: () => NOW,
       think,
       makeClient: () => ({
         query: async (f: unknown[]) => {
-          filters.push(f[0] as Record<string, unknown>);
+          filters.push(...(f as Record<string, unknown>[]));
           return mentions;
         },
         publish: async (e: NostrEvent) => {
@@ -72,6 +77,97 @@ describe("answering a mention", () => {
     await watchOnce(h.deps);
     await watchOnce(h.deps);
     assert.equal(h.published.length, 1);
+  });
+
+  it("does not answer again after restart when its relay reply already exists", async () => {
+    const question = buildNoteEvent(CITIZEN, "nur einmal, auch nach Neustart", {
+      createdAt: NOW - 10,
+    });
+    const existingReply = buildAgentNoteEvent(MECKY, "Schon beantwortet.", {
+      createdAt: NOW - 5,
+      tags: [
+        ["e", question.id, "", "reply"],
+        ["p", question.pubkey],
+      ],
+    });
+    let thought = 0;
+    const h = harness([question, existingReply], async () => {
+      thought += 1;
+      return "Doppelte Antwort";
+    });
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.answered, 0);
+    assert.equal(thought, 0);
+    assert.equal(h.published.length, 0);
+    assert.deepEqual(h.filters[1].authors, [MECKY.publicKey]);
+  });
+
+  it("does not trust a forged relay reply as restart evidence", async () => {
+    const question = buildNoteEvent(CITIZEN, "bitte wirklich beantworten", {
+      createdAt: NOW - 10,
+    });
+    const signedReply = buildAgentNoteEvent(MECKY, "Gefälschte Historie.", {
+      createdAt: NOW - 5,
+      tags: [
+        ["e", question.id, "", "reply"],
+        ["p", question.pubkey],
+      ],
+    });
+    const forgedReply = { ...signedReply, sig: "00".repeat(64) };
+    const h = harness([question, forgedReply]);
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.answered, 1);
+    assert.equal(h.published.length, 1);
+  });
+
+  it("does not answer a mention with an invalid Nostr signature", async () => {
+    const signedQuestion = buildNoteEvent(CITIZEN, "nicht verifiziert", {
+      createdAt: NOW - 10,
+    });
+    const forgedQuestion = { ...signedQuestion, sig: "00".repeat(64) };
+    let thought = 0;
+    const h = harness([forgedQuestion], async () => {
+      thought += 1;
+      return "Nicht senden";
+    });
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.seen, 0);
+    assert.equal(result.answered, 0);
+    assert.equal(thought, 0);
+    assert.equal(h.published.length, 0);
+  });
+
+  it("restores the daily cap from its relay replies after restart", async () => {
+    const oldQuestion = buildNoteEvent(CITIZEN, "alte Frage", {
+      createdAt: NOW - 20,
+    });
+    const existingReply = buildAgentNoteEvent(MECKY, "Schon beantwortet.", {
+      createdAt: NOW - 15,
+      tags: [
+        ["e", oldQuestion.id, "", "reply"],
+        ["p", oldQuestion.pubkey],
+      ],
+    });
+    const newQuestion = buildNoteEvent(CITIZEN, "neue Frage", {
+      createdAt: NOW - 5,
+    });
+    const h = harness(
+      [newQuestion, existingReply],
+      async () => "Zu viel",
+      { ...DEFAULT_BOUNDS, perDay: 1 },
+    );
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.answered, 0);
+    assert.equal(result.refused["daily-cap"], 1);
+    assert.equal(h.published.length, 0);
   });
 
   it("skips another agent's post without spending a thought", async () => {
