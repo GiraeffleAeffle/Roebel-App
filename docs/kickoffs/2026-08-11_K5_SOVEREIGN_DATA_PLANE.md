@@ -38,6 +38,42 @@ ones one at a time**, with the app never noticing:
 own node. Netizen Accounts does not replace RLS; it supplies the verified identity
 that RLS policies read. That is the same shape Supabase uses internally.
 
+## 2a. How many instances? Granularity is the whole sizing question
+
+**Not one Supabase stack per tenant.** A full self-hosted stack is 8–10
+containers (Postgres, Kong, GoTrue, PostgREST, Realtime, Storage, imgproxy,
+Studio, analytics). The genesis node is a Hetzner CPX42 — 8 vCPU / 16 GB / 320 GB
+([`docs/NOSTR_AGENT_ECOSYSTEM_PLAN.md`](../NOSTR_AGENT_ECOSYSTEM_PLAN.md)) — and it **already** carries Nextcloud,
+Matrix (Synapse + MAS + its own Postgres), strfry, Caddy and the keystone
+([`docs/HETZNER_SETUP.md`](../HETZNER_SETUP.md)). Stacking a full Supabase per community on that box
+gets you a handful of tenants and an OOM.
+
+Split it by what actually has to be per-tenant:
+
+| Per **node** (shared) | Per **tenant** (isolated) |
+|---|---|
+| One Postgres cluster | One **database** in it |
+| Storage service | A bucket namespace |
+| Realtime service | Its channels/topics |
+| Deno function host | Its deployed functions |
+| Caddy / ingress | Its hostname route |
+
+**The obstacle is GoTrue.** Self-hosted Supabase auth assumes one project per
+instance — it is the single component that forces a whole stack per tenant.
+Which means the swap already planned in §2 has a second, larger payoff:
+**replacing GoTrue with Netizen Accounts is what unlocks cheap multi-tenancy.**
+Auth becomes stateless JWT verification, so a tenant collapses to *a database, a
+small PostgREST process, RLS policies, and a bucket prefix* — tens of megabytes,
+not gigabytes. Sequence K5 accordingly: node stack first, Netizen Accounts auth
+early rather than last.
+
+Tenants who want true isolation get **their own node** running the full stack via
+`netizen up`. Same software, different operator — that tier is the product's
+sovereignty claim and must exist from day one.
+
+**Before promising any free tier, measure it:** idle RAM and disk per tenant on a
+real node. K4's launch policy gate depends on a number nobody has yet.
+
 ## 3. The two planes (get this right or nothing else works)
 
 | | Public record | Personal data |
