@@ -14,12 +14,14 @@ export { announceAgentProfile } from "./profile";
 export type { AnnounceDeps } from "./profile";
 export {
   createOpenAICompatiblePublicMeckyInference,
+  createPiPublicMeckyInference,
   createPublicMecky,
   createPublicMeckyRelayReply,
   createStadtstackReviewedEvidenceReader,
 } from "./public-mecky";
 export type {
   OpenAICompatiblePublicMeckyInferenceOptions,
+  PiPublicMeckyInferenceOptions,
   PublicMecky,
   PublicMeckyDependencies,
   PublicMeckyInference,

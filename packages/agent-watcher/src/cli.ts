@@ -3,7 +3,7 @@ import { deriveAgentIdentity } from "@netizen-labs/nostr";
 import { DEFAULT_BOUNDS, emptyHistory } from "./bounds";
 import { announceAgentProfile } from "./profile";
 import {
-  createOpenAICompatiblePublicMeckyInference,
+  createPiPublicMeckyInference,
   createPublicMecky,
   createPublicMeckyRelayReply,
   createStadtstackReviewedEvidenceReader,
@@ -52,10 +52,11 @@ async function main(): Promise<void> {
       baseUrl: publicEvidenceBaseUrl,
       municipalityId,
     }),
-    infer: createOpenAICompatiblePublicMeckyInference({
+    infer: createPiPublicMeckyInference({
       baseUrl: inferenceBaseUrl,
       apiKey: inferenceApiKey,
       model: inferenceModel,
+      timeoutMs: Number(process.env.MECKY_INFERENCE_TIMEOUT_MS ?? 30_000),
     }),
   });
   const stadtstackIntake = createStadtstackNostrIntakeClient({

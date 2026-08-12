@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 docker.io/library/node@sha256:7c269ea419bfbaef1f5eed57e58016395bbe3036176411025a5093e39a948dcf AS builder
+FROM --platform=linux/amd64 docker.io/library/node@sha256:a17d50af28002a160548bd4225b3cfcb12c5efcb171f79e68758f2885fb1b066 AS builder
 
 ARG SOURCE_REVISION
 ARG SOURCE_DATE_EPOCH
@@ -24,11 +24,11 @@ COPY packages/stadtstack-federation-client ./packages/stadtstack-federation-clie
 COPY packages/agent-watcher ./packages/agent-watcher
 RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
     --mount=type=bind,from=pnpm-store,source=.,target=/pnpm/store,ro \
-    pnpm --filter @netizen-labs/agent-watcher... install --frozen-lockfile --offline
+    pnpm --filter @netizen-labs/agent-watcher... install --frozen-lockfile --offline --ignore-scripts
 RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
     pnpm --filter @netizen-labs/agent-watcher build
 
-FROM --platform=linux/amd64 docker.io/library/node@sha256:7c269ea419bfbaef1f5eed57e58016395bbe3036176411025a5093e39a948dcf AS runtime
+FROM --platform=linux/amd64 docker.io/library/node@sha256:a17d50af28002a160548bd4225b3cfcb12c5efcb171f79e68758f2885fb1b066 AS runtime
 
 ARG SOURCE_REVISION
 

@@ -119,9 +119,11 @@ Tag Mecky in the app's Nostr test section and it answers in place.
 - Review happens once at the civic evidence boundary, not on every Mecky answer. That keeps
   administration in control of what is verified without turning routine public questions into
   an administrative approval queue.
-- Inference sits behind an OpenAI-compatible seam. The Röbel manifest declares Hetzner's
-  experimental endpoint and a scoped secret reference; changing provider does not change
-  Mecky's Nostr identity or evidence contract.
+- Inference runs through the pinned Pi `0.84.1` agent core behind the watcher's closed
+  evidence interface. Every mention gets one fresh bounded run, zero tools, no persistent
+  free-form memory, and a hard cancellation deadline. The Röbel manifest declares Hetzner's
+  experimental OpenAI-compatible endpoint and a scoped secret reference; changing provider
+  does not change Mecky's Nostr identity or evidence contract.
 
 **Verified live:** a citizen asked "was ist Nostr in einem Satz?" and Mecky answered on the
 relay — threaded onto the question, addressed back to the asker, and tagged `netizen_agent`.

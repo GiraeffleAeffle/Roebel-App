@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { buildCivicDiscussionEvent } from "@netizen-labs/nostr";
 import {
   createOpenAICompatiblePublicMeckyInference,
+  createPiPublicMeckyInference,
   createPublicMecky,
   createPublicMeckyRelayReply,
   createStadtstackReviewedEvidenceReader,
@@ -74,7 +75,7 @@ it("binds a civic Mecky reply to the signed discussion, Case and reviewed eviden
         ],
       },
     }),
-    reply,
+    reply
   );
 });
 
@@ -96,7 +97,10 @@ describe("Public Mecky", () => {
         },
       ],
       infer: async ({ question, evidence }) => {
-        assert.equal(question, "Kann ich über die Marienfelder Straße schon abstimmen?");
+        assert.equal(
+          question,
+          "Kann ich über die Marienfelder Straße schon abstimmen?"
+        );
         assert.equal(evidence.length, 1);
         assert.equal(evidence[0].evidenceId, EVIDENCE_ID);
         return {
@@ -108,7 +112,7 @@ describe("Public Mecky", () => {
     });
 
     const result = await mecky.answerMention(
-      "Kann ich über die Marienfelder Straße schon abstimmen?",
+      "Kann ich über die Marienfelder Straße schon abstimmen?"
     );
 
     assert.deepEqual(result, {
@@ -137,7 +141,7 @@ describe("Public Mecky", () => {
     });
 
     const result = await mecky.answerMention(
-      "Was hat die Verwaltung beschlossen?",
+      "Was hat die Verwaltung beschlossen?"
     );
 
     assert.deepEqual(result, {
@@ -199,8 +203,7 @@ describe("Public Mecky", () => {
       {
         evidenceId: EVIDENCE_ID,
         title: "Marienfelder Straße",
-        publicSummary:
-          "Der Fall befindet sich in der Verwaltungsprüfung.",
+        publicSummary: "Der Fall befindet sich in der Verwaltungsprüfung.",
         currentStageLabel: "Verwaltungsprüfung und Entscheidungsbrief",
         nextAction: "Öffentliche Kurzfassung prüfen.",
         participationAuthorityState: "unconfirmed",
@@ -221,8 +224,12 @@ describe("Public Mecky", () => {
       model: "DeepSeek-V4-Flash-0731",
       fetch: async (input, init) => {
         observedUrl = String(input);
-        observedAuthorization = new Headers(init?.headers).get("authorization") ?? "";
-        observedBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        observedAuthorization =
+          new Headers(init?.headers).get("authorization") ?? "";
+        observedBody = JSON.parse(String(init?.body)) as Record<
+          string,
+          unknown
+        >;
         return Response.json({
           choices: [
             {
@@ -257,7 +264,7 @@ describe("Public Mecky", () => {
 
     assert.equal(
       observedUrl,
-      "https://inference.hetzner.com/api/v1/chat/completions",
+      "https://inference.hetzner.com/api/v1/chat/completions"
     );
     assert.equal(observedAuthorization, "Bearer test-token");
     const requestBody = observedBody as Record<string, unknown> | null;
@@ -269,6 +276,231 @@ describe("Public Mecky", () => {
       answer: "Eine Abstimmung ist noch nicht eröffnet.",
       evidenceIds: [EVIDENCE_ID],
     });
+  });
+
+  it("runs reviewed evidence through a zero-tool Pi agent", async () => {
+    let observedUrl = "";
+    let observedAuthorization = "";
+    let observedBody: Record<string, unknown> | null = null;
+    const infer = createPiPublicMeckyInference({
+      baseUrl: "https://inference.hetzner.com/api/v1",
+      apiKey: "test-token",
+      model: "DeepSeek-V4-Flash-0731",
+      fetch: async (input, init) => {
+        observedUrl = String(input);
+        observedAuthorization =
+          new Headers(init?.headers).get("authorization") ?? "";
+        observedBody = JSON.parse(String(init?.body)) as Record<
+          string,
+          unknown
+        >;
+        const content = JSON.stringify({
+          answer: "Eine Abstimmung ist noch nicht eröffnet.",
+          evidenceIds: [EVIDENCE_ID],
+        });
+        const chunks = [
+          {
+            id: "chatcmpl-stadtstack",
+            object: "chat.completion.chunk",
+            created: 1_786_464_000,
+            model: "DeepSeek-V4-Flash-0731",
+            choices: [
+              {
+                index: 0,
+                delta: { role: "assistant", content },
+                finish_reason: null,
+              },
+            ],
+          },
+          {
+            id: "chatcmpl-stadtstack",
+            object: "chat.completion.chunk",
+            created: 1_786_464_000,
+            model: "DeepSeek-V4-Flash-0731",
+            choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+            usage: {
+              prompt_tokens: 100,
+              completion_tokens: 20,
+              total_tokens: 120,
+            },
+          },
+        ];
+        return new Response(
+          `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`,
+          { headers: { "content-type": "text/event-stream" } }
+        );
+      },
+    });
+
+    const result = await infer({
+      question: "Kann ich schon abstimmen?",
+      evidence: [
+        {
+          evidenceId: EVIDENCE_ID,
+          title: "Marienfelder Straße",
+          publicSummary: "Eine Abstimmung ist noch nicht eröffnet.",
+          currentStageLabel: "Verwaltungsprüfung",
+          nextAction: null,
+          participationAuthorityState: "unconfirmed",
+          reviewedAt: "2026-08-10T12:00:00.000Z",
+          publicCaseUrl:
+            "https://stadtstack.example/kommunen/roebel-mueritz/entscheidungen/marienfelder-strasse",
+        },
+      ],
+    });
+
+    assert.equal(
+      observedUrl,
+      "https://inference.hetzner.com/api/v1/chat/completions"
+    );
+    assert.equal(observedAuthorization, "Bearer test-token");
+    const requestBody = observedBody as Record<string, unknown> | null;
+    assert.ok(requestBody);
+    assert.equal(requestBody.model, "DeepSeek-V4-Flash-0731");
+    assert.equal(requestBody.stream, true);
+    assert.equal(requestBody.temperature, 0);
+    assert.equal(requestBody.max_tokens, 500);
+    assert.ok(!("tools" in requestBody));
+    assert.match(JSON.stringify(requestBody), /Kann ich schon abstimmen/);
+    assert.match(JSON.stringify(requestBody), new RegExp(EVIDENCE_ID));
+    assert.deepEqual(result, {
+      answer: "Eine Abstimmung ist noch nicht eröffnet.",
+      evidenceIds: [EVIDENCE_ID],
+    });
+  });
+
+  it("aborts a Pi provider stream at the public deadline", async () => {
+    let aborted = false;
+    const infer = createPiPublicMeckyInference({
+      baseUrl: "https://inference.hetzner.com/api/v1",
+      apiKey: "test-token",
+      model: "DeepSeek-V4-Flash-0731",
+      timeoutMs: 1_000,
+      fetch: async (_input, init) =>
+        await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => {
+              aborted = true;
+              reject(new DOMException("aborted", "AbortError"));
+            },
+            { once: true }
+          );
+        }),
+    });
+
+    await assert.rejects(
+      infer({
+        question: "Kann ich schon abstimmen?",
+        evidence: [
+          {
+            evidenceId: EVIDENCE_ID,
+            title: "Marienfelder Straße",
+            publicSummary: "Eine Abstimmung ist noch nicht eröffnet.",
+            currentStageLabel: "Verwaltungsprüfung",
+            nextAction: null,
+            participationAuthorityState: "unconfirmed",
+            reviewedAt: "2026-08-10T12:00:00.000Z",
+            publicCaseUrl: "https://stadtstack.example/case",
+          },
+        ],
+      }),
+      /Public Mecky Pi run timed out/
+    );
+    assert.equal(aborted, true);
+  });
+
+  it("fails closed on a malformed Pi stream result", async () => {
+    const infer = createPiPublicMeckyInference({
+      baseUrl: "https://inference.hetzner.com/api/v1",
+      apiKey: "test-token",
+      model: "DeepSeek-V4-Flash-0731",
+      fetch: async () =>
+        new Response(
+          [
+            `data: ${JSON.stringify({
+              id: "chatcmpl-malformed",
+              object: "chat.completion.chunk",
+              created: 1_786_464_000,
+              model: "DeepSeek-V4-Flash-0731",
+              choices: [
+                {
+                  index: 0,
+                  delta: { role: "assistant", content: '{"answer":' },
+                  finish_reason: null,
+                },
+              ],
+            })}\n\n`,
+            `data: ${JSON.stringify({
+              id: "chatcmpl-malformed",
+              object: "chat.completion.chunk",
+              created: 1_786_464_000,
+              model: "DeepSeek-V4-Flash-0731",
+              choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+            })}\n\n`,
+            "data: [DONE]\n\n",
+          ].join(""),
+          { headers: { "content-type": "text/event-stream" } }
+        ),
+    });
+
+    await assert.rejects(
+      infer({ question: "Frage", evidence: [] }),
+      /Public Mecky provider returned invalid JSON/
+    );
+  });
+
+  it("fails closed when a Pi provider attempts a tool call", async () => {
+    const infer = createPiPublicMeckyInference({
+      baseUrl: "https://inference.hetzner.com/api/v1",
+      apiKey: "test-token",
+      model: "DeepSeek-V4-Flash-0731",
+      fetch: async () =>
+        new Response(
+          [
+            `data: ${JSON.stringify({
+              id: "chatcmpl-tool",
+              object: "chat.completion.chunk",
+              created: 1_786_464_000,
+              model: "DeepSeek-V4-Flash-0731",
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    role: "assistant",
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: "call_forbidden",
+                        type: "function",
+                        function: {
+                          name: "fetch",
+                          arguments: '{"url":"https://example.com"}',
+                        },
+                      },
+                    ],
+                  },
+                  finish_reason: null,
+                },
+              ],
+            })}\n\n`,
+            `data: ${JSON.stringify({
+              id: "chatcmpl-tool",
+              object: "chat.completion.chunk",
+              created: 1_786_464_000,
+              model: "DeepSeek-V4-Flash-0731",
+              choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+            })}\n\n`,
+            "data: [DONE]\n\n",
+          ].join(""),
+          { headers: { "content-type": "text/event-stream" } }
+        ),
+    });
+
+    await assert.rejects(
+      infer({ question: "Frage", evidence: [] }),
+      /failed to complete the Pi run|invalid Pi result/
+    );
   });
 
   it("refuses rather than publishing when inference fails", async () => {

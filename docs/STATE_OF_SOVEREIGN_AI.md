@@ -41,7 +41,7 @@ spells out why the protocol is what makes that plurality safe.
 | Surface | What it does | Model actually used |
 |---|---|---|
 | **Mecky in-app** (`apps/expo/app/mecky.tsx`) | German chat assistant, 11 tools into the backend | Claude via API |
-| **Public Mecky on Nostr** (`packages/agent-watcher`) | Answers `p`-tag mentions only from checksum-bound, reviewed Stadtstack evidence; every answer cites its public case | Replaceable OpenAI-compatible provider; Röbel declares Hetzner Inference (deployment pending) |
+| **Public Mecky on Nostr** (`packages/agent-watcher`) | Answers `p`-tag mentions only from checksum-bound, reviewed Stadtstack evidence; every answer cites its public case | Pi agent core `0.84.1` with zero tools and fresh bounded runs; Röbel declares Hetzner Inference as the replaceable provider (deployment pending) |
 | **Story engine / newsroom** | Co-writes local stories, self-publishes to feed + blog | Claude via API |
 | **Fördermittel outreach** | Finds funding programmes, drafts honest banded reports, daily cron, opt-out | Claude via API |
 | **Image generation** (flyers, menu photos, store images) | kie.ai `nano-banana-2-lite` via shared `lib/images/kie.ts` | — |
@@ -148,7 +148,7 @@ The honest tier below that is **policy, not structure**:
   implementations, not by cryptography. Every new tool is a privacy decision, not a feature.
 - **Egress is the open flank.** In-app Mecky and other AI features still use external model
   APIs. Public Mecky's provider receives only the public question and reviewed public evidence,
-  through a replaceable OpenAI-compatible seam; the Röbel manifest currently selects Hetzner's
+  through Pi's replaceable OpenAI-compatible provider adapter; the Röbel manifest currently selects Hetzner's
   experimental Inference API. The manifest's `dataEgressPolicy: governance-gated` names the intent —
   *what leaves the node is a governed, auditable decision* — but no code enforces it yet.
   Local inference (§3) is the structural fix; until then this is the gap to be honest about
@@ -190,8 +190,8 @@ the promise column into the enforcement column.
    [DSGVO & AI Act compliance §4](DSGVO_AI_ACT_COMPLIANCE.md). The irony worth noticing: the
    *protocol* side already complies in spirit — every Nostr event Mecky signs is labelled
    `bot: true` — while the app's own chat window does not yet say what the law requires.
-2. **Cognition is rented.** Public Mecky can switch any OpenAI-compatible provider without
-   changing its civic evidence contract, but inference still leaves the node. The in-app and
+2. **Cognition is rented.** Pi can switch Public Mecky's OpenAI-compatible provider without
+   changing its closed civic evidence contract, but inference still leaves the node. The in-app and
    newsroom paths remain separately tied to external providers. Sovereign today = identity,
    bounds, evidence, audit, memory, budget. Not the model.
 3. **Egress is unenforced** (§4). `dataEgressPolicy` is a field, not a control.
