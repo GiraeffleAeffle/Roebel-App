@@ -351,8 +351,9 @@ mail/calendar, mobile clients, and the public GTM surface.
 | D11 | **Unit of account is EUR; payment rails are pluggable** | Münzen is one rail among many to come, not the accounting unit. Launch simple: EUR budgets, Stripe subscriptions (§8.1) |
 | D12 | **The in-call agent splits by question type, not data class** | Retrieval runs live and local; reasoning is acknowledged and deferred. Removes the apparent privacy/UX trade-off (§5.4) |
 | D13 | **A meeting creates its own channel** | Matches the Teams shape and makes guest history a non-question (§6.2) |
-| D14 | **One Expo codebase for every platform from the start** | Codebase drift is the failure mode that kills solo-maintained cross-platform products; worth a lower desktop-interaction ceiling (§14) |
-| D15 | **Electron, not Tauri, for desktop** | Electron bundles Chromium, so desktop WebRTC is identical to the tested browser stack. Tauri's Linux WebKitGTK media support is the risk, and calls are the north star (§14.1) |
+| ~~D14~~ | ~~One Expo codebase for every platform~~ — **SUPERSEDED by D16** | Reasoning kept in §14; the drift concern it encodes is what D16 satisfies better |
+| ~~D15~~ | ~~Electron, not Tauri, for desktop~~ — **SUPERSEDED by D16** | The Electron case was Linux-shaped (WebKitGTK WebRTC); macOS and Windows webviews are fine (§14.5) |
+| **D16** | **Next.js static export + Tauri v2 for every target — web, PWA, desktop, iOS, Android. Expo deferred.** | Tauri brings no UI layer, so desktop *is* the web app, and Tauri v2 extends that to mobile. One React DOM component set everywhere; the RN-vs-DOM duplication never arises. **Trigger to revisit: remote push notifications** (§14.5) |
 
 ## 4. The Orchestrator
 
@@ -739,7 +740,11 @@ than the answers.
 
 ## 14. Client architecture — one codebase, all platforms
 
-**Decision (Max, 2026-08-11): a single Expo codebase targeting every platform from the beginning,
+> **REVISED same day (Max, 2026-08-11, §14.5). D14 and D15 below are superseded: the client is
+> Next.js + Tauri v2 for every target, not Expo + Electron.** The reasoning that produced them is
+> kept because it explains why the revision is better, not because it still governs.
+
+**Superseded decision: a single Expo codebase targeting every platform from the beginning,
 with Electron for desktop.** Not phased, not split.
 
 **Rationale — drift, not polish.** The failure mode that kills a solo-maintained cross-platform
@@ -795,6 +800,50 @@ These traps are known from `apps/expo` and transfer directly — re-learning the
 - **Metro workspace imports must be extensionless**; a `.js` suffix breaks `eas update` silently.
 - **Max runs EAS builds and updates himself.** Done means committed and pushed — never run
   `eas update` unasked.
+
+### 14.5 REVISED — Next.js + Tauri v2 for every target (Max, 2026-08-11)
+
+**The client is one Next.js app in static-export mode, shipped through Tauri v2 shells to desktop
+*and* mobile.** Expo is deferred, not adopted.
+
+| Target | Path |
+|---|---|
+| Web · PWA | Next.js (`output: 'export'`) |
+| macOS · Windows · Linux | **Tauri v2** wrapping that same export |
+| iOS · Android | **Tauri v2 mobile** wrapping that same export |
+| — | Expo: **deferred**, adopted only against the trigger below |
+
+**Why this beats both earlier answers.** Next.js and "React + Tauri" were never two stacks — Tauri
+brings no UI layer, it wraps a web build in the OS webview. So desktop *is* the web app. Tauri v2
+extends that to iOS and Android, which collapses the whole matrix to **one React DOM component set
+everywhere**. The RN-versus-DOM duplication that §14.2 planned around simply does not arise: there is
+no second implementation of any screen, and the design-system sync problem reduces to ordinary
+code reuse. Static export costs nothing here — SSR buys nothing behind a login.
+
+**Tauri over Electron, revised reasoning.** Max is right on performance (3–10MB binaries against
+Electron's 85–150MB, far lower RAM). The Electron argument in §14.1 was **Linux-shaped**: WebRTC's
+weak spot is WebKitGTK specifically, while macOS WKWebView and Windows WebView2 both handle it well.
+With Linux not a launch target, the objection largely evaporates. Re-examine only if Linux desktop
+becomes a shipping target *and* calls run poorly there.
+
+**Three risks, held openly — "optimize later if needed" only works with a named trigger:**
+
+1. **Push notifications are the forcing function.** Tauri v2 does local notifications, but *remote*
+   push (APNs/FCM) needs native integration and is far less mature than `expo-notifications` + EAS.
+   **For a Teams competitor push is not optional — this is the concrete thing that sends us to Expo**,
+   and it is the trigger to watch. Not a vague "if needed".
+2. **Background execution.** iOS suspends webview apps aggressively; message sync and resident agents
+   while backgrounded are the second pressure point.
+3. **App Store guideline 4.2.** Webview wrappers draw extra "minimum functionality" scrutiny. A rich
+   workspace should clear it, but it is known friction.
+
+**What carries over unchanged from the superseded plan:** one styling system (§14.3) — now trivially
+satisfied, since there is only one renderer; the marketing site staying out of the app bundle
+(§14.2); and the discipline that a feature is not done until it works on every target it claims.
+
+**What no longer applies:** the four platform splits of §14.2 (LiveKit ships one web SDK now, not
+two; `FlatList` is irrelevant; desktop interaction handlers are plain DOM), and every Expo trap in
+§14.4 — those return only if the push trigger fires.
 
 ## 15. Dogfood targets — both doors in parallel
 

@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- **Repo:** all build code lives in the Netizen-Labs monorepo at `/Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs`. This plan file lives in the Röbel repo; **do not put build code here.**
+- **Repo:** all build code lives in the Netizen-Labs monorepo at `/Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router`. This plan file lives in the Röbel repo; **do not put build code here.**
 - **Node `>=22`**, **pnpm `9.15.0`**, **TypeScript `^5.6.3`**, **zod `^3.23.8`** — match the existing workspace versions exactly.
 - **Test runner:** Node's built-in runner. Every package's test script is `tsx --test test/*.test.ts`; tests import from `node:test` and `node:assert/strict`. Do not add jest, vitest or mocha.
 - **Code, identifiers, filenames and comments in English.** German only for text a user reads. Nothing in this plan is user-facing.
@@ -65,9 +65,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { NetizenManifestSchema } from "../src/manifest";
 
+// The minimum manifest NetizenManifestSchema accepts: nsp, manifestVersion, id,
+// name and services (services.host is required). Verified against the schema on
+// 2026-08-11 — do not trim further, every field here is load-bearing.
 const base = {
-  version: 1,
-  node: { id: "test-node", name: "Test", domain: "test.example" },
+  nsp: "0",
+  manifestVersion: "1.0.0",
+  id: "test-node",
+  name: "Test",
+  services: { host: { provider: "hetzner", region: "eu-central" } },
 };
 
 function withAi(engines: unknown[]) {
@@ -82,7 +88,9 @@ const hostedFlash = {
   endpoint: "https://api.anthropic.com",
   api: "anthropic",
   model: "claude-haiku-4-5",
-  apiKey: { secret: "ANTHROPIC_API_KEY" },
+  // secretRef is a STRING matching /^(\$[A-Z0-9_]+|vault:[\w./-]+)$/ — an object
+  // here is rejected. Never an inline key value.
+  apiKey: "$ANTHROPIC_API_KEY",
   selfHosted: false,
   classificationCeiling: "internal",
   latencyClass: "flash",
@@ -136,7 +144,7 @@ test("rejects duplicate engine ids", () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs/packages/protocol
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router/packages/protocol
 pnpm test
 ```
 
@@ -230,7 +238,7 @@ export {
 - [ ] **Step 6: Run the tests to verify they pass**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs/packages/protocol
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router/packages/protocol
 pnpm test && pnpm typecheck
 ```
 
@@ -239,7 +247,7 @@ Expected: PASS, all four tests.
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router
 git add packages/protocol/src/manifest.ts packages/protocol/src/index.ts packages/protocol/test/engines.test.ts
 git commit -m "feat(protocol): ai.engines — the router's engine registry
 
@@ -347,7 +355,7 @@ test("RouteRefusedError carries a reason and is an Error", () => {
 - [ ] **Step 3: Run the test to verify it fails**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router
 pnpm install
 cd packages/router && pnpm test
 ```
@@ -416,7 +424,7 @@ export class RouteRefusedError extends Error {
 - [ ] **Step 5: Run the tests to verify they pass**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs/packages/router
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router/packages/router
 pnpm test && pnpm typecheck
 ```
 
@@ -425,7 +433,7 @@ Expected: PASS, three tests.
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router
 git add packages/router/package.json packages/router/tsconfig.json packages/router/src/types.ts packages/router/test/types.test.ts pnpm-lock.yaml
 git commit -m "feat(router): package skeleton, classification and latency rank orders
 
@@ -516,7 +524,7 @@ test("candidates is empty when nothing qualifies", () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs/packages/router
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router/packages/router
 pnpm test
 ```
 
@@ -566,7 +574,7 @@ export function buildRegistry(engines: readonly Engine[]): EngineRegistry {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs/packages/router
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router/packages/router
 pnpm test && pnpm typecheck
 ```
 
@@ -575,7 +583,7 @@ Expected: PASS, five tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router
 git add packages/router/src/registry.ts packages/router/test/registry.test.ts
 git commit -m "feat(router): engine registry with classification and latency filtering
 
@@ -665,7 +673,7 @@ test("never returns a hosted engine for sensitive data", () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs/packages/router
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router/packages/router
 pnpm test
 ```
 
@@ -723,7 +731,7 @@ export function resolve(registry: EngineRegistry, request: RouteRequest): RouteD
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs/packages/router
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router/packages/router
 pnpm test && pnpm typecheck
 ```
 
@@ -732,7 +740,7 @@ Expected: PASS, five tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router
 git add packages/router/src/router.ts packages/router/test/router.test.ts
 git commit -m "feat(router): three-axis resolve — classification, latency, then cost
 
@@ -789,7 +797,7 @@ test("matching is case-insensitive", () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs/packages/router
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router/packages/router
 pnpm test
 ```
 
@@ -838,7 +846,7 @@ export function matchShape(text: string): ShapeRule | null {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs/packages/router
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router/packages/router
 pnpm test && pnpm typecheck
 ```
 
@@ -847,7 +855,7 @@ Expected: PASS, five tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router
 git add packages/router/src/shapes.ts packages/router/test/shapes.test.ts
 git commit -m "feat(router): deterministic fast-path shape matcher
 
@@ -915,7 +923,7 @@ test("forwards every record to the sink", () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs/packages/router
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router/packages/router
 pnpm test
 ```
 
@@ -1023,7 +1031,7 @@ export { createTelemetry, type RoutingRecord, type Telemetry } from "./telemetry
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs/packages/router
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router/packages/router
 pnpm test && pnpm typecheck
 ```
 
@@ -1032,7 +1040,7 @@ Expected: PASS, three tests in this file and eighteen across the package.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router
 git add packages/router/src/telemetry.ts packages/router/src/index.ts packages/router/test/telemetry.test.ts
 git commit -m "feat(router): routing telemetry and public exports
 
@@ -1069,7 +1077,7 @@ In `packages/agent-watcher/package.json`, change the `dependencies` block to:
 Then run:
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router
 pnpm install
 ```
 
@@ -1165,7 +1173,7 @@ test("an open-ended question is logged as the slow path", async () => {
 - [ ] **Step 3: Run the test to verify it fails**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs/packages/agent-watcher
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router/packages/agent-watcher
 pnpm test
 ```
 
@@ -1241,25 +1249,37 @@ export function makeRoutedThink(options: RoutedThinkOptions) {
 - [ ] **Step 5: Run the tests to verify they pass**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs/packages/agent-watcher
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router/packages/agent-watcher
 pnpm test && pnpm typecheck
 ```
 
 Expected: PASS, four new tests plus the existing watcher, profile and bounds tests.
 
-- [ ] **Step 6: Run the whole workspace to confirm nothing regressed**
+- [ ] **Step 6: Confirm no regression in the affected packages**
+
+**Do not run `pnpm test` at the workspace root and expect green.** The baseline recorded
+2026-08-11 has pre-existing failures in `atlas`, `indexer`, `signer` and `ortis` that have nothing
+to do with this plan. Verify only the packages this plan touches:
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs
-pnpm test && pnpm typecheck
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router
+for p in protocol router agent-watcher; do
+  printf "%-16s " "$p"
+  (cd packages/$p && pnpm test >/dev/null 2>&1 && echo "test PASS" || echo "test FAIL")
+done
+for p in protocol router agent-watcher; do
+  printf "%-16s " "$p"
+  (cd packages/$p && pnpm typecheck >/dev/null 2>&1 && echo "typecheck PASS" || echo "typecheck FAIL")
+done
 ```
 
-Expected: PASS across every package.
+Expected: PASS on all six lines. `protocol`, `agent-watcher` and `nostr` were verified PASS at
+baseline before this plan began, so any failure among them is a genuine regression from this work.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs
+cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs-autar-router
 git add packages/agent-watcher/src/routed-think.ts packages/agent-watcher/test/routed-think.test.ts packages/agent-watcher/package.json pnpm-lock.yaml
 git commit -m "feat(agent-watcher): route before answering
 
@@ -1276,15 +1296,14 @@ decision path be tested without a network."
 
 ## Verification
 
-After Task 7, confirm the slice works end to end:
+After Task 7, confirm the slice works end to end using the scoped loop in Task 7 Step 6.
 
-```bash
-cd /Users/maxbrych/Documents/privat/side_projects/netizen/netizen_labs
-pnpm test        # every package
-pnpm typecheck   # every package
-```
+**Recorded baseline (2026-08-11, worktree `feat/autar-engine-registry-router` off `a34f52f`):**
+`protocol` PASS · `agent-watcher` PASS · `nostr` PASS (test and typecheck).
+Pre-existing failures unrelated to this plan: `atlas`, `indexer`, `signer`, `ortis`. **Do not attempt
+to fix those** — `signer` and `ortis` are another session's live work.
 
-Both must pass before this plan is considered done. **Do not report completion without pasting the actual output** — the standing verification rule.
+**Do not report completion without pasting the actual output** — the standing verification rule.
 
 ## What this plan deliberately leaves out
 
