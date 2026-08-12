@@ -3,6 +3,7 @@ import type { NostrEvent } from "@netizen-labs/nostr";
 export interface StadtstackNostrIntakeClientOptions {
   baseUrl: string;
   actorToken: string;
+  canonicalCaseId: string;
   fetch?: typeof globalThis.fetch;
 }
 
@@ -20,7 +21,7 @@ export interface StadtstackNostrIntakeClient {
 }
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
-const HEX_64 = /^[0-9a-f]{64}$/;
+const CANONICAL_CASE_ID = /^urn:stadtstack:case:municipality:[a-z0-9][a-z0-9-]{0,119}:[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 function fail(code: string): never {
   throw new Error(`stadtstack_control_${code}`);
@@ -49,17 +50,16 @@ function endpoint(value: string): URL {
   return new URL("/v1/nostr/discussions", base.origin);
 }
 
-function receipt(value: unknown): StadtstackCommandReceipt {
+function receipt(value: unknown, canonicalCaseId: string): StadtstackCommandReceipt {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail("response_invalid");
   const record = value as Record<string, unknown>;
+  const expectedEventIds = [1, 2].map((version) => `urn:stadtstack:case-event:${canonicalCaseId}:${version}`);
   if (
     Object.keys(record).sort().join(",") !==
       "caseVersion,eventIds,journalHeadChecksum" ||
-    !Number.isSafeInteger(record.caseVersion) ||
-    (record.caseVersion as number) < 2 ||
+    record.caseVersion !== 2 ||
     !Array.isArray(record.eventIds) ||
-    record.eventIds.length !== 2 ||
-    record.eventIds.some((id) => typeof id !== "string" || !HEX_64.test(id)) ||
+    JSON.stringify(record.eventIds) !== JSON.stringify(expectedEventIds) ||
     typeof record.journalHeadChecksum !== "string" ||
     !SHA256.test(record.journalHeadChecksum)
   ) fail("response_invalid");
@@ -74,6 +74,7 @@ export function createStadtstackNostrIntakeClient(
   options: StadtstackNostrIntakeClientOptions,
 ): StadtstackNostrIntakeClient {
   const url = endpoint(options.baseUrl);
+  if (typeof options.canonicalCaseId !== "string" || !CANONICAL_CASE_ID.test(options.canonicalCaseId)) fail("case_id_invalid");
   if (
     typeof options.actorToken !== "string" ||
     options.actorToken.length < 32 ||
@@ -101,7 +102,7 @@ export function createStadtstackNostrIntakeClient(
       } catch {
         fail("response_invalid");
       }
-      return receipt(value);
+      return receipt(value, options.canonicalCaseId);
     },
   });
 }

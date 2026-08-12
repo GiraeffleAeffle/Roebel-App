@@ -71,6 +71,7 @@ async function main(): Promise<void> {
   const stadtstackIntake = createStadtstackNostrIntakeClient({
     baseUrl: stadtstackControlBaseUrl,
     actorToken: stadtstackIngestorToken,
+    canonicalCaseId,
   });
 
   const agent = deriveAgentIdentity(required("NODE_AGENT_SECRET"), nodeId, agentName);
