@@ -12,6 +12,7 @@ import {
 } from "./public-mecky";
 import { createStadtstackNostrIntakeClient } from "./stadtstack-control";
 import { createNodeRelayClient } from "./node-relay-client";
+import { singleFlight } from "./single-flight";
 import { watchOnce } from "./watcher";
 
 /**
@@ -154,8 +155,9 @@ async function main(): Promise<void> {
     }
   };
 
-  await pass();
-  setInterval(() => void pass(), intervalSeconds * 1000);
+  const serialPass = singleFlight(pass);
+  await serialPass();
+  setInterval(() => void serialPass(), intervalSeconds * 1000);
 }
 
 void main().catch((error) => {
