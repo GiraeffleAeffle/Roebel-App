@@ -1,8 +1,13 @@
 import { createHash } from "node:crypto";
 
 import { Agent, type StreamFn } from "@earendil-works/pi-agent-core";
-import { streamSimple as streamOpenAICompletions } from "@earendil-works/pi-ai/api/openai-completions";
-import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
+import {
+  createAssistantMessageEventStream,
+  type AssistantMessage,
+  type Context,
+  type Model,
+  type Usage,
+} from "@earendil-works/pi-ai";
 import {
   verifyEvent,
   type CivicCaseBinding,
@@ -180,6 +185,162 @@ export interface PiPublicMeckyInferenceOptions extends OpenAICompatiblePublicMec
   timeoutMs?: number;
 }
 
+const ZERO_COST = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  total: 0,
+} as const;
+
+function usageFromProvider(value: unknown): Usage {
+  const record = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const nonnegativeInteger = (entry: unknown): number =>
+    Number.isSafeInteger(entry) && Number(entry) >= 0 ? Number(entry) : 0;
+  const input = nonnegativeInteger(record.prompt_tokens);
+  const output = nonnegativeInteger(record.completion_tokens);
+  const total = nonnegativeInteger(record.total_tokens) || input + output;
+  return {
+    input,
+    output,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: total,
+    cost: ZERO_COST,
+  };
+}
+
+function textOnly(value: string | readonly { type: string; text?: string }[]): string {
+  if (typeof value === "string") return value;
+  if (!value.every((entry) => entry.type === "text" && typeof entry.text === "string")) {
+    throw new Error("Public Mecky Pi context must be text-only.");
+  }
+  return value.map((entry) => entry.text).join("");
+}
+
+function openAiMessages(context: Context): { role: "system" | "user" | "assistant"; content: string }[] {
+  if (context.tools?.length) {
+    throw new Error("Public Mecky Pi tools are disabled.");
+  }
+  const messages: { role: "system" | "user" | "assistant"; content: string }[] = [];
+  if (context.systemPrompt) messages.push({ role: "system", content: context.systemPrompt });
+  for (const message of context.messages) {
+    if (message.role === "user") {
+      messages.push({ role: "user", content: textOnly(message.content) });
+      continue;
+    }
+    if (message.role === "assistant") {
+      if (message.content.some((entry) => entry.type !== "text")) {
+        throw new Error("Public Mecky Pi assistant context must be text-only.");
+      }
+      messages.push({
+        role: "assistant",
+        content: message.content.map((entry) => entry.type === "text" ? entry.text : "").join(""),
+      });
+      continue;
+    }
+    throw new Error("Public Mecky Pi tool results are disabled.");
+  }
+  return messages;
+}
+
+function createHetznerPiTransport(options: {
+  endpoint: URL;
+  apiKey: string;
+  fetch: typeof globalThis.fetch;
+}): StreamFn {
+  return (requestedModel, context, streamOptions) => {
+    const stream = createAssistantMessageEventStream();
+    queueMicrotask(async () => {
+      const pending: AssistantMessage = {
+        role: "assistant",
+        content: [],
+        api: requestedModel.api,
+        provider: requestedModel.provider,
+        model: requestedModel.id,
+        usage: usageFromProvider(null),
+        stopReason: "pending",
+        timestamp: Date.now(),
+      };
+      try {
+        const response = await options.fetch(options.endpoint, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${options.apiKey}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: requestedModel.id,
+            temperature: 0,
+            max_tokens: 500,
+            stream: false,
+            messages: openAiMessages(context),
+          }),
+          signal: streamOptions?.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Public Mecky provider failed with HTTP ${response.status}.`);
+        }
+        const payload = await response.json() as {
+          id?: unknown;
+          model?: unknown;
+          choices?: unknown;
+          usage?: unknown;
+        };
+        if (!Array.isArray(payload.choices) || payload.choices.length !== 1) {
+          throw new Error("Public Mecky provider returned an invalid Pi response.");
+        }
+        const choice = payload.choices[0];
+        if (!choice || typeof choice !== "object" || Array.isArray(choice)) {
+          throw new Error("Public Mecky provider returned an invalid Pi response.");
+        }
+        const choiceRecord = choice as Record<string, unknown>;
+        const message = choiceRecord.message;
+        if (!message || typeof message !== "object" || Array.isArray(message)) {
+          throw new Error("Public Mecky provider returned an invalid Pi response.");
+        }
+        const messageRecord = message as Record<string, unknown>;
+        const content = messageRecord.content;
+        if (
+          typeof content !== "string" ||
+          !content ||
+          content.length > 10_000 ||
+          choiceRecord.finish_reason !== "stop" ||
+          Object.hasOwn(messageRecord, "tool_calls")
+        ) {
+          throw new Error("Public Mecky provider returned an invalid Pi response.");
+        }
+        const completed: AssistantMessage = {
+          ...pending,
+          content: [{ type: "text", text: content }],
+          responseId: typeof payload.id === "string" ? payload.id : undefined,
+          responseModel: typeof payload.model === "string" ? payload.model : undefined,
+          usage: usageFromProvider(payload.usage),
+          stopReason: "stop",
+        };
+        stream.push({ type: "start", partial: { ...pending } });
+        stream.push({ type: "text_start", contentIndex: 0, partial: { ...pending, content: [{ type: "text", text: "" }] } });
+        stream.push({ type: "text_delta", contentIndex: 0, delta: content, partial: completed });
+        stream.push({ type: "text_end", contentIndex: 0, content, partial: completed });
+        stream.push({ type: "done", reason: "stop", message: completed });
+        stream.end(completed);
+      } catch (error) {
+        const aborted = streamOptions?.signal?.aborted === true;
+        const failed: AssistantMessage = {
+          ...pending,
+          stopReason: aborted ? "aborted" : "error",
+          errorMessage: error instanceof Error ? error.message : String(error),
+        };
+        stream.push({ type: "error", reason: aborted ? "aborted" : "error", error: failed });
+        stream.end(failed);
+      }
+    });
+    return stream;
+  };
+}
+
 function inferenceEndpoint(baseUrl: string): URL {
   const endpoint = new URL(
     "chat/completions",
@@ -328,20 +489,11 @@ export function createPiPublicMeckyInference(
     },
   };
 
-  const streamFn: StreamFn = (requestedModel, context, streamOptions) =>
-    streamOpenAICompletions(
-      requestedModel as Model<"openai-completions">,
-      context,
-      {
-        ...streamOptions,
-        apiKey: options.apiKey,
-        fetch: fetcher,
-        temperature: 0,
-        maxTokens: 500,
-        timeoutMs,
-        maxRetries: 0,
-      }
-    );
+  const streamFn = createHetznerPiTransport({
+    endpoint,
+    apiKey: options.apiKey,
+    fetch: fetcher,
+  });
 
   return async (input) => {
     const agent = new Agent({
@@ -359,7 +511,7 @@ export function createPiPublicMeckyInference(
         messages: [],
       },
       streamFn,
-      transport: "sse",
+      transport: "auto",
       toolExecution: "sequential",
       beforeToolCall: async () => ({
         block: true,

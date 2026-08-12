@@ -318,37 +318,22 @@ describe("Public Mecky", () => {
           answer: "Eine Abstimmung ist noch nicht eröffnet.",
           evidenceIds: [EVIDENCE_ID],
         });
-        const chunks = [
-          {
-            id: "chatcmpl-stadtstack",
-            object: "chat.completion.chunk",
-            created: 1_786_464_000,
-            model: "DeepSeek-V4-Flash-0731",
-            choices: [
-              {
-                index: 0,
-                delta: { role: "assistant", content },
-                finish_reason: null,
-              },
-            ],
+        return Response.json({
+          id: "chatcmpl-stadtstack",
+          object: "chat.completion",
+          created: 1_786_464_000,
+          model: "DeepSeek-V4-Flash-0731",
+          choices: [{
+            index: 0,
+            message: { role: "assistant", content },
+            finish_reason: "stop",
+          }],
+          usage: {
+            prompt_tokens: 100,
+            completion_tokens: 20,
+            total_tokens: 120,
           },
-          {
-            id: "chatcmpl-stadtstack",
-            object: "chat.completion.chunk",
-            created: 1_786_464_000,
-            model: "DeepSeek-V4-Flash-0731",
-            choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-            usage: {
-              prompt_tokens: 100,
-              completion_tokens: 20,
-              total_tokens: 120,
-            },
-          },
-        ];
-        return new Response(
-          `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`,
-          { headers: { "content-type": "text/event-stream" } }
-        );
+        });
       },
     });
 
@@ -377,7 +362,7 @@ describe("Public Mecky", () => {
     const requestBody = observedBody as Record<string, unknown> | null;
     assert.ok(requestBody);
     assert.equal(requestBody.model, "DeepSeek-V4-Flash-0731");
-    assert.equal(requestBody.stream, true);
+    assert.equal(requestBody.stream, false);
     assert.equal(requestBody.temperature, 0);
     assert.equal(requestBody.max_tokens, 500);
     assert.ok(!("tools" in requestBody));
@@ -389,7 +374,7 @@ describe("Public Mecky", () => {
     });
   });
 
-  it("aborts a Pi provider stream at the public deadline", async () => {
+  it("aborts a Pi provider request at the public deadline", async () => {
     let aborted = false;
     const infer = createPiPublicMeckyInference({
       baseUrl: "https://inference.hetzner.com/api/v1",
@@ -430,38 +415,20 @@ describe("Public Mecky", () => {
     assert.equal(aborted, true);
   });
 
-  it("fails closed on a malformed Pi stream result", async () => {
+  it("fails closed on a malformed Pi provider result", async () => {
     const infer = createPiPublicMeckyInference({
       baseUrl: "https://inference.hetzner.com/api/v1",
       apiKey: "test-token",
       model: "DeepSeek-V4-Flash-0731",
-      fetch: async () =>
-        new Response(
-          [
-            `data: ${JSON.stringify({
-              id: "chatcmpl-malformed",
-              object: "chat.completion.chunk",
-              created: 1_786_464_000,
-              model: "DeepSeek-V4-Flash-0731",
-              choices: [
-                {
-                  index: 0,
-                  delta: { role: "assistant", content: '{"answer":' },
-                  finish_reason: null,
-                },
-              ],
-            })}\n\n`,
-            `data: ${JSON.stringify({
-              id: "chatcmpl-malformed",
-              object: "chat.completion.chunk",
-              created: 1_786_464_000,
-              model: "DeepSeek-V4-Flash-0731",
-              choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-            })}\n\n`,
-            "data: [DONE]\n\n",
-          ].join(""),
-          { headers: { "content-type": "text/event-stream" } }
-        ),
+      fetch: async () => Response.json({
+        id: "chatcmpl-malformed",
+        model: "DeepSeek-V4-Flash-0731",
+        choices: [{
+          index: 0,
+          message: { role: "assistant", content: '{"answer":' },
+          finish_reason: "stop",
+        }],
+      }),
     });
 
     await assert.rejects(
@@ -475,46 +442,23 @@ describe("Public Mecky", () => {
       baseUrl: "https://inference.hetzner.com/api/v1",
       apiKey: "test-token",
       model: "DeepSeek-V4-Flash-0731",
-      fetch: async () =>
-        new Response(
-          [
-            `data: ${JSON.stringify({
-              id: "chatcmpl-tool",
-              object: "chat.completion.chunk",
-              created: 1_786_464_000,
-              model: "DeepSeek-V4-Flash-0731",
-              choices: [
-                {
-                  index: 0,
-                  delta: {
-                    role: "assistant",
-                    tool_calls: [
-                      {
-                        index: 0,
-                        id: "call_forbidden",
-                        type: "function",
-                        function: {
-                          name: "fetch",
-                          arguments: '{"url":"https://example.com"}',
-                        },
-                      },
-                    ],
-                  },
-                  finish_reason: null,
-                },
-              ],
-            })}\n\n`,
-            `data: ${JSON.stringify({
-              id: "chatcmpl-tool",
-              object: "chat.completion.chunk",
-              created: 1_786_464_000,
-              model: "DeepSeek-V4-Flash-0731",
-              choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
-            })}\n\n`,
-            "data: [DONE]\n\n",
-          ].join(""),
-          { headers: { "content-type": "text/event-stream" } }
-        ),
+      fetch: async () => Response.json({
+        id: "chatcmpl-tool",
+        model: "DeepSeek-V4-Flash-0731",
+        choices: [{
+          index: 0,
+          message: {
+            role: "assistant",
+            content: null,
+            tool_calls: [{
+              id: "call_forbidden",
+              type: "function",
+              function: { name: "fetch", arguments: '{"url":"https://example.com"}' },
+            }],
+          },
+          finish_reason: "tool_calls",
+        }],
+      }),
     });
 
     await assert.rejects(
