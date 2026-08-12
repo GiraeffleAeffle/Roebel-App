@@ -9,6 +9,7 @@ import {
   createPublicMecky,
   createPublicMeckyRelayReply,
   createStadtstackReviewedEvidenceReader,
+  toPublicMeckyWatcherReply,
 } from "../src/public-mecky";
 
 const EVIDENCE_ID = `sha256:${"a".repeat(64)}`;
@@ -64,6 +65,11 @@ it("binds a civic Mecky reply to the signed discussion, Case and reviewed eviden
   });
 
   assert.match(reply.receiptId, /^urn:stadtstack:mecky-answer:[0-9a-f]{64}$/);
+  const watcherReply = toPublicMeckyWatcherReply(reply);
+  assert.deepEqual(Object.keys(watcherReply).sort(), ["content", "tags"]);
+  assert.equal(watcherReply.content, reply.content);
+  assert.deepEqual(watcherReply.tags, reply.tags);
+  assert.notEqual(watcherReply.tags, reply.tags);
   assert.deepEqual(reply.tags, [
     ["mecky-receipt", reply.receiptId],
     ["municipality", "roebel-mueritz"],

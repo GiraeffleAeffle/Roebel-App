@@ -74,6 +74,15 @@ export interface PublicMeckyRelayReply {
   tags: string[][];
 }
 
+export function toPublicMeckyWatcherReply(
+  reply: PublicMeckyRelayReply,
+): { content: string; tags: string[][] } {
+  return {
+    content: reply.content,
+    tags: reply.tags.map((tag) => [...tag]),
+  };
+}
+
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") {

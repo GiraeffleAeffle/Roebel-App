@@ -8,6 +8,7 @@ import {
   createPublicMeckyRelayReply,
   createStaticReviewedEvidenceReader,
   createStadtstackReviewedEvidenceReader,
+  toPublicMeckyWatcherReply,
 } from "./public-mecky";
 import { createStadtstackNostrIntakeClient } from "./stadtstack-control";
 import { createNodeRelayClient } from "./node-relay-client";
@@ -128,11 +129,11 @@ async function main(): Promise<void> {
                 tag[1] === "stadtstack-civic-discussion",
             );
             return civic
-              ? createPublicMeckyRelayReply({
+              ? toPublicMeckyWatcherReply(createPublicMeckyRelayReply({
                   discussion: event,
                   binding: { municipalityId, sourceCaseId, canonicalCaseId },
                   result: answer,
-                })
+                }))
               : answer.content;
           }
           console.log(
