@@ -34,6 +34,18 @@ describe("Röbel E2E workbench boundary", () => {
     assert.throws(() => parseWorkbenchConfig({ ...environment(), SYNTHETIC_CITIZENS_JSON: "[]" }));
   });
 
+  it("accepts the owned staging-preview namespace but rejects every production relay and arbitrary namespace", () => {
+    const staging = Object.fromEntries(
+      Object.entries(environment()).map(([key, value]) => [
+        key,
+        typeof value === "string" ? value.replaceAll("stadtstack-roebel-e2e", "stadtstack-roebel-web-preview") : value,
+      ]),
+    );
+    assert.equal(parseWorkbenchConfig(staging).citizenRelayUrl.includes("stadtstack-roebel-web-preview"), true);
+    assert.throws(() => parseWorkbenchConfig({ ...staging, CITIZEN_RELAY_URL: "wss://relay.roebel.app" }));
+    assert.throws(() => parseWorkbenchConfig({ ...staging, CITIZEN_RELAY_URL: "ws://citizen-relay.default.svc.cluster.local:18081" }));
+  });
+
   it("serves a local-only accessible workflow UI without exposing private keys", async () => {
     const config = parseWorkbenchConfig(environment());
     const relay = { query: async () => [], publish: async () => ({ ok: true, message: "stored" }), close: () => {} };
@@ -47,6 +59,28 @@ describe("Röbel E2E workbench boundary", () => {
       const publicConfig = await fetch(`${origin}/api/config`).then((response) => response.json()) as { personas: Array<Record<string, unknown>> };
       assert.equal(publicConfig.personas.length, 2);
       assert.equal(publicConfig.personas.some((entry) => "secretKeyHex" in entry), false);
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("serves the workflow beneath the staging ingress prefix without root-relative API leaks", async () => {
+    const config = parseWorkbenchConfig(environment());
+    const relay = { query: async () => [], publish: async () => ({ ok: true, message: "stored" }), close: () => {} };
+    const running = await startWorkbench(config, { citizenRelay: relay, agentRelay: relay });
+    try {
+      const origin = `http://127.0.0.1:${running.port}`;
+      const response = await fetch(`${origin}/stadtstack-test/`);
+      const html = await response.text();
+      assert.equal(response.status, 200);
+      assert.match(html, /const base='\/stadtstack-test'/);
+      assert.match(html, /api\(base\+'\/api\/config'/);
+      assert.doesNotMatch(html, /api\('\/api\/config'/);
+
+      const publicConfig = await fetch(`${origin}/stadtstack-test/api/config`).then((entry) => entry.json()) as { authorityBinding: string };
+      assert.equal(publicConfig.authorityBinding, "none");
+      const health = await fetch(`${origin}/stadtstack-test/healthz`).then((entry) => entry.json()) as { mode: string };
+      assert.equal(health.mode, "synthetic-e2e");
     } finally {
       await running.close();
     }

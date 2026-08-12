@@ -16,6 +16,7 @@ import { AlertCard } from "@/components/app/AlertCard";
 import { ContextBar } from "@/components/app/ContextBar";
 import { StadtFeed } from "@/components/app/StadtFeed";
 import { AppFeed } from "@/components/app/AppFeed";
+import { StadtstackStagingLabCard } from "@/components/app/StadtstackStagingLabCard";
 import { FeedProposalHero } from "@/components/proposals/FeedProposalHero";
 import { getProposals } from "@/lib/supabase";
 import { ProposalState, type Proposal } from "@/lib/proposal-types";
@@ -37,6 +38,7 @@ import {
 import type { ListingWithSeller } from "@/types/marketplace";
 import type { Business } from "@/types/business";
 import type { PostWithEngagement } from "@/types/post";
+import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
 
 interface FeedItem {
   type: "event" | "news" | "ad";
@@ -231,6 +233,9 @@ function buildFeedWithRows(
 }
 
 export default function AppHomePage() {
+  const stadtstackStagingLab = resolveStadtstackStagingLab(
+    process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB,
+  );
   const account = useActiveAccount();
   const [activeTab, setActiveTab] = useState<"main" | "rathaus" | "app">("main");
   const [activeFilter, setActiveFilter] = useState("all");
@@ -662,6 +667,10 @@ export default function AppHomePage() {
           App
         </button>
       </div>
+
+      {stadtstackStagingLab && (
+        <StadtstackStagingLabCard lab={stadtstackStagingLab} />
+      )}
 
       {activeTab === "rathaus" ? (
         <StadtFeed />

@@ -13,6 +13,8 @@ import WebSocket from "ws";
 const HEX64 = /^[0-9a-f]{64}$/;
 const CASE_ID = "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001";
 const MAX_BODY = 256 * 1024;
+const STAGING_PREFIX = "/stadtstack-test";
+const SERVICE_NAMESPACES = new Set(["stadtstack-roebel-e2e", "stadtstack-roebel-web-preview"]);
 
 type Persona = { id: string; name: string; secretKeyHex: string; publicKey: string };
 
@@ -46,16 +48,23 @@ function exactRecord(value: unknown, keys: readonly string[]): value is Record<s
   return actual.length === keys.length && actual.every((key) => typeof key === "string" && keys.includes(key));
 }
 
-function relayUrl(value: string, service: "citizen-relay" | "agent-relay"): string {
-  const expected = `ws://${service}.stadtstack-roebel-e2e.svc.cluster.local:18081`;
-  if (value !== expected) throw new Error(`workbench_${service}_url_invalid`);
+function exactServiceUrl(
+  value: string,
+  protocol: "http" | "ws",
+  service: "citizen-relay" | "agent-relay" | "stadtstack-control" | "stadtstack-public",
+  port: 18080 | 18081,
+): string {
+  const match = value.match(new RegExp(`^${protocol}:\\/\\/${service}\\.([a-z0-9-]+)\\.svc\\.cluster\\.local:${port}$`));
+  if (!match || !SERVICE_NAMESPACES.has(match[1] ?? "")) throw new Error(`workbench_${service}_url_invalid`);
   return value;
 }
 
+function relayUrl(value: string, service: "citizen-relay" | "agent-relay"): string {
+  return exactServiceUrl(value, "ws", service, 18081);
+}
+
 function serviceUrl(value: string, service: "stadtstack-control" | "stadtstack-public", port: 18081 | 18080): string {
-  const expected = `http://${service}.stadtstack-roebel-e2e.svc.cluster.local:${port}`;
-  if (value !== expected) throw new Error(`workbench_${service}_url_invalid`);
-  return value;
+  return exactServiceUrl(value, "http", service, port);
 }
 
 export function parseWorkbenchConfig(environment: Record<string, string | undefined>): WorkbenchConfig {
@@ -178,14 +187,14 @@ const HTML = `<!doctype html>
 <article class="card"><div class="step">6 · Rollensichten</div><h2>Public · Verwaltung · Council</h2><div class="row"><button class="secondary view" data-profile="public">Public</button><button class="secondary view" data-profile="administration">Verwaltung</button><button class="secondary view" data-profile="council">Council</button></div><pre id="view">Noch keine Sicht geladen.</pre></article>
 </section></main>
 <script>
-const state={discussion:null,answer:null,suggestion:null};const $=id=>document.getElementById(id);async function api(path,body){const response=await fetch(path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'content-type':'application/json','x-stadtstack-e2e':'1'},body:body===undefined?undefined:JSON.stringify(body)});const value=await response.json();if(!response.ok)throw new Error(value.error||('HTTP '+response.status));return value}function show(id,value){$(id).textContent=typeof value==='string'?value:JSON.stringify(value,null,2)}
-api('/api/config').then(config=>{for(const person of config.personas){const option=document.createElement('option');option.value=person.id;option.textContent=person.name+' · '+person.publicKey.slice(0,12)+'…';$('persona').append(option)}}).catch(error=>show('discussion',error.message));
-$('publish').onclick=async()=>{try{state.discussion=await api('/api/discussion',{personaId:$('persona').value,question:$('question').value});show('discussion',state.discussion)}catch(error){show('discussion',error.message)}};
-$('poll').onclick=async()=>{try{if(!state.discussion)throw new Error('Zuerst Diskussion starten.');state.answer=await api('/api/reply?parent='+encodeURIComponent(state.discussion.event.id));show('answer',state.answer||'Mecky hat noch nicht geantwortet.')}catch(error){show('answer',error.message)}};
-$('sign').onclick=async()=>{try{if(!state.discussion||!state.answer)throw new Error('Diskussion und Mecky-Antwort fehlen.');state.suggestion=await api('/api/suggestion',{personaId:$('persona').value,discussion:state.discussion.event,answer:state.answer.event,title:$('title').value,summary:$('summary').value});show('suggestion',state.suggestion)}catch(error){show('suggestion',error.message)}};
-$('admit').onclick=async()=>{try{if(!state.discussion||!state.answer||!state.suggestion)throw new Error('Signierter Vorschlag fehlt.');show('admission',await api('/api/admit',{discussion:state.discussion.event,answer:state.answer.event,suggestion:state.suggestion.suggestion}))}catch(error){show('admission',error.message)}};
-$('complete').onclick=async()=>{try{show('completion',await api('/api/complete',{}))}catch(error){show('completion',error.message)}};
-for(const button of document.querySelectorAll('.view'))button.onclick=async()=>{try{show('view',await api('/api/view',{profile:button.dataset.profile}))}catch(error){show('view',error.message)}};
+const base='/stadtstack-test';const state={discussion:null,answer:null,suggestion:null};const $=id=>document.getElementById(id);async function api(path,body){const response=await fetch(path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'content-type':'application/json','x-stadtstack-e2e':'1'},body:body===undefined?undefined:JSON.stringify(body)});const value=await response.json();if(!response.ok)throw new Error(value.error||('HTTP '+response.status));return value}function show(id,value){$(id).textContent=typeof value==='string'?value:JSON.stringify(value,null,2)}
+api(base+'/api/config').then(config=>{for(const person of config.personas){const option=document.createElement('option');option.value=person.id;option.textContent=person.name+' · '+person.publicKey.slice(0,12)+'…';$('persona').append(option)}}).catch(error=>show('discussion',error.message));
+$('publish').onclick=async()=>{try{state.discussion=await api(base+'/api/discussion',{personaId:$('persona').value,question:$('question').value});show('discussion',state.discussion)}catch(error){show('discussion',error.message)}};
+$('poll').onclick=async()=>{try{if(!state.discussion)throw new Error('Zuerst Diskussion starten.');state.answer=await api(base+'/api/reply?parent='+encodeURIComponent(state.discussion.event.id));show('answer',state.answer||'Mecky hat noch nicht geantwortet.')}catch(error){show('answer',error.message)}};
+$('sign').onclick=async()=>{try{if(!state.discussion||!state.answer)throw new Error('Diskussion und Mecky-Antwort fehlen.');state.suggestion=await api(base+'/api/suggestion',{personaId:$('persona').value,discussion:state.discussion.event,answer:state.answer.event,title:$('title').value,summary:$('summary').value});show('suggestion',state.suggestion)}catch(error){show('suggestion',error.message)}};
+$('admit').onclick=async()=>{try{if(!state.discussion||!state.answer||!state.suggestion)throw new Error('Signierter Vorschlag fehlt.');show('admission',await api(base+'/api/admit',{discussion:state.discussion.event,answer:state.answer.event,suggestion:state.suggestion.suggestion}))}catch(error){show('admission',error.message)}};
+$('complete').onclick=async()=>{try{show('completion',await api(base+'/api/complete',{}))}catch(error){show('completion',error.message)}};
+for(const button of document.querySelectorAll('.view'))button.onclick=async()=>{try{show('view',await api(base+'/api/view',{profile:button.dataset.profile}))}catch(error){show('view',error.message)}};
 </script></body></html>`;
 
 export async function startWorkbench(config: WorkbenchConfig, dependencies: WorkbenchDependencies = {}): Promise<RunningWorkbench> {
@@ -193,8 +202,10 @@ export async function startWorkbench(config: WorkbenchConfig, dependencies: Work
   const agentRelay = dependencies.agentRelay ?? nodeRelay(config.agentRelayUrl);
   const fetcher = dependencies.fetch ?? globalThis.fetch;
   const server: Server = createServer((request, response) => { void (async () => {
-    const path = request.url ?? "";
-    if (request.method === "GET" && path === "/") {
+    const requestedPath = request.url ?? "";
+    const prefixed = requestedPath === STAGING_PREFIX || requestedPath.startsWith(`${STAGING_PREFIX}/`);
+    const path = prefixed ? requestedPath.slice(STAGING_PREFIX.length) || "/" : requestedPath;
+    if (request.method === "GET" && (path === "/" || path === "")) {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'" });
       response.end(HTML);
       return;
