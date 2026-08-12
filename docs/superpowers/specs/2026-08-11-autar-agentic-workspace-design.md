@@ -279,29 +279,32 @@ display name and bundle ID bake at build time, so an App Store listing cannot be
 Shopify; Aternos servers do not say Aternos in-game. **"Powered by Autar" ships default-on and is
 removable on a paid tier** — the standard playbook, and a clean revenue lever.
 
-#### 1.5a Addressing — `your-client.autar.me`
+#### 1.5a Addressing — `your-client.autar.xyz`
 
 Every deployed client gets a subdomain — the Aternos pattern (`yourname.aternos.me`). Zero DNS work
 for the customer, a workspace that exists the moment it is created, and a custom domain as the paid
 upgrade.
 
-**Two domains, and the split is a security boundary rather than an aesthetic one** (Max is acquiring
-both, 2026-08-11):
+**Two domains, and the split is a security boundary rather than an aesthetic one.**
+
+**CORRECTED 2026-08-12: `autar.me` was never acquired.** Max owns **`autar.app` and `autar.xyz`**,
+both already linked to the Vercel project, with **`autar.app` replacing `autar.xyz` as the brand**.
+That retirement is what makes the split free:
 
 | Domain | Role |
 |---|---|
-| **`autar.app`** | Platform — marketing, dashboard, billing, docs, API |
-| **`autar.me`** | **Tenant workspaces** — `your-client.autar.me`. Wildcard TLS terminates here |
-| `autar.xyz` | Already held — brand/teaser or redirect |
+| **`autar.app`** | Platform — marketing, dashboard, billing, docs, API. The live brand |
+| **`autar.xyz`** | **Tenant workspaces** — `your-client.autar.xyz`. Wildcard TLS terminates here. Repurposed rather than retired |
+| ~~`autar.me`~~ | Not owned. Buy only if a cleaner tenant domain is later worth the money |
 
 **Why tenants must not live on the platform domain:** a subdomain takeover or XSS on any single
 tenant would otherwise sit inside the same cookie scope as the dashboard and billing. A separate
 registrable domain makes the browser treat tenants as an entirely separate origin family — the reason
 Google serves user content from `googleusercontent.com` and GitHub from `githubusercontent.com`, and
-the reason Aternos splits `aternos.org` from `aternos.me`. **Submit `autar.me` to the Public Suffix
+the reason Aternos splits `aternos.org` from `aternos.me`. **Submit `autar.xyz` to the Public Suffix
 List**, after which browsers refuse cross-subdomain cookies between tenants outright: the strongest
 available isolation for multi-tenant user content, at no cost. It isolates reputation too — an
-abusive tenant getting `autar.me` blocklisted does not take billing and docs down with it.
+abusive tenant getting `autar.xyz` blocklisted does not take billing and docs down with it.
 
 **It maps natively onto Buzz's host→community resolution: the subdomain *is* the tenant key**, and
 unknown hosts already fail closed. Nothing new to invent at the substrate.
@@ -310,14 +313,16 @@ Four commitments this creates, two of which have already caused incidents in thi
 
 | Commitment | Detail |
 |---|---|
-| **Wildcard DNS + TLS on `*.autar.me`** | The single point of failure for *every* customer simultaneously. `*.roebel.site` TLS has already gone down here and needed manual re-verification — **certificate renewal monitoring ships with the first customer, not after the first outage** |
+| **Wildcard DNS + TLS on `*.autar.xyz`** | The single point of failure for *every* customer simultaneously. `*.roebel.site` TLS has already gone down here and needed manual re-verification — **certificate renewal monitoring ships with the first customer, not after the first outage** |
 | **Custom domain = CNAME onto the subdomain** | Two recorded traps apply. Fly's shared IPv4 requires the CNAME to target the app-specific hostname plus a `_fly-ownership` TXT, or verification hangs forever. More seriously, **a vanity CNAME broke login in roebel-id because one provider means one issuer** — Autar's npub identity likely dodges this, but **verify before promising custom domains** if the community door routes through Netizen Accounts/OIDC |
 | **Namespace policy** | Reserved names, brand squatting, a claim and dispute process. Cheap now, expensive once names are taken |
-| **Reputation coupling** | Everything on `*.autar.me` is our domain, so an abusive community there is our abuse report. Aternos carries the same cost. A moderation policy is an obligation of this decision, not an optional extra |
+| **Reputation coupling** | Everything on `*.autar.xyz` is our domain, so an abusive community there is our abuse report. Aternos carries the same cost. A moderation policy is an obligation of this decision, not an optional extra |
 
-**Gate: the domains.** `autar.xyz` is held; **`autar.app` and `autar.me` are being acquired by Max
-(2026-08-11)**. Wildcard DNS and TLS on `*.autar.me`, plus the PSL submission, are the first
-infrastructure tasks once they land — same shape as the `buzz` A record that gated M0.
+**Gate: CLEARED 2026-08-12.** `autar.app` and `autar.xyz` are both owned and both linked to the
+Vercel project `autar`, valid configuration, production. The landing page is live. **Remaining
+infrastructure: wildcard DNS and TLS on `*.autar.xyz`, plus the PSL submission** — neither is needed
+until the first tenant workspace exists, but the certificate renewal monitoring ships with that
+first customer rather than after the first outage.
 
 ## 2. Scope
 
@@ -780,7 +785,7 @@ anything beyond them is drift and gets rejected:
 | **Call layer** | LiveKit ships separate SDKs: `@livekit/react-native` and `livekit-client` | One `CallProvider` interface, two implementations. Requires a dev/EAS build — not Expo Go |
 | **Chat list virtualization** | `FlatList` on web underperforms real windowing; chat history is the stress case | Platform-split that single component |
 | **Desktop interaction** | Keyboard shortcuts, context menus, text selection, drag-and-drop | `Platform.OS === 'web'` escape hatches with raw DOM handlers |
-| **Marketing site** | autar.xyz must not ship the app bundle | A small separate static site. A landing page is not a second app codebase |
+| **Marketing site** | autar.app must not ship the app bundle | A small separate static site. A landing page is not a second app codebase |
 
 ### 14.3 One styling system, unlike Röbel
 
