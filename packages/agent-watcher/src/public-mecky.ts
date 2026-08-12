@@ -423,6 +423,65 @@ export interface StadtstackReviewedEvidenceReaderOptions {
   ) => Promise<ReviewedCivicCasesResult>;
 }
 
+const STATIC_EVIDENCE_KEYS = [
+  "evidenceId", "title", "publicSummary", "currentStageLabel", "nextAction",
+  "participationAuthorityState", "reviewedAt", "publicCaseUrl",
+] as const;
+
+export function createStaticReviewedEvidenceReader(
+  snapshotJson: string,
+  expectedDigest: string,
+): () => Promise<readonly ReviewedCivicEvidence[]> {
+  const actualDigest = `sha256:${createHash("sha256").update(snapshotJson, "utf8").digest("hex")}`;
+  if (actualDigest !== expectedDigest || !/^sha256:[0-9a-f]{64}$/.test(expectedDigest)) {
+    throw new Error("Public Mecky synthetic evidence digest mismatch.");
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(snapshotJson) as unknown;
+  } catch {
+    throw new Error("Public Mecky synthetic evidence is invalid JSON.");
+  }
+  if (!Array.isArray(value) || value.length < 1 || value.length > 3) {
+    throw new Error("Public Mecky synthetic evidence is invalid.");
+  }
+  const evidence = value.map((entry): ReviewedCivicEvidence => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry) || Object.getPrototypeOf(entry) !== Object.prototype) {
+      throw new Error("Public Mecky synthetic evidence is invalid.");
+    }
+    const record = entry as Record<string, unknown>;
+    if (Object.keys(record).sort().join(",") !== [...STATIC_EVIDENCE_KEYS].sort().join(",")) {
+      throw new Error("Public Mecky synthetic evidence is invalid.");
+    }
+    const authority = record.participationAuthorityState;
+    if (
+      typeof record.evidenceId !== "string" || !/^sha256:[0-9a-f]{64}$/.test(record.evidenceId) ||
+      typeof record.title !== "string" || !record.title.trim() ||
+      typeof record.publicSummary !== "string" || !record.publicSummary.trim() ||
+      typeof record.currentStageLabel !== "string" || !record.currentStageLabel.trim() ||
+      (record.nextAction !== null && typeof record.nextAction !== "string") ||
+      !["unconfirmed", "declared", "confirmed", "formal"].includes(String(authority)) ||
+      typeof record.reviewedAt !== "string" || !Number.isFinite(Date.parse(record.reviewedAt)) ||
+      typeof record.publicCaseUrl !== "string"
+    ) throw new Error("Public Mecky synthetic evidence is invalid.");
+    const publicCaseUrl = new URL(record.publicCaseUrl);
+    if (publicCaseUrl.protocol !== "https:" || publicCaseUrl.username || publicCaseUrl.password || publicCaseUrl.search || publicCaseUrl.hash) {
+      throw new Error("Public Mecky synthetic evidence is invalid.");
+    }
+    return {
+      evidenceId: record.evidenceId,
+      title: record.title,
+      publicSummary: record.publicSummary,
+      currentStageLabel: record.currentStageLabel,
+      nextAction: record.nextAction as string | null,
+      participationAuthorityState: authority as ReviewedCivicEvidence["participationAuthorityState"],
+      reviewedAt: record.reviewedAt,
+      publicCaseUrl: publicCaseUrl.href,
+    };
+  });
+  return async () => structuredClone(evidence);
+}
+
 export function createStadtstackReviewedEvidenceReader(
   options: StadtstackReviewedEvidenceReaderOptions
 ): () => Promise<readonly ReviewedCivicEvidence[]> {

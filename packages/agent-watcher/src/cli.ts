@@ -6,6 +6,7 @@ import {
   createPiPublicMeckyInference,
   createPublicMecky,
   createPublicMeckyRelayReply,
+  createStaticReviewedEvidenceReader,
   createStadtstackReviewedEvidenceReader,
 } from "./public-mecky";
 import { createStadtstackNostrIntakeClient } from "./stadtstack-control";
@@ -35,7 +36,8 @@ async function main(): Promise<void> {
   const nodeId = required("NODE_ID");
   const nodeName = process.env.NODE_NAME ?? nodeId;
   const agentName = process.env.AGENT_NAME ?? "mecky";
-  const relayUrl = required("RELAY_URL");
+  const inputRelayUrl = process.env.INPUT_RELAY_URL ?? required("RELAY_URL");
+  const outputRelayUrl = process.env.OUTPUT_RELAY_URL ?? inputRelayUrl;
   const publicEvidenceBaseUrl = required("STADTSTACK_PUBLIC_BASE_URL");
   const stadtstackControlBaseUrl = required("STADTSTACK_CONTROL_BASE_URL");
   const stadtstackIngestorToken = required("STADTSTACK_NOSTR_INGESTOR_TOKEN");
@@ -47,11 +49,18 @@ async function main(): Promise<void> {
   const inferenceApiKey = required("MECKY_INFERENCE_API_KEY");
   const intervalSeconds = Number(process.env.WATCH_INTERVAL_SECONDS ?? 20);
 
+  const syntheticEvidenceMode = process.env.STADTSTACK_E2E_MODE === "synthetic-reviewed";
+  const readReviewedEvidence = syntheticEvidenceMode
+    ? createStaticReviewedEvidenceReader(
+        required("STADTSTACK_E2E_REVIEWED_EVIDENCE"),
+        required("STADTSTACK_E2E_REVIEWED_EVIDENCE_SHA256"),
+      )
+    : createStadtstackReviewedEvidenceReader({
+        baseUrl: publicEvidenceBaseUrl,
+        municipalityId,
+      });
   const publicMecky = createPublicMecky({
-    readReviewedEvidence: createStadtstackReviewedEvidenceReader({
-      baseUrl: publicEvidenceBaseUrl,
-      municipalityId,
-    }),
+    readReviewedEvidence,
     infer: createPiPublicMeckyInference({
       baseUrl: inferenceBaseUrl,
       apiKey: inferenceApiKey,
@@ -73,9 +82,10 @@ async function main(): Promise<void> {
     perDay: Number(process.env.AGENT_PER_DAY ?? DEFAULT_BOUNDS.perDay),
   };
 
-  console.log(`agent "${agentName}" on "${nodeId}" watching ${relayUrl}`);
+  console.log(`agent "${agentName}" on "${nodeId}" watching ${inputRelayUrl}`);
+  console.log(`  replies: ${outputRelayUrl}`);
   console.log(`  npub ${agent.npub}`);
-  console.log(`  reviewed evidence: ${publicEvidenceBaseUrl} (${municipalityId})`);
+  console.log(`  reviewed evidence: ${syntheticEvidenceMode ? "synthetic checksum-bound snapshot" : publicEvidenceBaseUrl} (${municipalityId})`);
   console.log(`  inference: ${inferenceBaseUrl} (${inferenceModel})`);
   console.log(`  bounds: ${bounds.perAuthorPerHour}/author/h, ${bounds.perDay}/day, enabled=${bounds.enabled}`);
 
@@ -84,7 +94,7 @@ async function main(): Promise<void> {
   // publishing under a pubkey no client can put a name to.
   await announceAgentProfile({
     agent,
-    relayUrl,
+    relayUrl: outputRelayUrl,
     makeClient: createNodeRelayClient,
     metadata: {
       name: process.env.AGENT_DISPLAY_NAME ?? agentName[0].toUpperCase() + agentName.slice(1),
@@ -102,10 +112,11 @@ async function main(): Promise<void> {
         agent,
         history,
         bounds,
-        relayUrl,
+        relayUrl: inputRelayUrl,
+        replyRelayUrl: outputRelayUrl,
         makeClient: createNodeRelayClient,
         ingestCivicDiscussion: async (event) => {
-          await stadtstackIntake.ingestDiscussion(event, [relayUrl]);
+          await stadtstackIntake.ingestDiscussion(event, [inputRelayUrl]);
         },
         think: async (question, event) => {
           const answer = await publicMecky.answerMention(question);

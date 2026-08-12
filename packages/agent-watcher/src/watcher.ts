@@ -31,6 +31,8 @@ export interface WatcherDeps {
   now?: () => number;
   log?: (message: string) => void;
   makeClient?: (url: string) => Pick<RelayClient, "query" | "publish" | "close">;
+  /** Relay that stores the agent profile and replies. Defaults to relayUrl. */
+  replyRelayUrl?: string;
   relayUrl: string;
 }
 
@@ -112,35 +114,42 @@ function restorePublishedReply(history: ReplyHistory, event: NostrEvent): void {
 export async function watchOnce(deps: WatcherDeps): Promise<PassResult> {
   const log = deps.log ?? (() => {});
   const now = (deps.now ?? (() => Math.floor(Date.now() / 1000)))();
-  const client = deps.makeClient
+  const citizenClient = deps.makeClient
     ? deps.makeClient(deps.relayUrl)
     : new RelayClient(deps.relayUrl, { timeoutMs: 15_000 });
+  const replyRelayUrl = deps.replyRelayUrl ?? deps.relayUrl;
+  const replyClient = replyRelayUrl === deps.relayUrl
+    ? citizenClient
+    : deps.makeClient
+      ? deps.makeClient(replyRelayUrl)
+      : new RelayClient(replyRelayUrl, { timeoutMs: 15_000 });
 
   const refused: Record<string, number> = {};
   let answered = 0;
   let mentions: NostrEvent[] = [];
 
   try {
-    const events = await client.query([
-      {
+    const [mentionEvents, replyEvents] = await Promise.all([
+      citizenClient.query([{
         kinds: [1],
         "#p": [deps.agent.publicKey],
         since: now - LOOKBACK_SECONDS,
         limit: 100,
-      },
-      {
+      }]),
+      replyClient.query([{
         kinds: [1],
         authors: [deps.agent.publicKey],
         since: now - DAY_SECONDS,
         limit: MAX_RELAY_REPLY_HISTORY,
-      },
+      }]),
     ]);
 
     // Relay filters are a transport convenience, not a trust boundary. Only a
     // signature-valid event may suppress a reply or consume a rate-limit slot.
-    const verifiedEvents = events.filter(verifyEvent);
+    const verifiedMentions = mentionEvents.filter(verifyEvent);
+    const verifiedReplies = replyEvents.filter(verifyEvent);
 
-    for (const event of verifiedEvents) {
+    for (const event of verifiedReplies) {
       if (
         event.pubkey.toLowerCase() === deps.agent.publicKey.toLowerCase() &&
         isAgentEvent(event)
@@ -151,7 +160,7 @@ export async function watchOnce(deps: WatcherDeps): Promise<PassResult> {
     // The relay applies the first filter, so every non-self result is a mention.
     // The second filter adds our own published replies solely as durable
     // idempotency/rate-limit evidence; never feed those back into shouldAnswer.
-    mentions = verifiedEvents.filter(
+    mentions = verifiedMentions.filter(
       (event) => event.pubkey.toLowerCase() !== deps.agent.publicKey.toLowerCase(),
     );
 
@@ -205,7 +214,7 @@ export async function watchOnce(deps: WatcherDeps): Promise<PassResult> {
           ...answer.tags,
         ],
       });
-      const result = await client.publish(reply);
+      const result = await replyClient.publish(reply);
       if (result.ok) {
         recordReply(deps.history, event, now);
         answered += 1;
@@ -216,7 +225,8 @@ export async function watchOnce(deps: WatcherDeps): Promise<PassResult> {
       }
     }
   } finally {
-    client.close();
+    citizenClient.close();
+    if (replyClient !== citizenClient) replyClient.close();
   }
 
   return { seen: mentions.length, answered, refused };

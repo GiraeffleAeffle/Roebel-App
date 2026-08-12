@@ -41,6 +41,59 @@ function harness(
 }
 
 describe("answering a mention", () => {
+  it("reads citizen mentions from one relay and restores/publishes Mecky replies on another", async () => {
+    const question = buildNoteEvent(CITIZEN, "getrennte Relays", {
+      createdAt: NOW - 5,
+      tags: [["p", MECKY.publicKey]],
+    });
+    const queried: string[] = [];
+    const published: { url: string; event: NostrEvent }[] = [];
+    const closed: string[] = [];
+    const deps = {
+      agent: MECKY,
+      history: emptyHistory(),
+      relayUrl: "ws://citizen-relay",
+      replyRelayUrl: "ws://agent-relay",
+      now: () => NOW,
+      think: async () => "Antwort auf dem Agent-Relay",
+      makeClient: (url: string) => ({
+        query: async () => {
+          queried.push(url);
+          return url === "ws://citizen-relay" ? [question] : [];
+        },
+        publish: async (event: NostrEvent) => {
+          published.push({ url, event });
+          return { ok: true, message: "" };
+        },
+        close: () => closed.push(url),
+      }),
+    } satisfies WatcherDeps;
+
+    const result = await watchOnce(deps);
+
+    assert.equal(result.answered, 1);
+    assert.deepEqual(queried, ["ws://citizen-relay", "ws://agent-relay"]);
+    assert.deepEqual(published.map((entry) => entry.url), ["ws://agent-relay"]);
+    assert.deepEqual(closed.sort(), ["ws://agent-relay", "ws://citizen-relay"]);
+  });
+
+  it("uses one relay connection when the reply relay is unchanged", async () => {
+    const urls: string[] = [];
+    const h = harness([]);
+    h.deps.makeClient = (url: string) => {
+      urls.push(url);
+      return {
+        query: async () => [],
+        publish: async () => ({ ok: true, message: "" }),
+        close: () => {},
+      };
+    };
+
+    await watchOnce(h.deps);
+
+    assert.deepEqual(urls, ["ws://relay"]);
+  });
+
   it("ingests a civic discussion into Stadtstack before Mecky answers it", async () => {
     const question = buildCivicDiscussionEvent(CITIZEN, {
       municipalityId: "roebel-mueritz",

@@ -15,6 +15,7 @@ import {
 } from '@netizen-labs/nostr';
 import { supabase } from '../supabase';
 import { type NostrIdentity, loadStoredIdentity } from './identity';
+import { resolvePublicRelayUrls } from './relay-config';
 
 /**
  * Publishing app content to the sovereign relay.
@@ -24,19 +25,30 @@ import { type NostrIdentity, loadStoredIdentity } from './identity';
  * parallel, signed, portable copy that other nodes and agents can read.
  */
 
-export const ROEBEL_RELAY_URL = 'wss://relay.roebel.app';
+const relayUrls = resolvePublicRelayUrls();
+export const ROEBEL_RELAY_URL = relayUrls.citizenRelayUrl;
+export const ROEBEL_MECKY_REPLY_RELAY_URL = relayUrls.agentRelayUrl;
 
-let client: RelayClient | null = null;
+let citizenClient: RelayClient | null = null;
+let agentClient: RelayClient | null = null;
 
-function relay(): RelayClient {
-  if (!client) client = new RelayClient(ROEBEL_RELAY_URL, { timeoutMs: 8000 });
-  return client;
+function citizenRelay(): RelayClient {
+  if (!citizenClient) citizenClient = new RelayClient(ROEBEL_RELAY_URL, { timeoutMs: 8000 });
+  return citizenClient;
+}
+
+function agentRelay(): RelayClient {
+  if (ROEBEL_MECKY_REPLY_RELAY_URL === ROEBEL_RELAY_URL) return citizenRelay();
+  if (!agentClient) agentClient = new RelayClient(ROEBEL_MECKY_REPLY_RELAY_URL, { timeoutMs: 8000 });
+  return agentClient;
 }
 
 /** Drop the pooled connection — call on sign-out. */
 export function closeRelay(): void {
-  client?.close();
-  client = null;
+  citizenClient?.close();
+  agentClient?.close();
+  citizenClient = null;
+  agentClient = null;
 }
 
 export type PublicationStatus = 'published' | 'rejected' | 'pending';
@@ -73,7 +85,7 @@ async function publish(
   sourceId: string,
 ): Promise<PublicationStatus> {
   try {
-    const result = await relay().publish(event);
+    const result = await citizenRelay().publish(event);
     const status: PublicationStatus = result.ok ? 'published' : 'rejected';
     await recordPublication(
       sourceType,
@@ -205,7 +217,7 @@ export async function publishUnlike(postId: string): Promise<void> {
   const likeEventId = await publishedEventIdOf('like', `${postId}:${identity.publicKey.slice(0, 16)}`);
   if (!likeEventId) return;
   try {
-    await relay().publish(buildDeletionEvent(identity.secretKey, [likeEventId], { reason: 'Like zurückgenommen' }));
+    await citizenRelay().publish(buildDeletionEvent(identity.secretKey, [likeEventId], { reason: 'Like zurückgenommen' }));
   } catch {
     // Advisory anyway; the app state is authoritative for the UI.
   }
@@ -253,7 +265,7 @@ export async function publishDeletions(eventIds: string[], reason = 'Konto gelö
   const identity = await loadStoredIdentity();
   if (!identity) return false;
   try {
-    const result = await relay().publish(
+    const result = await citizenRelay().publish(
       buildDeletionEvent(identity.secretKey, eventIds, { reason }),
     );
     return result.ok;
@@ -274,7 +286,7 @@ export async function publishVanishRequest(reason = 'Konto gelöscht'): Promise<
   const identity = await loadStoredIdentity();
   if (!identity) return false;
   try {
-    const result = await relay().publish(
+    const result = await citizenRelay().publish(
       buildVanishEvent(identity.secretKey, 'ALL_RELAYS', { reason }),
     );
     return result.ok;
@@ -323,7 +335,7 @@ export async function publishTestNote(
   if (!identity) return { ok: false, message: 'Keine Nostr-Identität auf diesem Gerät.' };
   try {
     const event = buildNoteEvent(identity.secretKey, content);
-    const result = await relay().publish(event);
+    const result = await citizenRelay().publish(event);
     return result.ok
       ? { ok: true, eventId: event.id, message: 'Auf dem Relay veröffentlicht.' }
       : { ok: false, message: result.message || 'Vom Relay abgelehnt.' };
@@ -350,7 +362,7 @@ export async function publishAgentMention(
     const event = buildNoteEvent(identity.secretKey, content, {
       tags: [['p', agentPubkey.toLowerCase()]],
     });
-    const result = await relay().publish(event);
+    const result = await citizenRelay().publish(event);
     return result.ok
       ? { ok: true, eventId: event.id, message: 'Frage gestellt. Mecky antwortet gleich …' }
       : { ok: false, message: result.message || 'Vom Relay abgelehnt.' };
@@ -466,7 +478,7 @@ export async function fetchAgentReply(
   agentPubkey: string,
 ): Promise<NostrEvent | null> {
   try {
-    const events = await relay().query([
+    const events = await agentRelay().query([
       { kinds: [1], authors: [agentPubkey.toLowerCase()], "#e": [parentEventId], limit: 5 },
     ]);
     return events.sort((a, b) => b.created_at - a.created_at)[0] ?? null;
@@ -529,7 +541,7 @@ export async function readFromRelay(
 ): Promise<NostrEvent[]> {
   try {
     const filter = authors.length > 0 ? { kinds, authors, limit } : { kinds, limit };
-    const events = await relay().query([filter]);
+    const events = await citizenRelay().query([filter]);
     return events.sort((a, b) => b.created_at - a.created_at);
   } catch {
     return [];
@@ -578,7 +590,7 @@ async function repairMisdatedMirrors(identity: NostrIdentity): Promise<void> {
       const isOrgPost = (post.account as { account_type?: string } | null)?.account_type === 'organisation';
       const driftedByADay = Math.abs((onRelay.get(eventId) ?? originalSec) - originalSec) > 86_400;
       if (!isOrgPost && !driftedByADay) continue;
-      await relay().publish(
+      await citizenRelay().publish(
         buildDeletionEvent(identity.secretKey, [eventId], {
           reason: isOrgPost ? 'Falsche Zuordnung' : 'Datum korrigiert',
         }),

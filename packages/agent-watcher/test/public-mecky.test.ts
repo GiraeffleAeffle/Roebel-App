@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { describe, it } from "node:test";
 import { buildCivicDiscussionEvent } from "@netizen-labs/nostr";
 import {
+  createStaticReviewedEvidenceReader,
   createOpenAICompatiblePublicMeckyInference,
   createPiPublicMeckyInference,
   createPublicMecky,
@@ -10,6 +12,24 @@ import {
 } from "../src/public-mecky";
 
 const EVIDENCE_ID = `sha256:${"a".repeat(64)}`;
+
+it("loads only an exact checksum-bound synthetic reviewed snapshot", async () => {
+  const snapshot = JSON.stringify([{
+    evidenceId: EVIDENCE_ID,
+    title: "Marienfelder Straße",
+    publicSummary: "Geprüfte Ausgangslage für den synthetischen Test.",
+    currentStageLabel: "Evidenz geprüft",
+    nextAction: "Varianten transparent abwägen",
+    participationAuthorityState: "unconfirmed",
+    reviewedAt: "2026-08-12T08:00:00.000Z",
+    publicCaseUrl: "https://e2e.roebel.invalid/mitmachen/marienfelder-strasse",
+  }]);
+  const digest = `sha256:${createHash("sha256").update(snapshot).digest("hex")}`;
+  const reader = createStaticReviewedEvidenceReader(snapshot, digest);
+  assert.deepEqual(await reader(), JSON.parse(snapshot));
+  assert.throws(() => createStaticReviewedEvidenceReader(snapshot, `sha256:${"0".repeat(64)}`), /digest mismatch/);
+  assert.throws(() => createStaticReviewedEvidenceReader(JSON.stringify([{ ...JSON.parse(snapshot)[0], extra: true }]), digest));
+});
 
 it("binds a civic Mecky reply to the signed discussion, Case and reviewed evidence", () => {
   const discussion = buildCivicDiscussionEvent(new Uint8Array(32).fill(42), {
