@@ -206,9 +206,9 @@ function asArgument(config: WorkbenchConfig, event: NostrEvent): PublicArgument 
 async function publishSeed(config: WorkbenchConfig, relay: RelayPort): Promise<void> {
   const anna = config.personas[0]!;
   const omar = config.personas[1]!;
-  // Keep the deterministic seed stable across short same-Pod restarts. The
-  // watcher now recovers unanswered signed mentions across a reviewed day.
-  const base = Math.floor(Date.now() / 300_000) * 300 - 60;
+  // Keep the deterministic seed stable across every same-day restart. The
+  // watcher recovers unanswered signed mentions across the same reviewed day.
+  const base = Math.floor(Date.now() / 86_400_000) * 86_400 - 60;
   const profiles = [
     buildProfileEvent(secret(anna), { name: anna.name, about: "Synthetisches Röbel-Testprofil" }, { createdAt: base }),
     buildProfileEvent(secret(omar), { name: omar.name, about: "Synthetisches Röbel-Testprofil" }, { createdAt: base + 1 }),

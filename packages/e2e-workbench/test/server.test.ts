@@ -157,6 +157,37 @@ describe("Röbel E2E workbench boundary", () => {
     }
   });
 
+  it("keeps the deterministic seed identical across same-day workbench restarts", async () => {
+    const config = parseWorkbenchConfig(environment());
+    const events: Array<Record<string, unknown>> = [];
+    const relay = {
+      query: async () => events,
+      publish: async (entry: Record<string, unknown>) => {
+        if (!events.some((candidate) => candidate.id === entry.id)) events.push(entry);
+        return { ok: true, message: "stored" };
+      },
+      close: () => {},
+    };
+    const actualNow = Date.now;
+    let running: Awaited<ReturnType<typeof startWorkbench>> | null = null;
+    try {
+      Date.now = () => Date.UTC(2026, 7, 13, 8, 0, 0);
+      running = await startWorkbench(config, { citizenRelay: relay as never, agentRelay: relay as never });
+      await running.close();
+      running = null;
+      Date.now = () => Date.UTC(2026, 7, 13, 18, 0, 0);
+      running = await startWorkbench(config, { citizenRelay: relay as never, agentRelay: relay as never });
+      const feed = await fetch(`http://127.0.0.1:${running.port}/api/feed`).then((response) => response.json()) as {
+        posts: Array<{ id: string }>;
+      };
+      assert.equal(feed.posts.length, 2);
+      assert.equal(new Set(feed.posts.map((entry) => entry.id)).size, 2);
+    } finally {
+      Date.now = actualNow;
+      await running?.close();
+    }
+  });
+
   it("marks a discussion answered only for a valid reply from the configured Mecky identity", async () => {
     const config = parseWorkbenchConfig({ ...environment(), MECKY_PUBKEY: signedMecky.publicKey });
     const citizenEvents: Array<Record<string, unknown>> = [];
