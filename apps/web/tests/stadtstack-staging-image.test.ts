@@ -10,3 +10,11 @@ test("emits the standalone server only for the explicit Talos staging image", ()
   assert.match(dockerfile, /ROEBEL_STANDALONE_IMAGE=1/);
   assert.match(dockerfile, /\.next\/standalone/);
 });
+
+test("installs only the Röbel web dependency graph from the frozen offline store", () => {
+  assert.doesNotMatch(dockerfile, /pnpm fetch/);
+  assert.match(
+    dockerfile,
+    /pnpm --filter @roebel\/web\.\.\. install --offline --frozen-lockfile --ignore-scripts/,
+  );
+});

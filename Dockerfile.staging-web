@@ -40,10 +40,6 @@ WORKDIR /workspace
 RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
     corepack enable && corepack prepare pnpm@9.15.0 --activate
 
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
-RUN --mount=type=bind,from=pnpm-store,source=.,target=/pnpm/store,ro \
-    pnpm fetch --offline
-
 COPY . .
 RUN --mount=type=bind,from=pnpm-store,source=.,target=/pnpm/store,ro \
     pnpm --filter @roebel/web... install --offline --frozen-lockfile --ignore-scripts
