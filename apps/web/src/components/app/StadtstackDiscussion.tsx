@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -39,6 +39,9 @@ type WorkflowState = {
   completion?: Record<string, unknown>;
   publicView?: Record<string, unknown>;
 };
+
+const MECKY_POLL_INTERVAL_MS = 3_000;
+const MECKY_POLL_ATTEMPT_LIMIT = 20;
 
 function polar(cx: number, cy: number, radius: number, angle: number) {
   return { x: cx + Math.cos(angle - Math.PI / 2) * radius, y: cy + Math.sin(angle - Math.PI / 2) * radius };
@@ -95,6 +98,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [workflow, setWorkflow] = useState<WorkflowState>({});
   const [workflowBusy, setWorkflowBusy] = useState(false);
+  const meckyPollAttempts = useRef(0);
 
   const reload = useCallback(async () => {
     try {
@@ -107,14 +111,37 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
       setConfig(nextConfig);
       setPersona((current) => current ?? nextConfig.personas[0] ?? null);
       if (nextThread.mecky) setWorkflow((current) => ({ ...current, answer: nextThread.mecky!.event }));
+      return nextThread;
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Diskussion nicht erreichbar");
+      return null;
     } finally {
       setLoading(false);
     }
   }, [rootId]);
 
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    meckyPollAttempts.current = 0;
+    void reload();
+  }, [reload]);
+
+  useEffect(() => {
+    if (loading || !thread || thread.mecky || meckyPollAttempts.current >= MECKY_POLL_ATTEMPT_LIMIT) return;
+    let requestInFlight = false;
+    const timer = window.setInterval(() => {
+      if (requestInFlight || meckyPollAttempts.current >= MECKY_POLL_ATTEMPT_LIMIT) {
+        if (meckyPollAttempts.current >= MECKY_POLL_ATTEMPT_LIMIT) window.clearInterval(timer);
+        return;
+      }
+      requestInFlight = true;
+      meckyPollAttempts.current += 1;
+      void reload().then((nextThread) => {
+        requestInFlight = false;
+        if (nextThread?.mecky) window.clearInterval(timer);
+      });
+    }, MECKY_POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [loading, reload, thread]);
 
   const graph = useMemo(() => {
     if (!thread?.arguments.length) return null;

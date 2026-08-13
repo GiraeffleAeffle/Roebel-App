@@ -37,6 +37,14 @@ test("renders discussions inside the normal feed controls and distinguishes ment
   assert.match(feed, /Antwort ausstehend/);
 });
 
+test("refreshes a pending Mecky mention automatically without polling forever", () => {
+  assert.match(discussion, /MECKY_POLL_INTERVAL_MS/);
+  assert.match(discussion, /MECKY_POLL_ATTEMPT_LIMIT/);
+  assert.match(discussion, /window\.setInterval/);
+  assert.match(discussion, /window\.clearInterval\(timer\)/);
+  assert.match(discussion, /meckyPollAttempts\.current >= MECKY_POLL_ATTEMPT_LIMIT/);
+});
+
 test("labels the civic handoff and keeps vote and treasury authority disabled", () => {
   assert.match(discussion, /Verbesserungsvorschlag/);
   assert.match(discussion, /Citizen Brief/);
