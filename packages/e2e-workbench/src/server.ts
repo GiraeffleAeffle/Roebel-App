@@ -195,7 +195,9 @@ function asArgument(config: WorkbenchConfig, event: NostrEvent): PublicArgument 
 async function publishSeed(config: WorkbenchConfig, relay: RelayPort): Promise<void> {
   const anna = config.personas[0]!;
   const omar = config.personas[1]!;
-  const base = 1_786_603_200;
+  // Keep the deterministic seed inside the agent watcher's 15-minute replay
+  // window while remaining stable across short same-Pod restarts.
+  const base = Math.floor(Date.now() / 300_000) * 300 - 60;
   const profiles = [
     buildProfileEvent(secret(anna), { name: anna.name, about: "Synthetisches Röbel-Testprofil" }, { createdAt: base }),
     buildProfileEvent(secret(omar), { name: omar.name, about: "Synthetisches Röbel-Testprofil" }, { createdAt: base + 1 }),
