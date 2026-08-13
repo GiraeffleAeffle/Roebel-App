@@ -266,6 +266,18 @@ async function control(config: WorkbenchConfig, fetcher: typeof globalThis.fetch
   }
 }
 
+async function currentCaseVersion(config: WorkbenchConfig, fetcher: typeof globalThis.fetch): Promise<number> {
+  const projection = await control(config, fetcher, "/v1/e2e/view", { profile: "administration" });
+  if (
+    !projection ||
+    typeof projection !== "object" ||
+    Array.isArray(projection) ||
+    !Number.isSafeInteger((projection as Record<string, unknown>).caseVersion) ||
+    Number((projection as Record<string, unknown>).caseVersion) < 2
+  ) throw new Error("control_case_version_invalid");
+  return Number((projection as Record<string, unknown>).caseVersion);
+}
+
 const HTML = `<!doctype html>
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="icon" href="data:,"><title>Röbel × Stadtstack E2E</title>
@@ -438,8 +450,9 @@ export async function startWorkbench(config: WorkbenchConfig, dependencies: Work
     }
     if (path === "/api/admit") {
       if (!exactRecord(body, ["discussion", "answer", "suggestion"])) throw new Error("admission_invalid");
+      const expectedCaseVersion = await currentCaseVersion(config, fetcher);
       return json(response, 200, await control(config, fetcher, "/v1/nostr/suggestions/admit", {
-        expectedCaseVersion: 2,
+        expectedCaseVersion,
         sourceDiscussion: event(body.discussion),
         sourceAnswer: event(body.answer),
         signedSuggestion: body.suggestion as CitizenSignedSuggestionV1,

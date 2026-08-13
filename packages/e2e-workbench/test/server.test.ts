@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildAgentNoteEvent, deriveAgentIdentity, getPublicKeyHex } from "@netizen-labs/nostr";
+import {
+  buildAgentNoteEvent,
+  buildCivicDiscussionEvent,
+  buildCitizenSignedSuggestion,
+  deriveAgentIdentity,
+  getPublicKeyHex,
+} from "@netizen-labs/nostr";
 import { parseWorkbenchConfig, startWorkbench } from "../src/server";
 
 const one = "11".repeat(32);
@@ -253,6 +259,67 @@ describe("Röbel E2E workbench boundary", () => {
         posts: Array<{ id: string; meckyMentioned: boolean }>;
       };
       assert.equal(feed.posts.find((post) => post.id === published.event.id)?.meckyMentioned, true);
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("binds suggestion admission to the coordinator version read immediately before the command", async () => {
+    const config = parseWorkbenchConfig({ ...environment(), MECKY_PUBKEY: signedMecky.publicKey });
+    const actorSecret = Uint8Array.from(Buffer.from(one, "hex"));
+    const discussion = buildCivicDiscussionEvent(actorSecret, {
+      municipalityId: "roebel-mueritz",
+      sourceCaseId: "marienfelder-strasse",
+      canonicalCaseId: "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
+      agentPubkey: signedMecky.publicKey,
+      content: "@Mecky Welche geprüften Informationen liegen vor?",
+      createdAt: 1_786_464_000,
+    });
+    const answer = buildAgentNoteEvent(signedMecky, "Geprüfte Testantwort.", {
+      createdAt: discussion.created_at + 1,
+      tags: [
+        ["e", discussion.id, "", "reply"],
+        ["p", discussion.pubkey],
+        ["mecky-receipt", `urn:stadtstack:mecky-answer:${"a".repeat(64)}`],
+        ["municipality", "roebel-mueritz"],
+        ["case", "marienfelder-strasse"],
+        ["stadtstack-case", "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001"],
+        ["evidence", `sha256:${"b".repeat(64)}`, "https://stadtstack.example/public/case"],
+      ],
+    });
+    const suggestion = buildCitizenSignedSuggestion(actorSecret, {
+      binding: {
+        municipalityId: "roebel-mueritz",
+        sourceCaseId: "marienfelder-strasse",
+        canonicalCaseId: "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
+      },
+      agentPubkey: signedMecky.publicKey,
+      sourceDiscussion: discussion,
+      sourceAnswer: answer,
+      title: "Sichere Querung prüfen",
+      summary: "Geprüfte Varianten sollen öffentlich abgewogen werden.",
+      createdAt: discussion.created_at + 2,
+    });
+    const calls: Array<{ path: string; body: Record<string, unknown> }> = [];
+    const fetcher: typeof globalThis.fetch = async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      calls.push({ path, body });
+      if (path === "/v1/e2e/view") return Response.json({ caseVersion: 17 });
+      return Response.json({ status: "admitted", caseVersion: 18 });
+    };
+    const relay = { query: async () => [], publish: async () => ({ ok: true, message: "stored" }), close: () => {} };
+    const running = await startWorkbench(config, { citizenRelay: relay, agentRelay: relay, fetch: fetcher });
+    try {
+      const response = await fetch(`http://127.0.0.1:${running.port}/api/admit`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-stadtstack-e2e": "1" },
+        body: JSON.stringify({ discussion, answer, suggestion }),
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(calls.map((entry) => entry.path), ["/v1/e2e/view", "/v1/nostr/suggestions/admit"]);
+      assert.deepEqual(calls[0]?.body, { profile: "administration" });
+      assert.equal(calls[1]?.body.expectedCaseVersion, 17);
     } finally {
       await running.close();
     }
