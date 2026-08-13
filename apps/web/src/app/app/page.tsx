@@ -16,7 +16,7 @@ import { AlertCard } from "@/components/app/AlertCard";
 import { ContextBar } from "@/components/app/ContextBar";
 import { StadtFeed } from "@/components/app/StadtFeed";
 import { AppFeed } from "@/components/app/AppFeed";
-import { StadtstackStagingLabCard } from "@/components/app/StadtstackStagingLabCard";
+import { StadtstackStagingFeed } from "@/components/app/StadtstackStagingFeed";
 import { FeedProposalHero } from "@/components/proposals/FeedProposalHero";
 import { getProposals } from "@/lib/supabase";
 import { ProposalState, type Proposal } from "@/lib/proposal-types";
@@ -669,7 +669,7 @@ export default function AppHomePage() {
       </div>
 
       {stadtstackStagingLab && (
-        <StadtstackStagingLabCard lab={stadtstackStagingLab} />
+        <StadtstackStagingFeed />
       )}
 
       {activeTab === "rathaus" ? (

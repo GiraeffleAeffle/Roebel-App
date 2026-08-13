@@ -97,4 +97,61 @@ describe("Röbel E2E workbench boundary", () => {
       await running.close();
     }
   });
+
+  it("seeds two signed Nostr profiles plus a native pro/con discussion and serves it as a feed", async () => {
+    const config = parseWorkbenchConfig(environment());
+    const events: Array<Record<string, unknown>> = [];
+    const relay = {
+      query: async (filters: Array<Record<string, unknown>>) => events.filter((entry) => {
+        const filter = filters[0] ?? {};
+        if (Array.isArray(filter.kinds) && !filter.kinds.includes(entry.kind)) return false;
+        const expectedTag = filter["#e"];
+        if (Array.isArray(expectedTag) && !(entry.tags as string[][]).some((tag) => tag[0] === "e" && expectedTag.includes(tag[1]))) return false;
+        return true;
+      }),
+      publish: async (entry: Record<string, unknown>) => {
+        if (!events.some((candidate) => candidate.id === entry.id)) events.push(entry);
+        return { ok: true, message: "stored" };
+      },
+      close: () => {},
+    };
+    const running = await startWorkbench(config, { citizenRelay: relay as never, agentRelay: relay as never });
+    try {
+      const origin = `http://127.0.0.1:${running.port}/stadtstack-test`;
+      const feed = await fetch(`${origin}/api/feed`).then((response) => response.json()) as {
+        posts: Array<{ id: string; author: { name: string }; replyCount: number }>;
+      };
+      assert.equal(feed.posts.length >= 2, true);
+      assert.deepEqual(new Set(feed.posts.map((post) => post.author.name)), new Set([
+        "Anna (synthetisch)",
+        "Omar (synthetisch)",
+      ]));
+      const root = feed.posts.find((post) => post.replyCount >= 2);
+      assert.ok(root);
+
+      const thread = await fetch(`${origin}/api/thread?root=${root.id}`).then((response) => response.json()) as {
+        arguments: Array<{ stance: string; parentId: string | null }>;
+      };
+      assert.equal(thread.arguments[0]?.stance, "root");
+      assert.deepEqual(new Set(thread.arguments.slice(1).map((entry) => entry.stance)), new Set(["pro", "con"]));
+
+      const claimResponse = await fetch(`${origin}/api/claim`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-stadtstack-e2e": "1" },
+        body: JSON.stringify({
+          personaId: "citizen-anna",
+          rootEventId: root.id,
+          parentEventId: root.id,
+          stance: "pro",
+          content: "Ein zeitlich begrenzter Verkehrsversuch könnte belastbare Daten liefern.",
+        }),
+      });
+      const claim = await claimResponse.json() as { event: { id: string; tags: string[][] } };
+      assert.equal(claimResponse.status, 200);
+      assert.equal(claim.event.tags.some((tag) => tag[0] === "stance" && tag[1] === "pro"), true);
+      assert.equal(claim.event.tags.some((tag) => tag[0] === "e" && tag[1] === root.id && tag[3] === "root"), true);
+    } finally {
+      await running.close();
+    }
+  });
 });

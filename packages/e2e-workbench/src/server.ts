@@ -2,6 +2,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import {
   buildCitizenSignedSuggestion,
   buildCivicDiscussionEvent,
+  buildNoteEvent,
+  buildProfileEvent,
   getPublicKeyHex,
   RelayClient,
   verifyEvent,
@@ -21,6 +23,17 @@ const SERVICE_NAMESPACES = new Set([
 ]);
 
 type Persona = { id: string; name: string; secretKeyHex: string; publicKey: string };
+
+type PublicAuthor = { name: string; kind: "citizen" | "mecky"; pubkey: string };
+type PublicArgument = {
+  id: string;
+  parentId: string | null;
+  rootId: string;
+  stance: "root" | "pro" | "con";
+  author: PublicAuthor;
+  content: string;
+  createdAt: string;
+};
 
 export interface WorkbenchConfig {
   agentRelayUrl: string;
@@ -152,6 +165,72 @@ function event(value: unknown): NostrEvent {
   return value as NostrEvent;
 }
 
+function secret(persona: Persona): Uint8Array {
+  return Uint8Array.from(Buffer.from(persona.secretKeyHex, "hex"));
+}
+
+function tagValue(event: NostrEvent, name: string): string | null {
+  return event.tags.find((tag) => tag[0] === name && typeof tag[1] === "string")?.[1] ?? null;
+}
+
+function authorFor(config: WorkbenchConfig, event: NostrEvent): PublicAuthor {
+  const citizen = config.personas.find((candidate) => candidate.publicKey === event.pubkey);
+  if (citizen) return { name: citizen.name, kind: "citizen", pubkey: citizen.publicKey };
+  if (event.pubkey === config.meckyPubkey) return { name: "Mecky", kind: "mecky", pubkey: event.pubkey };
+  return { name: "Unbekannt", kind: "citizen", pubkey: event.pubkey };
+}
+
+function asArgument(config: WorkbenchConfig, event: NostrEvent): PublicArgument | null {
+  if (event.kind !== 1 || !verifyEvent(event)) return null;
+  const rootId = tagValue(event, "argument-root");
+  const stance = tagValue(event, "stance");
+  const parentId = event.tags.find((tag) => tag[0] === "e" && tag[3] === "reply")?.[1] ?? null;
+  if (rootId === "self" && stance === "root" && parentId === null) {
+    return { id: event.id, parentId: null, rootId: event.id, stance: "root", author: authorFor(config, event), content: event.content, createdAt: new Date(event.created_at * 1_000).toISOString() };
+  }
+  if (!rootId || (stance !== "pro" && stance !== "con") || !parentId) return null;
+  return { id: event.id, parentId, rootId, stance, author: authorFor(config, event), content: event.content, createdAt: new Date(event.created_at * 1_000).toISOString() };
+}
+
+async function publishSeed(config: WorkbenchConfig, relay: RelayPort): Promise<void> {
+  const anna = config.personas[0]!;
+  const omar = config.personas[1]!;
+  const base = 1_786_603_200;
+  const profiles = [
+    buildProfileEvent(secret(anna), { name: anna.name, about: "Synthetisches Röbel-Testprofil" }, { createdAt: base }),
+    buildProfileEvent(secret(omar), { name: omar.name, about: "Synthetisches Röbel-Testprofil" }, { createdAt: base + 1 }),
+  ];
+  const root = buildNoteEvent(secret(anna), "Soll die Querung der Marienfelder Straße sicherer und nachvollziehbarer geplant werden? @Mecky, welche geprüften Informationen liegen dazu vor?", {
+    createdAt: base + 10,
+    tags: [
+      ["p", config.meckyPubkey],
+      ["t", "stadtstack-civic-discussion"],
+      ["municipality", "roebel-mueritz"],
+      ["case", "marienfelder-strasse"],
+      ["stadtstack-case", CASE_ID],
+      ["stance", "root"],
+      ["argument-root", "self"],
+    ],
+  });
+  const graphRootId = root.id;
+  const pro = buildNoteEvent(secret(omar), "Pro: Eine klar markierte und gut einsehbare Querung kann die Sichtbarkeit für alle Verkehrsteilnehmenden verbessern.", {
+    createdAt: base + 20,
+    tags: [["e", graphRootId, "", "root"], ["e", graphRootId, "", "reply"], ["argument-root", graphRootId], ["stance", "pro"], ["t", "stadtstack-argument"]],
+  });
+  const con = buildNoteEvent(secret(anna), "Contra: Eine Einzelmaßnahme könnte falsche Sicherheit erzeugen; Geschwindigkeit, Beleuchtung und Wegeführung müssen gemeinsam geprüft werden.", {
+    createdAt: base + 30,
+    tags: [["e", graphRootId, "", "root"], ["e", graphRootId, "", "reply"], ["argument-root", graphRootId], ["stance", "con"], ["t", "stadtstack-argument"]],
+  });
+  const secondRoot = buildNoteEvent(secret(omar), "Mir ist aufgefallen, dass viele Hinweise zur Marienfelder Straße im Feed verstreut bleiben. Soll daraus eine gemeinsame, nachvollziehbare Diskussion werden?", {
+    createdAt: base + 40,
+    tags: [["t", "stadtstack-civic-discussion"], ["municipality", "roebel-mueritz"], ["case", "marienfelder-strasse"], ["stadtstack-case", CASE_ID], ["stance", "root"], ["argument-root", "self"]],
+  });
+  for (const seeded of [...profiles, root, pro, con, secondRoot]) {
+    const result = await relay.publish(seeded);
+    if (!result.ok) throw new Error(`citizen_relay_${result.message}`);
+  }
+}
+
 async function control(config: WorkbenchConfig, fetcher: typeof globalThis.fetch, path: string, value: unknown): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
@@ -205,6 +284,7 @@ export async function startWorkbench(config: WorkbenchConfig, dependencies: Work
   const citizenRelay = dependencies.citizenRelay ?? nodeRelay(config.citizenRelayUrl);
   const agentRelay = dependencies.agentRelay ?? nodeRelay(config.agentRelayUrl);
   const fetcher = dependencies.fetch ?? globalThis.fetch;
+  await publishSeed(config, citizenRelay);
   const server: Server = createServer((request, response) => { void (async () => {
     const requestedPath = request.url ?? "";
     const prefixed = requestedPath === STAGING_PREFIX || requestedPath.startsWith(`${STAGING_PREFIX}/`);
@@ -221,6 +301,41 @@ export async function startWorkbench(config: WorkbenchConfig, dependencies: Work
       meckyPubkey: config.meckyPubkey,
       authorityBinding: "none",
     });
+    if (request.method === "GET" && path === "/api/feed") {
+      const events = (await citizenRelay.query([{ kinds: [1], limit: 100 }])).filter(verifyEvent);
+      const argumentsList = events.map((entry) => asArgument(config, entry)).filter((entry): entry is PublicArgument => entry !== null);
+      const roots = argumentsList
+        .filter((entry) => entry.stance === "root")
+        .map((entry) => ({
+          id: entry.id,
+          author: entry.author,
+          content: entry.content,
+          createdAt: entry.createdAt,
+          replyCount: argumentsList.filter((candidate) => candidate.rootId === entry.id && candidate.id !== entry.id).length,
+          meckyMentioned: events.find((candidate) => candidate.id === entry.id)?.tags.some((tag) => tag[0] === "p" && tag[1] === config.meckyPubkey) ?? false,
+          synthetic: true,
+        }));
+      return json(response, 200, { schemaVersion: "roebel_staging_feed_v1", posts: roots.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), authorityBinding: "none" });
+    }
+    if (request.method === "GET" && path.startsWith("/api/thread?root=")) {
+      const rootId = new URL(path, "http://workbench").searchParams.get("root") ?? "";
+      if (!HEX64.test(rootId)) return json(response, 400, { error: "root_invalid" });
+      const [citizenEvents, meckyEvents] = await Promise.all([
+        citizenRelay.query([{ kinds: [1], limit: 200 }]),
+        agentRelay.query([{ kinds: [1], "#e": [rootId], limit: 20 }]),
+      ]);
+      const argumentsList = citizenEvents
+        .filter(verifyEvent)
+        .map((entry) => asArgument(config, entry))
+        .filter((entry): entry is PublicArgument => entry !== null && entry.rootId === rootId);
+      const meckyReply = meckyEvents.filter(verifyEvent).sort((a, b) => b.created_at - a.created_at)[0] ?? null;
+      return json(response, 200, {
+        schemaVersion: "roebel_staging_argument_thread_v1",
+        arguments: argumentsList.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)),
+        mecky: meckyReply ? { event: meckyReply, author: authorFor(config, meckyReply), evidenceRefs: meckyReply.tags.filter((tag) => tag[0] === "evidence").map((tag) => ({ digest: tag[1], url: tag[2] })) } : null,
+        authorityBinding: "none",
+      });
+    }
     if (request.method === "GET" && path.startsWith("/api/reply?parent=")) {
       const parent = new URL(path, "http://workbench").searchParams.get("parent") ?? "";
       if (!HEX64.test(parent)) return json(response, 400, { error: "parent_invalid" });
@@ -243,6 +358,30 @@ export async function startWorkbench(config: WorkbenchConfig, dependencies: Work
       const published = await citizenRelay.publish(signed);
       if (!published.ok) throw new Error(`citizen_relay_${published.message}`);
       return json(response, 200, { status: "published", persona: { id: actor.id, name: actor.name, publicKey: actor.publicKey }, event: signed });
+    }
+    if (path === "/api/claim") {
+      if (
+        !exactRecord(body, ["personaId", "rootEventId", "parentEventId", "stance", "content"]) ||
+        typeof body.rootEventId !== "string" || !HEX64.test(body.rootEventId) ||
+        typeof body.parentEventId !== "string" || !HEX64.test(body.parentEventId) ||
+        (body.stance !== "pro" && body.stance !== "con") ||
+        typeof body.content !== "string" || !body.content.trim() || body.content.length > 1_000
+      ) throw new Error("claim_invalid");
+      const actor = persona(config, body.personaId);
+      const signed = buildNoteEvent(secret(actor), body.content.trim(), {
+        tags: [
+          ["e", body.rootEventId, "", "root"],
+          ["e", body.parentEventId, "", "reply"],
+          ["argument-root", body.rootEventId],
+          ["stance", body.stance],
+          ["t", "stadtstack-argument"],
+          ["municipality", "roebel-mueritz"],
+          ["case", "marienfelder-strasse"],
+        ],
+      });
+      const published = await citizenRelay.publish(signed);
+      if (!published.ok) throw new Error(`citizen_relay_${published.message}`);
+      return json(response, 200, { status: "published", event: signed, authorityBinding: "none" });
     }
     if (path === "/api/suggestion") {
       if (!exactRecord(body, ["personaId", "discussion", "answer", "title", "summary"]) || typeof body.title !== "string" || typeof body.summary !== "string") throw new Error("suggestion_invalid");

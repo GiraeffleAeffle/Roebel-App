@@ -1,0 +1,89 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { Bot, ChevronRight, GitFork, MessageCircleMore, ShieldCheck, Users } from "lucide-react";
+import {
+  stagingGet,
+  type StagingFeedPost,
+  type StagingFeedResponse,
+} from "@/lib/stadtstack/staging-api";
+
+function shortTime(value: string): string {
+  return new Date(value).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+export function StadtstackStagingFeed() {
+  const [posts, setPosts] = useState<StagingFeedPost[]>([]);
+  const [status, setStatus] = useState<"loading" | "ready" | "unavailable">("loading");
+
+  useEffect(() => {
+    let active = true;
+    stagingGet<StagingFeedResponse>("/feed")
+      .then((value) => {
+        if (!active) return;
+        setPosts(value.posts);
+        setStatus("ready");
+      })
+      .catch(() => {
+        if (active) setStatus("unavailable");
+      });
+    return () => { active = false; };
+  }, []);
+
+  if (status === "loading") {
+    return <div aria-label="Synthetische Diskussionen werden geladen" className="h-40 animate-pulse rounded-xl border border-border bg-card" />;
+  }
+  if (status === "unavailable") {
+    return (
+      <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+        Die isolierte Testdiskussion ist gerade nicht erreichbar. Der normale Röbel-Feed bleibt unverändert.
+      </section>
+    );
+  }
+
+  return (
+    <section aria-labelledby="stadtstack-staging-feed-title" className="space-y-3">
+      <div className="rounded-xl border border-emerald-700/30 bg-emerald-950 px-4 py-3 text-white">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-200">
+              <ShieldCheck className="h-4 w-4" /> Staging · Nostr · keine Produktionsdaten
+            </div>
+            <h2 id="stadtstack-staging-feed-title" className="mt-1 text-lg font-bold">Diskussion → Mecky → Verbesserungsvorschlag</h2>
+          </div>
+          <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs"><Users className="h-3.5 w-3.5" /> Synthetische Testprofile</span>
+        </div>
+      </div>
+
+      {posts.map((post) => (
+        <Link
+          key={post.id}
+          href={`/app/diskussion/${post.id}`}
+          className="block rounded-xl border border-border bg-card p-4 shadow-sm transition hover:border-primary/40 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        >
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-900">
+              {post.author.name.slice(0, 2).toUpperCase()}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">{post.author.name}</span>
+                <span>Synthetisches Profil</span>
+                <span>·</span>
+                <span>{shortTime(post.createdAt)}</span>
+              </div>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">{post.content}</p>
+              <div className="mt-3 flex flex-wrap items-center gap-3 text-xs font-medium text-muted-foreground">
+                <span className="inline-flex items-center gap-1"><MessageCircleMore className="h-4 w-4" /> {post.replyCount} Argumente</span>
+                <span className="inline-flex items-center gap-1"><GitFork className="h-4 w-4" /> Pro/Contra-Baum</span>
+                {post.meckyMentioned && <span className="inline-flex items-center gap-1 text-amber-700"><Bot className="h-4 w-4" /> @Mecky erwähnt</span>}
+                <span className="ml-auto inline-flex items-center gap-1 text-primary">Diskussion öffnen <ChevronRight className="h-4 w-4" /></span>
+              </div>
+            </div>
+          </div>
+        </Link>
+      ))}
+    </section>
+  );
+}
