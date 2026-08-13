@@ -11,6 +11,7 @@ const COMPONENTS = {
   "public-mecky": ["node", "/app/agent-watcher.cjs"],
   "roebel-e2e-workbench": ["node", "/app/e2e-workbench.cjs"],
 };
+const repositoryFor = (component) => `stadtstack.local/roebel-staging-lab/${component}`;
 const digest = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 
 function exactKeys(value, expected, label) {
@@ -45,6 +46,8 @@ export function verifyStagingServiceOci(root, sourceRevision, component) {
     descriptor.platform?.os !== "linux" ||
     descriptor.platform?.architecture !== "amd64"
   ) throw new Error("platform_invalid");
+  const importName = `${repositoryFor(component)}:source-${sourceRevision}`;
+  if (descriptor.annotations?.["io.containerd.image.name"] !== importName) throw new Error("import_name_invalid");
   const manifest = JSON.parse(readBlob(descriptor, "manifest"));
   if (manifest.schemaVersion !== 2 || manifest.mediaType !== "application/vnd.oci.image.manifest.v1+json" || !Array.isArray(manifest.layers) || manifest.layers.length < 1) {
     throw new Error("manifest_invalid");
@@ -81,6 +84,8 @@ export function verifyStagingServiceOci(root, sourceRevision, component) {
     schemaVersion: "roebel_staging_service_oci_receipt_v1",
     sourceRevision,
     component,
+    importName,
+    podReference: `${repositoryFor(component)}@${descriptor.digest}`,
     manifestDigest: descriptor.digest,
     configDigest: manifest.config.digest,
     layerDigests,

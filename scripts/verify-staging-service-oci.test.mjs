@@ -49,6 +49,7 @@ function writeLayout(root, sourceRevision, component, entrypoint, mutate) {
       size: layerBytes.length,
     }],
   });
+  const importName = `stadtstack.local/roebel-staging-lab/${component}:source-${sourceRevision}`;
   writeFileSync(join(root, "oci-layout"), JSON.stringify({ imageLayoutVersion: "1.0.0" }));
   writeFileSync(join(root, "index.json"), JSON.stringify({
     schemaVersion: 2,
@@ -56,9 +57,10 @@ function writeLayout(root, sourceRevision, component, entrypoint, mutate) {
       mediaType: "application/vnd.oci.image.manifest.v1+json",
       ...manifest,
       platform: { os: "linux", architecture: "amd64" },
+      annotations: { "io.containerd.image.name": importName },
     }],
   }));
-  return { config, manifest, layerHash };
+  return { config, importName, manifest, layerHash };
 }
 
 for (const service of [
@@ -74,6 +76,8 @@ for (const service of [
         schemaVersion: "roebel_staging_service_oci_receipt_v1",
         sourceRevision: revision,
         component: service.component,
+        importName: result.importName,
+        podReference: `stadtstack.local/roebel-staging-lab/${service.component}@${result.manifest.digest}`,
         manifestDigest: result.manifest.digest,
         configDigest: result.config.digest,
         layerDigests: [`sha256:${result.layerHash}`],

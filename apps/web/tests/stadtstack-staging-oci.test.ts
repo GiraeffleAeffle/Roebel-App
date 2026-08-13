@@ -57,6 +57,7 @@ const writeValidLayout = (root: string, sourceRevision: string, mutate?: (config
       size: layerBytes.length,
     }],
   });
+  const importName = `stadtstack.local/roebel-web-preview/roebel-web-staging:source-${sourceRevision}`;
   writeFileSync(join(root, "oci-layout"), JSON.stringify({ imageLayoutVersion: "1.0.0" }));
   writeFileSync(join(root, "index.json"), JSON.stringify({
     schemaVersion: 2,
@@ -64,20 +65,23 @@ const writeValidLayout = (root: string, sourceRevision: string, mutate?: (config
       mediaType: "application/vnd.oci.image.manifest.v1+json",
       ...manifest,
       platform: { os: "linux", architecture: "amd64" },
+      annotations: { "io.containerd.image.name": importName },
     }],
   }));
-  return { config, layerDigest, manifest };
+  return { config, importName, layerDigest, manifest };
 };
 
 test("accepts one source-bound non-root Röbel staging web image", () => {
   const sourceRevision = "a".repeat(40);
   const root = mkdtempSync(join(tmpdir(), "roebel-staging-oci-"));
   try {
-    const { config, layerDigest, manifest } = writeValidLayout(root, sourceRevision);
+    const { config, importName, layerDigest, manifest } = writeValidLayout(root, sourceRevision);
 
     assert.deepEqual(verifyStagingWebOci(root, sourceRevision), {
       schemaVersion: "roebel_staging_web_oci_receipt_v1",
       sourceRevision,
+      importName,
+      podReference: `stadtstack.local/roebel-web-preview/roebel-web-staging@${manifest.digest}`,
       manifestDigest: manifest.digest,
       configDigest: config.digest,
       layerDigests: [`sha256:${layerDigest}`],

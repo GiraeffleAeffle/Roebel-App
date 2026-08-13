@@ -115,6 +115,7 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$SOURCE_REVISION")"
+          import_name="stadtstack.local/roebel-staging-lab/$COMPONENT:source-$SOURCE_REVISION"
           docker buildx build \
             --platform linux/amd64 \
             --provenance=false \
@@ -124,7 +125,7 @@ jobs:
             --build-context "pnpm-store=$RUNNER_TEMP/pnpm-store" \
             --build-arg "SOURCE_REVISION=$SOURCE_REVISION" \
             --build-arg "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" \
-            --output "type=oci,dest=/tmp/$COMPONENT.oci.tar" \
+            --output "type=oci,dest=/tmp/$COMPONENT.oci.tar,name=$import_name,annotation.io.containerd.image.name=$import_name,rewrite-timestamp=true" \
             "$RUNNER_TEMP/context"
           artifact_bytes="$(stat -c %s "/tmp/$COMPONENT.oci.tar")"
           test "$artifact_bytes" -le "$MAX_ARTIFACT_BYTES"

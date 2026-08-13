@@ -30,6 +30,9 @@ export function verifyStagingWebOci(root, sourceRevision) {
   if (index.schemaVersion !== 2 || !Array.isArray(index.manifests) || index.manifests.length !== 1) throw new Error("index_invalid");
   const descriptor = index.manifests[0];
   if (descriptor.mediaType !== "application/vnd.oci.image.manifest.v1+json" || descriptor.platform?.os !== "linux" || descriptor.platform?.architecture !== "amd64") throw new Error("platform_invalid");
+  const repository = "stadtstack.local/roebel-web-preview/roebel-web-staging";
+  const importName = `${repository}:source-${sourceRevision}`;
+  if (descriptor.annotations?.["io.containerd.image.name"] !== importName) throw new Error("import_name_invalid");
   const manifest = JSON.parse(readBlob(descriptor, "manifest"));
   if (manifest.schemaVersion !== 2 || manifest.mediaType !== "application/vnd.oci.image.manifest.v1+json" || !Array.isArray(manifest.layers) || manifest.layers.length < 1) throw new Error("manifest_invalid");
   const config = JSON.parse(readBlob(manifest.config, "config"));
@@ -56,6 +59,8 @@ export function verifyStagingWebOci(root, sourceRevision) {
   return {
     schemaVersion: "roebel_staging_web_oci_receipt_v1",
     sourceRevision,
+    importName,
+    podReference: `${repository}@${descriptor.digest}`,
     manifestDigest: descriptor.digest,
     configDigest: manifest.config.digest,
     layerDigests,
