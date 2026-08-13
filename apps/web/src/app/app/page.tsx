@@ -668,10 +668,6 @@ export default function AppHomePage() {
         </button>
       </div>
 
-      {stadtstackStagingLab && (
-        <StadtstackStagingFeed />
-      )}
-
       {activeTab === "rathaus" ? (
         <StadtFeed />
       ) : activeTab === "app" ? (
@@ -685,6 +681,10 @@ export default function AppHomePage() {
         activeCategory={activeCategory}
         onCategoryChange={setActiveCategory}
       />
+
+      {stadtstackStagingLab && (activeFilter === "all" || activeFilter === "latest" || activeFilter === "posts") && (
+        <StadtstackStagingFeed />
+      )}
 
       {isCitizen && featuredProposal && (
         <FeedProposalHero proposal={featuredProposal} basePath="/app/proposals" />

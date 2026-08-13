@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { getPublicKeyHex } from "@netizen-labs/nostr";
+import { buildAgentNoteEvent, deriveAgentIdentity, getPublicKeyHex } from "@netizen-labs/nostr";
 import { parseWorkbenchConfig, startWorkbench } from "../src/server";
 
 const one = "11".repeat(32);
 const two = "22".repeat(32);
 const mecky = getPublicKeyHex(Uint8Array.from(Buffer.from("33".repeat(32), "hex")));
+const signedMecky = deriveAgentIdentity("test-mecky-node-secret-with-reviewed-entropy-0123456789", "roebel-e2e", "mecky");
 
 function environment() {
   return {
@@ -119,7 +120,7 @@ describe("Röbel E2E workbench boundary", () => {
     try {
       const origin = `http://127.0.0.1:${running.port}/stadtstack-test`;
       const feed = await fetch(`${origin}/api/feed`).then((response) => response.json()) as {
-        posts: Array<{ id: string; author: { name: string }; replyCount: number }>;
+        posts: Array<{ id: string; author: { name: string }; replyCount: number; meckyAnswered: boolean }>;
       };
       assert.equal(feed.posts.length >= 2, true);
       assert.deepEqual(new Set(feed.posts.map((post) => post.author.name)), new Set([
@@ -128,6 +129,7 @@ describe("Röbel E2E workbench boundary", () => {
       ]));
       const root = feed.posts.find((post) => post.replyCount >= 2);
       assert.ok(root);
+      assert.equal(root.meckyAnswered, false);
 
       const thread = await fetch(`${origin}/api/thread?root=${root.id}`).then((response) => response.json()) as {
         arguments: Array<{ stance: string; parentId: string | null }>;
@@ -150,6 +152,43 @@ describe("Röbel E2E workbench boundary", () => {
       assert.equal(claimResponse.status, 200);
       assert.equal(claim.event.tags.some((tag) => tag[0] === "stance" && tag[1] === "pro"), true);
       assert.equal(claim.event.tags.some((tag) => tag[0] === "e" && tag[1] === root.id && tag[3] === "root"), true);
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("marks a discussion answered only for a valid reply from the configured Mecky identity", async () => {
+    const config = parseWorkbenchConfig({ ...environment(), MECKY_PUBKEY: signedMecky.publicKey });
+    const citizenEvents: Array<Record<string, unknown>> = [];
+    const agentEvents: Array<Record<string, unknown>> = [];
+    const relay = (events: Array<Record<string, unknown>>) => ({
+      query: async () => events,
+      publish: async (entry: Record<string, unknown>) => {
+        if (!events.some((candidate) => candidate.id === entry.id)) events.push(entry);
+        return { ok: true, message: "stored" };
+      },
+      close: () => {},
+    });
+    const running = await startWorkbench(config, {
+      citizenRelay: relay(citizenEvents) as never,
+      agentRelay: relay(agentEvents) as never,
+    });
+    try {
+      const origin = `http://127.0.0.1:${running.port}/stadtstack-test`;
+      const first = await fetch(`${origin}/api/feed`).then((response) => response.json()) as {
+        posts: Array<{ id: string; meckyMentioned: boolean; meckyAnswered: boolean }>;
+      };
+      const mentioned = first.posts.find((post) => post.meckyMentioned);
+      assert.ok(mentioned);
+      assert.equal(mentioned.meckyAnswered, false);
+
+      agentEvents.push(buildAgentNoteEvent(signedMecky, "Signierte Testantwort.", {
+        tags: [["e", mentioned.id, "", "reply"]],
+      }) as unknown as Record<string, unknown>);
+      const second = await fetch(`${origin}/api/feed`).then((response) => response.json()) as {
+        posts: Array<{ id: string; meckyAnswered: boolean }>;
+      };
+      assert.equal(second.posts.find((post) => post.id === mentioned.id)?.meckyAnswered, true);
     } finally {
       await running.close();
     }

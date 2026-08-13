@@ -9,6 +9,7 @@ export type StagingFeedPost = {
   createdAt: string;
   replyCount: number;
   meckyMentioned: boolean;
+  meckyAnswered: boolean;
   synthetic: true;
 };
 

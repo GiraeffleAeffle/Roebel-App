@@ -16,11 +16,20 @@ test("keeps the staging workflow native to the Röbel feed and discussion routes
   assert.match(appPage, /StadtstackStagingFeed/);
   assert.doesNotMatch(appPage, /StadtstackStagingLabCard/);
   assert.match(feed, /\/app\/diskussion\//);
-  assert.match(feed, /Synthetische Testprofile/);
+  assert.match(feed, /signiertes Nostr · Testprofile/);
   assert.doesNotMatch(feed, /href=\{.*stadtstack-test/);
   assert.match(discussion, /Argumentbaum/);
   assert.match(discussion, /Sunburst/);
   assert.match(discussion, /@Mecky/);
+});
+
+test("renders discussions inside the normal feed controls and distinguishes mentions from answers", () => {
+  assert.ok(appPage.indexOf("<FeedFilters") < appPage.indexOf("<StadtstackStagingFeed"));
+  assert.match(appPage, /stadtstackStagingLab && \(activeFilter === "all" \|\| activeFilter === "latest" \|\| activeFilter === "posts"\)/);
+  assert.doesNotMatch(feed, /Diskussion → Mecky → Verbesserungsvorschlag/);
+  assert.match(feed, /Öffentliche Diskussionen/);
+  assert.match(feed, /Mecky hat signiert geantwortet/);
+  assert.match(feed, /Antwort ausstehend/);
 });
 
 test("labels the civic handoff and keeps vote and treasury authority disabled", () => {

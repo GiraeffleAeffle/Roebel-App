@@ -50,6 +50,7 @@ async function main(): Promise<void> {
   const inferenceModel = required("MECKY_INFERENCE_MODEL");
   const inferenceApiKey = required("MECKY_INFERENCE_API_KEY");
   const intervalSeconds = Number(process.env.WATCH_INTERVAL_SECONDS ?? 20);
+  const lookbackSeconds = Number(process.env.WATCH_LOOKBACK_SECONDS ?? 86_400);
 
   const syntheticEvidenceMode = process.env.STADTSTACK_E2E_MODE === "synthetic-reviewed";
   const readReviewedEvidence = syntheticEvidenceMode
@@ -115,6 +116,7 @@ async function main(): Promise<void> {
         agent,
         history,
         bounds,
+        lookbackSeconds,
         relayUrl: inputRelayUrl,
         replyRelayUrl: outputRelayUrl,
         makeClient: createNodeRelayClient,

@@ -155,6 +155,29 @@ describe("answering a mention", () => {
     assert.deepEqual(h.filters[0].kinds, [1]);
   });
 
+  it("backfills an older unanswered mention within the reviewed lookback window", async () => {
+    const question = buildNoteEvent(CITIZEN, "beim Start verpasst", {
+      createdAt: NOW - 1_200,
+      tags: [["p", MECKY.publicKey]],
+    });
+    const h = harness([question]);
+    h.deps.lookbackSeconds = 86_400;
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.answered, 1);
+    assert.equal(h.filters[0].since, NOW - 86_400);
+    assert.equal(h.published.length, 1);
+  });
+
+  it("rejects lookback windows outside the reviewed one-minute to one-day boundary", async () => {
+    for (const invalid of [59, 86_401, 60.5, Number.NaN]) {
+      const h = harness([]);
+      h.deps.lookbackSeconds = invalid;
+      await assert.rejects(watchOnce(h.deps), /watcher_lookback_seconds_invalid/);
+    }
+  });
+
   it("replies as a threaded, agent-labelled note", async () => {
     const question = buildNoteEvent(CITIZEN, "Wann tagt der Stadtrat?", { createdAt: NOW - 5 });
     const h = harness([question], async () => "Am Dienstag um 18 Uhr.");

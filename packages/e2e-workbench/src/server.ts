@@ -5,6 +5,7 @@ import {
   buildNoteEvent,
   buildProfileEvent,
   getPublicKeyHex,
+  isAgentEvent,
   RelayClient,
   verifyEvent,
   type CitizenSignedSuggestionV1,
@@ -195,8 +196,8 @@ function asArgument(config: WorkbenchConfig, event: NostrEvent): PublicArgument 
 async function publishSeed(config: WorkbenchConfig, relay: RelayPort): Promise<void> {
   const anna = config.personas[0]!;
   const omar = config.personas[1]!;
-  // Keep the deterministic seed inside the agent watcher's 15-minute replay
-  // window while remaining stable across short same-Pod restarts.
+  // Keep the deterministic seed stable across short same-Pod restarts. The
+  // watcher now recovers unanswered signed mentions across a reviewed day.
   const base = Math.floor(Date.now() / 300_000) * 300 - 60;
   const profiles = [
     buildProfileEvent(secret(anna), { name: anna.name, about: "Synthetisches Röbel-Testprofil" }, { createdAt: base }),
@@ -304,7 +305,10 @@ export async function startWorkbench(config: WorkbenchConfig, dependencies: Work
       authorityBinding: "none",
     });
     if (request.method === "GET" && path === "/api/feed") {
-      const events = (await citizenRelay.query([{ kinds: [1], limit: 100 }])).filter(verifyEvent);
+      const [events, agentEvents] = await Promise.all([
+        citizenRelay.query([{ kinds: [1], limit: 100 }]).then((entries) => entries.filter(verifyEvent)),
+        agentRelay.query([{ kinds: [1], authors: [config.meckyPubkey], limit: 100 }]).then((entries) => entries.filter(verifyEvent)),
+      ]);
       const argumentsList = events.map((entry) => asArgument(config, entry)).filter((entry): entry is PublicArgument => entry !== null);
       const roots = argumentsList
         .filter((entry) => entry.stance === "root")
@@ -315,6 +319,11 @@ export async function startWorkbench(config: WorkbenchConfig, dependencies: Work
           createdAt: entry.createdAt,
           replyCount: argumentsList.filter((candidate) => candidate.rootId === entry.id && candidate.id !== entry.id).length,
           meckyMentioned: events.find((candidate) => candidate.id === entry.id)?.tags.some((tag) => tag[0] === "p" && tag[1] === config.meckyPubkey) ?? false,
+          meckyAnswered: agentEvents.some((candidate) =>
+            candidate.pubkey === config.meckyPubkey &&
+            isAgentEvent(candidate) &&
+            candidate.tags.some((tag) => tag[0] === "e" && tag[1] === entry.id && tag[3] === "reply"),
+          ),
           synthetic: true,
         }));
       return json(response, 200, { schemaVersion: "roebel_staging_feed_v1", posts: roots.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), authorityBinding: "none" });

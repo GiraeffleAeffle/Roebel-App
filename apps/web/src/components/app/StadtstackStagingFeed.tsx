@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Bot, ChevronRight, GitFork, MessageCircleMore, ShieldCheck, Users } from "lucide-react";
+import { Bot, CheckCircle2, ChevronRight, GitFork, MessageCircleMore, ShieldCheck } from "lucide-react";
 import {
   stagingGet,
   type StagingFeedPost,
@@ -44,16 +44,13 @@ export function StadtstackStagingFeed() {
 
   return (
     <section aria-labelledby="stadtstack-staging-feed-title" className="space-y-3">
-      <div className="rounded-xl border border-emerald-700/30 bg-emerald-950 px-4 py-3 text-white">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-200">
-              <ShieldCheck className="h-4 w-4" /> Staging · Nostr · keine Produktionsdaten
-            </div>
-            <h2 id="stadtstack-staging-feed-title" className="mt-1 text-lg font-bold">Diskussion → Mecky → Verbesserungsvorschlag</h2>
-          </div>
-          <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs"><Users className="h-3.5 w-3.5" /> Synthetische Testprofile</span>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+        <h2 id="stadtstack-staging-feed-title" className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
+          <GitFork className="h-4 w-4 text-primary" /> Öffentliche Diskussionen
+        </h2>
+        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-900">
+          <ShieldCheck className="h-3.5 w-3.5" /> Staging · signiertes Nostr · Testprofile
+        </span>
       </div>
 
       {posts.map((post) => (
@@ -77,7 +74,11 @@ export function StadtstackStagingFeed() {
               <div className="mt-3 flex flex-wrap items-center gap-3 text-xs font-medium text-muted-foreground">
                 <span className="inline-flex items-center gap-1"><MessageCircleMore className="h-4 w-4" /> {post.replyCount} Argumente</span>
                 <span className="inline-flex items-center gap-1"><GitFork className="h-4 w-4" /> Pro/Contra-Baum</span>
-                {post.meckyMentioned && <span className="inline-flex items-center gap-1 text-amber-700"><Bot className="h-4 w-4" /> @Mecky erwähnt</span>}
+                {post.meckyAnswered ? (
+                  <span className="inline-flex items-center gap-1 text-emerald-700"><CheckCircle2 className="h-4 w-4" /> Mecky hat signiert geantwortet</span>
+                ) : post.meckyMentioned ? (
+                  <span className="inline-flex items-center gap-1 text-amber-700"><Bot className="h-4 w-4" /> @Mecky erwähnt · Antwort ausstehend</span>
+                ) : null}
                 <span className="ml-auto inline-flex items-center gap-1 text-primary">Diskussion öffnen <ChevronRight className="h-4 w-4" /></span>
               </div>
             </div>

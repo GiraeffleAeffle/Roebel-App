@@ -29,6 +29,8 @@ export interface WatcherDeps {
   /** Persist the signed civic discussion before producing a public answer. */
   ingestCivicDiscussion?: (event: NostrEvent) => Promise<void>;
   now?: () => number;
+  /** Maximum age of mentions considered for restart recovery. */
+  lookbackSeconds?: number;
   log?: (message: string) => void;
   makeClient?: (url: string) => Pick<RelayClient, "query" | "publish" | "close">;
   /** Relay that stores the agent profile and replies. Defaults to relayUrl. */
@@ -47,8 +49,8 @@ export interface PassResult {
   refused: Record<string, number>;
 }
 
-/** Look back a little so an event written during the previous pass is not missed. */
-const LOOKBACK_SECONDS = 900;
+/** Backfill one day by default; signed relay replies remain the idempotency source. */
+export const DEFAULT_LOOKBACK_SECONDS = 86_400;
 const DAY_SECONDS = 86_400;
 const MAX_RELAY_REPLY_HISTORY = 500;
 const REPLY_TAG_NAMES = new Set([
@@ -114,6 +116,10 @@ function restorePublishedReply(history: ReplyHistory, event: NostrEvent): void {
 export async function watchOnce(deps: WatcherDeps): Promise<PassResult> {
   const log = deps.log ?? (() => {});
   const now = (deps.now ?? (() => Math.floor(Date.now() / 1000)))();
+  const lookbackSeconds = deps.lookbackSeconds ?? DEFAULT_LOOKBACK_SECONDS;
+  if (!Number.isSafeInteger(lookbackSeconds) || lookbackSeconds < 60 || lookbackSeconds > DAY_SECONDS) {
+    throw new Error("watcher_lookback_seconds_invalid");
+  }
   const citizenClient = deps.makeClient
     ? deps.makeClient(deps.relayUrl)
     : new RelayClient(deps.relayUrl, { timeoutMs: 15_000 });
@@ -133,7 +139,7 @@ export async function watchOnce(deps: WatcherDeps): Promise<PassResult> {
       citizenClient.query([{
         kinds: [1],
         "#p": [deps.agent.publicKey],
-        since: now - LOOKBACK_SECONDS,
+        since: now - lookbackSeconds,
         limit: 100,
       }]),
       replyClient.query([{
