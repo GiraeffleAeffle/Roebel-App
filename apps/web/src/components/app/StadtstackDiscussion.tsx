@@ -122,6 +122,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
   }, [thread]);
   const segments = useMemo(() => graph ? buildSunburstSegments(graph.root) : [], [graph]);
   const rootEvent = graph?.root.argument;
+  const proposalPersona = config?.personas.find((entry) => entry.publicKey === thread?.rootEvent?.pubkey) ?? null;
 
   const publishClaim = async () => {
     if (!persona || !replyTo || !claim.trim()) return;
@@ -137,27 +138,20 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
   };
 
   const startProposal = async () => {
-    if (!persona || !thread?.mecky || !rootEvent) return;
+    if (!proposalPersona || !thread?.mecky || !thread.rootEvent || !rootEvent) return;
     setWorkflowBusy(true);
     try {
-      const discussion = await stagingPost<{ event: Record<string, unknown> }>("/discussion", { personaId: persona.id, question: "Fasse die geprüften Erkenntnisse dieser Pro/Contra-Diskussion als Verbesserungsvorschlag zusammen." });
-      let answer: { event: Record<string, unknown> } | null = null;
-      for (let attempt = 0; attempt < 15 && !answer; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 2_000));
-        answer = await stagingGet<{ event: Record<string, unknown> } | null>(`/reply?parent=${String(discussion.event.id)}`);
-      }
-      if (!answer) throw new Error("Mecky-Antwort noch nicht verfügbar");
       const suggestion = await stagingPost<{ suggestion: Record<string, unknown> }>("/suggestion", {
-        personaId: persona.id,
-        discussion: discussion.event,
-        answer: answer.event,
+        personaId: proposalPersona.id,
+        discussion: thread.rootEvent,
+        answer: thread.mecky.event,
         title: "Sichere Querung an der Marienfelder Straße prüfen",
         summary: "Die in der öffentlichen Pro/Contra-Diskussion genannten Varianten sollen durch die zuständigen Fachbereiche geprüft und als verständlicher Citizen Brief zurückgespielt werden.",
       });
-      const admission = await stagingPost<Record<string, unknown>>("/admit", { discussion: discussion.event, answer: answer.event, suggestion: suggestion.suggestion });
+      const admission = await stagingPost<Record<string, unknown>>("/admit", { discussion: thread.rootEvent, answer: thread.mecky.event, suggestion: suggestion.suggestion });
       const completion = await stagingPost<Record<string, unknown>>("/complete", {});
       const publicView = await stagingPost<Record<string, unknown>>("/view", { profile: "public" });
-      setWorkflow({ discussion: discussion.event, answer: answer.event, suggestion: suggestion.suggestion, admission, completion, publicView });
+      setWorkflow({ discussion: thread.rootEvent, answer: thread.mecky.event, suggestion: suggestion.suggestion, admission, completion, publicView });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Vorschlagsfluss fehlgeschlagen");
     } finally { setWorkflowBusy(false); }
@@ -224,7 +218,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
           <WorkflowStep label="Verwaltungsfeedback und Citizen Brief" done={Boolean(workflow.completion)} detail="Acht getrennte Fachpakete werden geprüft und öffentlich verständlich zusammengeführt." />
           <WorkflowStep label="Beratendes Meinungsbild im Mitmachen-Bereich" done={Boolean(workflow.publicView)} detail="In Staging sichtbar und nachvollziehbar, aber nicht bindend." />
         </ol>
-        <button type="button" onClick={startProposal} disabled={workflowBusy || !thread.mecky || Boolean(workflow.publicView)} className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50">{workflowBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> Ablauf wird ausgeführt…</> : workflow.publicView ? <><CheckCircle2 className="h-4 w-4" /> Staging-Ablauf abgeschlossen</> : <><Landmark className="h-4 w-4" /> Verbesserungsvorschlag starten</>}</button>
+        <button type="button" onClick={startProposal} disabled={workflowBusy || !thread.mecky || !thread.rootEvent || !proposalPersona || Boolean(workflow.publicView)} className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50">{workflowBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> Ablauf wird ausgeführt…</> : workflow.publicView ? <><CheckCircle2 className="h-4 w-4" /> Staging-Ablauf abgeschlossen</> : <><Landmark className="h-4 w-4" /> Verbesserungsvorschlag starten</>}</button>
         <div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="rounded-lg border border-border bg-muted/50 p-3"><div className="flex items-center gap-2 text-sm font-bold"><Vote className="h-4 w-4" /> Keine echte Abstimmung</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Das Staging-Ergebnis ist ein beratendes Meinungsbild ohne formale Rats- oder Governance-Wirkung.</p></div><div className="rounded-lg border border-border bg-muted/50 p-3"><div className="flex items-center gap-2 text-sm font-bold"><CircleDollarSign className="h-4 w-4" /> Stadtkasse getrennt</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Budgetbedarf kann als Verwaltungsprüfung erscheinen; keine Auszahlung und keine Treasury-Transaktion wird ausgelöst.</p></div></div>
       </section>
     </div>

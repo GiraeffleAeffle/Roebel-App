@@ -185,6 +185,11 @@ describe("Röbel E2E workbench boundary", () => {
       agentEvents.push(buildAgentNoteEvent(signedMecky, "Signierte Testantwort.", {
         tags: [["e", mentioned.id, "", "reply"]],
       }) as unknown as Record<string, unknown>);
+      const thread = await fetch(`${origin}/api/thread?root=${mentioned.id}`).then((response) => response.json()) as {
+        rootEvent: { id: string; pubkey: string };
+      };
+      assert.equal(thread.rootEvent.id, mentioned.id);
+      assert.equal(thread.rootEvent.pubkey, config.personas[0]?.publicKey);
       const second = await fetch(`${origin}/api/feed`).then((response) => response.json()) as {
         posts: Array<{ id: string; meckyAnswered: boolean }>;
       };

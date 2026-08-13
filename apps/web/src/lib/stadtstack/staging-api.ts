@@ -22,12 +22,23 @@ export type StagingFeedResponse = {
 export type StagingThreadResponse = {
   schemaVersion: "roebel_staging_argument_thread_v1";
   arguments: StagingArgument[];
+  rootEvent: StagingSignedEvent | null;
   mecky: null | {
-    event: { id: string; content: string };
+    event: StagingSignedEvent;
     author: { name: "Mecky"; kind: "mecky"; pubkey: string };
     evidenceRefs: { digest: string; url: string }[];
   };
   authorityBinding: "none";
+};
+
+export type StagingSignedEvent = {
+  id: string;
+  pubkey: string;
+  created_at: number;
+  kind: number;
+  tags: string[][];
+  content: string;
+  sig: string;
 };
 
 export type StagingPersona = {

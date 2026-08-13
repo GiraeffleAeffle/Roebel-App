@@ -349,10 +349,14 @@ export async function startWorkbench(config: WorkbenchConfig, dependencies: Work
         .filter(verifyEvent)
         .map((entry) => asArgument(config, entry))
         .filter((entry): entry is PublicArgument => entry !== null && entry.rootId === rootId);
+      const rootEvent = citizenEvents
+        .filter(verifyEvent)
+        .find((entry) => entry.id === rootId && asArgument(config, entry)?.stance === "root") ?? null;
       const meckyReply = meckyEvents.filter(verifyEvent).sort((a, b) => b.created_at - a.created_at)[0] ?? null;
       return json(response, 200, {
         schemaVersion: "roebel_staging_argument_thread_v1",
         arguments: argumentsList.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)),
+        rootEvent,
         mecky: meckyReply ? { event: meckyReply, author: authorFor(config, meckyReply), evidenceRefs: meckyReply.tags.filter((tag) => tag[0] === "evidence").map((tag) => ({ digest: tag[1], url: tag[2] })) } : null,
         authorityBinding: "none",
       });

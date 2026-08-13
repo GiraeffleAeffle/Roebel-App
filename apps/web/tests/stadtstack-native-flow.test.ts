@@ -39,3 +39,11 @@ test("labels the civic handoff and keeps vote and treasury authority disabled", 
   assert.match(discussion, /Keine echte Abstimmung/);
   assert.match(discussion, /keine Auszahlung/i);
 });
+
+test("promotes the displayed signed discussion without publishing or polling a duplicate", () => {
+  assert.match(discussion, /discussion: thread\.rootEvent/);
+  assert.match(discussion, /answer: thread\.mecky\.event/);
+  assert.match(discussion, /proposalPersona\.id/);
+  assert.doesNotMatch(discussion, /stagingPost<[^>]+>\("\/discussion"/);
+  assert.doesNotMatch(discussion, /\/reply\?parent=/);
+});
