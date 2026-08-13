@@ -10,8 +10,13 @@ import { getProposals } from "@/lib/supabase";
 import type { Proposal } from "@/lib/proposal-types";
 import { de } from "@/lib/translations/de";
 import { Network, Layers, ArrowUpRight } from "lucide-react";
+import { StadtstackAdvisoryParticipation } from "@/components/app/StadtstackAdvisoryParticipation";
+import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
 
 export default function ProposalsPage() {
+  const stadtstackStagingLab = resolveStadtstackStagingLab(
+    process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB,
+  );
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +59,8 @@ export default function ProposalsPage() {
               <p className="text-muted-foreground mt-1">{de.proposals.subtitle}</p>
             </div>
           </div>
+
+          {stadtstackStagingLab && <StadtstackAdvisoryParticipation />}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
             <Link
@@ -106,7 +113,7 @@ export default function ProposalsPage() {
           </div>
 
           <div className="space-y-6">
-            {error && (
+            {error && !stadtstackStagingLab && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                 <p className="text-sm text-red-800">{de.errors.loadingDataFailed}: {error}</p>
               </div>
@@ -114,7 +121,10 @@ export default function ProposalsPage() {
 
             <div className="bg-card border border-border rounded-xl shadow-sm p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-medium text-foreground">{de.proposals.allProposals}</h2>
+                <div>
+                  <h2 className="text-xl font-medium text-foreground">{de.proposals.allProposals}</h2>
+                  {stadtstackStagingLab && <p className="mt-1 text-xs text-muted-foreground">Formale Governance · technisch und rechtlich vom beratenden Staging-Fall getrennt</p>}
+                </div>
                 <span className="text-sm text-muted-foreground bg-muted px-3 py-1 rounded-full">
                   Gesamt: {proposals.length}
                 </span>
@@ -137,7 +147,7 @@ export default function ProposalsPage() {
                 </div>
               ) : (
                 <div className="text-center py-12">
-                  <p className="text-muted-foreground">{de.proposals.noProposals}</p>
+                  <p className="text-muted-foreground">{stadtstackStagingLab && error ? "Der formale Governance-Dienst ist in diesem Prüfstand nicht verbunden." : de.proposals.noProposals}</p>
                 </div>
               )}
             </div>

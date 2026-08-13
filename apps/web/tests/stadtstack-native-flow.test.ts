@@ -11,6 +11,11 @@ const discussion = readFileSync(
   "utf8",
 );
 const appPage = readFileSync(new URL("../src/app/app/page.tsx", import.meta.url), "utf8");
+const proposalsPage = readFileSync(new URL("../src/app/app/proposals/page.tsx", import.meta.url), "utf8");
+const advisoryParticipation = readFileSync(
+  new URL("../src/components/app/StadtstackAdvisoryParticipation.tsx", import.meta.url),
+  "utf8",
+);
 
 test("keeps the staging workflow native to the Röbel feed and discussion routes", () => {
   assert.match(appPage, /StadtstackStagingFeed/);
@@ -46,4 +51,14 @@ test("promotes the displayed signed discussion without publishing or polling a d
   assert.match(discussion, /proposalPersona\.id/);
   assert.doesNotMatch(discussion, /stagingPost<[^>]+>\("\/discussion"/);
   assert.doesNotMatch(discussion, /\/reply\?parent=/);
+});
+
+test("shows the reviewed Citizen Brief in Mitmachen without merging it into formal governance", () => {
+  assert.match(proposalsPage, /StadtstackAdvisoryParticipation/);
+  assert.match(proposalsPage, /Formale Governance · technisch und rechtlich/);
+  assert.match(advisoryParticipation, /Beratendes Mitmachen · Staging/);
+  assert.match(advisoryParticipation, /stagingPost<unknown>\("\/view", \{ profile: "public" \}\)/);
+  assert.match(advisoryParticipation, /Keine formale Abstimmung/);
+  assert.match(advisoryParticipation, /Keine Treasury-Wirkung/);
+  assert.doesNotMatch(advisoryParticipation, /castVote|createProposal|executeProposal/);
 });
