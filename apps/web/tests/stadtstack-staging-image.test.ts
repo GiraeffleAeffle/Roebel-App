@@ -15,6 +15,10 @@ test("installs only the Röbel web dependency graph from the frozen offline stor
   assert.doesNotMatch(dockerfile, /pnpm fetch/);
   assert.match(
     dockerfile,
-    /pnpm --filter @roebel\/web\.\.\. install --offline --frozen-lockfile --ignore-scripts/,
+    /RUN --mount=type=bind,from=corepack-cache,[\s\S]*?--mount=type=bind,from=pnpm-store,[\s\S]*?pnpm --filter @roebel\/web\.\.\. install --offline --frozen-lockfile --ignore-scripts/,
+  );
+  assert.match(
+    dockerfile,
+    /RUN --mount=type=bind,from=corepack-cache,[^\n]*pnpm --filter @roebel\/web build/,
   );
 });
