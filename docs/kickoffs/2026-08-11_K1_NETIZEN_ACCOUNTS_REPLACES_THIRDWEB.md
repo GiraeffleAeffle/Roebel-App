@@ -1,6 +1,8 @@
 # K1 — Netizen Accounts fully replaces thirdweb
 
-**Date:** 2026-08-11 · **Status:** kickoff, not yet designed · **Owner:** unassigned agent
+**Date:** 2026-08-11 · **Status:** research input; execution is governed by [ADR 0014](../adr/0014-provider-neutral-member-identity-and-staged-wallet-migration.md) · **Owner:** unassigned agent
+
+> **Decision update, 2026-08-13:** Do not begin with a Thirdweb hard cutover. The accepted next design move is a provider-neutral `CitizenSession` seam with Thirdweb as the first adapter, followed by an opt-in passkey/Safe/Pimlico staging adapter and dual-proof account linking. This kickoff's inventory and address-continuity constraints remain valid; its “fully replaces” mission is a possible end state, not permission to migrate users or address-bound rights.
 
 > Read this whole document before touching code. It ends with a decision memo
 > you must produce **before** implementing anything, because the wrong choice
@@ -91,6 +93,8 @@ app's 59 `useActiveAccount` call sites and the contract layer consume, with
 thirdweb behind it as the first implementation. **No behavior change; the app
 must be byte-for-byte equivalent in behavior after this slice.** This makes the
 later cutover a one-file change and is valuable even if Slice 0 picks (c).
+
+ADR 0014 now fixes this as the first implementation slice. The seam represents a stable member and selected app account in addition to signing/transaction capabilities; it must not expose a wallet address as the canonical person identifier.
 
 ### Slice 2 — Netizen Accounts parity (Netizen-Labs repo)
 

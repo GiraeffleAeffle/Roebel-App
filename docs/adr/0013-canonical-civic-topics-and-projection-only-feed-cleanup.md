@@ -18,21 +18,23 @@ The public app, Stadtstack case workflow, administrative workspace, governance v
 
    `urn:stadtstack:topic:municipality:roebel-mueritz:lebenswerte-innenstadt`
 
-2. Every structured discussion references exactly one civic topic. A discussion remains one signed Nostr root and its signed reply graph.
-3. The normal feed renders one topic activity card and recent activity for related roots instead of presenting every root as an unrelated top-level subject.
-4. Raw Nostr events remain the public evidence log. Feed cleanup is projection-only:
+2. Most feed posts remain standalone. A human explicitly promotes a source post by attaching it to an existing civic topic, creating a new topic, or starting a structured discussion. The original signed post is never rewritten into the promoted record.
+3. Every structured discussion references exactly one civic topic. A discussion remains one signed Nostr root and its signed reply graph.
+4. The normal feed mixes ordinary posts with topic activity cards. It renders one topic activity card and recent activity for related promoted roots instead of presenting every root as an unrelated top-level subject.
+5. Raw Nostr events remain the public evidence log. Feed cleanup is projection-only:
    - obsolete synthetic generations are archived from the current staging projection;
    - author-requested Nostr deletion requests retain their protocol semantics;
    - no operator bulk-deletes or rewrites signed events to make the UI cleaner.
-5. Multiple discussions may share a topic only when their canonical questions are distinct. Reposts, retries, and test reruns are deduplicated by event and publication identifiers.
-6. Proposal candidates link to the civic topic and the exact source discussion events. An admitted civic case retains those links; it does not replace them.
-7. Mecky may suggest a structured discussion question, but a human app identity must confirm and sign the new root. Mecky does not create a resident discussion or admit a proposal autonomously.
-8. A staging dataset release selects which synthetic activity is shown by default. Changing that projection never changes production data or the signed event log.
+6. Multiple discussions may share a topic only when their canonical questions are distinct. Reposts, retries, and test reruns are deduplicated by event and publication identifiers.
+7. Proposal candidates link to the civic topic, the promoted source posts, and the exact source discussion events. An admitted civic case retains those links; it does not replace them.
+8. Mecky may suggest a topic, structured discussion question, or next stage, but a human app identity must confirm and sign the promotion. Mecky does not create a resident discussion or admit a proposal autonomously.
+9. A staging dataset release selects which synthetic activity is shown by default. Changing that projection never changes production data or the signed event log.
 
 ## Consequences
 
 - A street, the Bürgerrat process, or a possible community meeting place can remain one recognizable subject while still accumulating distinct questions and workflow stages.
 - The feed becomes quieter without deleting evidence.
+- General social posting remains useful even when a post never enters a civic workflow.
 - Topic identifiers, discussion identifiers, proposal identifiers, and civic-case identifiers remain separate and require explicit idempotency constraints.
 - Existing staging roots need a deterministic backfill to a canonical topic before the grouped projection is enabled.
 - Topic detail UI must expose the underlying signed discussions and provenance rather than hiding them behind a summary.

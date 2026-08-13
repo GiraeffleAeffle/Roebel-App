@@ -1,7 +1,9 @@
 # K3 — Identity inversion: make the sovereign key the root
 
-**Date:** 2026-08-11 · **Status:** kickoff, not yet designed · **Owner:** unassigned agent
-**Sequencing:** depends on [K1](2026-08-11_K1_NETIZEN_ACCOUNTS_REPLACES_THIRDWEB.md) Slice 0. Do not implement before that memo is decided.
+**Date:** 2026-08-11 · **Status:** research input; execution is governed by [ADR 0014](../adr/0014-provider-neutral-member-identity-and-staged-wallet-migration.md) · **Owner:** unassigned agent
+**Sequencing:** introduce the provider-neutral `CitizenSession` seam from [K1](2026-08-11_K1_NETIZEN_ACCOUNTS_REPLACES_THIRDWEB.md) first. Do not rotate existing credentials or derived identities before the migration and recovery receipts required by ADR 0014 exist.
+
+> **Decision update, 2026-08-13:** Passkey/Safe/Pimlico is the second staging adapter, not an immediate replacement identity. Existing Nostr and signature-derived secrets are preserved; one member may prove the old Thirdweb credential and the new Safe credential during coexistence. This kickoff remains the research brief for choosing the eventual sovereign root and recovery model.
 
 ## 1. Mission
 

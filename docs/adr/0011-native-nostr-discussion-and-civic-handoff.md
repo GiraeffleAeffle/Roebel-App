@@ -11,13 +11,14 @@ Röbel already presents a social feed, Nostr record readers, proposals, Mecky, a
 
 The Röbel app owns the public experience:
 
-1. synthetic signed Nostr posts appear as native feed cards;
-2. a discussion route projects standard kind-1 replies into a pro/con tree;
-3. a sunburst is a second projection of the same signed graph;
-4. `@Mecky` answers as a machine-labelled Nostr author using only reviewed, checksum-bound public evidence;
-5. only a human-controlled synthetic identity may sign an improvement proposal candidate;
-6. Stadtstack owns admission, append-only case state, role-separated review, Citizen Brief, and advisory participation;
-7. the result returns to the Röbel app as a native proposal/participation surface.
+1. ordinary signed Nostr posts and promoted civic activity both appear in the native general feed;
+2. only an explicit human action links a source post to a civic topic or creates a structured discussion from it;
+3. a discussion route projects standard kind-1 replies into a pro/con tree;
+4. a sunburst is a second projection of the same signed graph;
+5. `@Mecky` answers as a machine-labelled Nostr author using only reviewed, checksum-bound public evidence;
+6. only a human-controlled synthetic identity may sign an improvement proposal candidate;
+7. Stadtstack owns admission, append-only case state, role-separated review, Citizen Brief, and advisory participation;
+8. the result returns to the same Röbel civic journey as a native proposal/participation surface.
 
 The isolated backend remains behind `/stadtstack-test/api`. Its diagnostic HTML is not the product UI and is not linked from the feed.
 
