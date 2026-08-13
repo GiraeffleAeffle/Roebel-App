@@ -102,7 +102,7 @@ jobs:
             --build-context "pnpm-store=$RUNNER_TEMP/pnpm-store" \
             --build-arg "SOURCE_REVISION=$SOURCE_REVISION" \
             --build-arg "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" \
-            --outputs type=oci,dest=/tmp/roebel-web-staging.oci.tar \
+            --output type=oci,dest=/tmp/roebel-web-staging.oci.tar \
             "$RUNNER_TEMP/context"
           artifact_bytes="$(stat -c %s /tmp/roebel-web-staging.oci.tar)"
           test "$artifact_bytes" -le "$MAX_ARTIFACT_BYTES"

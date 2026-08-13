@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -70,7 +70,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const receipt = verifyStagingWebOci(root, sourceRevision);
   const bytes = `${JSON.stringify(receipt, null, 2)}\n`;
   if (outputPath) {
-    const { writeFileSync } = await import("node:fs");
     writeFileSync(outputPath, bytes);
   }
   process.stdout.write(bytes);
