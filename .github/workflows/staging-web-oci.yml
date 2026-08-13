@@ -1,0 +1,133 @@
+name: Röbel staging web OCI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/staging-web-oci.yml"
+      - "Dockerfile.staging-web"
+      - "Dockerfile.staging-web.dockerignore"
+      - "apps/web/**"
+      - "packages/miniapp-sdk/**"
+      - "packages/nostr/**"
+      - "packages/protocol/**"
+      - "packages/publisher/**"
+      - "packages/record-client/**"
+      - "packages/workspace/**"
+      - "scripts/verify-staging-web-oci.mjs"
+      - ".npmrc"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-web-oci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build one verified private OCI artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+      MAX_CONTEXT_BYTES: "41943040"
+      MAX_STORE_BYTES: "4294967296"
+      MAX_ARTIFACT_BYTES: "167772160"
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REVISION }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+          run_install: false
+
+      - name: Prune the monorepo to the web dependency graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm dlx turbo@2.4.0 prune @roebel/web --docker --out-dir "$RUNNER_TEMP/pruned"
+          mkdir -p "$RUNNER_TEMP/context"
+          cp -a "$RUNNER_TEMP/pruned/full/." "$RUNNER_TEMP/context/"
+          cp "$RUNNER_TEMP/pruned/pnpm-lock.yaml" "$RUNNER_TEMP/context/pnpm-lock.yaml"
+          cp .npmrc "$RUNNER_TEMP/context/.npmrc"
+          context_bytes="$(du -sb "$RUNNER_TEMP/context" | cut -f1)"
+          test "$context_bytes" -le "$MAX_CONTEXT_BYTES"
+          printf 'context_bytes=%s\n' "$context_bytes"
+
+      - name: Prepare the exact offline package inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/corepack-cache" "$RUNNER_TEMP/pnpm-store"
+          COREPACK_HOME="$RUNNER_TEMP/corepack-cache" corepack prepare pnpm@9.15.0 --activate
+          pnpm fetch --store-dir "$RUNNER_TEMP/pnpm-store" --dir "$RUNNER_TEMP/context"
+          store_bytes="$(du -sb "$RUNNER_TEMP/pnpm-store" | cut -f1)"
+          test "$store_bytes" -le "$MAX_STORE_BYTES"
+          printf 'store_bytes=%s\n' "$store_bytes"
+
+      - name: Set up isolated Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver-opts: |
+            image=moby/buildkit:buildx-stable-1
+            network=host
+          buildkitd-flags: --oci-worker-gc --oci-worker-gc-keepstorage 2147483648
+
+      - name: Build one linux/amd64 OCI archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$SOURCE_REVISION")"
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            --sbom=false \
+            --file Dockerfile.staging-web \
+            --build-context "corepack-cache=$RUNNER_TEMP/corepack-cache" \
+            --build-context "pnpm-store=$RUNNER_TEMP/pnpm-store" \
+            --build-arg "SOURCE_REVISION=$SOURCE_REVISION" \
+            --build-arg "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" \
+            --outputs type=oci,dest=/tmp/roebel-web-staging.oci.tar \
+            "$RUNNER_TEMP/context"
+          artifact_bytes="$(stat -c %s /tmp/roebel-web-staging.oci.tar)"
+          test "$artifact_bytes" -le "$MAX_ARTIFACT_BYTES"
+          printf 'artifact_bytes=%s\n' "$artifact_bytes"
+
+      - name: Verify the content-addressed OCI result
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir /tmp/roebel-web-staging-oci
+          tar -xf /tmp/roebel-web-staging.oci.tar -C /tmp/roebel-web-staging-oci
+          node scripts/verify-staging-web-oci.mjs \
+            /tmp/roebel-web-staging-oci \
+            "$SOURCE_REVISION" \
+            /tmp/roebel-web-staging.receipt.json
+          sha256sum /tmp/roebel-web-staging.oci.tar > /tmp/roebel-web-staging.oci.tar.sha256
+
+      - name: Upload the private short-lived build result
+        uses: actions/upload-artifact@v4
+        with:
+          name: roebel-web-staging-${{ env.SOURCE_REVISION }}
+          path: |
+            /tmp/roebel-web-staging.oci.tar
+            /tmp/roebel-web-staging.oci.tar.sha256
+            /tmp/roebel-web-staging.receipt.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
