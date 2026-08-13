@@ -46,7 +46,7 @@ export function StadtstackStagingFeed() {
     <section aria-labelledby="stadtstack-staging-feed-title" className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 px-1">
         <h2 id="stadtstack-staging-feed-title" className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
-          <GitFork className="h-4 w-4 text-primary" /> Öffentliche Diskussionen
+          <GitFork className="h-4 w-4 text-primary" /> Themen &amp; Diskussionen
         </h2>
         <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-900">
           <ShieldCheck className="h-3.5 w-3.5" /> Staging · signiertes Nostr · Testprofile
@@ -64,11 +64,17 @@ export function StadtstackStagingFeed() {
               {post.author.name.slice(0, 2).toUpperCase()}
             </div>
             <div className="min-w-0 flex-1">
+              <h3 className="text-base font-semibold text-foreground">{post.topicTitle ?? "Öffentliche Diskussion"}</h3>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-medium text-muted-foreground">
+                <span>{post.discussionCount ?? 1} {(post.discussionCount ?? 1) === 1 ? "Diskussion" : "Diskussionen"} im Thema</span>
+                <span>·</span>
+                <span>{post.activityCount ?? post.replyCount + 1} signierte Aktivitäten</span>
+              </div>
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span className="font-semibold text-foreground">{post.author.name}</span>
+                <span className="font-semibold text-foreground">Leitfrage von {post.author.name}</span>
                 <span>Synthetisches Profil</span>
                 <span>·</span>
-                <span>{shortTime(post.createdAt)}</span>
+                <span>zuletzt aktiv {shortTime(post.lastActivityAt ?? post.createdAt)}</span>
               </div>
               <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">{post.content}</p>
               <div className="mt-3 flex flex-wrap items-center gap-3 text-xs font-medium text-muted-foreground">
@@ -79,7 +85,7 @@ export function StadtstackStagingFeed() {
                 ) : post.meckyMentioned ? (
                   <span className="inline-flex items-center gap-1 text-amber-700"><Bot className="h-4 w-4" /> @Mecky erwähnt · Antwort ausstehend</span>
                 ) : null}
-                <span className="ml-auto inline-flex items-center gap-1 text-primary">Diskussion öffnen <ChevronRight className="h-4 w-4" /></span>
+                <span className="ml-auto inline-flex items-center gap-1 text-primary">Leitdiskussion öffnen <ChevronRight className="h-4 w-4" /></span>
               </div>
             </div>
           </div>

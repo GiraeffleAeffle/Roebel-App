@@ -4,6 +4,12 @@ export const STADTSTACK_STAGING_API = "/stadtstack-test/api" as const;
 
 export type StagingFeedPost = {
   id: string;
+  topicId?: string;
+  topicTitle?: string;
+  discussionCount?: number;
+  discussionIds?: string[];
+  activityCount?: number;
+  lastActivityAt?: string;
   author: { name: string; kind: "citizen" | "mecky"; pubkey: string };
   content: string;
   createdAt: string;
@@ -14,7 +20,7 @@ export type StagingFeedPost = {
 };
 
 export type StagingFeedResponse = {
-  schemaVersion: "roebel_staging_feed_v1";
+  schemaVersion: "roebel_staging_feed_v1" | "roebel_staging_topic_feed_v1";
   posts: StagingFeedPost[];
   authorityBinding: "none";
 };

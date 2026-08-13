@@ -15,6 +15,8 @@ import WebSocket from "ws";
 
 const HEX64 = /^[0-9a-f]{64}$/;
 const CASE_ID = "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001";
+const MARIENFELDER_TOPIC_ID = "urn:stadtstack:topic:municipality:roebel-mueritz:marienfelder-strasse";
+const MARIENFELDER_TOPIC_TITLE = "Marienfelder Straße";
 const MAX_BODY = 256 * 1024;
 const STAGING_PREFIX = "/stadtstack-test";
 const SERVICE_NAMESPACES = new Set([
@@ -174,6 +176,18 @@ function tagValue(event: NostrEvent, name: string): string | null {
   return event.tags.find((tag) => tag[0] === name && typeof tag[1] === "string")?.[1] ?? null;
 }
 
+function topicFor(event: NostrEvent): { id: string; title: string } | null {
+  const explicit = tagValue(event, "topic");
+  const municipality = tagValue(event, "municipality");
+  const sourceCase = tagValue(event, "case");
+  if (
+    (explicit === MARIENFELDER_TOPIC_ID || explicit === null) &&
+    municipality === "roebel-mueritz" &&
+    sourceCase === "marienfelder-strasse"
+  ) return { id: MARIENFELDER_TOPIC_ID, title: MARIENFELDER_TOPIC_TITLE };
+  return null;
+}
+
 function authorFor(config: WorkbenchConfig, event: NostrEvent): PublicAuthor {
   const citizen = config.personas.find((candidate) => candidate.publicKey === event.pubkey);
   if (citizen) return { name: citizen.name, kind: "citizen", pubkey: citizen.publicKey };
@@ -220,6 +234,7 @@ async function publishSeed(config: WorkbenchConfig, relay: RelayPort): Promise<v
       ["t", "stadtstack-civic-discussion"],
       ["municipality", "roebel-mueritz"],
       ["case", "marienfelder-strasse"],
+      ["topic", MARIENFELDER_TOPIC_ID],
       ["stadtstack-case", CASE_ID],
       ["stance", "root"],
       ["argument-root", "self"],
@@ -236,7 +251,7 @@ async function publishSeed(config: WorkbenchConfig, relay: RelayPort): Promise<v
   });
   const secondRoot = buildNoteEvent(secret(omar), "Mir ist aufgefallen, dass viele Hinweise zur Marienfelder Straße im Feed verstreut bleiben. Soll daraus eine gemeinsame, nachvollziehbare Diskussion werden?", {
     createdAt: base + 40,
-    tags: [["t", "stadtstack-civic-discussion"], ["municipality", "roebel-mueritz"], ["case", "marienfelder-strasse"], ["stadtstack-case", CASE_ID], ["stance", "root"], ["argument-root", "self"]],
+    tags: [["t", "stadtstack-civic-discussion"], ["municipality", "roebel-mueritz"], ["case", "marienfelder-strasse"], ["topic", MARIENFELDER_TOPIC_ID], ["stadtstack-case", CASE_ID], ["stance", "root"], ["argument-root", "self"]],
   });
   for (const seeded of [...profiles, root, pro, con, secondRoot]) {
     const result = await relay.publish(seeded);
@@ -334,21 +349,55 @@ export async function startWorkbench(config: WorkbenchConfig, dependencies: Work
       const argumentsList = events.map((entry) => asArgument(config, entry)).filter((entry): entry is PublicArgument => entry !== null);
       const roots = argumentsList
         .filter((entry) => entry.stance === "root")
-        .map((entry) => ({
-          id: entry.id,
-          author: entry.author,
-          content: entry.content,
-          createdAt: entry.createdAt,
-          replyCount: argumentsList.filter((candidate) => candidate.rootId === entry.id && candidate.id !== entry.id).length,
-          meckyMentioned: events.find((candidate) => candidate.id === entry.id)?.tags.some((tag) => tag[0] === "p" && tag[1] === config.meckyPubkey) ?? false,
-          meckyAnswered: agentEvents.some((candidate) =>
-            candidate.pubkey === config.meckyPubkey &&
-            isAgentEvent(candidate) &&
-            candidate.tags.some((tag) => tag[0] === "e" && tag[1] === entry.id && tag[3] === "reply"),
-          ),
-          synthetic: true,
-        }));
-      return json(response, 200, { schemaVersion: "roebel_staging_feed_v1", posts: roots.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), authorityBinding: "none" });
+        .flatMap((entry) => {
+          const source = events.find((candidate) => candidate.id === entry.id);
+          if (!source) return [];
+          const topic = topicFor(source);
+          if (!topic) return [];
+          return [{
+            id: entry.id,
+            author: entry.author,
+            content: entry.content,
+            createdAt: entry.createdAt,
+            replyCount: argumentsList.filter((candidate) => candidate.rootId === entry.id && candidate.id !== entry.id).length,
+            meckyMentioned: source.tags.some((tag) => tag[0] === "p" && tag[1] === config.meckyPubkey),
+            meckyAnswered: agentEvents.some((candidate) =>
+              candidate.pubkey === config.meckyPubkey &&
+              isAgentEvent(candidate) &&
+              candidate.tags.some((tag) => tag[0] === "e" && tag[1] === entry.id && tag[3] === "reply"),
+            ),
+            topicId: topic.id,
+            topicTitle: topic.title,
+            synthetic: true as const,
+          }];
+        });
+      const grouped = new Map<string, typeof roots>();
+      for (const entry of roots) grouped.set(entry.topicId, [...(grouped.get(entry.topicId) ?? []), entry]);
+      const topics = [...grouped.values()].map((discussions) => {
+        const ordered = [...discussions].sort((a, b) =>
+          Number(b.meckyAnswered) - Number(a.meckyAnswered) ||
+          b.replyCount - a.replyCount ||
+          Number(b.meckyMentioned) - Number(a.meckyMentioned) ||
+          a.createdAt.localeCompare(b.createdAt) ||
+          a.id.localeCompare(b.id));
+        const primary = ordered[0]!;
+        const meckyAnswerCount = agentEvents.filter((candidate) =>
+          candidate.pubkey === config.meckyPubkey &&
+          isAgentEvent(candidate) &&
+          discussions.some((discussion) => candidate.tags.some((tag) => tag[0] === "e" && tag[1] === discussion.id && tag[3] === "reply")),
+        ).length;
+        return {
+          ...primary,
+          lastActivityAt: discussions.map((entry) => entry.createdAt).sort().at(-1)!,
+          replyCount: discussions.reduce((sum, entry) => sum + entry.replyCount, 0),
+          meckyMentioned: discussions.some((entry) => entry.meckyMentioned),
+          meckyAnswered: discussions.some((entry) => entry.meckyAnswered),
+          discussionCount: discussions.length,
+          discussionIds: discussions.map((entry) => entry.id).sort(),
+          activityCount: discussions.length + discussions.reduce((sum, entry) => sum + entry.replyCount, 0) + meckyAnswerCount,
+        };
+      });
+      return json(response, 200, { schemaVersion: "roebel_staging_topic_feed_v1", posts: topics.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), authorityBinding: "none" });
     }
     if (request.method === "GET" && path.startsWith("/api/thread?root=")) {
       const rootId = new URL(path, "http://workbench").searchParams.get("root") ?? "";

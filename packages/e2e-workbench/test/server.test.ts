@@ -105,7 +105,7 @@ describe("Röbel E2E workbench boundary", () => {
     }
   });
 
-  it("seeds two signed Nostr profiles plus a native pro/con discussion and serves it as a feed", async () => {
+  it("groups related signed discussion roots into one civic topic feed card", async () => {
     const config = parseWorkbenchConfig(environment());
     const events: Array<Record<string, unknown>> = [];
     const relay = {
@@ -126,15 +126,18 @@ describe("Röbel E2E workbench boundary", () => {
     try {
       const origin = `http://127.0.0.1:${running.port}/stadtstack-test`;
       const feed = await fetch(`${origin}/api/feed`).then((response) => response.json()) as {
-        posts: Array<{ id: string; author: { name: string }; replyCount: number; meckyAnswered: boolean }>;
+        schemaVersion: string;
+        posts: Array<{ id: string; topicId: string; discussionCount: number; discussionIds: string[]; activityCount: number; author: { name: string }; replyCount: number; meckyAnswered: boolean }>;
       };
-      assert.equal(feed.posts.length >= 2, true);
-      assert.deepEqual(new Set(feed.posts.map((post) => post.author.name)), new Set([
-        "Anna (synthetisch)",
-        "Omar (synthetisch)",
-      ]));
-      const root = feed.posts.find((post) => post.replyCount >= 2);
-      assert.ok(root);
+      assert.equal(feed.schemaVersion, "roebel_staging_topic_feed_v1");
+      assert.equal(feed.posts.length, 1);
+      const root = feed.posts[0]!;
+      assert.equal(root.topicId, "urn:stadtstack:topic:municipality:roebel-mueritz:marienfelder-strasse");
+      assert.equal(root.discussionCount, 2);
+      assert.equal(root.discussionIds.length, 2);
+      assert.equal(root.activityCount, 4);
+      assert.equal(root.author.name, "Anna (synthetisch)");
+      assert.equal(root.replyCount, 2);
       assert.equal(root.meckyAnswered, false);
 
       const thread = await fetch(`${origin}/api/thread?root=${root.id}`).then((response) => response.json()) as {
@@ -186,8 +189,8 @@ describe("Röbel E2E workbench boundary", () => {
       const feed = await fetch(`http://127.0.0.1:${running.port}/api/feed`).then((response) => response.json()) as {
         posts: Array<{ id: string }>;
       };
-      assert.equal(feed.posts.length, 2);
-      assert.equal(new Set(feed.posts.map((entry) => entry.id)).size, 2);
+      assert.equal(feed.posts.length, 1);
+      assert.equal(new Set(feed.posts.map((entry) => entry.id)).size, 1);
     } finally {
       Date.now = actualNow;
       await running?.close();
@@ -256,9 +259,12 @@ describe("Röbel E2E workbench boundary", () => {
         body: JSON.stringify({ personaId: "citizen-anna", question: "Welche geprüften Informationen liegen vor?" }),
       }).then((response) => response.json()) as { event: { id: string } };
       const feed = await fetch(`${origin}/api/feed`).then((response) => response.json()) as {
-        posts: Array<{ id: string; meckyMentioned: boolean }>;
+        posts: Array<{ id: string; meckyMentioned: boolean; discussionCount: number; discussionIds: string[] }>;
       };
-      assert.equal(feed.posts.find((post) => post.id === published.event.id)?.meckyMentioned, true);
+      assert.equal(feed.posts.length, 1);
+      assert.equal(feed.posts[0]?.meckyMentioned, true);
+      assert.equal(feed.posts[0]?.discussionCount, 3);
+      assert.equal(feed.posts[0]?.discussionIds.includes(published.event.id), true);
     } finally {
       await running.close();
     }

@@ -32,7 +32,9 @@ test("renders discussions inside the normal feed controls and distinguishes ment
   assert.ok(appPage.indexOf("<FeedFilters") < appPage.indexOf("<StadtstackStagingFeed"));
   assert.match(appPage, /stadtstackStagingLab && \(activeFilter === "all" \|\| activeFilter === "latest" \|\| activeFilter === "posts"\)/);
   assert.doesNotMatch(feed, /Diskussion → Mecky → Verbesserungsvorschlag/);
-  assert.match(feed, /Öffentliche Diskussionen/);
+  assert.match(feed, /Themen &amp; Diskussionen/);
+  assert.match(feed, /im Thema/);
+  assert.match(feed, /signierte Aktivitäten/);
   assert.match(feed, /Mecky hat signiert geantwortet/);
   assert.match(feed, /Antwort ausstehend/);
 });
