@@ -193,4 +193,32 @@ describe("Röbel E2E workbench boundary", () => {
       await running.close();
     }
   });
+
+  it("projects an interactively published signed civic discussion into the normal feed", async () => {
+    const config = parseWorkbenchConfig(environment());
+    const citizenEvents: Array<Record<string, unknown>> = [];
+    const relay = {
+      query: async () => citizenEvents,
+      publish: async (entry: Record<string, unknown>) => {
+        if (!citizenEvents.some((candidate) => candidate.id === entry.id)) citizenEvents.push(entry);
+        return { ok: true, message: "stored" };
+      },
+      close: () => {},
+    };
+    const running = await startWorkbench(config, { citizenRelay: relay as never, agentRelay: { ...relay, query: async () => [] } as never });
+    try {
+      const origin = `http://127.0.0.1:${running.port}/stadtstack-test`;
+      const published = await fetch(`${origin}/api/discussion`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-stadtstack-e2e": "1" },
+        body: JSON.stringify({ personaId: "citizen-anna", question: "Welche geprüften Informationen liegen vor?" }),
+      }).then((response) => response.json()) as { event: { id: string } };
+      const feed = await fetch(`${origin}/api/feed`).then((response) => response.json()) as {
+        posts: Array<{ id: string; meckyMentioned: boolean }>;
+      };
+      assert.equal(feed.posts.find((post) => post.id === published.event.id)?.meckyMentioned, true);
+    } finally {
+      await running.close();
+    }
+  });
 });

@@ -186,6 +186,16 @@ function asArgument(config: WorkbenchConfig, event: NostrEvent): PublicArgument 
   const rootId = tagValue(event, "argument-root");
   const stance = tagValue(event, "stance");
   const parentId = event.tags.find((tag) => tag[0] === "e" && tag[3] === "reply")?.[1] ?? null;
+  const interactiveCivicRoot = JSON.stringify(event.tags) === JSON.stringify([
+    ["p", config.meckyPubkey],
+    ["t", "stadtstack-civic-discussion"],
+    ["municipality", "roebel-mueritz"],
+    ["case", "marienfelder-strasse"],
+    ["stadtstack-case", CASE_ID],
+  ]) && /@mecky\b/i.test(event.content);
+  if (interactiveCivicRoot && parentId === null) {
+    return { id: event.id, parentId: null, rootId: event.id, stance: "root", author: authorFor(config, event), content: event.content, createdAt: new Date(event.created_at * 1_000).toISOString() };
+  }
   if (rootId === "self" && stance === "root" && parentId === null) {
     return { id: event.id, parentId: null, rootId: event.id, stance: "root", author: authorFor(config, event), content: event.content, createdAt: new Date(event.created_at * 1_000).toISOString() };
   }
