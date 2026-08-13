@@ -14,7 +14,11 @@ const HEX64 = /^[0-9a-f]{64}$/;
 const CASE_ID = "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001";
 const MAX_BODY = 256 * 1024;
 const STAGING_PREFIX = "/stadtstack-test";
-const SERVICE_NAMESPACES = new Set(["stadtstack-roebel-e2e", "stadtstack-roebel-web-preview"]);
+const SERVICE_NAMESPACES = new Set([
+  "stadtstack-roebel-e2e",
+  "stadtstack-roebel-staging-lab",
+  "stadtstack-roebel-web-preview",
+]);
 
 type Persona = { id: string; name: string; secretKeyHex: string; publicKey: string };
 

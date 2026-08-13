@@ -46,6 +46,18 @@ describe("Röbel E2E workbench boundary", () => {
     assert.throws(() => parseWorkbenchConfig({ ...staging, CITIZEN_RELAY_URL: "ws://citizen-relay.default.svc.cluster.local:18081" }));
   });
 
+  it("accepts only the dedicated synthetic staging-lab namespace for the public test lane", () => {
+    const stagingLab = Object.fromEntries(
+      Object.entries(environment()).map(([key, value]) => [
+        key,
+        typeof value === "string" ? value.replaceAll("stadtstack-roebel-e2e", "stadtstack-roebel-staging-lab") : value,
+      ]),
+    );
+    const parsed = parseWorkbenchConfig(stagingLab);
+    assert.equal(parsed.citizenRelayUrl.includes("stadtstack-roebel-staging-lab"), true);
+    assert.equal(parsed.controlBaseUrl.includes("stadtstack-roebel-staging-lab"), true);
+  });
+
   it("serves a local-only accessible workflow UI without exposing private keys", async () => {
     const config = parseWorkbenchConfig(environment());
     const relay = { query: async () => [], publish: async () => ({ ok: true, message: "stored" }), close: () => {} };
