@@ -127,11 +127,12 @@ describe("Röbel E2E workbench boundary", () => {
       const origin = `http://127.0.0.1:${running.port}/stadtstack-test`;
       const feed = await fetch(`${origin}/api/feed`).then((response) => response.json()) as {
         schemaVersion: string;
-        posts: Array<{ id: string; topicId: string; discussionCount: number; discussionIds: string[]; activityCount: number; author: { name: string }; replyCount: number; meckyAnswered: boolean }>;
+        posts: Array<{ id: string; entryType: string; topicId: string; discussionCount: number; discussionIds: string[]; activityCount: number; author: { name: string }; replyCount: number; meckyAnswered: boolean }>;
       };
-      assert.equal(feed.schemaVersion, "roebel_staging_topic_feed_v1");
-      assert.equal(feed.posts.length, 1);
-      const root = feed.posts[0]!;
+      assert.equal(feed.schemaVersion, "roebel_staging_mixed_feed_v1");
+      assert.equal(feed.posts.filter((entry) => entry.entryType === "topic").length, 1);
+      assert.equal(feed.posts.filter((entry) => entry.entryType === "post").length, 2);
+      const root = feed.posts.find((entry) => entry.entryType === "topic")!;
       assert.equal(root.topicId, "urn:stadtstack:topic:municipality:roebel-mueritz:marienfelder-strasse");
       assert.equal(root.discussionCount, 2);
       assert.equal(root.discussionIds.length, 2);
@@ -166,6 +167,141 @@ describe("Röbel E2E workbench boundary", () => {
     }
   });
 
+  it("seeds a mixed timeline with a standalone post and an attributable promoted source post", async () => {
+    const config = parseWorkbenchConfig(environment());
+    const events: Array<Record<string, unknown>> = [];
+    const relay = {
+      query: async () => events,
+      publish: async (entry: Record<string, unknown>) => {
+        if (!events.some((candidate) => candidate.id === entry.id)) events.push(entry);
+        return { ok: true, message: "stored" };
+      },
+      close: () => {},
+    };
+    const running = await startWorkbench(config, { citizenRelay: relay as never, agentRelay: { ...relay, query: async () => [] } as never });
+    try {
+      const feed = await fetch(`http://127.0.0.1:${running.port}/stadtstack-test/api/feed`).then((response) => response.json()) as {
+        posts: Array<{ id: string; entryType: "post" | "topic"; promotedTopicId?: string | null; sourcePostIds?: string[] }>;
+      };
+      const standalone = feed.posts.find((entry) => entry.entryType === "post" && entry.promotedTopicId === null);
+      const promoted = feed.posts.find((entry) => entry.entryType === "post" && typeof entry.promotedTopicId === "string");
+      const topic = feed.posts.find((entry) => entry.entryType === "topic");
+      assert.ok(standalone);
+      assert.ok(promoted);
+      assert.equal(topic?.sourcePostIds?.includes(promoted.id), true);
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("keeps an ordinary signed post in the feed after its author explicitly promotes it", async () => {
+    const config = parseWorkbenchConfig(environment());
+    const events: Array<Record<string, unknown>> = [];
+    const relay = {
+      query: async () => events,
+      publish: async (entry: Record<string, unknown>) => {
+        if (!events.some((candidate) => candidate.id === entry.id)) events.push(entry);
+        return { ok: true, message: "stored" };
+      },
+      close: () => {},
+    };
+    const running = await startWorkbench(config, { citizenRelay: relay as never, agentRelay: { ...relay, query: async () => [] } as never });
+    try {
+      const origin = `http://127.0.0.1:${running.port}/stadtstack-test`;
+      const postResponse = await fetch(`${origin}/api/post`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-stadtstack-e2e": "1" },
+        body: JSON.stringify({ personaId: "citizen-anna", content: "Am Hafen fehlt abends ein wettergeschuetzter Treffpunkt." }),
+      });
+      const post = await postResponse.json() as { event: { id: string; tags: string[][]; pubkey: string } };
+      assert.equal(postResponse.status, 200);
+      assert.deepEqual(post.event.tags, []);
+
+      const before = await fetch(`${origin}/api/feed`).then((response) => response.json()) as {
+        posts: Array<{ id: string; entryType: string; promotedTopicId: string | null }>;
+      };
+      const ordinaryPost = before.posts.find((entry) => entry.id === post.event.id);
+      assert.equal(ordinaryPost?.entryType, "post");
+      assert.equal(ordinaryPost?.promotedTopicId, null);
+
+      const promotionResponse = await fetch(`${origin}/api/promote`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-stadtstack-e2e": "1" },
+        body: JSON.stringify({
+          personaId: "citizen-anna",
+          sourcePostId: post.event.id,
+          topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:marienfelder-strasse",
+          question: "Welche geprueften Informationen helfen bei einer gemeinsamen Abwaegung?",
+        }),
+      });
+      const promotion = await promotionResponse.json() as { event: { id: string; tags: string[][]; pubkey: string } };
+      assert.equal(promotionResponse.status, 200);
+      assert.equal(promotion.event.pubkey, post.event.pubkey);
+      assert.equal(promotion.event.tags.some((tag) => tag[0] === "q" && tag[1] === post.event.id), true);
+
+      const after = await fetch(`${origin}/api/feed`).then((response) => response.json()) as {
+        posts: Array<{ id: string; entryType: string; promotedTopicId?: string | null; sourcePostIds?: string[] }>;
+      };
+      assert.equal(after.posts.find((entry) => entry.id === post.event.id)?.promotedTopicId, "urn:stadtstack:topic:municipality:roebel-mueritz:marienfelder-strasse");
+      assert.equal(after.posts.some((entry) => entry.entryType === "topic" && entry.sourcePostIds?.includes(post.event.id)), true);
+      assert.equal(events.some((entry) => entry.id === post.event.id), true);
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("allows only one civic promotion per source post even when a retry changes the question", async () => {
+    const actualNow = Date.now;
+    const config = parseWorkbenchConfig(environment());
+    const events: Array<Record<string, unknown>> = [];
+    const relay = {
+      query: async () => events,
+      publish: async (entry: Record<string, unknown>) => {
+        if (!events.some((candidate) => candidate.id === entry.id)) events.push(entry);
+        return { ok: true, message: "stored" };
+      },
+      close: () => {},
+    };
+    let running: Awaited<ReturnType<typeof startWorkbench>> | null = null;
+    try {
+      Date.now = () => Date.UTC(2026, 7, 13, 8, 0, 0);
+      running = await startWorkbench(config, { citizenRelay: relay as never, agentRelay: { ...relay, query: async () => [] } as never });
+      const origin = `http://127.0.0.1:${running.port}/stadtstack-test`;
+      const post = await fetch(`${origin}/api/post`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-stadtstack-e2e": "1" },
+        body: JSON.stringify({ personaId: "citizen-anna", content: "Ein normaler Beitrag." }),
+      }).then((response) => response.json()) as { event: { id: string } };
+      const body = {
+        personaId: "citizen-anna",
+        sourcePostId: post.event.id,
+        topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:marienfelder-strasse",
+        question: "Welche Informationen sollten wir gemeinsam abwaegen?",
+      };
+
+      Date.now = () => Date.UTC(2026, 7, 13, 8, 1, 0);
+      const first = await fetch(`${origin}/api/promote`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-stadtstack-e2e": "1" },
+        body: JSON.stringify(body),
+      }).then((response) => response.json()) as { event: { id: string } };
+      Date.now = () => Date.UTC(2026, 7, 13, 8, 2, 0);
+      const second = await fetch(`${origin}/api/promote`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-stadtstack-e2e": "1" },
+        body: JSON.stringify({ ...body, question: "Eine nachtraeglich anders formulierte Leitfrage." }),
+      }).then((response) => response.json()) as { event: { id: string } };
+
+      assert.equal(second.event.id, first.event.id);
+      assert.equal(events.filter((entry) =>
+        Array.isArray(entry.tags) &&
+        (entry.tags as string[][]).some((tag) => tag[0] === "source-post" && tag[1] === post.event.id)).length, 1);
+    } finally {
+      Date.now = actualNow;
+      await running?.close();
+    }
+  });
+
   it("keeps the deterministic seed identical across same-day workbench restarts", async () => {
     const config = parseWorkbenchConfig(environment());
     const events: Array<Record<string, unknown>> = [];
@@ -189,8 +325,8 @@ describe("Röbel E2E workbench boundary", () => {
       const feed = await fetch(`http://127.0.0.1:${running.port}/api/feed`).then((response) => response.json()) as {
         posts: Array<{ id: string }>;
       };
-      assert.equal(feed.posts.length, 1);
-      assert.equal(new Set(feed.posts.map((entry) => entry.id)).size, 1);
+      assert.equal(feed.posts.length, 3);
+      assert.equal(new Set(feed.posts.map((entry) => entry.id)).size, 3);
     } finally {
       Date.now = actualNow;
       await running?.close();
@@ -259,12 +395,12 @@ describe("Röbel E2E workbench boundary", () => {
         body: JSON.stringify({ personaId: "citizen-anna", question: "Welche geprüften Informationen liegen vor?" }),
       }).then((response) => response.json()) as { event: { id: string } };
       const feed = await fetch(`${origin}/api/feed`).then((response) => response.json()) as {
-        posts: Array<{ id: string; meckyMentioned: boolean; discussionCount: number; discussionIds: string[] }>;
+        posts: Array<{ id: string; entryType: string; meckyMentioned: boolean; discussionCount: number; discussionIds: string[] }>;
       };
-      assert.equal(feed.posts.length, 1);
-      assert.equal(feed.posts[0]?.meckyMentioned, true);
-      assert.equal(feed.posts[0]?.discussionCount, 3);
-      assert.equal(feed.posts[0]?.discussionIds.includes(published.event.id), true);
+      const topic = feed.posts.find((entry) => entry.entryType === "topic");
+      assert.equal(topic?.meckyMentioned, true);
+      assert.equal(topic?.discussionCount, 3);
+      assert.equal(topic?.discussionIds.includes(published.event.id), true);
     } finally {
       await running.close();
     }

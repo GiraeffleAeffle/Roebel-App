@@ -682,10 +682,6 @@ export default function AppHomePage() {
         onCategoryChange={setActiveCategory}
       />
 
-      {stadtstackStagingLab && (activeFilter === "all" || activeFilter === "latest" || activeFilter === "posts") && (
-        <StadtstackStagingFeed />
-      )}
-
       {isCitizen && featuredProposal && (
         <FeedProposalHero proposal={featuredProposal} basePath="/app/proposals" />
       )}
@@ -728,7 +724,7 @@ export default function AppHomePage() {
             </p>
           </div>
         )
-      ) : feedWithRows.length === 0 ? (
+      ) : feedWithRows.length === 0 && !stadtstackStagingLab ? (
         <div className="bg-card rounded-lg border border-border p-8 text-center">
           <p className="text-muted-foreground text-sm">
             {activeFilter === "posts"
@@ -741,6 +737,17 @@ export default function AppHomePage() {
           {alerts.map((alert) => (
             <AlertCard key={`alert-${alert.id}`} {...alert} />
           ))}
+          {stadtstackStagingLab &&
+            (activeFilter === "all" || activeFilter === "latest" || activeFilter === "posts") && (
+              <StadtstackStagingFeed />
+            )}
+          {feedWithRows.length === 0 && (
+            <div className="rounded-lg border border-border bg-card p-8 text-center">
+              <p className="text-sm text-muted-foreground">
+                Der normale Feed enthält noch keine weiteren Beiträge.
+              </p>
+            </div>
+          )}
           {feedWithRows.map((item, index) => {
             if (item.rowType === "marketplace" && listings.length > 0) {
               return (

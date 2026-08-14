@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import {
   buildCitizenSignedSuggestion,
   buildCivicDiscussionEvent,
+  buildCivicPromotionEvent,
   buildNoteEvent,
   buildProfileEvent,
   getPublicKeyHex,
@@ -227,6 +228,7 @@ async function publishSeed(config: WorkbenchConfig, relay: RelayPort): Promise<v
     buildProfileEvent(secret(anna), { name: anna.name, about: "Synthetisches Röbel-Testprofil" }, { createdAt: base }),
     buildProfileEvent(secret(omar), { name: omar.name, about: "Synthetisches Röbel-Testprofil" }, { createdAt: base + 1 }),
   ];
+  const standalonePost = buildNoteEvent(secret(omar), "Am Hafen war heute viel los. Danke an alle, die beim Aufraeumen geholfen haben.", { createdAt: base + 5 });
   const root = buildNoteEvent(secret(anna), "Soll die Querung der Marienfelder Straße sicherer und nachvollziehbarer geplant werden? @Mecky, welche geprüften Informationen liegen dazu vor?", {
     createdAt: base + 10,
     tags: [
@@ -249,11 +251,18 @@ async function publishSeed(config: WorkbenchConfig, relay: RelayPort): Promise<v
     createdAt: base + 30,
     tags: [["e", graphRootId, "", "root"], ["e", graphRootId, "", "reply"], ["argument-root", graphRootId], ["stance", "con"], ["t", "stadtstack-argument"]],
   });
-  const secondRoot = buildNoteEvent(secret(omar), "Mir ist aufgefallen, dass viele Hinweise zur Marienfelder Straße im Feed verstreut bleiben. Soll daraus eine gemeinsame, nachvollziehbare Diskussion werden?", {
+  const sourcePost = buildNoteEvent(secret(omar), "Mir ist aufgefallen, dass viele Hinweise zur Marienfelder Straße im Feed verstreut bleiben.", { createdAt: base + 35 });
+  const secondRoot = buildCivicPromotionEvent(secret(omar), {
+    sourcePost,
+    municipalityId: "roebel-mueritz",
+    sourceCaseId: "marienfelder-strasse",
+    canonicalCaseId: CASE_ID,
+    topicId: MARIENFELDER_TOPIC_ID,
+    agentPubkey: config.meckyPubkey,
+    content: "@Mecky, welche geprueften Informationen helfen, die verstreuten Hinweise gemeinsam abzuwägen?",
     createdAt: base + 40,
-    tags: [["t", "stadtstack-civic-discussion"], ["municipality", "roebel-mueritz"], ["case", "marienfelder-strasse"], ["topic", MARIENFELDER_TOPIC_ID], ["stadtstack-case", CASE_ID], ["stance", "root"], ["argument-root", "self"]],
   });
-  for (const seeded of [...profiles, root, pro, con, secondRoot]) {
+  for (const seeded of [...profiles, standalonePost, root, pro, con, sourcePost, secondRoot]) {
     const result = await relay.publish(seeded);
     if (!result.ok) throw new Error(`citizen_relay_${result.message}`);
   }
@@ -347,6 +356,32 @@ export async function startWorkbench(config: WorkbenchConfig, dependencies: Work
         agentRelay.query([{ kinds: [1], authors: [config.meckyPubkey], limit: 100 }]).then((entries) => entries.filter(verifyEvent)),
       ]);
       const argumentsList = events.map((entry) => asArgument(config, entry)).filter((entry): entry is PublicArgument => entry !== null);
+      const promotionBySourcePost = new Map<string, { discussionId: string; topicId: string }>();
+      for (const entry of events) {
+        const sourcePostId = tagValue(entry, "source-post");
+        const topic = topicFor(entry);
+        if (sourcePostId && topic) promotionBySourcePost.set(sourcePostId, { discussionId: entry.id, topicId: topic.id });
+      }
+      const ordinaryPosts = events
+        .filter((entry) =>
+          entry.kind === 1 &&
+          verifyEvent(entry) &&
+          config.personas.some((candidate) => candidate.publicKey === entry.pubkey) &&
+          !entry.tags.some((tag) => tag[0] === "e") &&
+          asArgument(config, entry) === null)
+        .map((entry) => ({
+          id: entry.id,
+          entryType: "post" as const,
+          author: authorFor(config, entry),
+          content: entry.content,
+          createdAt: new Date(entry.created_at * 1_000).toISOString(),
+          replyCount: 0,
+          meckyMentioned: false,
+          meckyAnswered: false,
+          promotedDiscussionId: promotionBySourcePost.get(entry.id)?.discussionId ?? null,
+          promotedTopicId: promotionBySourcePost.get(entry.id)?.topicId ?? null,
+          synthetic: true as const,
+        }));
       const roots = argumentsList
         .filter((entry) => entry.stance === "root")
         .flatMap((entry) => {
@@ -388,16 +423,29 @@ export async function startWorkbench(config: WorkbenchConfig, dependencies: Work
         ).length;
         return {
           ...primary,
+          entryType: "topic" as const,
           lastActivityAt: discussions.map((entry) => entry.createdAt).sort().at(-1)!,
           replyCount: discussions.reduce((sum, entry) => sum + entry.replyCount, 0),
           meckyMentioned: discussions.some((entry) => entry.meckyMentioned),
           meckyAnswered: discussions.some((entry) => entry.meckyAnswered),
           discussionCount: discussions.length,
           discussionIds: discussions.map((entry) => entry.id).sort(),
+          sourcePostIds: discussions
+            .flatMap((discussion) => {
+              const source = events.find((candidate) => candidate.id === discussion.id);
+              return source ? source.tags.filter((tag) => tag[0] === "source-post").map((tag) => tag[1]!) : [];
+            })
+            .filter((id, index, all) => all.indexOf(id) === index)
+            .sort(),
           activityCount: discussions.length + discussions.reduce((sum, entry) => sum + entry.replyCount, 0) + meckyAnswerCount,
         };
       });
-      return json(response, 200, { schemaVersion: "roebel_staging_topic_feed_v1", posts: topics.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), authorityBinding: "none" });
+      return json(response, 200, {
+        schemaVersion: "roebel_staging_mixed_feed_v1",
+        posts: [...ordinaryPosts, ...topics].sort((a, b) =>
+          ("lastActivityAt" in b ? b.lastActivityAt : b.createdAt).localeCompare("lastActivityAt" in a ? a.lastActivityAt : a.createdAt)),
+        authorityBinding: "none",
+      });
     }
     if (request.method === "GET" && path.startsWith("/api/thread?root=")) {
       const rootId = new URL(path, "http://workbench").searchParams.get("root") ?? "";
@@ -431,6 +479,67 @@ export async function startWorkbench(config: WorkbenchConfig, dependencies: Work
     }
     if (request.method !== "POST" || request.headers["x-stadtstack-e2e"] !== "1") return json(response, 404, { error: "not_found" });
     const body = await readBody(request);
+    if (path === "/api/post") {
+      if (!exactRecord(body, ["personaId", "content"]) || typeof body.content !== "string" || !body.content.trim() || body.content.length > 1_000) throw new Error("post_invalid");
+      const actor = persona(config, body.personaId);
+      const signed = buildNoteEvent(secret(actor), body.content.trim());
+      const published = await citizenRelay.publish(signed);
+      if (!published.ok) throw new Error(`citizen_relay_${published.message}`);
+      return json(response, 200, {
+        status: "published",
+        persona: { id: actor.id, name: actor.name, publicKey: actor.publicKey },
+        event: signed,
+        authorityBinding: "none",
+      });
+    }
+    if (path === "/api/promote") {
+      if (
+        !exactRecord(body, ["personaId", "sourcePostId", "topicId", "question"]) ||
+        typeof body.sourcePostId !== "string" ||
+        !HEX64.test(body.sourcePostId) ||
+        body.topicId !== MARIENFELDER_TOPIC_ID ||
+        typeof body.question !== "string" ||
+        !body.question.trim() ||
+        body.question.length > 1_000
+      ) throw new Error("promotion_invalid");
+      const actor = persona(config, body.personaId);
+      const candidates = (await citizenRelay.query([{ kinds: [1], authors: [actor.publicKey], limit: 100 }])).filter(verifyEvent);
+      const sourcePost = candidates.find((entry) => entry.id === body.sourcePostId);
+      if (!sourcePost) throw new Error("promotion_source_missing");
+      const existing = candidates.find((entry) =>
+        entry.pubkey === actor.publicKey &&
+        tagValue(entry, "source-post") === sourcePost.id &&
+        tagValue(entry, "topic") === MARIENFELDER_TOPIC_ID &&
+        asArgument(config, entry)?.stance === "root");
+      if (existing) {
+        return json(response, 200, {
+          status: "already_promoted",
+          sourcePostId: sourcePost.id,
+          topicId: MARIENFELDER_TOPIC_ID,
+          event: existing,
+          authorityBinding: "none",
+        });
+      }
+      const signed = buildCivicPromotionEvent(secret(actor), {
+        sourcePost,
+        municipalityId: "roebel-mueritz",
+        sourceCaseId: "marienfelder-strasse",
+        canonicalCaseId: CASE_ID,
+        topicId: MARIENFELDER_TOPIC_ID,
+        agentPubkey: config.meckyPubkey,
+        content: `@Mecky, ${body.question.trim()}`,
+        createdAt: Math.max(Math.floor(Date.now() / 1_000), sourcePost.created_at + 1),
+      });
+      const published = await citizenRelay.publish(signed);
+      if (!published.ok) throw new Error(`citizen_relay_${published.message}`);
+      return json(response, 200, {
+        status: "promoted",
+        sourcePostId: sourcePost.id,
+        topicId: MARIENFELDER_TOPIC_ID,
+        event: signed,
+        authorityBinding: "none",
+      });
+    }
     if (path === "/api/discussion") {
       if (!exactRecord(body, ["personaId", "question"]) || typeof body.question !== "string" || !body.question.trim() || body.question.length > 1_000) throw new Error("discussion_invalid");
       const actor = persona(config, body.personaId);

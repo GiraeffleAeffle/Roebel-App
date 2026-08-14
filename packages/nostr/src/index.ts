@@ -29,7 +29,12 @@ export {
   signEvent,
   verifyEvent,
 } from "./events";
-export type { NostrEvent, NostrTag, ProfileMetadata, UnsignedEvent } from "./events";
+export type {
+  NostrEvent,
+  NostrTag,
+  ProfileMetadata,
+  UnsignedEvent,
+} from "./events";
 
 export {
   BINDING_ACCOUNT_TAG,
@@ -73,11 +78,13 @@ export type { Filter, PublishResult, RelayOptions } from "./relay";
 export {
   buildCitizenSignedSuggestion,
   buildCivicDiscussionEvent,
+  buildCivicPromotionEvent,
 } from "./civic";
 export type {
   CitizenSignedSuggestionInput,
   CitizenSignedSuggestionV1,
   CivicCaseBinding,
   CivicDiscussionInput,
+  CivicPromotionInput,
   PublicMeckySuggestionDraftV1,
 } from "./civic";

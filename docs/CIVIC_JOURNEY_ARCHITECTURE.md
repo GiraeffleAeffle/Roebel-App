@@ -96,8 +96,8 @@ No public application repository receives cluster-admin credentials or secret va
 | Slice | User-visible exit test | State |
 | --- | --- | --- |
 | 0. Vocabulary and boundaries | One reviewed definition of post, topic, discussion, proposal, case, vote, and treasury state | documented in this branch |
-| 1. General signed feed | A real staging account publishes an ordinary signed Nostr post in the normal feed | next |
-| 2. Explicit civic promotion | The user attaches that post to a topic or creates a discussion; the source remains attributable | next |
+| 1. General signed feed | A real staging account publishes an ordinary signed Nostr post in the normal feed | synthetic signed-post mechanics implemented; real `CitizenSession` pending |
+| 2. Explicit civic promotion | The user attaches that post to a topic or creates a discussion; the source remains attributable | immutable source + idempotent synthetic promotion implemented; real-account E2E pending |
 | 3. Real Mecky loop | The user tags Mecky and receives one evidence-bound signed reply in the same thread | after 1–2 |
 | 4. Proposal and admission | A human signs a proposal candidate; a separate human action admits one idempotent civic case | after 3 |
 | 5. Administration round trip | One exact openDesk package returns reviewed feedback to the same journey | after 4 |
@@ -106,3 +106,5 @@ No public application repository receives cluster-admin credentials or secret va
 | 8. Formal authority | A separately accepted governance/treasury contract enables real effects | explicitly deferred |
 
 Each slice must be idempotent, restartable, responsive on desktop/mobile, source-attributable, and deployable by immutable digest through the namespace-scoped GitOps path. A later slice cannot redefine identifiers or silently duplicate records created by an earlier slice.
+
+The synthetic staging tracer is deliberately not counted as completing Slice 1 or 2. It proves the feed and Nostr contracts without claiming that a Thirdweb or passkey-backed person has signed the events. Completion requires the same actions through the provider-neutral `CitizenSession` boundary with a real staging account.

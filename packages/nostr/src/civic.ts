@@ -16,6 +16,11 @@ export type CivicDiscussionInput = CivicCaseBinding & {
   createdAt?: number;
 };
 
+export type CivicPromotionInput = CivicDiscussionInput & {
+  sourcePost: NostrEvent;
+  topicId: string;
+};
+
 export type PublicMeckySuggestionDraftV1 = {
   schemaVersion: "public_mecky_suggestion_draft_v1";
   draftId: string;
@@ -65,7 +70,8 @@ export type CitizenSignedSuggestionInput = {
 
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const PUBKEY = /^[0-9a-f]{64}$/;
-const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const UUID_V7 =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 function validateBinding(input: CivicCaseBinding): void {
   const parts = input.canonicalCaseId.split(":");
@@ -106,10 +112,11 @@ function singleTag(event: NostrEvent, name: string): string | null {
 
 export function buildCivicDiscussionEvent(
   secretKey: Uint8Array,
-  input: CivicDiscussionInput,
+  input: CivicDiscussionInput
 ): NostrEvent {
   validateBinding(input);
-  if (!PUBKEY.test(input.agentPubkey)) throw new Error("civic_agent_pubkey_invalid");
+  if (!PUBKEY.test(input.agentPubkey))
+    throw new Error("civic_agent_pubkey_invalid");
   if (
     typeof input.content !== "string" ||
     input.content !== input.content.trim() ||
@@ -137,9 +144,72 @@ export function buildCivicDiscussionEvent(
   });
 }
 
+/**
+ * Promote an immutable, ordinary top-level note into a new civic discussion.
+ *
+ * Nostr events cannot be edited after signing. Promotion therefore creates a
+ * second signed event and carries both the standard NIP-18 quote and an
+ * explicit source-post tag. The original post remains a normal feed entry.
+ */
+export function buildCivicPromotionEvent(
+  secretKey: Uint8Array,
+  input: CivicPromotionInput
+): NostrEvent {
+  validateBinding(input);
+  const expectedTopicId = `urn:stadtstack:topic:municipality:${input.municipalityId}:${input.sourceCaseId}`;
+  const sourceIsOrdinaryTopLevelPost =
+    verifyEvent(input.sourcePost) &&
+    input.sourcePost.kind === 1 &&
+    input.sourcePost.pubkey === getPublicKeyHex(secretKey) &&
+    !input.sourcePost.tags.some((tag) => tag[0] === "e") &&
+    !input.sourcePost.tags.some(
+      (tag) => tag[0] === "t" && tag[1] === "stadtstack-civic-discussion"
+    );
+  if (!sourceIsOrdinaryTopLevelPost) {
+    throw new Error("civic_promotion_source_invalid");
+  }
+  if (input.topicId !== expectedTopicId) {
+    throw new Error("civic_promotion_topic_invalid");
+  }
+  if (!PUBKEY.test(input.agentPubkey)) {
+    throw new Error("civic_agent_pubkey_invalid");
+  }
+  if (
+    typeof input.content !== "string" ||
+    input.content !== input.content.trim() ||
+    input.content.length === 0 ||
+    input.content.length > 2_000 ||
+    !/@mecky\b/i.test(input.content)
+  ) {
+    throw new Error("civic_discussion_content_invalid");
+  }
+  if (
+    input.createdAt !== undefined &&
+    (!Number.isSafeInteger(input.createdAt) ||
+      input.createdAt <= input.sourcePost.created_at)
+  ) {
+    throw new Error("civic_promotion_timestamp_invalid");
+  }
+  return buildNoteEvent(secretKey, input.content, {
+    ...(input.createdAt === undefined ? {} : { createdAt: input.createdAt }),
+    tags: [
+      ["p", input.agentPubkey],
+      ["q", input.sourcePost.id, "", input.sourcePost.pubkey],
+      ["source-post", input.sourcePost.id],
+      ["t", "stadtstack-civic-discussion"],
+      ["municipality", input.municipalityId],
+      ["case", input.sourceCaseId],
+      ["topic", input.topicId],
+      ["stadtstack-case", input.canonicalCaseId],
+      ["stance", "root"],
+      ["argument-root", "self"],
+    ],
+  });
+}
+
 export function buildCitizenSignedSuggestion(
   secretKey: Uint8Array,
-  input: CitizenSignedSuggestionInput,
+  input: CitizenSignedSuggestionInput
 ): CitizenSignedSuggestionV1 {
   validateBinding(input.binding);
   if (
@@ -160,17 +230,14 @@ export function buildCitizenSignedSuggestion(
     (tag) =>
       tag[0] === "e" &&
       tag[1] === input.sourceDiscussion.id &&
-      tag[3] === "reply",
+      tag[3] === "reply"
   );
   const evidence = input.sourceAnswer.tags.filter(
-    (tag) => tag[0] === "evidence",
+    (tag) => tag[0] === "evidence"
   );
   let evidenceValid = evidence.length >= 1 && evidence.length <= 3;
   for (const tag of evidence) {
-    if (
-      tag.length !== 3 ||
-      !/^sha256:[0-9a-f]{64}$/.test(tag[1] ?? "")
-    ) {
+    if (tag.length !== 3 || !/^sha256:[0-9a-f]{64}$/.test(tag[1] ?? "")) {
       evidenceValid = false;
       continue;
     }

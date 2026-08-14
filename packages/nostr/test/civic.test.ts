@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   buildCitizenSignedSuggestion,
   buildCivicDiscussionEvent,
+  buildCivicPromotionEvent,
   buildNoteEvent,
   getPublicKeyHex,
   verifyEvent,
@@ -13,6 +14,52 @@ const SECRET = new Uint8Array(32).fill(41);
 const MECKY_SECRET = new Uint8Array(32).fill(42);
 const MECKY = getPublicKeyHex(MECKY_SECRET);
 const RECEIPT = `urn:stadtstack:mecky-answer:${"a".repeat(64)}`;
+
+test("an ordinary signed post remains immutable when its author promotes it into a civic topic", () => {
+  const sourcePost = buildNoteEvent(
+    SECRET,
+    "Auf der Marienfelder Straße fehlt eine gut einsehbare Querung.",
+    { createdAt: 1_786_463_900 }
+  );
+  const sourceSnapshot = structuredClone(sourcePost);
+
+  const promotion = buildCivicPromotionEvent(SECRET, {
+    sourcePost,
+    municipalityId: "roebel-mueritz",
+    sourceCaseId: "marienfelder-strasse",
+    canonicalCaseId:
+      "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
+    topicId:
+      "urn:stadtstack:topic:municipality:roebel-mueritz:marienfelder-strasse",
+    agentPubkey: MECKY,
+    content:
+      "@Mecky Welche geprueften Informationen helfen bei einer gemeinsamen Abwaegung?",
+    createdAt: 1_786_464_000,
+  });
+
+  assert.deepEqual(sourcePost, sourceSnapshot);
+  assert.equal(verifyEvent(promotion), true);
+  assert.notEqual(promotion.id, sourcePost.id);
+  assert.equal(promotion.pubkey, sourcePost.pubkey);
+  assert.deepEqual(promotion.tags, [
+    ["p", MECKY],
+    ["q", sourcePost.id, "", sourcePost.pubkey],
+    ["source-post", sourcePost.id],
+    ["t", "stadtstack-civic-discussion"],
+    ["municipality", "roebel-mueritz"],
+    ["case", "marienfelder-strasse"],
+    [
+      "topic",
+      "urn:stadtstack:topic:municipality:roebel-mueritz:marienfelder-strasse",
+    ],
+    [
+      "stadtstack-case",
+      "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
+    ],
+    ["stance", "root"],
+    ["argument-root", "self"],
+  ]);
+});
 
 test("a citizen publishes one signed, scope-bound civic discussion that explicitly mentions Mecky", () => {
   const event = buildCivicDiscussionEvent(SECRET, {
@@ -72,7 +119,11 @@ test("the same citizen signs an edited suggestion that remains awaiting steward 
           "stadtstack-case",
           "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
         ],
-        ["evidence", `sha256:${"b".repeat(64)}`, "https://stadtstack.example/public/case"],
+        [
+          "evidence",
+          `sha256:${"b".repeat(64)}`,
+          "https://stadtstack.example/public/case",
+        ],
       ],
     }),
     title: "Sichere Querung der Marienfelder Straße prüfen",
@@ -81,11 +132,14 @@ test("the same citizen signs an edited suggestion that remains awaiting steward 
     createdAt: 1_786_464_060,
   });
 
-  assert.equal(verifyEvent({
-    ...signed.event,
-    created_at: signed.event.createdAt,
-    sig: signed.event.signature,
-  }), true);
+  assert.equal(
+    verifyEvent({
+      ...signed.event,
+      created_at: signed.event.createdAt,
+      sig: signed.event.signature,
+    }),
+    true
+  );
   assert.equal(signed.signerPubkey, discussion.pubkey);
   assert.equal(signed.draft.citizenPubkey, discussion.pubkey);
   assert.equal(signed.draft.sourceDiscussionId, discussion.id);
@@ -124,7 +178,11 @@ test("a forged or cross-Case Mecky reply cannot become a citizen suggestion", ()
         "stadtstack-case",
         "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
       ],
-      ["evidence", `sha256:${"b".repeat(64)}`, "https://stadtstack.example/public/case"],
+      [
+        "evidence",
+        `sha256:${"b".repeat(64)}`,
+        "https://stadtstack.example/public/case",
+      ],
     ],
   });
   assert.throws(
@@ -143,6 +201,6 @@ test("a forged or cross-Case Mecky reply cannot become a citizen suggestion", ()
         summary: "Die Stadt soll eine sichere Querung prüfen.",
         createdAt: 1_786_464_060,
       }),
-    /civic_source_answer_invalid/,
+    /civic_source_answer_invalid/
   );
 });
