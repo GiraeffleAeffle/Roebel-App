@@ -10,8 +10,10 @@ WORKDIR /workspace
 RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro corepack enable && corepack prepare pnpm@9.15.0 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/nostr/package.json ./packages/nostr/package.json
+COPY packages/relay-sync/package.json ./packages/relay-sync/package.json
 COPY packages/e2e-workbench/package.json ./packages/e2e-workbench/package.json
 COPY packages/nostr ./packages/nostr
+COPY packages/relay-sync ./packages/relay-sync
 COPY packages/e2e-workbench ./packages/e2e-workbench
 RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
     --mount=type=bind,from=pnpm-store,source=.,target=/pnpm/store,ro \
@@ -22,7 +24,7 @@ ARG SOURCE_REVISION
 LABEL org.opencontainers.image.source="https://github.com/GiraeffleAeffle/Roebel-App" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
       stadtstack.io/component="roebel-e2e-workbench" \
-      stadtstack.io/environment="synthetic-e2e" \
+      stadtstack.io/environment="isolated-staging-e2e" \
       stadtstack.io/civic-authority="none"
 ENV NODE_ENV=production HOME=/tmp
 WORKDIR /app

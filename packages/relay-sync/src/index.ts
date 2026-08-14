@@ -9,13 +9,20 @@
  *
  * See docs/superpowers/specs/2026-07-27-nostr-citizen-identity-bridge-design.md.
  */
-export { createGnosisVerifier } from "./chain.js";
-export type { GnosisVerifierOptions } from "./chain.js";
+export { createGnosisVerifier, createGnosisWalletVerifier } from "./chain.js";
+export type {
+  GnosisVerifierOptions,
+  GnosisWalletVerifierOptions,
+} from "./chain.js";
 
 export { createSupabaseRegistry } from "./registry.js";
 export type { RegistryOptions } from "./registry.js";
 
-export { parseAllowList, renderAllowList, writeAllowList } from "./allowlist.js";
+export {
+  parseAllowList,
+  renderAllowList,
+  writeAllowList,
+} from "./allowlist.js";
 
 export { syncAllowList } from "./sync.js";
 export type { SyncDeps } from "./sync.js";

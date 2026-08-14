@@ -6,17 +6,17 @@ Proposed integration specification. It consolidates the current public Röbel UI
 
 ## What works today
 
-| Capability | Current state |
-| --- | --- |
-| Sign up in the Röbel web app | The app can create an app/wallet account. Posting remains subject to the current citizen or organisation gate. |
-| Public staging discussion | Works with labelled synthetic Nostr identities on the isolated staging relay. |
-| Pro/con tree and sunburst | Work as projections of the synthetic signed reply graph. |
-| `@Mecky` reply | Works for the prepared staging discussion and reviewed evidence fixture. |
-| Proposal/case demonstration | Works as a synthetic, non-authoritative handoff. |
-| Normal user post reaches Nostr/Mecky | **Not implemented on Web.** The normal composer writes the app post but does not yet produce the signed Nostr publication watched by Mecky. |
-| Mecky creates a discussion on request | **Intentionally not automatic.** Mecky may propose a question; a human must confirm and sign the discussion root. |
-| Administrative openDesk handoff | Contract boundary exists; the admitted, idempotent live handoff is not yet enabled. |
-| Binding vote or treasury execution | Not enabled and outside the staging authority. |
+| Capability                            | Current state                                                                                                                                                                             |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sign up in the Röbel web app          | The app can create an app/wallet account. Posting remains subject to the current citizen or organisation gate.                                                                            |
+| Public staging discussion             | Works with labelled synthetic Nostr identities on the isolated staging relay.                                                                                                             |
+| Pro/con tree and sunburst             | Work as projections of the synthetic signed reply graph.                                                                                                                                  |
+| `@Mecky` reply                        | Works for the prepared staging discussion and reviewed evidence fixture.                                                                                                                  |
+| Proposal/case demonstration           | Works as a synthetic, non-authoritative handoff.                                                                                                                                          |
+| Normal user post reaches Nostr/Mecky  | Implemented on the feature branch through `CitizenSession`, mutual proof admission, and browser-signed events; immutable deployment and real-account browser verification remain pending. |
+| Mecky creates a discussion on request | **Intentionally not automatic.** Mecky may propose a question; a human must confirm and sign the discussion root.                                                                         |
+| Administrative openDesk handoff       | Contract boundary exists; the admitted, idempotent live handoff is not yet enabled.                                                                                                       |
+| Binding vote or treasury execution    | Not enabled and outside the staging authority.                                                                                                                                            |
 
 ## Canonical aggregate boundaries
 
@@ -62,19 +62,19 @@ Existing records are reused rather than duplicated:
 
 The following logical records are added or made explicit:
 
-| Record | Stable identifier | Required uniqueness |
-| --- | --- | --- |
-| Member identity | private UUID | one member, independent of wallet or login provider |
-| Account credential | private UUID plus credential descriptor | unique active `(kind, chain_id, address)`; one member may hold several |
-| App-account membership | account and member UUIDs | `(account_id, member_id)` with one role |
-| Civic topic | canonical municipality URN | `(municipality_id, canonical_slug)` |
-| Topic source | topic ID plus signed event/source ID | one active link per `(topic_id, source_type, source_id)` with promoter receipt |
-| Discussion | signed root event ID | `root_event_id`; exactly one topic |
-| Argument | signed event ID | `event_id`; exact root and parent references |
-| Mecky answer | signed reply event ID | one accepted answer per `(mention_event_id, agent_pubkey, policy_version)` |
-| Proposal candidate | citizen-signed proposal event ID plus content checksum | one publication per signed candidate |
-| Civic case | canonical case URN | one admitted case per accepted proposal candidate |
-| Administrative outbox item | deterministic operation key | `(case_id, case_version, target, operation)` |
+| Record                     | Stable identifier                                      | Required uniqueness                                                            |
+| -------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| Member identity            | private UUID                                           | one member, independent of wallet or login provider                            |
+| Account credential         | private UUID plus credential descriptor                | unique active `(kind, chain_id, address)`; one member may hold several         |
+| App-account membership     | account and member UUIDs                               | `(account_id, member_id)` with one role                                        |
+| Civic topic                | canonical municipality URN                             | `(municipality_id, canonical_slug)`                                            |
+| Topic source               | topic ID plus signed event/source ID                   | one active link per `(topic_id, source_type, source_id)` with promoter receipt |
+| Discussion                 | signed root event ID                                   | `root_event_id`; exactly one topic                                             |
+| Argument                   | signed event ID                                        | `event_id`; exact root and parent references                                   |
+| Mecky answer               | signed reply event ID                                  | one accepted answer per `(mention_event_id, agent_pubkey, policy_version)`     |
+| Proposal candidate         | citizen-signed proposal event ID plus content checksum | one publication per signed candidate                                           |
+| Civic case                 | canonical case URN                                     | one admitted case per accepted proposal candidate                              |
+| Administrative outbox item | deterministic operation key                            | `(case_id, case_version, target, operation)`                                   |
 
 Argument trees and topic activity are projections over the signed event index. They are not mutable copies of the event content.
 

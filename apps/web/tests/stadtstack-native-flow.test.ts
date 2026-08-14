@@ -30,7 +30,10 @@ test("keeps the staging workflow native to the Röbel feed and discussion routes
   assert.match(appPage, /StadtstackStagingFeed/);
   assert.doesNotMatch(appPage, /StadtstackStagingLabCard/);
   assert.match(feed, /\/app\/diskussion\//);
-  assert.match(feed, /signiertes Nostr ·\s*synthetische Testprofile/);
+  assert.match(feed, /useCitizenSession/);
+  assert.match(feed, /signiertes Nostr/);
+  assert.match(feed, /synthetische Testprofile/);
+  assert.match(feed, /dein verbundenes Konto/);
   assert.doesNotMatch(feed, /href=\{.*stadtstack-test/);
   assert.match(discussion, /Argumentbaum/);
   assert.match(discussion, /Sunburst/);
@@ -58,6 +61,9 @@ test("keeps ordinary posts distinct and requires an explicit human promotion act
   assert.match(feed, /Normaler Beitrag/);
   assert.match(feed, /Signierten Testbeitrag veröffentlichen/);
   assert.match(feed, /stagingPost<[^>]+>\("\/post"/);
+  assert.match(feed, /createAdmissionProof/);
+  assert.match(feed, /signPublicPost/);
+  assert.match(feed, /stagingPost<[^>]+>\("\/signed-event"/);
   assert.match(feed, /Als Thema weiterführen/);
   assert.match(feed, /stagingPost<[^>]+>\("\/promote"/);
   assert.match(feed, /Der ursprüngliche Beitrag bleibt unverändert/);

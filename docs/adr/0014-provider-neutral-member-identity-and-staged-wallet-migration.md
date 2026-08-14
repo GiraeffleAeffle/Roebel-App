@@ -44,3 +44,20 @@ The Stadtstack prototype already demonstrates another credible stack: a WebAuthn
 - The Safe adapter can reuse proven Stadtstack code, but must not directly import the entire Stadtstack frontend or expose Pimlico credentials in the browser.
 - Recovery and credential rotation become explicit product flows instead of accidental side effects of a wallet SDK.
 - This ADR does not migrate a user, reissue a CitizenNFT, move funds, or authorize a production wallet transition.
+
+## First staging implementation
+
+The first implementation keeps the Thirdweb SDK inside one adapter and exposes
+only the provider-neutral `CitizenSession` to civic-flow callers. A connected
+account signs the versioned Nostr derivation message locally, signs a second
+canonical wallet↔Nostr binding statement, and submits only the public proof.
+The workbench verifies ERC-1271/EOA credential control on Gnosis plus the signed
+Nostr binding before the staging relay admits the public key. Posts and civic
+promotions are signed in the browser and arrive at the server as complete Nostr
+events; the server never signs on behalf of that person.
+
+This is staging credential assurance, not CitizenNFT eligibility and not a
+stable member migration. The relay admission token, Gnosis RPC configuration,
+and durable admission file are private deployment inputs. A passkey/Safe adapter
+can reuse the same proof and event interface without changing feed or civic
+journey callers.

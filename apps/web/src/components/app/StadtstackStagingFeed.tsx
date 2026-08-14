@@ -21,9 +21,12 @@ import {
   type StagingOrdinaryPost,
   type StagingTopicPost,
 } from "@/lib/stadtstack/staging-api";
+import { useCitizenSession } from "@/lib/citizen-session/CitizenSessionContext";
 
 const MARIENFELDER_TOPIC_ID =
   "urn:stadtstack:topic:municipality:roebel-mueritz:marienfelder-strasse";
+const MARIENFELDER_CASE_ID =
+  "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001";
 
 function shortTime(value: string): string {
   return new Date(value).toLocaleString("de-DE", {
@@ -72,7 +75,11 @@ function TopicCard({ post }: { post: StagingTopicPost }) {
             <span className="font-semibold text-foreground">
               Leitfrage von {post.author.name}
             </span>
-            <span>Synthetisches Profil</span>
+            <span>
+              {post.synthetic
+                ? "Synthetisches Profil"
+                : "Verknüpftes Staging-Konto"}
+            </span>
             <span>·</span>
             <span>zuletzt aktiv {shortTime(post.lastActivityAt)}</span>
           </div>
@@ -136,6 +143,11 @@ function OrdinaryPostCard({
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span className="font-semibold text-foreground">
               {post.author.name}
+            </span>
+            <span>
+              {post.synthetic
+                ? "Synthetisches Profil"
+                : "Verknüpftes Staging-Konto"}
             </span>
             <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 font-semibold">
               <FileText className="h-3 w-3" /> Normaler Beitrag
@@ -224,6 +236,7 @@ function OrdinaryPostCard({
 }
 
 export function StadtstackStagingFeed() {
+  const citizenSession = useCitizenSession();
   const [config, setConfig] = useState<StagingConfigResponse | null>(null);
   const [posts, setPosts] = useState<StagingFeedPost[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "unavailable">(
@@ -231,6 +244,7 @@ export function StadtstackStagingFeed() {
   );
   const [draftContent, setDraftContent] = useState("");
   const [draftPersonaId, setDraftPersonaId] = useState("");
+  const [admittedPubkey, setAdmittedPubkey] = useState<string | null>(null);
   const [promotionPostId, setPromotionPostId] = useState<string | null>(null);
   const [promotionQuestion, setPromotionQuestion] = useState("");
   const [busy, setBusy] = useState(false);
@@ -257,16 +271,53 @@ export function StadtstackStagingFeed() {
     };
   }, [reload]);
 
+  useEffect(() => {
+    setAdmittedPubkey(null);
+  }, [citizenSession?.snapshot.credential.address]);
+
+  const ensureCitizenAdmission = useCallback(async (): Promise<string> => {
+    if (!citizenSession)
+      throw new Error("Bitte zuerst mit deinem Röbel-Konto anmelden.");
+    if (admittedPubkey) return admittedPubkey;
+    const proof = await citizenSession.createAdmissionProof();
+    const admitted = await stagingPost<{
+      status: "admitted";
+      pubkey: string;
+    }>("/session/admit", proof);
+    setAdmittedPubkey(admitted.pubkey);
+    return admitted.pubkey;
+  }, [admittedPubkey, citizenSession]);
+
   const publishPost = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!draftPersonaId || !draftContent.trim() || busy) return;
+    if (
+      (!citizenSession && !draftPersonaId) ||
+      !draftContent.trim() ||
+      busy ||
+      !config
+    )
+      return;
     setBusy(true);
     setActionError(null);
     try {
-      await stagingPost<{ status: string }>("/post", {
-        personaId: draftPersonaId,
-        content: draftContent.trim(),
-      });
+      if (citizenSession) {
+        await ensureCitizenAdmission();
+        const signed = await citizenSession.signPublicPost({
+          content: draftContent.trim(),
+          mentionPubkeys: /@mecky\b/i.test(draftContent)
+            ? [config.meckyPubkey]
+            : [],
+        });
+        await stagingPost<{ status: string }>("/signed-event", {
+          intent: "post",
+          event: signed,
+        });
+      } else {
+        await stagingPost<{ status: string }>("/post", {
+          personaId: draftPersonaId,
+          content: draftContent.trim(),
+        });
+      }
       setDraftContent("");
       await reload();
     } catch (error) {
@@ -286,22 +337,50 @@ export function StadtstackStagingFeed() {
   ) => {
     event.preventDefault();
     if (!promotionQuestion.trim() || busy || !config) return;
-    const actor = config.personas.find(
-      (persona) => persona.publicKey === post.author.pubkey
-    );
-    if (!actor) {
-      setActionError("Das Testprofil des Quellbeitrags ist nicht verfügbar.");
-      return;
-    }
     setBusy(true);
     setActionError(null);
     try {
-      await stagingPost<{ status: string }>("/promote", {
-        personaId: actor.id,
-        sourcePostId: post.id,
-        topicId: MARIENFELDER_TOPIC_ID,
-        question: promotionQuestion.trim(),
-      });
+      if (post.synthetic) {
+        const actor = config.personas.find(
+          (persona) => persona.publicKey === post.author.pubkey
+        );
+        if (!actor)
+          throw new Error(
+            "Das Testprofil des Quellbeitrags ist nicht verfügbar."
+          );
+        await stagingPost<{ status: string }>("/promote", {
+          personaId: actor.id,
+          sourcePostId: post.id,
+          topicId: MARIENFELDER_TOPIC_ID,
+          question: promotionQuestion.trim(),
+        });
+      } else {
+        if (!citizenSession)
+          throw new Error("Bitte zuerst mit deinem Röbel-Konto anmelden.");
+        const pubkey = await ensureCitizenAdmission();
+        if (pubkey !== post.author.pubkey) {
+          throw new Error(
+            "Nur die Autorin oder der Autor kann diesen Beitrag weiterführen."
+          );
+        }
+        const signed = await citizenSession.promotePublicPost({
+          sourcePost: post.event,
+          municipalityId: "roebel-mueritz",
+          sourceCaseId: "marienfelder-strasse",
+          canonicalCaseId: MARIENFELDER_CASE_ID,
+          topicId: MARIENFELDER_TOPIC_ID,
+          agentPubkey: config.meckyPubkey,
+          content: `@Mecky, ${promotionQuestion.trim()}`,
+          createdAt: Math.max(
+            Math.floor(Date.now() / 1_000),
+            post.event.created_at + 1
+          ),
+        });
+        await stagingPost<{ status: string }>("/signed-event", {
+          intent: "promotion",
+          event: signed,
+        });
+      }
       setPromotionPostId(null);
       setPromotionQuestion("");
       await reload();
@@ -347,7 +426,9 @@ export function StadtstackStagingFeed() {
         </h2>
         <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-900">
           <ShieldCheck className="h-3.5 w-3.5" /> signiertes Nostr ·
-          synthetische Testprofile
+          {citizenSession
+            ? " dein verbundenes Konto"
+            : " synthetische Testprofile"}
         </span>
       </div>
 
@@ -356,18 +437,25 @@ export function StadtstackStagingFeed() {
         className="rounded-xl border border-dashed border-primary/35 bg-card p-4 shadow-sm"
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-          <select
-            aria-label="Synthetisches Testprofil"
-            value={draftPersonaId}
-            onChange={(event) => setDraftPersonaId(event.target.value)}
-            className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground sm:w-48"
-          >
-            {config?.personas.map((persona) => (
-              <option key={persona.id} value={persona.id}>
-                {persona.name}
-              </option>
-            ))}
-          </select>
+          {citizenSession ? (
+            <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-950 sm:w-56">
+              Dein Konto ·{" "}
+              {citizenSession.snapshot.credential.address.slice(0, 8)}…
+            </div>
+          ) : (
+            <select
+              aria-label="Synthetisches Testprofil"
+              value={draftPersonaId}
+              onChange={(event) => setDraftPersonaId(event.target.value)}
+              className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground sm:w-48"
+            >
+              {config?.personas.map((persona) => (
+                <option key={persona.id} value={persona.id}>
+                  {persona.name}
+                </option>
+              ))}
+            </select>
+          )}
           <textarea
             aria-label="Normalen Testbeitrag schreiben"
             value={draftContent}
@@ -379,11 +467,17 @@ export function StadtstackStagingFeed() {
           />
           <button
             type="submit"
-            disabled={busy || !draftPersonaId || !draftContent.trim()}
+            disabled={
+              busy ||
+              (!citizenSession && !draftPersonaId) ||
+              !draftContent.trim()
+            }
             className="inline-flex items-center justify-center gap-1 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50"
           >
             {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{" "}
-            Signierten Testbeitrag veröffentlichen
+            {citizenSession
+              ? "Mit meinem Konto signieren"
+              : "Signierten Testbeitrag veröffentlichen"}
           </button>
         </div>
       </form>

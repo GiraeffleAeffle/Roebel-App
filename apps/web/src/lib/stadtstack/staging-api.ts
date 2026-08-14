@@ -10,11 +10,12 @@ type StagingFeedBase = {
   replyCount: number;
   meckyMentioned: boolean;
   meckyAnswered: boolean;
-  synthetic: true;
+  synthetic: boolean;
 };
 
 export type StagingOrdinaryPost = StagingFeedBase & {
   entryType: "post";
+  event: StagingSignedEvent;
   promotedDiscussionId: string | null;
   promotedTopicId: string | null;
 };
