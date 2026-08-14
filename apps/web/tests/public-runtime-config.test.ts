@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   mkdirSync,
   mkdtempSync,
+  lstatSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -11,7 +12,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { applyPublicRuntimeConfig } from "../scripts/inject-public-runtime-config.mjs";
+import {
+  applyPublicRuntimeConfig,
+  preparePublicRuntimeApplication,
+} from "../scripts/inject-public-runtime-config.mjs";
 
 const environment = {
   ROEBEL_PUBLIC_SUPABASE_URL: "https://public.example.invalid",
@@ -112,6 +116,73 @@ test("fails closed for placeholder values, missing tokens and symlink traversal"
       }),
       /public_runtime_config_symlink_forbidden/
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("materializes a bounded writable shadow while preserving the read-only source", async () => {
+  const root = mkdtempSync(join(tmpdir(), "roebel-public-runtime-shadow-"));
+  try {
+    const standalone = join(root, "standalone");
+    const app = join(standalone, "apps", "web");
+    const next = join(app, ".next");
+    const runtimeRoot = join(root, "roebel-web-runtime-shadow");
+    mkdirSync(join(standalone, "node_modules"), { recursive: true });
+    mkdirSync(join(standalone, "packages"), { recursive: true });
+    mkdirSync(join(app, "node_modules"), { recursive: true });
+    mkdirSync(join(app, "public"), { recursive: true });
+    mkdirSync(join(next, "static", "chunks"), { recursive: true });
+    writeFileSync(join(standalone, "package.json"), "{}");
+    writeFileSync(join(app, "package.json"), "{}");
+    writeFileSync(join(app, "server.js"), 'module.exports = "server";\n');
+    writeFileSync(join(next, "static", "chunks", "client.js"), fixture);
+    writeFileSync(join(next, "unchanged.json"), '{"unchanged":true}\n');
+
+    const receipt = await preparePublicRuntimeApplication({
+      environment,
+      runtimeRoot,
+      sourceAppRoot: app,
+    });
+
+    assert.equal(receipt.patchedFiles, 1);
+    assert.equal(receipt.copiedFiles, 2);
+    assert.equal(receipt.linkedFiles, 1);
+    assert.equal(receipt.valuesEmitted, false);
+    assert.deepEqual(Object.values(receipt.replacements), [1, 1, 1, 1]);
+    assert.equal(
+      readFileSync(join(next, "static", "chunks", "client.js"), "utf8"),
+      fixture
+    );
+    assert.equal(
+      lstatSync(
+        join(runtimeRoot, "apps", "web", ".next", "unchanged.json")
+      ).isSymbolicLink(),
+      true
+    );
+    assert.equal(lstatSync(receipt.serverPath).isFile(), true);
+    assert.equal(
+      lstatSync(
+        join(runtimeRoot, "apps", "web", "node_modules")
+      ).isSymbolicLink(),
+      true
+    );
+    const patched = readFileSync(
+      join(
+        runtimeRoot,
+        "apps",
+        "web",
+        ".next",
+        "static",
+        "chunks",
+        "client.js"
+      ),
+      "utf8"
+    );
+    for (const token of fixture.split("|"))
+      assert.doesNotMatch(patched, new RegExp(token, "u"));
+    for (const value of Object.values(environment))
+      assert.match(patched, new RegExp(value, "u"));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

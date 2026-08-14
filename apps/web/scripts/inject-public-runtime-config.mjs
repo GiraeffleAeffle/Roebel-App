@@ -1,7 +1,17 @@
 #!/usr/bin/env node
 
-import { lstat, readFile, readdir, rename, writeFile } from "node:fs/promises";
-import { extname, join } from "node:path";
+import {
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SAFE_PUBLIC_VALUE = /^[A-Za-z0-9:/?&=._~%+-]+$/u;
@@ -97,6 +107,83 @@ async function collectPatchableFiles(path, files) {
   }
 }
 
+function replaceBindings(before, bindings, replacements) {
+  let after = before;
+  for (const binding of bindings) {
+    const count = after.split(binding.token).length - 1;
+    if (count > 0) {
+      replacements[binding.environment] += count;
+      after = after.replaceAll(binding.token, binding.value);
+    }
+  }
+  return after;
+}
+
+function assertRuntimeRoot(runtimeRoot) {
+  const allowedParent = resolve(tmpdir());
+  const resolvedRuntimeRoot = resolve(runtimeRoot);
+  const child = relative(allowedParent, resolvedRuntimeRoot);
+  if (
+    child === "" ||
+    child === ".." ||
+    child.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) ||
+    isAbsolute(child) ||
+    !child.split(/[\\/]/u).at(-1)?.startsWith("roebel-web-runtime-")
+  ) {
+    throw new Error("public_runtime_config_runtime_root_invalid");
+  }
+  return resolvedRuntimeRoot;
+}
+
+async function collectRuntimeTree({
+  bindings,
+  destination,
+  directories,
+  files,
+  replacements,
+  source,
+}) {
+  const metadata = await lstat(source);
+  if (metadata.isSymbolicLink())
+    throw new Error("public_runtime_config_symlink_forbidden");
+  if (metadata.isDirectory()) {
+    directories.push(destination);
+    for (const entry of (await readdir(source)).sort()) {
+      await collectRuntimeTree({
+        bindings,
+        destination: join(destination, entry),
+        directories,
+        files,
+        replacements,
+        source: join(source, entry),
+      });
+    }
+    return;
+  }
+  if (!metadata.isFile())
+    throw new Error("public_runtime_config_file_type_invalid");
+
+  let after = null;
+  if (PATCHABLE_EXTENSIONS.has(extname(source))) {
+    const before = await readFile(source, "utf8");
+    const replaced = replaceBindings(before, bindings, replacements);
+    if (replaced !== before) after = replaced;
+  }
+  files.push({
+    after,
+    destination,
+    mode: metadata.mode & 0o777,
+    source,
+  });
+}
+
+async function linkDirectory(source, destination) {
+  const metadata = await lstat(source);
+  if (!metadata.isDirectory() || metadata.isSymbolicLink())
+    throw new Error("public_runtime_config_dependency_root_invalid");
+  await symlink(source, destination, "dir");
+}
+
 export async function applyPublicRuntimeConfig({ environment, roots }) {
   if (
     !Array.isArray(roots) ||
@@ -115,14 +202,7 @@ export async function applyPublicRuntimeConfig({ environment, roots }) {
   const patches = [];
   for (const file of files) {
     const before = await readFile(file.path, "utf8");
-    let after = before;
-    for (const binding of bindings) {
-      const count = after.split(binding.token).length - 1;
-      if (count > 0) {
-        replacements[binding.environment] += count;
-        after = after.replaceAll(binding.token, binding.value);
-      }
-    }
+    const after = replaceBindings(before, bindings, replacements);
     if (after !== before) patches.push({ ...file, after });
   }
 
@@ -147,14 +227,126 @@ export async function applyPublicRuntimeConfig({ environment, roots }) {
   };
 }
 
+export async function preparePublicRuntimeApplication({
+  environment,
+  runtimeRoot,
+  sourceAppRoot,
+}) {
+  if (
+    typeof sourceAppRoot !== "string" ||
+    sourceAppRoot.length === 0 ||
+    typeof runtimeRoot !== "string" ||
+    runtimeRoot.length === 0
+  ) {
+    throw new Error("public_runtime_config_application_roots_invalid");
+  }
+
+  const bindings = resolveBindings(environment);
+  const resolvedSourceAppRoot = resolve(sourceAppRoot);
+  const resolvedRuntimeRoot = assertRuntimeRoot(runtimeRoot);
+  const sourceStandaloneRoot = resolve(resolvedSourceAppRoot, "..", "..");
+  const runtimeAppRoot = join(resolvedRuntimeRoot, "apps", "web");
+  const replacements = Object.fromEntries(
+    bindings.map((binding) => [binding.environment, 0])
+  );
+  const directories = [];
+  const files = [];
+
+  await collectRuntimeTree({
+    bindings,
+    destination: join(runtimeAppRoot, ".next"),
+    directories,
+    files,
+    replacements,
+    source: join(resolvedSourceAppRoot, ".next"),
+  });
+
+  const serverSource = join(resolvedSourceAppRoot, "server.js");
+  const serverMetadata = await lstat(serverSource);
+  if (!serverMetadata.isFile() || serverMetadata.isSymbolicLink())
+    throw new Error("public_runtime_config_server_invalid");
+  const serverBefore = await readFile(serverSource, "utf8");
+  const serverAfter = replaceBindings(serverBefore, bindings, replacements);
+  files.push({
+    after: serverAfter,
+    destination: join(runtimeAppRoot, "server.js"),
+    mode: serverMetadata.mode & 0o777,
+    patched: serverAfter !== serverBefore,
+    source: serverSource,
+  });
+
+  const missing = Object.entries(replacements)
+    .filter(([, count]) => count === 0)
+    .map(([name]) => name);
+  if (missing.length > 0) {
+    throw new Error(`public_runtime_config_token_missing:${missing.join(",")}`);
+  }
+
+  await rm(resolvedRuntimeRoot, { recursive: true, force: true });
+  await mkdir(runtimeAppRoot, { recursive: true });
+  await linkDirectory(
+    join(sourceStandaloneRoot, "node_modules"),
+    join(resolvedRuntimeRoot, "node_modules")
+  );
+  await linkDirectory(
+    join(sourceStandaloneRoot, "packages"),
+    join(resolvedRuntimeRoot, "packages")
+  );
+  await symlink(
+    join(sourceStandaloneRoot, "package.json"),
+    join(resolvedRuntimeRoot, "package.json")
+  );
+  await linkDirectory(
+    join(resolvedSourceAppRoot, "node_modules"),
+    join(runtimeAppRoot, "node_modules")
+  );
+  await linkDirectory(
+    join(resolvedSourceAppRoot, "public"),
+    join(runtimeAppRoot, "public")
+  );
+  await symlink(
+    join(resolvedSourceAppRoot, "package.json"),
+    join(runtimeAppRoot, "package.json")
+  );
+
+  for (const directory of directories) {
+    await mkdir(directory, { recursive: true });
+  }
+  let linkedFiles = 0;
+  let copiedFiles = 0;
+  let patchedFiles = 0;
+  for (const file of files) {
+    if (file.after === null) {
+      await symlink(file.source, file.destination);
+      linkedFiles += 1;
+    } else {
+      await writeFile(file.destination, file.after, { mode: file.mode });
+      copiedFiles += 1;
+      if (file.patched !== false) patchedFiles += 1;
+    }
+  }
+
+  return {
+    schemaVersion: "roebel_public_runtime_config_receipt_v1",
+    patchedFiles,
+    copiedFiles,
+    linkedFiles,
+    replacements,
+    valuesEmitted: false,
+    serverPath: join(runtimeAppRoot, "server.js"),
+  };
+}
+
 async function main() {
   const appRoot = fileURLToPath(new URL("./", import.meta.url));
-  const receipt = await applyPublicRuntimeConfig({
+  const receipt = await preparePublicRuntimeApplication({
     environment: process.env,
-    roots: [join(appRoot, ".next"), join(appRoot, "server.js")],
+    runtimeRoot: join(tmpdir(), "roebel-web-runtime-app"),
+    sourceAppRoot: appRoot,
   });
-  process.stdout.write(`${JSON.stringify(receipt)}\n`);
-  await import(new URL("./server.js", import.meta.url));
+  const { serverPath, ...publicReceipt } = receipt;
+  process.stdout.write(`${JSON.stringify(publicReceipt)}\n`);
+  await import(pathToFileURL(serverPath).href);
 }
 
 if (
