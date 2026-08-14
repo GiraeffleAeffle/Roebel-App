@@ -26,8 +26,6 @@ export interface WatcherDeps {
     question: string,
     event: NostrEvent,
   ) => Promise<string | WatcherReply | null>;
-  /** Persist the signed civic discussion before producing a public answer. */
-  ingestCivicDiscussion?: (event: NostrEvent) => Promise<void>;
   now?: () => number;
   /** Maximum age of mentions considered for restart recovery. */
   lookbackSeconds?: number;
@@ -183,19 +181,6 @@ export async function watchOnce(deps: WatcherDeps): Promise<PassResult> {
       if (!decision.answer) {
         refused[decision.reason ?? "unknown"] = (refused[decision.reason ?? "unknown"] ?? 0) + 1;
         continue;
-      }
-
-      const civicDiscussion = event.tags.some(
-        (tag) => tag[0] === "t" && tag[1] === "stadtstack-civic-discussion",
-      );
-      if (civicDiscussion && deps.ingestCivicDiscussion) {
-        try {
-          await deps.ingestCivicDiscussion(event);
-        } catch (error) {
-          log(`Stadtstack intake failed for ${event.id.slice(0, 12)}: ${(error as Error).message}`);
-          refused["stadtstack-intake-failed"] = (refused["stadtstack-intake-failed"] ?? 0) + 1;
-          continue;
-        }
       }
 
       let answer: WatcherReply | null = null;

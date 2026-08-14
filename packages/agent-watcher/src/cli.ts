@@ -10,7 +10,6 @@ import {
   createStadtstackReviewedEvidenceReader,
   toPublicMeckyWatcherReply,
 } from "./public-mecky";
-import { createStadtstackNostrIntakeClient } from "./stadtstack-control";
 import { createNodeRelayClient } from "./node-relay-client";
 import { singleFlight } from "./single-flight";
 import { watchOnce } from "./watcher";
@@ -41,8 +40,6 @@ async function main(): Promise<void> {
   const inputRelayUrl = process.env.INPUT_RELAY_URL ?? required("RELAY_URL");
   const outputRelayUrl = process.env.OUTPUT_RELAY_URL ?? inputRelayUrl;
   const publicEvidenceBaseUrl = required("STADTSTACK_PUBLIC_BASE_URL");
-  const stadtstackControlBaseUrl = required("STADTSTACK_CONTROL_BASE_URL");
-  const stadtstackIngestorToken = required("STADTSTACK_NOSTR_INGESTOR_TOKEN");
   const municipalityId = required("MECKY_MUNICIPALITY_ID");
   const sourceCaseId = required("MECKY_SOURCE_CASE_ID");
   const canonicalCaseId = required("MECKY_CANONICAL_CASE_ID");
@@ -71,12 +68,6 @@ async function main(): Promise<void> {
       timeoutMs: Number(process.env.MECKY_INFERENCE_TIMEOUT_MS ?? 30_000),
     }),
   });
-  const stadtstackIntake = createStadtstackNostrIntakeClient({
-    baseUrl: stadtstackControlBaseUrl,
-    actorToken: stadtstackIngestorToken,
-    canonicalCaseId,
-  });
-
   const agent = deriveAgentIdentity(required("NODE_AGENT_SECRET"), nodeId, agentName);
   const history = emptyHistory();
   const bounds = {
@@ -120,9 +111,6 @@ async function main(): Promise<void> {
         relayUrl: inputRelayUrl,
         replyRelayUrl: outputRelayUrl,
         makeClient: createNodeRelayClient,
-        ingestCivicDiscussion: async (event) => {
-          await stadtstackIntake.ingestDiscussion(event, [inputRelayUrl]);
-        },
         think: async (question, event) => {
           const answer = await publicMecky.answerMention(question);
           if (answer.status === "answered") {

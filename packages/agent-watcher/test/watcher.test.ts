@@ -94,7 +94,7 @@ describe("answering a mention", () => {
     assert.deepEqual(urls, ["ws://relay"]);
   });
 
-  it("ingests a civic discussion into Stadtstack before Mecky answers it", async () => {
+  it("answers a civic discussion without prematurely creating or admitting a CivicCase", async () => {
     const question = buildCivicDiscussionEvent(CITIZEN, {
       municipalityId: "roebel-mueritz",
       sourceCaseId: "marienfelder-strasse",
@@ -104,48 +104,18 @@ describe("answering a mention", () => {
       content: "@Mecky Kann hier eine sichere Querung geprüft werden?",
       createdAt: NOW - 5,
     });
-    const order: string[] = [];
+    let thought = 0;
     const h = harness([question], async () => {
-      order.push("think");
+      thought += 1;
       return "Aus geprüften Quellen.";
     });
-    h.deps.ingestCivicDiscussion = async (event: NostrEvent) => {
-      assert.equal(event.id, question.id);
-      order.push("intake");
-    };
 
     const result = await watchOnce(h.deps);
 
     assert.equal(result.answered, 1);
-    assert.deepEqual(order, ["intake", "think"]);
-  });
-
-  it("does not answer or consume a civic question when Stadtstack intake fails", async () => {
-    const question = buildCivicDiscussionEvent(CITIZEN, {
-      municipalityId: "roebel-mueritz",
-      sourceCaseId: "marienfelder-strasse",
-      canonicalCaseId:
-        "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
-      agentPubkey: MECKY.publicKey,
-      content: "@Mecky Bitte mit dem Case verbinden.",
-      createdAt: NOW - 5,
-    });
-    let thought = 0;
-    const h = harness([question], async () => {
-      thought += 1;
-      return "Nicht senden";
-    });
-    h.deps.ingestCivicDiscussion = async () => {
-      throw new Error("stadtstack unavailable");
-    };
-
-    const result = await watchOnce(h.deps);
-
-    assert.equal(result.answered, 0);
-    assert.equal(result.refused["stadtstack-intake-failed"], 1);
-    assert.equal(thought, 0);
-    assert.equal(h.published.length, 0);
-    assert.equal(h.deps.history.answered.has(question.id), false);
+    assert.equal(thought, 1);
+    assert.equal(h.published.length, 1);
+    assert.equal(h.published[0]?.content, "Aus geprüften Quellen.");
   });
 
   it("asks the relay for events tagging the agent", async () => {
