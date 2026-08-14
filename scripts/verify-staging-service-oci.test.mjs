@@ -66,6 +66,7 @@ function writeLayout(root, sourceRevision, component, entrypoint, mutate) {
 for (const service of [
   { component: "public-mecky", entrypoint: ["node", "/app/agent-watcher.cjs"] },
   { component: "roebel-e2e-workbench", entrypoint: ["node", "/app/e2e-workbench.cjs"] },
+  { component: "roebel-staging-relay", entrypoint: ["node", "/app/staging-relay.cjs"] },
 ]) {
   test(`accepts one exact ${service.component} linux/amd64 image`, () => {
     const root = mkdtempSync(join(tmpdir(), "roebel-service-oci-"));

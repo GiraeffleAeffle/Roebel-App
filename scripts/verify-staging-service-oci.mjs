@@ -10,6 +10,7 @@ const SECRET_ENV = /^(?:MECKY_INFERENCE_API_KEY|HETZNER_INFERENCE_API_KEY|NODE_A
 const COMPONENTS = {
   "public-mecky": ["node", "/app/agent-watcher.cjs"],
   "roebel-e2e-workbench": ["node", "/app/e2e-workbench.cjs"],
+  "roebel-staging-relay": ["node", "/app/staging-relay.cjs"],
 };
 const repositoryFor = (component) => `stadtstack.local/roebel-staging-lab/${component}`;
 const digest = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;

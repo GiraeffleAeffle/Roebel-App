@@ -9,6 +9,7 @@ on:
       - "packages/agent-watcher/**"
       - "packages/e2e-workbench/**"
       - "packages/nostr/**"
+      - "packages/staging-relay/**"
       - "packages/stadtstack-federation-client/**"
       - "scripts/verify-staging-service-oci.mjs"
       - "scripts/verify-staging-service-oci.test.mjs"
@@ -39,6 +40,9 @@ jobs:
           - component: roebel-e2e-workbench
             package: "@roebel/e2e-workbench"
             dockerfile: packages/e2e-workbench/Dockerfile
+          - component: roebel-staging-relay
+            package: "@roebel/staging-relay"
+            dockerfile: packages/staging-relay/Dockerfile
     env:
       SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
       MAX_CONTEXT_BYTES: "31457280"

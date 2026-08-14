@@ -28,7 +28,7 @@ ARG SOURCE_REVISION
 LABEL org.opencontainers.image.source="https://github.com/GiraeffleAeffle/Roebel-App" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
       stadtstack.io/component="roebel-staging-relay" \
-      stadtstack.io/environment="synthetic-e2e" \
+      stadtstack.io/environment="isolated-staging-e2e" \
       stadtstack.io/civic-authority="none"
 ENV NODE_ENV=production HOME=/tmp
 WORKDIR /app
