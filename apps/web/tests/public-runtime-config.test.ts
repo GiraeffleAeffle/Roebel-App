@@ -19,7 +19,6 @@ const environment = {
     "public-anon-key-with-more-than-20-characters",
   ROEBEL_PUBLIC_THIRDWEB_CLIENT_ID: "thirdweb_public_client_123456",
   ROEBEL_PUBLIC_GNOSIS_BUNDLER_URL: "/api/bundler",
-  ROEBEL_PUBLIC_STADTSTACK_BASE_URL: "https://stadtstack.example.invalid",
 };
 
 const fixture = [
@@ -27,7 +26,6 @@ const fixture = [
   "__ROEBEL_RUNTIME_SUPABASE_ANON_KEY__",
   "__ROEBEL_RUNTIME_THIRDWEB_CLIENT_ID__",
   "/__roebel_runtime_gnosis_bundler_url__",
-  "https://stadtstack-runtime-config-required.invalid",
 ].join("|");
 
 test("injects only reviewed public runtime values without emitting them", async () => {
@@ -49,7 +47,7 @@ test("injects only reviewed public runtime values without emitting them", async 
     );
     assert.equal(receipt.patchedFiles, 2);
     assert.equal(receipt.valuesEmitted, false);
-    assert.deepEqual(Object.values(receipt.replacements), [2, 2, 2, 2, 2]);
+    assert.deepEqual(Object.values(receipt.replacements), [2, 2, 2, 2]);
     const patched = `${readFileSync(join(next, "static", "chunks", "client.js"), "utf8")}|${readFileSync(join(root, "server.js"), "utf8")}`;
     for (const token of fixture.split("|"))
       assert.doesNotMatch(

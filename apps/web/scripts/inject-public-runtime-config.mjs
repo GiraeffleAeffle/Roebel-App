@@ -50,22 +50,6 @@ const PUBLIC_BINDINGS = [
       );
     },
   },
-  {
-    environment: "ROEBEL_PUBLIC_STADTSTACK_BASE_URL",
-    token: "https://stadtstack-runtime-config-required.invalid",
-    validate(value) {
-      const url = new URL(value);
-      return (
-        SAFE_PUBLIC_VALUE.test(value) &&
-        url.protocol === "https:" &&
-        url.username === "" &&
-        url.password === "" &&
-        url.search === "" &&
-        url.hash === "" &&
-        url.hostname !== "stadtstack-runtime-config-required.invalid"
-      );
-    },
-  },
 ];
 
 const PATCHABLE_EXTENSIONS = new Set([".html", ".js", ".json"]);

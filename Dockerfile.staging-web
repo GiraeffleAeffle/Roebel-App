@@ -28,7 +28,6 @@ ENV PNPM_HOME=/pnpm \
     NEXT_PUBLIC_GNOSIS_BUNDLER_URL=/__roebel_runtime_gnosis_bundler_url__ \
     NEXT_PUBLIC_BASE_URL=https://roebel-web.staging.agentcart.eu \
     NEXT_PUBLIC_SITE_URL=https://roebel-web.staging.agentcart.eu \
-    NEXT_PUBLIC_STADTSTACK_PUBLIC_BASE_URL=https://stadtstack-runtime-config-required.invalid \
     SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-for-build-only \
     STRIPE_SECRET_KEY=sk_test_placeholder_for_build_1234567890 \
     STRIPE_SECRET_KEY_CARD=sk_test_placeholder_card_build_1234567890 \
