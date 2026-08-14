@@ -68,6 +68,29 @@ test("injects only reviewed public runtime values without emitting them", async 
   }
 });
 
+test("supports an explicitly disabled optional Gnosis bundler", async () => {
+  const root = mkdtempSync(join(tmpdir(), "roebel-public-runtime-optional-"));
+  try {
+    const client = join(root, "client.js");
+    writeFileSync(client, fixture);
+    const receipt = await applyPublicRuntimeConfig({
+      environment: {
+        ...environment,
+        ROEBEL_PUBLIC_GNOSIS_BUNDLER_URL: "",
+      },
+      roots: [client],
+    });
+
+    assert.equal(receipt.replacements.ROEBEL_PUBLIC_GNOSIS_BUNDLER_URL, 1);
+    assert.doesNotMatch(
+      readFileSync(client, "utf8"),
+      /__roebel_runtime_gnosis_bundler_url__/u
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("fails closed for placeholder values, missing tokens and symlink traversal", async () => {
   const root = mkdtempSync(join(tmpdir(), "roebel-public-runtime-negative-"));
   try {

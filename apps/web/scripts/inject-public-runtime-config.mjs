@@ -48,7 +48,9 @@ const PUBLIC_BINDINGS = [
   {
     environment: "ROEBEL_PUBLIC_GNOSIS_BUNDLER_URL",
     token: "/__roebel_runtime_gnosis_bundler_url__",
+    allowEmpty: true,
     validate(value) {
+      if (value === "") return true;
       if (/^\/[A-Za-z0-9._~%+/-]+$/u.test(value)) return true;
       const url = new URL(value);
       return (
@@ -76,7 +78,9 @@ function resolveBindings(environment) {
   return PUBLIC_BINDINGS.map((binding) => {
     const value = environment[binding.environment];
     let valid =
-      typeof value === "string" && value.length > 0 && !/\s/u.test(value);
+      typeof value === "string" &&
+      (value.length > 0 || binding.allowEmpty === true) &&
+      !/\s/u.test(value);
     if (valid) {
       try {
         valid =
