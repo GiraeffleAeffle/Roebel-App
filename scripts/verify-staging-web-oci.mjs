@@ -48,7 +48,7 @@ export function verifyStagingWebOci(root, sourceRevision) {
 
   const runtime = config.config ?? {};
   if (runtime.User !== "65532:65532") throw new Error("runtime_user_invalid");
-  if (JSON.stringify(runtime.Entrypoint) !== JSON.stringify(["node"]) || JSON.stringify(runtime.Cmd) !== JSON.stringify(["apps/web/server.js"])) throw new Error("runtime_command_invalid");
+  if (JSON.stringify(runtime.Entrypoint) !== JSON.stringify(["node"]) || JSON.stringify(runtime.Cmd) !== JSON.stringify(["apps/web/runtime-entrypoint.mjs"])) throw new Error("runtime_command_invalid");
   if (!runtime.ExposedPorts || Object.keys(runtime.ExposedPorts).join() !== "8080/tcp") throw new Error("runtime_port_invalid");
   const labels = runtime.Labels ?? {};
   if (labels["org.opencontainers.image.source"] !== "https://github.com/GiraeffleAeffle/Roebel-App" || labels["org.opencontainers.image.revision"] !== sourceRevision || labels["stadtstack.io/component"] !== "roebel-web-staging" || labels["stadtstack.io/environment"] !== "staging-synthetic-workflow" || labels["stadtstack.io/civic-authority"] !== "none") throw new Error("labels_invalid");

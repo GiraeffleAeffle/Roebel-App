@@ -11,6 +11,10 @@ test("emits the standalone server only for the explicit Talos staging image", ()
   assert.match(nextConfig, /process\.env\.ROEBEL_STANDALONE_IMAGE === "1" \? "standalone" : undefined/);
   assert.match(dockerfile, /ROEBEL_STANDALONE_IMAGE=1/);
   assert.match(dockerfile, /\.next\/standalone/);
+  assert.match(dockerfile, /inject-public-runtime-config\.mjs/);
+  assert.match(dockerfile, /CMD \["apps\/web\/runtime-entrypoint\.mjs"\]/);
+  assert.doesNotMatch(dockerfile, /NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-for-build/);
+  assert.doesNotMatch(dockerfile, /NEXT_PUBLIC_TEMPLATE_CLIENT_ID=placeholder-for-build/);
 });
 
 test("installs only the Röbel web dependency graph from the frozen offline store", () => {

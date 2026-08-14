@@ -54,6 +54,8 @@ test("renders discussions inside the normal feed controls and distinguishes ment
   assert.match(feed, /signierte Aktivitäten/);
   assert.match(feed, /Mecky hat signiert\s+geantwortet/);
   assert.match(feed, /Antwort ausstehend/);
+  assert.match(appPage, /fetchFeed\(\)\.catch/);
+  assert.match(appPage, /setLoading\(false\)/);
 });
 
 test("keeps ordinary posts distinct and requires an explicit human promotion action", () => {

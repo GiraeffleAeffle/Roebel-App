@@ -27,7 +27,7 @@ const writeValidLayout = (root: string, sourceRevision: string, mutate?: (config
     config: {
       User: "65532:65532",
       Entrypoint: ["node"],
-      Cmd: ["apps/web/server.js"],
+      Cmd: ["apps/web/runtime-entrypoint.mjs"],
       ExposedPorts: { "8080/tcp": {} },
       Env: [
         "NODE_ENV=production",
@@ -87,7 +87,7 @@ test("accepts one source-bound non-root Röbel staging web image", () => {
       layerDigests: [`sha256:${layerDigest}`],
       user: "65532:65532",
       entrypoint: ["node"],
-      cmd: ["apps/web/server.js"],
+      cmd: ["apps/web/runtime-entrypoint.mjs"],
     });
   } finally {
     rmSync(root, { recursive: true, force: true });

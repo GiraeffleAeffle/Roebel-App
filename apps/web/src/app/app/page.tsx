@@ -611,7 +611,12 @@ export default function AppHomePage() {
       setLoading(false);
     }
 
-    fetchFeed();
+    fetchFeed().catch((error) => {
+      console.error("app_feed_load_failed", error);
+      setFeedItems([]);
+      setPosts([]);
+      setLoading(false);
+    });
   }, [activeTab, activeFilter, activeCategory, refreshKey, account?.address]);
 
   const feedWithRows = buildFeedWithRows(
