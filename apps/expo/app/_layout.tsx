@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { useRouter } from 'expo-router';
+import React, { useEffect, useRef } from 'react';
+import { usePathname, useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -148,6 +148,35 @@ function NotificationHandler() {
 }
 
 /**
+ * Opens the app on "Erkunden" (/explore) instead of the feed (/).
+ *
+ * expo-router boots at `/` whenever the app is launched from the icon: without
+ * an initial URL `+native-intent.redirectSystemPath` is never called, so the
+ * default screen has to be swapped here. Runs once per app process and only
+ * when the launch actually landed on `/` — a cold start from a deep link has
+ * already resolved to its own path by the time the root layout mounts, and the
+ * consent / app-update gates push their modals later (both behind a timeout),
+ * so nothing is stolen from them.
+ *
+ * `/` stays the "Austausch" tab: it navigates back to the feed normally, since
+ * the one-shot flag is spent by then.
+ */
+function InitialRouteRedirect() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const handledRef = useRef(false);
+
+  useEffect(() => {
+    if (handledRef.current) return;
+    handledRef.current = true;
+    if (pathname !== '/') return;
+    router.replace('/explore');
+  }, [pathname, router]);
+
+  return null;
+}
+
+/**
  * Component to handle Firebase Analytics screen tracking
  */
 function AnalyticsTracker() {
@@ -205,6 +234,7 @@ function ThemedLayout() {
 
   return (
     <>
+      <InitialRouteRedirect />
       <NotificationHandler />
       <AnalyticsTracker />
       <PostHogTelemetry />
