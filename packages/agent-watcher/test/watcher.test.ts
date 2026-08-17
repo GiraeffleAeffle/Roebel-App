@@ -192,6 +192,31 @@ describe("answering a mention", () => {
     assert.ok(h.published[0]?.tags.some((tag) => tag[0] === "case" && tag[1] === "marienfelder-strasse"));
   });
 
+  it("keeps a topic binding on a pre-Case Mecky reply", async () => {
+    const question = buildNoteEvent(CITIZEN, "@Mecky Was ist dazu bekannt?", {
+      createdAt: NOW - 5,
+      tags: [["p", MECKY.publicKey]],
+    });
+    const topicId =
+      "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt";
+    const h = harness([question], async () => ({
+      content: "Die Antwort bleibt an das Bürger-Thema gebunden.",
+      tags: [
+        ["municipality", "roebel-mueritz"],
+        ["topic", topicId],
+      ],
+    }) as never);
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.answered, 1);
+    assert.ok(
+      h.published[0]?.tags.some(
+        (tag) => tag[0] === "topic" && tag[1] === topicId,
+      ),
+    );
+  });
+
   it("answers a burst oldest-first, in the order asked", async () => {
     const first = buildNoteEvent(CITIZEN, "erste", { createdAt: NOW - 50 });
     const second = buildNoteEvent(CITIZEN, "zweite", { createdAt: NOW - 10 });

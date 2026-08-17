@@ -23,8 +23,11 @@ import { createGnosisWalletVerifier } from "@netizen-labs/relay-sync";
 import WebSocket from "ws";
 
 const HEX64 = /^[0-9a-f]{64}$/;
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ADDRESS = /^0x[0-9a-f]{40}$/;
 const WALLET_SIGNATURE = /^0x[0-9a-f]+$/;
+const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const CASE_ID =
   "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001";
 const MARIENFELDER_TOPIC_ID =
@@ -45,7 +48,12 @@ type Persona = {
   publicKey: string;
 };
 
-type PublicAuthor = { name: string; kind: "citizen" | "mecky"; pubkey: string };
+type PublicAuthor = {
+  name: string;
+  kind: "citizen" | "mecky";
+  pubkey: string;
+  synthetic: boolean;
+};
 type PublicArgument = {
   id: string;
   parentId: string | null;
@@ -316,10 +324,39 @@ function tagValue(event: NostrEvent, name: string): string | null {
   );
 }
 
+function sourceAppPostIdFor(event: NostrEvent): string | null {
+  const matches = event.tags.filter((tag) => tag[0] === "source-app-post");
+  return matches.length === 1 &&
+    matches[0]!.length === 2 &&
+    UUID.test(matches[0]![1] ?? "")
+    ? matches[0]![1]!
+    : null;
+}
+
 function topicFor(event: NostrEvent): { id: string; title: string } | null {
   const explicit = tagValue(event, "topic");
   const municipality = tagValue(event, "municipality");
   const sourceCase = tagValue(event, "case");
+  const topicParts = explicit?.split(":") ?? [];
+  const topicTitles = event.tags.filter(
+    (tag) => tag[0] === "topic-title" && typeof tag[1] === "string"
+  );
+  if (
+    topicParts.length === 6 &&
+    topicParts.slice(0, 4).join(":") ===
+      "urn:stadtstack:topic:municipality" &&
+    topicParts[4] === municipality &&
+    SLUG.test(municipality ?? "") &&
+    SLUG.test(topicParts[5] ?? "") &&
+    topicTitles.length === 1 &&
+    topicTitles[0]!.length === 2 &&
+    topicTitles[0]![1] === topicTitles[0]![1]!.trim() &&
+    topicTitles[0]![1]!.length >= 3 &&
+    topicTitles[0]![1]!.length <= 120 &&
+    !/[\u0000-\u001f\u007f]/.test(topicTitles[0]![1]!)
+  ) {
+    return { id: explicit!, title: topicTitles[0]![1]! };
+  }
   if (
     (explicit === MARIENFELDER_TOPIC_ID || explicit === null) &&
     municipality === "roebel-mueritz" &&
@@ -329,18 +366,42 @@ function topicFor(event: NostrEvent): { id: string; title: string } | null {
   return null;
 }
 
+function caseBindingFor(event: NostrEvent): {
+  municipalityId: string;
+  sourceCaseId: string;
+  canonicalCaseId: string;
+} | null {
+  const municipalityId = tagValue(event, "municipality");
+  const sourceCaseId = tagValue(event, "case");
+  const canonicalCaseId = tagValue(event, "stadtstack-case");
+  return municipalityId && sourceCaseId && canonicalCaseId
+    ? { municipalityId, sourceCaseId, canonicalCaseId }
+    : null;
+}
+
 function authorFor(config: WorkbenchConfig, event: NostrEvent): PublicAuthor {
   const citizen = config.personas.find(
     (candidate) => candidate.publicKey === event.pubkey
   );
   if (citizen)
-    return { name: citizen.name, kind: "citizen", pubkey: citizen.publicKey };
+    return {
+      name: citizen.name,
+      kind: "citizen",
+      pubkey: citizen.publicKey,
+      synthetic: true,
+    };
   if (event.pubkey === config.meckyPubkey)
-    return { name: "Mecky", kind: "mecky", pubkey: event.pubkey };
+    return {
+      name: "Mecky",
+      kind: "mecky",
+      pubkey: event.pubkey,
+      synthetic: false,
+    };
   return {
     name: `Bürger:in ${event.pubkey.slice(0, 8)}`,
     kind: "citizen",
     pubkey: event.pubkey,
+    synthetic: false,
   };
 }
 
@@ -715,6 +776,7 @@ export async function startWorkbench(
               promotionBySourcePost.get(entry.id)?.discussionId ?? null,
             promotedTopicId:
               promotionBySourcePost.get(entry.id)?.topicId ?? null,
+            sourceAppPostId: sourceAppPostIdFor(entry),
             synthetic: isSyntheticCitizen(config, entry.pubkey),
           }));
         const roots = argumentsList
@@ -856,6 +918,13 @@ export async function startWorkbench(
                 entry.id === rootId &&
                 asArgument(config, entry)?.stance === "root"
             ) ?? null;
+        const sourceEvent = rootEvent
+          ? citizenEvents
+              .filter(verifyEvent)
+              .find(
+                (entry) => entry.id === tagValue(rootEvent, "source-post"),
+              ) ?? null
+          : null;
         const meckyReply =
           meckyEvents
             .filter(verifyEvent)
@@ -866,7 +935,20 @@ export async function startWorkbench(
             (a, b) =>
               a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)
           ),
+          events: Object.fromEntries(
+            citizenEvents
+              .filter(verifyEvent)
+              .filter((entry) =>
+                argumentsList.some((argument) => argument.id === entry.id),
+              )
+              .map((entry) => [entry.id, entry]),
+          ),
           rootEvent,
+          sourceAppPostId: sourceEvent
+            ? sourceAppPostIdFor(sourceEvent)
+            : null,
+          topic: rootEvent ? topicFor(rootEvent) : null,
+          caseBinding: rootEvent ? caseBindingFor(rootEvent) : null,
           mecky: meckyReply
             ? {
                 event: meckyReply,
@@ -966,7 +1048,9 @@ export async function startWorkbench(
       if (path === "/api/signed-event") {
         if (
           !exactRecord(body, ["intent", "event"]) ||
-          (body.intent !== "post" && body.intent !== "promotion")
+          (body.intent !== "post" &&
+            body.intent !== "promotion" &&
+            body.intent !== "argument")
         )
           throw new Error("signed_event_invalid");
         const signed = event(body.event);
@@ -979,23 +1063,31 @@ export async function startWorkbench(
           throw new Error("signed_event_invalid");
         }
         if (body.intent === "post") {
+          const sourceAppPostTags = signed.tags.filter(
+            (tag) => tag[0] === "source-app-post"
+          );
           if (
-            signed.tags.length > 8 ||
+            signed.tags.length > 9 ||
+            sourceAppPostTags.length > 1 ||
             !signed.tags.every(
               (tag) =>
-                tag.length === 2 &&
-                tag[0] === "p" &&
-                typeof tag[1] === "string" &&
-                HEX64.test(tag[1])
+                (tag.length === 2 &&
+                  tag[0] === "p" &&
+                  typeof tag[1] === "string" &&
+                  HEX64.test(tag[1])) ||
+                (tag.length === 2 &&
+                  tag[0] === "source-app-post" &&
+                  typeof tag[1] === "string" &&
+                  UUID.test(tag[1]))
             )
           )
             throw new Error("signed_post_tags_invalid");
-        } else {
+        } else if (body.intent === "promotion") {
           const sourcePostId = tagValue(signed, "source-post");
           if (
             !sourcePostId ||
             !HEX64.test(sourcePostId) ||
-            topicFor(signed)?.id !== MARIENFELDER_TOPIC_ID ||
+            topicFor(signed) === null ||
             asArgument(config, signed)?.stance !== "root" ||
             !signed.tags.some(
               (tag) => tag[0] === "p" && tag[1] === config.meckyPubkey
@@ -1026,12 +1118,61 @@ export async function startWorkbench(
             signed.created_at <= sourcePost.created_at
           )
             throw new Error("signed_promotion_source_invalid");
+        } else {
+          const rootId = tagValue(signed, "argument-root");
+          const parentId =
+            signed.tags.find(
+              (tag) => tag[0] === "e" && tag[3] === "reply",
+            )?.[1] ?? null;
+          const relatedEvents =
+            rootId && parentId
+              ? (await citizenRelay.query([
+                  { ids: [rootId, parentId], kinds: [1], limit: 2 },
+                ])).filter(verifyEvent)
+              : [];
+          const rootEvent = relatedEvents.find(
+            (candidate) => candidate.id === rootId,
+          );
+          const parentEvent = relatedEvents.find(
+            (candidate) => candidate.id === parentId,
+          );
+          const rootArgument = rootEvent ? asArgument(config, rootEvent) : null;
+          const parentArgument = parentEvent
+            ? asArgument(config, parentEvent)
+            : null;
+          const rootTopic = rootEvent ? topicFor(rootEvent) : null;
+          if (
+            !rootId ||
+            !parentId ||
+            !rootEvent ||
+            !parentEvent ||
+            rootArgument?.stance !== "root" ||
+            parentArgument?.rootId !== rootId ||
+            !rootTopic ||
+            signed.created_at <= rootEvent.created_at ||
+            signed.created_at <= parentEvent.created_at ||
+            JSON.stringify(signed.tags) !==
+              JSON.stringify([
+                ["e", rootId, "", "root"],
+                ["e", parentId, "", "reply"],
+                ["argument-root", rootId],
+                ["stance", tagValue(signed, "stance")],
+                ["t", "stadtstack-argument"],
+                ["municipality", "roebel-mueritz"],
+                ["topic", rootTopic.id],
+              ]) ||
+            (tagValue(signed, "stance") !== "pro" &&
+              tagValue(signed, "stance") !== "con")
+          ) {
+            throw new Error("signed_argument_invalid");
+          }
         }
         const published = await citizenRelay.publish(signed);
         if (!published.ok)
           throw new Error(`citizen_relay_${published.message}`);
         return json(response, 200, {
-          status: body.intent === "post" ? "published" : "promoted",
+          status:
+            body.intent === "promotion" ? "promoted" : "published",
           event: signed,
           authorityBinding: "none",
         });
@@ -1177,6 +1318,34 @@ export async function startWorkbench(
           body.content.length > 1_000
         )
           throw new Error("claim_invalid");
+        const relatedEvents = (await citizenRelay.query([
+          {
+            ids: [body.rootEventId, body.parentEventId],
+            kinds: [1],
+            limit: 2,
+          },
+        ])).filter(verifyEvent);
+        const rootEvent = relatedEvents.find(
+          (candidate) => candidate.id === body.rootEventId,
+        );
+        const parentEvent = relatedEvents.find(
+          (candidate) => candidate.id === body.parentEventId,
+        );
+        const rootArgument = rootEvent ? asArgument(config, rootEvent) : null;
+        const parentArgument = parentEvent
+          ? asArgument(config, parentEvent)
+          : null;
+        const rootTopic = rootEvent ? topicFor(rootEvent) : null;
+        const rootCaseBinding = rootEvent ? caseBindingFor(rootEvent) : null;
+        if (
+          !rootEvent ||
+          !parentEvent ||
+          rootArgument?.stance !== "root" ||
+          parentArgument?.rootId !== body.rootEventId ||
+          !rootTopic
+        ) {
+          throw new Error("claim_thread_invalid");
+        }
         const actor = persona(config, body.personaId);
         const signed = buildNoteEvent(secret(actor), body.content.trim(), {
           tags: [
@@ -1186,7 +1355,13 @@ export async function startWorkbench(
             ["stance", body.stance],
             ["t", "stadtstack-argument"],
             ["municipality", "roebel-mueritz"],
-            ["case", "marienfelder-strasse"],
+            ["topic", rootTopic.id],
+            ...(rootCaseBinding
+              ? [
+                  ["case", rootCaseBinding.sourceCaseId],
+                  ["stadtstack-case", rootCaseBinding.canonicalCaseId],
+                ]
+              : []),
           ],
         });
         const published = await citizenRelay.publish(signed);

@@ -8,6 +8,7 @@ import {
   createPublicMeckyRelayReply,
   createStaticReviewedEvidenceReader,
   createStadtstackReviewedEvidenceReader,
+  publicMeckyDiscussionBindingFor,
   toPublicMeckyWatcherReply,
 } from "./public-mecky";
 import { createNodeRelayClient } from "./node-relay-client";
@@ -122,7 +123,11 @@ async function main(): Promise<void> {
             return civic
               ? toPublicMeckyWatcherReply(createPublicMeckyRelayReply({
                   discussion: event,
-                  binding: { municipalityId, sourceCaseId, canonicalCaseId },
+                  binding: publicMeckyDiscussionBindingFor(event, {
+                    municipalityId,
+                    sourceCaseId,
+                    canonicalCaseId,
+                  }),
                   result: answer,
                 }))
               : answer.content;

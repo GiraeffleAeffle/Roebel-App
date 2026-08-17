@@ -16,6 +16,7 @@ type StagingFeedBase = {
 export type StagingOrdinaryPost = StagingFeedBase & {
   entryType: "post";
   event: StagingSignedEvent;
+  sourceAppPostId: string | null;
   promotedDiscussionId: string | null;
   promotedTopicId: string | null;
 };
@@ -42,7 +43,15 @@ export type StagingFeedResponse = {
 export type StagingThreadResponse = {
   schemaVersion: "roebel_staging_argument_thread_v1";
   arguments: StagingArgument[];
+  events: Record<string, StagingSignedEvent>;
   rootEvent: StagingSignedEvent | null;
+  sourceAppPostId: string | null;
+  topic: { id: string; title: string } | null;
+  caseBinding: {
+    municipalityId: string;
+    sourceCaseId: string;
+    canonicalCaseId: string;
+  } | null;
   mecky: null | {
     event: StagingSignedEvent;
     author: { name: "Mecky"; kind: "mecky"; pubkey: string };

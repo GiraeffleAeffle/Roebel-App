@@ -76,15 +76,20 @@ export { RelayClient } from "./relay";
 export type { Filter, PublishResult, RelayOptions } from "./relay";
 
 export {
+  buildCivicArgumentEvent,
   buildCitizenSignedSuggestion,
   buildCivicDiscussionEvent,
   buildCivicPromotionEvent,
+  buildCivicTopicPromotionEvent,
 } from "./civic";
 export type {
+  CivicArgumentInput,
   CitizenSignedSuggestionInput,
   CitizenSignedSuggestionV1,
   CivicCaseBinding,
   CivicDiscussionInput,
   CivicPromotionInput,
+  CivicTopicBinding,
+  CivicTopicPromotionInput,
   PublicMeckySuggestionDraftV1,
 } from "./civic";

@@ -54,6 +54,7 @@ const MAX_RELAY_REPLY_HISTORY = 500;
 const REPLY_TAG_NAMES = new Set([
   "mecky-receipt",
   "municipality",
+  "topic",
   "case",
   "stadtstack-case",
   "evidence",

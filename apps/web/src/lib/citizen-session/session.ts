@@ -1,10 +1,14 @@
 import {
   NOSTR_KEY_DERIVATION_MESSAGE,
   buildBindingEvent,
+  buildCivicArgumentEvent,
   buildCivicPromotionEvent,
+  buildCivicTopicPromotionEvent,
   buildNoteEvent,
   deriveNostrIdentity,
   type CivicPromotionInput,
+  type CivicArgumentInput,
+  type CivicTopicPromotionInput,
   type NostrEvent,
 } from "@netizen-labs/nostr";
 
@@ -42,6 +46,7 @@ export type PublicPostInput = {
   content: string;
   createdAt?: number;
   mentionPubkeys?: readonly string[];
+  sourceAppPostId?: string;
 };
 
 export type CitizenAdmissionProof = Readonly<{
@@ -60,6 +65,10 @@ export interface CitizenSession {
   signMessage(message: string): Promise<string>;
   signPublicPost(input: PublicPostInput): Promise<NostrEvent>;
   promotePublicPost(input: CivicPromotionInput): Promise<NostrEvent>;
+  promotePublicPostToTopic(
+    input: CivicTopicPromotionInput
+  ): Promise<NostrEvent>;
+  signCivicArgument(input: CivicArgumentInput): Promise<NostrEvent>;
   dispose(): void;
 }
 
@@ -223,20 +232,47 @@ export function createCitizenSession(
       ) {
         throw new Error("citizen_session_mentions_invalid");
       }
+      if (
+        input.sourceAppPostId !== undefined &&
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+          input.sourceAppPostId
+        )
+      ) {
+        throw new Error("citizen_session_source_app_post_invalid");
+      }
       const signer = await identity();
       return buildNoteEvent(signer.secretKey, input.content, {
         ...(input.createdAt === undefined
           ? {}
           : { createdAt: timestamp(input.createdAt) }),
-        ...(mentions.length === 0
+        ...(mentions.length === 0 && input.sourceAppPostId === undefined
           ? {}
-          : { tags: mentions.map((pubkey) => ["p", pubkey]) }),
+          : {
+              tags: [
+                ...mentions.map((pubkey) => ["p", pubkey]),
+                ...(input.sourceAppPostId === undefined
+                  ? []
+                  : [["source-app-post", input.sourceAppPostId]]),
+              ],
+            }),
       });
     },
     async promotePublicPost(input: CivicPromotionInput): Promise<NostrEvent> {
       ensureActive();
       const signer = await identity();
       return buildCivicPromotionEvent(signer.secretKey, input);
+    },
+    async promotePublicPostToTopic(
+      input: CivicTopicPromotionInput
+    ): Promise<NostrEvent> {
+      ensureActive();
+      const signer = await identity();
+      return buildCivicTopicPromotionEvent(signer.secretKey, input);
+    },
+    async signCivicArgument(input: CivicArgumentInput): Promise<NostrEvent> {
+      ensureActive();
+      const signer = await identity();
+      return buildCivicArgumentEvent(signer.secretKey, input);
     },
     dispose(): void {
       if (disposed) return;

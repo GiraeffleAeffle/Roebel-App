@@ -5,7 +5,12 @@ export type StagingArgument = {
   parentId: string | null;
   rootId: string;
   stance: StagingArgumentStance;
-  author: { name: string; kind: "citizen" | "mecky" };
+  author: {
+    name: string;
+    kind: "citizen" | "mecky";
+    pubkey?: string;
+    synthetic?: boolean;
+  };
   content: string;
   createdAt: string;
 };

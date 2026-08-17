@@ -16,6 +16,7 @@ import { ReportButton } from "@/components/app/ReportButton";
 import { CategoryBadge } from "@/components/app/CategoryBadge";
 import { PollDisplay } from "@/components/app/PollDisplay";
 import { CommentSection } from "@/components/app/CommentSection";
+import { StadtstackPostPromotion } from "@/components/app/StadtstackPostPromotion";
 import { deletePost } from "@/app/actions/posts";
 import type { PostWithEngagement } from "@/types/post";
 import { toast } from "sonner";
@@ -326,6 +327,17 @@ export function PostCard({
             />
           )}
         </div>
+
+        {mode === "detail" && isAuthor && (
+          <StadtstackPostPromotion
+            post={{
+              id,
+              walletAddress: wallet_address,
+              content,
+              createdAt: created_at,
+            }}
+          />
+        )}
 
         {/* Comments section */}
         {(showComments || comments_count > 0) && (

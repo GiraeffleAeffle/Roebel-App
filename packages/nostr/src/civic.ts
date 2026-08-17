@@ -21,6 +21,27 @@ export type CivicPromotionInput = CivicDiscussionInput & {
   topicId: string;
 };
 
+export type CivicTopicBinding = {
+  municipalityId: string;
+  topicId: string;
+};
+
+export type CivicTopicPromotionInput = CivicTopicBinding & {
+  sourcePost: NostrEvent;
+  topicTitle: string;
+  agentPubkey: string;
+  content: string;
+  createdAt?: number;
+};
+
+export type CivicArgumentInput = CivicTopicBinding & {
+  rootEvent: NostrEvent;
+  parentEvent: NostrEvent;
+  stance: "pro" | "con";
+  content: string;
+  createdAt?: number;
+};
+
 export type PublicMeckySuggestionDraftV1 = {
   schemaVersion: "public_mecky_suggestion_draft_v1";
   draftId: string;
@@ -203,6 +224,148 @@ export function buildCivicPromotionEvent(
       ["stadtstack-case", input.canonicalCaseId],
       ["stance", "root"],
       ["argument-root", "self"],
+    ],
+  });
+}
+
+/**
+ * Start a human-confirmed topic discussion without pre-allocating a CivicCase.
+ *
+ * The case identifier deliberately does not exist at this stage. A later
+ * citizen-signed proposal and human admission create that separate record.
+ */
+export function buildCivicTopicPromotionEvent(
+  secretKey: Uint8Array,
+  input: CivicTopicPromotionInput
+): NostrEvent {
+  const topicParts = input.topicId.split(":");
+  const topicSlug = topicParts[5] ?? "";
+  const sourceIsOrdinaryTopLevelPost =
+    verifyEvent(input.sourcePost) &&
+    input.sourcePost.kind === 1 &&
+    input.sourcePost.pubkey === getPublicKeyHex(secretKey) &&
+    !input.sourcePost.tags.some((tag) => tag[0] === "e") &&
+    !input.sourcePost.tags.some(
+      (tag) => tag[0] === "t" && tag[1] === "stadtstack-civic-discussion"
+    );
+  if (!sourceIsOrdinaryTopLevelPost) {
+    throw new Error("civic_promotion_source_invalid");
+  }
+  if (
+    !SLUG.test(input.municipalityId) ||
+    topicParts.length !== 6 ||
+    topicParts.slice(0, 4).join(":") !==
+      "urn:stadtstack:topic:municipality" ||
+    topicParts[4] !== input.municipalityId ||
+    !SLUG.test(topicSlug)
+  ) {
+    throw new Error("civic_promotion_topic_invalid");
+  }
+  if (
+    typeof input.topicTitle !== "string" ||
+    input.topicTitle !== input.topicTitle.trim() ||
+    input.topicTitle.length < 3 ||
+    input.topicTitle.length > 120 ||
+    /[\u0000-\u001f\u007f]/.test(input.topicTitle)
+  ) {
+    throw new Error("civic_promotion_topic_title_invalid");
+  }
+  if (!PUBKEY.test(input.agentPubkey)) {
+    throw new Error("civic_agent_pubkey_invalid");
+  }
+  if (
+    typeof input.content !== "string" ||
+    input.content !== input.content.trim() ||
+    input.content.length === 0 ||
+    input.content.length > 2_000 ||
+    !/@mecky\b/i.test(input.content)
+  ) {
+    throw new Error("civic_discussion_content_invalid");
+  }
+  if (
+    input.createdAt !== undefined &&
+    (!Number.isSafeInteger(input.createdAt) ||
+      input.createdAt <= input.sourcePost.created_at)
+  ) {
+    throw new Error("civic_promotion_timestamp_invalid");
+  }
+  return buildNoteEvent(secretKey, input.content, {
+    ...(input.createdAt === undefined ? {} : { createdAt: input.createdAt }),
+    tags: [
+      ["p", input.agentPubkey],
+      ["q", input.sourcePost.id, "", input.sourcePost.pubkey],
+      ["source-post", input.sourcePost.id],
+      ["t", "stadtstack-civic-discussion"],
+      ["municipality", input.municipalityId],
+      ["topic", input.topicId],
+      ["topic-title", input.topicTitle],
+      ["stance", "root"],
+      ["argument-root", "self"],
+    ],
+  });
+}
+
+/** Sign one citizen argument inside an existing topic-only discussion tree. */
+export function buildCivicArgumentEvent(
+  secretKey: Uint8Array,
+  input: CivicArgumentInput,
+): NostrEvent {
+  const expectedTopicId = `urn:stadtstack:topic:municipality:${input.municipalityId}:${input.topicId.split(":").at(-1) ?? ""}`;
+  const rootValid =
+    verifyEvent(input.rootEvent) &&
+    input.rootEvent.kind === 1 &&
+    singleTag(input.rootEvent, "t") === "stadtstack-civic-discussion" &&
+    singleTag(input.rootEvent, "municipality") === input.municipalityId &&
+    singleTag(input.rootEvent, "topic") === input.topicId &&
+    singleTag(input.rootEvent, "stance") === "root" &&
+    singleTag(input.rootEvent, "argument-root") === "self" &&
+    singleTag(input.rootEvent, "case") === null &&
+    singleTag(input.rootEvent, "stadtstack-case") === null;
+  const parentIsRoot = input.parentEvent.id === input.rootEvent.id;
+  const parentValid =
+    verifyEvent(input.parentEvent) &&
+    input.parentEvent.kind === 1 &&
+    (parentIsRoot ||
+      (singleTag(input.parentEvent, "argument-root") === input.rootEvent.id &&
+        singleTag(input.parentEvent, "municipality") === input.municipalityId &&
+        singleTag(input.parentEvent, "topic") === input.topicId &&
+        (singleTag(input.parentEvent, "stance") === "pro" ||
+          singleTag(input.parentEvent, "stance") === "con")));
+  if (
+    !SLUG.test(input.municipalityId) ||
+    expectedTopicId !== input.topicId ||
+    !rootValid ||
+    !parentValid
+  ) {
+    throw new Error("civic_argument_thread_invalid");
+  }
+  if (
+    typeof input.content !== "string" ||
+    input.content !== input.content.trim() ||
+    input.content.length < 1 ||
+    input.content.length > 1_000 ||
+    /[\u0000-\u001f\u007f]/.test(input.content)
+  ) {
+    throw new Error("civic_argument_content_invalid");
+  }
+  if (
+    input.createdAt !== undefined &&
+    (!Number.isSafeInteger(input.createdAt) ||
+      input.createdAt <= input.rootEvent.created_at ||
+      input.createdAt <= input.parentEvent.created_at)
+  ) {
+    throw new Error("civic_argument_timestamp_invalid");
+  }
+  return buildNoteEvent(secretKey, input.content, {
+    ...(input.createdAt === undefined ? {} : { createdAt: input.createdAt }),
+    tags: [
+      ["e", input.rootEvent.id, "", "root"],
+      ["e", input.parentEvent.id, "", "reply"],
+      ["argument-root", input.rootEvent.id],
+      ["stance", input.stance],
+      ["t", "stadtstack-argument"],
+      ["municipality", input.municipalityId],
+      ["topic", input.topicId],
     ],
   });
 }

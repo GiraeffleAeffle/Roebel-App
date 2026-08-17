@@ -14,6 +14,14 @@ const appPage = readFileSync(
   new URL("../src/app/app/page.tsx", import.meta.url),
   "utf8"
 );
+const postCard = readFileSync(
+  new URL("../src/components/app/PostCard.tsx", import.meta.url),
+  "utf8"
+);
+const postPromotion = readFileSync(
+  new URL("../src/components/app/StadtstackPostPromotion.tsx", import.meta.url),
+  "utf8"
+);
 const proposalsPage = readFileSync(
   new URL("../src/app/app/proposals/page.tsx", import.meta.url),
   "utf8"
@@ -26,28 +34,23 @@ const advisoryParticipation = readFileSync(
   "utf8"
 );
 
-test("keeps the staging workflow native to the Röbel feed and discussion routes", () => {
-  assert.match(appPage, /StadtstackStagingFeed/);
+test("keeps the civic workflow native to ordinary Röbel posts and discussion routes", () => {
+  assert.doesNotMatch(appPage, /StadtstackStagingFeed/);
   assert.doesNotMatch(appPage, /StadtstackStagingLabCard/);
-  assert.match(feed, /\/app\/diskussion\//);
-  assert.match(feed, /useCitizenSession/);
-  assert.match(feed, /signiertes Nostr/);
-  assert.match(feed, /synthetische Testprofile/);
-  assert.match(feed, /dein verbundenes Konto/);
-  assert.doesNotMatch(feed, /href=\{.*stadtstack-test/);
+  assert.match(postCard, /StadtstackPostPromotion/);
+  assert.match(postCard, /mode === "detail" && isAuthor/);
+  assert.match(postPromotion, /promoteAppPostToCivicTopic/);
+  assert.match(postPromotion, /\/app\/diskussion\//);
+  assert.match(postPromotion, /Der ursprüngliche Beitrag bleibt unverändert/);
+  assert.match(postPromotion, /Noch kein Vorschlag oder CivicCase/);
   assert.match(discussion, /Argumentbaum/);
   assert.match(discussion, /Sunburst/);
   assert.match(discussion, /@Mecky/);
 });
 
-test("renders discussions inside the normal feed controls and distinguishes mentions from answers", () => {
-  assert.ok(
-    appPage.indexOf("<FeedFilters") < appPage.indexOf("<StadtstackStagingFeed")
-  );
-  assert.match(
-    appPage,
-    /stadtstackStagingLab &&\s*\(activeFilter === "all" \|\|\s*activeFilter === "latest" \|\|\s*activeFilter === "posts"\)/
-  );
+test("keeps synthetic fixtures out of the normal timeline", () => {
+  assert.doesNotMatch(appPage, /Staging-Testspur im normalen Feed/);
+  assert.doesNotMatch(appPage, /<StadtstackStagingFeed/);
   assert.doesNotMatch(feed, /Diskussion → Mecky → Verbesserungsvorschlag/);
   assert.match(feed, /Staging-Testspur im normalen Feed/);
   assert.match(feed, /Bürger-Thema/);
@@ -69,9 +72,18 @@ test("keeps ordinary posts distinct and requires an explicit human promotion act
   assert.match(feed, /Als Thema weiterführen/);
   assert.match(feed, /stagingPost<[^>]+>\("\/promote"/);
   assert.match(feed, /Der ursprüngliche Beitrag bleibt unverändert/);
-  assert.ok(
-    appPage.indexOf("<StadtstackStagingFeed") > appPage.indexOf("alerts.map")
-  );
+  assert.match(postPromotion, /Als Bürger-Thema weiterführen/);
+  assert.match(postPromotion, /Was soll gemeinsam geklärt werden/);
+  assert.match(postPromotion, /Nur du als Autor/);
+});
+
+test("lets a signed-in citizen publish their own pro or contra argument", () => {
+  assert.match(discussion, /useCitizenSession/);
+  assert.match(discussion, /createAdmissionProof/);
+  assert.match(discussion, /signCivicArgument/);
+  assert.match(discussion, /intent: "argument"/);
+  assert.match(discussion, /Dein verbundenes Konto/);
+  assert.match(discussion, /Signiertes Röbel-Konto/);
 });
 
 test("refreshes a pending Mecky mention automatically without polling forever", () => {
@@ -91,6 +103,15 @@ test("labels the civic handoff and keeps vote and treasury authority disabled", 
   assert.match(discussion, /Beratendes Meinungsbild/);
   assert.match(discussion, /Keine echte Abstimmung/);
   assert.match(discussion, /keine Auszahlung/i);
+});
+
+test("does not invent a CivicCase or runnable proposal for a new topic", () => {
+  assert.match(discussion, /thread\.topic\?\.title/);
+  assert.match(discussion, /thread\.caseBinding/);
+  assert.match(discussion, /thread\.sourceAppPostId/);
+  assert.match(discussion, /Zum ursprünglichen Beitrag/);
+  assert.match(discussion, /Noch kein CivicCase/);
+  assert.match(discussion, /Vorschlag ist der nächste menschliche Schritt/);
 });
 
 test("promotes the displayed signed discussion without publishing or polling a duplicate", () => {

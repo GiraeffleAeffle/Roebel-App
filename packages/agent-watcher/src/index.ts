@@ -18,11 +18,13 @@ export {
   createPublicMecky,
   createPublicMeckyRelayReply,
   createStadtstackReviewedEvidenceReader,
+  publicMeckyDiscussionBindingFor,
 } from "./public-mecky";
 export type {
   OpenAICompatiblePublicMeckyInferenceOptions,
   PiPublicMeckyInferenceOptions,
   PublicMecky,
+  PublicMeckyDiscussionBinding,
   PublicMeckyDependencies,
   PublicMeckyInference,
   PublicMeckyInferenceInput,

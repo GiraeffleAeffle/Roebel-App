@@ -16,7 +16,6 @@ import { AlertCard } from "@/components/app/AlertCard";
 import { ContextBar } from "@/components/app/ContextBar";
 import { StadtFeed } from "@/components/app/StadtFeed";
 import { AppFeed } from "@/components/app/AppFeed";
-import { StadtstackStagingFeed } from "@/components/app/StadtstackStagingFeed";
 import { FeedProposalHero } from "@/components/proposals/FeedProposalHero";
 import { getProposals } from "@/lib/supabase";
 import { ProposalState, type Proposal } from "@/lib/proposal-types";
@@ -742,10 +741,6 @@ export default function AppHomePage() {
           {alerts.map((alert) => (
             <AlertCard key={`alert-${alert.id}`} {...alert} />
           ))}
-          {stadtstackStagingLab &&
-            (activeFilter === "all" || activeFilter === "latest" || activeFilter === "posts") && (
-              <StadtstackStagingFeed />
-            )}
           {feedWithRows.length === 0 && (
             <div className="rounded-lg border border-border bg-card p-8 text-center">
               <p className="text-sm text-muted-foreground">

@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  buildCivicArgumentEvent,
   buildCitizenSignedSuggestion,
   buildCivicDiscussionEvent,
   buildCivicPromotionEvent,
+  buildCivicTopicPromotionEvent,
   buildNoteEvent,
   getPublicKeyHex,
   verifyEvent,
@@ -59,6 +61,87 @@ test("an ordinary signed post remains immutable when its author promotes it into
     ["stance", "root"],
     ["argument-root", "self"],
   ]);
+});
+
+test("a human starts a civic topic discussion before any CivicCase exists", () => {
+  const sourcePost = buildNoteEvent(
+    SECRET,
+    "In Röbel fehlt ein offener Treffpunkt für unterschiedliche Generationen.",
+    { createdAt: 1_786_463_900 }
+  );
+
+  const promotion = buildCivicTopicPromotionEvent(SECRET, {
+    sourcePost,
+    municipalityId: "roebel-mueritz",
+    topicId:
+      "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt",
+    topicTitle: "Offener Treffpunkt in Röbel",
+    agentPubkey: MECKY,
+    content:
+      "@Mecky Welche geprüften Informationen helfen uns bei der Diskussion?",
+    createdAt: 1_786_464_000,
+  });
+
+  assert.equal(verifyEvent(promotion), true);
+  assert.deepEqual(promotion.tags, [
+    ["p", MECKY],
+    ["q", sourcePost.id, "", sourcePost.pubkey],
+    ["source-post", sourcePost.id],
+    ["t", "stadtstack-civic-discussion"],
+    ["municipality", "roebel-mueritz"],
+    [
+      "topic",
+      "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt",
+    ],
+    ["topic-title", "Offener Treffpunkt in Röbel"],
+    ["stance", "root"],
+    ["argument-root", "self"],
+  ]);
+  assert.equal(promotion.tags.some((tag) => tag[0] === "case"), false);
+  assert.equal(
+    promotion.tags.some((tag) => tag[0] === "stadtstack-case"),
+    false
+  );
+});
+
+test("another citizen signs a pro argument inside that topic without a CivicCase", () => {
+  const authorSecret = new Uint8Array(32).fill(45);
+  const participantSecret = new Uint8Array(32).fill(46);
+  const sourcePost = buildNoteEvent(
+    authorSecret,
+    "Röbel braucht einen offenen Treffpunkt.",
+    { createdAt: 100 },
+  );
+  const root = buildCivicTopicPromotionEvent(authorSecret, {
+    sourcePost,
+    municipalityId: "roebel-mueritz",
+    topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:treffpunkt",
+    topicTitle: "Offener Treffpunkt",
+    agentPubkey: MECKY,
+    content: "@Mecky Welche Optionen gibt es?",
+    createdAt: 101,
+  });
+  const argument = buildCivicArgumentEvent(participantSecret, {
+    rootEvent: root,
+    parentEvent: root,
+    municipalityId: "roebel-mueritz",
+    topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:treffpunkt",
+    stance: "pro",
+    content: "Ein gemeinsamer Ort kann Vereine und Nachbarschaft verbinden.",
+    createdAt: 102,
+  });
+
+  assert.equal(verifyEvent(argument), true);
+  assert.deepEqual(argument.tags, [
+    ["e", root.id, "", "root"],
+    ["e", root.id, "", "reply"],
+    ["argument-root", root.id],
+    ["stance", "pro"],
+    ["t", "stadtstack-argument"],
+    ["municipality", "roebel-mueritz"],
+    ["topic", "urn:stadtstack:topic:municipality:roebel-mueritz:treffpunkt"],
+  ]);
+  assert.equal(argument.tags.some((tag) => tag[0] === "case"), false);
 });
 
 test("a citizen publishes one signed, scope-bound civic discussion that explicitly mentions Mecky", () => {

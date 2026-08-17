@@ -30,6 +30,7 @@ import {
   type StagingPersona,
   type StagingThreadResponse,
 } from "@/lib/stadtstack/staging-api";
+import { useCitizenSession } from "@/lib/citizen-session/CitizenSessionContext";
 
 type WorkflowState = {
   discussion?: Record<string, unknown>;
@@ -66,7 +67,7 @@ function ArgumentNode({ node, onReply }: { node: ArgumentTreeNode; onReply: (arg
         <div className="flex flex-wrap items-center gap-2 text-xs">
           {!root && <span className={`rounded-full px-2 py-0.5 font-bold uppercase ${node.argument.stance === "pro" ? "bg-emerald-700 text-white" : "bg-rose-700 text-white"}`}>{node.argument.stance === "pro" ? "Pro" : "Contra"}</span>}
           <span className="font-semibold text-foreground">{node.argument.author.name}</span>
-          <span className="text-muted-foreground">{node.argument.author.kind === "mecky" ? "KI-Assistent" : "Synthetisches Profil"}</span>
+          <span className="text-muted-foreground">{node.argument.author.kind === "mecky" ? "KI-Assistent" : node.argument.author.synthetic ? "Synthetisches Profil" : "Signiertes Röbel-Konto"}</span>
         </div>
         <p className="mt-2 text-sm leading-6 text-foreground">{node.argument.content}</p>
         <button type="button" onClick={() => onReply(node.argument)} className="mt-2 text-xs font-semibold text-primary hover:underline">Auf dieses Argument antworten</button>
@@ -86,6 +87,7 @@ function WorkflowStep({ label, done, detail }: { label: string; done: boolean; d
 }
 
 export function StadtstackDiscussion({ rootId }: { rootId: string }) {
+  const citizenSession = useCitizenSession();
   const [thread, setThread] = useState<StagingThreadResponse | null>(null);
   const [config, setConfig] = useState<StagingConfigResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -96,6 +98,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
   const [stance, setStance] = useState<"pro" | "con">("pro");
   const [claim, setClaim] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [admittedPubkey, setAdmittedPubkey] = useState<string | null>(null);
   const [workflow, setWorkflow] = useState<WorkflowState>({});
   const [workflowBusy, setWorkflowBusy] = useState(false);
   const meckyPollAttempts = useRef(0);
@@ -150,12 +153,50 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
   const segments = useMemo(() => graph ? buildSunburstSegments(graph.root) : [], [graph]);
   const rootEvent = graph?.root.argument;
   const proposalPersona = config?.personas.find((entry) => entry.publicKey === thread?.rootEvent?.pubkey) ?? null;
+  const citizenArgumentMode = Boolean(
+    citizenSession && thread?.topic && !thread.caseBinding,
+  );
 
   const publishClaim = async () => {
-    if (!persona || !replyTo || !claim.trim()) return;
+    if ((!citizenArgumentMode && !persona) || !replyTo || !claim.trim()) return;
     setSubmitting(true);
     try {
-      await stagingPost("/claim", { personaId: persona.id, rootEventId: rootId, parentEventId: replyTo.id, stance, content: claim.trim() });
+      if (citizenArgumentMode && citizenSession && thread?.rootEvent && thread.topic) {
+        let pubkey = admittedPubkey;
+        if (!pubkey) {
+          const proof = await citizenSession.createAdmissionProof();
+          const admitted = await stagingPost<{
+            status: "admitted";
+            pubkey: string;
+          }>("/session/admit", proof);
+          if (admitted.pubkey !== proof.bindingEvent.pubkey) {
+            throw new Error("citizen_argument_admission_invalid");
+          }
+          pubkey = admitted.pubkey;
+          setAdmittedPubkey(pubkey);
+        }
+        const parentEvent = thread.events[replyTo.id];
+        if (!parentEvent) throw new Error("citizen_argument_parent_missing");
+        const signed = await citizenSession.signCivicArgument({
+          rootEvent: thread.rootEvent,
+          parentEvent,
+          municipalityId: "roebel-mueritz",
+          topicId: thread.topic.id,
+          stance,
+          content: claim.trim(),
+          createdAt: Math.max(
+            Math.floor(Date.now() / 1_000),
+            thread.rootEvent.created_at + 1,
+            parentEvent.created_at + 1,
+          ),
+        });
+        if (signed.pubkey !== pubkey) {
+          throw new Error("citizen_argument_signer_mismatch");
+        }
+        await stagingPost("/signed-event", { intent: "argument", event: signed });
+      } else {
+        await stagingPost("/claim", { personaId: persona!.id, rootEventId: rootId, parentEventId: replyTo.id, stance, content: claim.trim() });
+      }
       setClaim("");
       setReplyTo(null);
       await reload();
@@ -165,7 +206,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
   };
 
   const startProposal = async () => {
-    if (!proposalPersona || !thread?.mecky || !thread.rootEvent || !rootEvent) return;
+    if (!proposalPersona || !thread?.mecky || !thread.rootEvent || !thread.caseBinding || !rootEvent) return;
     setWorkflowBusy(true);
     try {
       const suggestion = await stagingPost<{ suggestion: Record<string, unknown> }>("/suggestion", {
@@ -192,8 +233,19 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
       <Link href="/app" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Zurück zum Feed</Link>
       <header className="rounded-xl border border-emerald-700/25 bg-emerald-950 p-5 text-white">
         <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-200"><GitFork className="h-4 w-4" /> Signierte Nostr-Diskussion · Staging</div>
-        <h1 className="mt-2 text-xl font-bold leading-8">{rootEvent.content}</h1>
-        <p className="mt-2 text-xs text-emerald-100">Synthetische Profile · keine Produktionsnutzer · Ereignis {rootId.slice(0, 12)}…</p>
+        <h1 className="mt-2 text-xl font-bold leading-8">{thread.topic?.title ?? rootEvent.content}</h1>
+        {thread.topic && <p className="mt-2 text-sm leading-6 text-emerald-50">{rootEvent.content}</p>}
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-emerald-100">
+          <span>Staging · signierter Beitrag von {rootEvent.author.name} · Ereignis {rootId.slice(0, 12)}…</span>
+          {thread.sourceAppPostId && (
+            <Link
+              href={`/app/posts/${thread.sourceAppPostId}`}
+              className="font-semibold text-white underline underline-offset-2"
+            >
+              Zum ursprünglichen Beitrag
+            </Link>
+          )}
+        </div>
       </header>
 
       {error && <div role="alert" className="flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900"><ShieldAlert className="h-4 w-4" /> {error}</div>}
@@ -224,11 +276,15 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
         <section className="rounded-xl border border-primary/30 bg-card p-4">
           <h2 className="text-sm font-bold">Auf „{replyTo.content.slice(0, 90)}{replyTo.content.length > 90 ? "…" : ""}“ antworten</h2>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <label className="text-xs font-semibold">Testprofil<select value={persona?.id ?? ""} onChange={(event) => setPersona(config?.personas.find((entry) => entry.id === event.target.value) ?? null)} className="mt-1 w-full rounded-lg border border-border bg-background p-2 text-sm">{config?.personas.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}</select></label>
+            {citizenArgumentMode && citizenSession ? (
+              <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-2 text-xs font-semibold text-emerald-950">Dein verbundenes Konto · {citizenSession.snapshot.credential.address.slice(0, 8)}…</div>
+            ) : (
+              <label className="text-xs font-semibold">Testprofil<select value={persona?.id ?? ""} onChange={(event) => setPersona(config?.personas.find((entry) => entry.id === event.target.value) ?? null)} className="mt-1 w-full rounded-lg border border-border bg-background p-2 text-sm">{config?.personas.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}</select></label>
+            )}
             <label className="text-xs font-semibold">Einordnung<select value={stance} onChange={(event) => setStance(event.target.value as "pro" | "con")} className="mt-1 w-full rounded-lg border border-border bg-background p-2 text-sm"><option value="pro">Pro</option><option value="con">Contra</option></select></label>
           </div>
           <textarea value={claim} onChange={(event) => setClaim(event.target.value)} maxLength={1_000} rows={3} placeholder="Begründetes Argument…" className="mt-3 w-full rounded-lg border border-border bg-background p-3 text-sm" />
-          <div className="mt-3 flex justify-end gap-2"><button type="button" onClick={() => setReplyTo(null)} className="rounded-full px-4 py-2 text-sm font-semibold text-muted-foreground">Abbrechen</button><button type="button" onClick={publishClaim} disabled={submitting || !claim.trim()} className="rounded-full bg-primary px-4 py-2 text-sm font-bold text-primary-foreground disabled:opacity-50">{submitting ? "Wird signiert…" : "Nostr-Argument signieren"}</button></div>
+          <div className="mt-3 flex justify-end gap-2"><button type="button" onClick={() => setReplyTo(null)} className="rounded-full px-4 py-2 text-sm font-semibold text-muted-foreground">Abbrechen</button><button type="button" onClick={publishClaim} disabled={submitting || !claim.trim()} className="rounded-full bg-primary px-4 py-2 text-sm font-bold text-primary-foreground disabled:opacity-50">{submitting ? "Wird signiert…" : citizenArgumentMode ? "Mit meinem Konto signieren" : "Nostr-Argument signieren"}</button></div>
         </section>
       )}
 
@@ -245,7 +301,16 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
           <WorkflowStep label="Verwaltungsfeedback und Citizen Brief" done={Boolean(workflow.completion)} detail="Acht getrennte Fachpakete werden geprüft und öffentlich verständlich zusammengeführt." />
           <WorkflowStep label="Beratendes Meinungsbild im Mitmachen-Bereich" done={Boolean(workflow.publicView)} detail="In Staging sichtbar und nachvollziehbar, aber nicht bindend." />
         </ol>
-        <button type="button" onClick={startProposal} disabled={workflowBusy || !thread.mecky || !thread.rootEvent || !proposalPersona || Boolean(workflow.publicView)} className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50">{workflowBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> Ablauf wird ausgeführt…</> : workflow.publicView ? <><CheckCircle2 className="h-4 w-4" /> Staging-Ablauf abgeschlossen</> : <><Landmark className="h-4 w-4" /> Verbesserungsvorschlag starten</>}</button>
+        {!thread.caseBinding && (
+          <div className="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+            <p className="font-semibold">Noch kein CivicCase</p>
+            <p className="mt-1 text-xs leading-5">
+              Ein bürger-signierter Vorschlag ist der nächste menschliche Schritt.
+              Erst seine ausdrückliche Aufnahme darf einen neuen Fall anlegen.
+            </p>
+          </div>
+        )}
+        <button type="button" onClick={startProposal} disabled={workflowBusy || !thread.mecky || !thread.rootEvent || !thread.caseBinding || !proposalPersona || Boolean(workflow.publicView)} className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50">{workflowBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> Ablauf wird ausgeführt…</> : workflow.publicView ? <><CheckCircle2 className="h-4 w-4" /> Staging-Ablauf abgeschlossen</> : !thread.caseBinding ? <><Landmark className="h-4 w-4" /> Vorschlag ist der nächste menschliche Schritt</> : <><Landmark className="h-4 w-4" /> Verbesserungsvorschlag starten</>}</button>
         <div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="rounded-lg border border-border bg-muted/50 p-3"><div className="flex items-center gap-2 text-sm font-bold"><Vote className="h-4 w-4" /> Keine echte Abstimmung</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Das Staging-Ergebnis ist ein beratendes Meinungsbild ohne formale Rats- oder Governance-Wirkung.</p></div><div className="rounded-lg border border-border bg-muted/50 p-3"><div className="flex items-center gap-2 text-sm font-bold"><CircleDollarSign className="h-4 w-4" /> Stadtkasse getrennt</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Budgetbedarf kann als Verwaltungsprüfung erscheinen; keine Auszahlung und keine Treasury-Transaktion wird ausgelöst.</p></div></div>
       </section>
     </div>

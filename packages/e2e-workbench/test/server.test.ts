@@ -4,8 +4,10 @@ import {
   bindingStatement,
   buildAgentNoteEvent,
   buildBindingEvent,
+  buildCivicArgumentEvent,
   buildCivicDiscussionEvent,
   buildCivicPromotionEvent,
+  buildCivicTopicPromotionEvent,
   buildCitizenSignedSuggestion,
   buildNoteEvent,
   deriveAgentIdentity,
@@ -315,6 +317,227 @@ describe("Röbel E2E workbench boundary", () => {
       assert.equal(realPost?.synthetic, false);
       assert.equal(realPost?.promotedDiscussionId, promotion.id);
       assert.match(realPost?.author.name ?? "", /^Bürger:in /);
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("projects the immutable Röbel app post bound to a citizen-signed Nostr mirror", async () => {
+    const config = parseWorkbenchConfig(environment());
+    const events: Array<Record<string, unknown>> = [];
+    const relay = {
+      query: async () => events,
+      publish: async (entry: Record<string, unknown>) => {
+        if (!events.some((candidate) => candidate.id === entry.id))
+          events.push(entry);
+        return { ok: true, message: "stored" };
+      },
+      close: () => {},
+    };
+    const running = await startWorkbench(config, {
+      citizenRelay: relay as never,
+      agentRelay: { ...relay, query: async () => [] } as never,
+    });
+    try {
+      const origin = `http://127.0.0.1:${running.port}/stadtstack-test`;
+      const sourceAppPostId = "018f1c63-7b2a-4a11-8a55-2e3d9c4b5a61";
+      const signedPost = buildNoteEvent(
+        Uint8Array.from(Buffer.from("56".repeat(32), "hex")),
+        "Die Querung an der Marienfelder Straße ist unübersichtlich.",
+        {
+          createdAt: 101,
+          tags: [["source-app-post", sourceAppPostId]],
+        }
+      );
+
+      const publishResponse = await fetch(`${origin}/api/signed-event`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stadtstack-e2e": "1",
+        },
+        body: JSON.stringify({ intent: "post", event: signedPost }),
+      });
+      assert.equal(publishResponse.status, 200);
+
+      const feed = (await fetch(`${origin}/api/feed`).then((response) =>
+        response.json()
+      )) as {
+        posts: Array<{
+          id: string;
+          entryType: "post" | "topic";
+          sourceAppPostId?: string | null;
+        }>;
+      };
+      assert.equal(
+        feed.posts.find((entry) => entry.id === signedPost.id)
+          ?.sourceAppPostId,
+        sourceAppPostId
+      );
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("accepts a human-started civic topic without inventing a CivicCase", async () => {
+    const config = parseWorkbenchConfig(environment());
+    const events: Array<Record<string, unknown>> = [];
+    const relay = {
+      query: async () => events,
+      publish: async (entry: Record<string, unknown>) => {
+        if (!events.some((candidate) => candidate.id === entry.id))
+          events.push(entry);
+        return { ok: true, message: "stored" };
+      },
+      close: () => {},
+    };
+    const running = await startWorkbench(config, {
+      citizenRelay: relay as never,
+      agentRelay: { ...relay, query: async () => [] } as never,
+    });
+    try {
+      const origin = `http://127.0.0.1:${running.port}/stadtstack-test`;
+      const citizenSecret = Uint8Array.from(
+        Buffer.from("57".repeat(32), "hex")
+      );
+      const sourcePost = buildNoteEvent(
+        citizenSecret,
+        "In Röbel fehlt ein offener Treffpunkt.",
+        {
+          createdAt: 101,
+          tags: [
+            [
+              "source-app-post",
+              "018f1c63-7b2a-4a11-8a55-2e3d9c4b5a61",
+            ],
+          ],
+        }
+      );
+      const promotion = buildCivicTopicPromotionEvent(citizenSecret, {
+        sourcePost,
+        municipalityId: "roebel-mueritz",
+        topicId:
+          "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt",
+        topicTitle: "Offener Treffpunkt in Röbel",
+        agentPubkey: config.meckyPubkey,
+        content: "@Mecky, welche geprüften Informationen liegen dazu vor?",
+        createdAt: 102,
+      });
+      for (const [intent, event] of [
+        ["post", sourcePost],
+        ["promotion", promotion],
+      ] as const) {
+        const response = await fetch(`${origin}/api/signed-event`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-stadtstack-e2e": "1",
+          },
+          body: JSON.stringify({ intent, event }),
+        });
+        assert.equal(response.status, 200);
+      }
+
+      const feed = (await fetch(`${origin}/api/feed`).then((response) =>
+        response.json()
+      )) as {
+        posts: Array<{
+          id: string;
+          entryType: "post" | "topic";
+          topicId?: string;
+          topicTitle?: string;
+        }>;
+      };
+      const topic = feed.posts.find(
+        (entry) =>
+          entry.entryType === "topic" &&
+          entry.topicId ===
+            "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt"
+      );
+      assert.equal(topic?.id, promotion.id);
+      assert.equal(topic?.topicTitle, "Offener Treffpunkt in Röbel");
+      assert.equal(promotion.tags.some((tag) => tag[0] === "case"), false);
+      assert.equal(
+        promotion.tags.some((tag) => tag[0] === "stadtstack-case"),
+        false
+      );
+      const thread = (await fetch(
+        `${origin}/api/thread?root=${promotion.id}`
+      ).then((response) => response.json())) as {
+        topic: { id: string; title: string } | null;
+        caseBinding: Record<string, string> | null;
+        sourceAppPostId: string | null;
+        events: Record<string, { id: string }>;
+      };
+      assert.deepEqual(thread.topic, {
+        id: "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt",
+        title: "Offener Treffpunkt in Röbel",
+      });
+      assert.equal(thread.caseBinding, null);
+      assert.equal(
+        thread.sourceAppPostId,
+        "018f1c63-7b2a-4a11-8a55-2e3d9c4b5a61",
+      );
+      assert.equal(thread.events[promotion.id]?.id, promotion.id);
+
+      const claimResponse = await fetch(`${origin}/api/claim`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stadtstack-e2e": "1",
+        },
+        body: JSON.stringify({
+          personaId: "citizen-anna",
+          rootEventId: promotion.id,
+          parentEventId: promotion.id,
+          stance: "pro",
+          content: "Ein zeitlich begrenzter Treffpunkt könnte Erfahrungen liefern.",
+        }),
+      });
+      const claim = (await claimResponse.json()) as {
+        event: { tags: string[][] };
+      };
+      assert.equal(claimResponse.status, 200);
+      assert.equal(
+        claim.event.tags.some(
+          (tag) => tag[0] === "topic" && tag[1] === thread.topic?.id,
+        ),
+        true,
+      );
+      assert.equal(claim.event.tags.some((tag) => tag[0] === "case"), false);
+
+      const signedArgument = buildCivicArgumentEvent(
+        Uint8Array.from(Buffer.from("58".repeat(32), "hex")),
+        {
+          rootEvent: promotion,
+          parentEvent: promotion,
+          municipalityId: "roebel-mueritz",
+          topicId: thread.topic!.id,
+          stance: "con",
+          content: "Die laufenden Kosten brauchen ein belastbares Modell.",
+          createdAt: 103,
+        },
+      );
+      const signedArgumentResponse = await fetch(`${origin}/api/signed-event`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stadtstack-e2e": "1",
+        },
+        body: JSON.stringify({ intent: "argument", event: signedArgument }),
+      });
+      assert.equal(signedArgumentResponse.status, 200);
+      const updatedThread = (await fetch(
+        `${origin}/api/thread?root=${promotion.id}`,
+      ).then((response) => response.json())) as {
+        arguments: Array<{ id: string; stance: string }>;
+      };
+      assert.equal(
+        updatedThread.arguments.some(
+          (entry) => entry.id === signedArgument.id && entry.stance === "con",
+        ),
+        true,
+      );
     } finally {
       await running.close();
     }

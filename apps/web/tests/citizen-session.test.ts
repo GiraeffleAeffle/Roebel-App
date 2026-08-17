@@ -133,6 +133,24 @@ test("adds only explicit Nostr mentions to an ordinary signed post", async () =>
   assert.equal(verifyEvent(post), true);
 });
 
+test("binds an ordinary signed post to the immutable Röbel app post it mirrors", async () => {
+  const session = createCitizenSession({
+    appAccountId: "account-1",
+    credential: credential(),
+    memberId: null,
+  });
+  const post = await session.signPublicPost({
+    content: "Die Querung an der Marienfelder Straße ist unübersichtlich.",
+    createdAt: 14,
+    sourceAppPostId: "018f1c63-7b2a-7a11-8a55-2e3d9c4b5a61",
+  });
+
+  assert.deepEqual(post.tags, [
+    ["source-app-post", "018f1c63-7b2a-7a11-8a55-2e3d9c4b5a61"],
+  ]);
+  assert.equal(verifyEvent(post), true);
+});
+
 test("promotes only the authenticated citizen's signed source post", async () => {
   const session = createCitizenSession({
     appAccountId: "account-1",
@@ -169,6 +187,80 @@ test("promotes only the authenticated citizen's signed source post", async () =>
       "urn:stadtstack:topic:municipality:roebel-mueritz:marienfelder-strasse",
     ]
   );
+});
+
+test("starts a signed civic topic without creating a CivicCase binding", async () => {
+  const session = createCitizenSession({
+    appAccountId: "account-1",
+    credential: credential(),
+    memberId: null,
+  });
+  const sourcePost = await session.signPublicPost({
+    content: "Uns fehlt ein gemeinsamer Treffpunkt.",
+    createdAt: 30,
+    sourceAppPostId: "018f1c63-7b2a-4a11-8a55-2e3d9c4b5a61",
+  });
+
+  const promoted = await session.promotePublicPostToTopic({
+    sourcePost,
+    municipalityId: "roebel-mueritz",
+    topicId:
+      "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt",
+    topicTitle: "Offener Treffpunkt in Röbel",
+    agentPubkey: "ab".repeat(32),
+    content: "@Mecky, welche geprüften Informationen liegen dazu vor?",
+    createdAt: 31,
+  });
+
+  assert.equal(verifyEvent(promoted), true);
+  assert.equal(promoted.tags.some((tag) => tag[0] === "case"), false);
+  assert.equal(
+    promoted.tags.some((tag) => tag[0] === "stadtstack-case"),
+    false
+  );
+});
+
+test("signs a participant's argument without exposing either citizen key", async () => {
+  const author = createCitizenSession({
+    appAccountId: "account-1",
+    credential: credential(),
+    memberId: null,
+  });
+  const participant = createCitizenSession({
+    appAccountId: "account-2",
+    credential: credential({
+      address: "0x2222222222222222222222222222222222222222",
+      signMessage: async () => `0x${"43".repeat(65)}`,
+    }),
+    memberId: null,
+  });
+  const sourcePost = await author.signPublicPost({
+    content: "Uns fehlt ein gemeinsamer Treffpunkt.",
+    createdAt: 40,
+    sourceAppPostId: "018f1c63-7b2a-4a11-8a55-2e3d9c4b5a61",
+  });
+  const root = await author.promotePublicPostToTopic({
+    sourcePost,
+    municipalityId: "roebel-mueritz",
+    topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:treffpunkt",
+    topicTitle: "Offener Treffpunkt",
+    agentPubkey: "ab".repeat(32),
+    content: "@Mecky, welche Optionen gibt es?",
+    createdAt: 41,
+  });
+  const argument = await participant.signCivicArgument({
+    rootEvent: root,
+    parentEvent: root,
+    municipalityId: "roebel-mueritz",
+    topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:treffpunkt",
+    stance: "con",
+    content: "Betrieb und Zugänglichkeit müssen dauerhaft geklärt sein.",
+    createdAt: 42,
+  });
+
+  assert.notEqual(argument.pubkey, root.pubkey);
+  assert.equal(verifyEvent(argument), true);
+  assert.equal(argument.tags.some((tag) => tag[0] === "case"), false);
 });
 
 test("fails closed when the provider returns a malformed signature", async () => {
