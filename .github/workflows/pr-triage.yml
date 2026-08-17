@@ -7,7 +7,8 @@ name: PR triage
 #             flags). Same-repo PRs only, so untrusted forks can't reach the API
 #             key (prompt-injection guard).
 #
-# Required secret for the summary job: ANTHROPIC_API_KEY.
+# Optional secret for the summary job: ANTHROPIC_API_KEY. Forks without the
+# secret keep the path-label check and skip only the AI summary step.
 
 on:
   pull_request_target:
@@ -33,6 +34,8 @@ jobs:
   summary:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     permissions:
       contents: read
       pull-requests: write
@@ -43,12 +46,19 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
+      - name: Explain unavailable AI summary
+        if: env.ANTHROPIC_API_KEY == ''
+        run: echo "::notice::ANTHROPIC_API_KEY is unavailable; skipping the optional AI PR summary."
+
       - name: AI PR summary
+        if: env.ANTHROPIC_API_KEY != ''
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          model: claude-sonnet-4-6
-          allowed_tools: "Bash(gh pr:*),Bash(git diff:*),Bash(git log:*),Read,Grep,Glob"
+          anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          claude_args: >-
+            --model claude-sonnet-4-6
+            --allowedTools "Bash(gh pr:*),Bash(git diff:*),Bash(git log:*),Read,Grep,Glob"
           prompt: |
             Triage pull request #${{ github.event.pull_request.number }} in this
             Turborepo monorepo (web / Expo / Supabase / Solidity contracts).
