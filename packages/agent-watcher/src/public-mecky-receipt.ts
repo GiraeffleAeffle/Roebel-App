@@ -14,6 +14,7 @@ export interface PublicMeckyEvidenceRef {
 }
 
 export interface PublicMeckyAnsweredResult {
+  status: "answered";
   content: string;
   evidenceRefs: PublicMeckyEvidenceRef[];
 }
@@ -92,6 +93,7 @@ function validateDiscussionBinding(
 
 function validateAnswer(result: PublicMeckyAnsweredResult): void {
   if (
+    result.status !== "answered" ||
     !result.content.trim() ||
     result.content.length > 2_000 ||
     result.evidenceRefs.length === 0 ||

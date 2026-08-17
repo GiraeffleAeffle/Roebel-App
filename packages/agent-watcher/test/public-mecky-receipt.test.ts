@@ -36,6 +36,7 @@ it("binds a Mecky reply to a civic topic before any CivicCase exists", () => {
         "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt",
     },
     result: {
+      status: "answered",
       content:
         "Dazu liegt bislang nur die geprüfte kommunale Ausgangslage vor.",
       evidenceRefs: [

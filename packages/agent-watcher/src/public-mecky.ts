@@ -56,9 +56,7 @@ export interface PublicMeckyDependencies {
 }
 
 export type PublicMeckyResult =
-  | (PublicMeckyAnsweredResult & {
-      status: "answered";
-    })
+  | PublicMeckyAnsweredResult
   | {
       status: "refused";
       reason: string;
