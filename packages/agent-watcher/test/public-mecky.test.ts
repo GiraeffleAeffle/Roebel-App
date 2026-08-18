@@ -173,6 +173,8 @@ describe("Public Mecky", () => {
     assert.deepEqual(result, {
       status: "refused",
       reason: "no_reviewed_evidence",
+      retryable: false,
+      diagnosticCode: "no_reviewed_evidence",
     });
     assert.equal(inferenceCalls, 0);
   });
@@ -371,6 +373,7 @@ describe("Public Mecky", () => {
     assert.equal(requestBody.stream, false);
     assert.equal(requestBody.temperature, 0);
     assert.equal(requestBody.max_tokens, 500);
+    assert.deepEqual(requestBody.response_format, { type: "json_object" });
     assert.ok(!("tools" in requestBody));
     assert.match(JSON.stringify(requestBody), /Kann ich schon abstimmen/);
     assert.match(JSON.stringify(requestBody), new RegExp(EVIDENCE_ID));
@@ -443,6 +446,20 @@ describe("Public Mecky", () => {
     );
   });
 
+  it("preserves only a provider HTTP status for retry diagnostics", async () => {
+    const infer = createPiPublicMeckyInference({
+      baseUrl: "https://inference.hetzner.com/api/v1",
+      apiKey: "test-token",
+      model: "Qwen/Qwen3.6-35B-A3B-FP8",
+      fetch: async () => new Response("not exposed", { status: 403 }),
+    });
+
+    await assert.rejects(
+      infer({ question: "Frage", evidence: [] }),
+      /Public Mecky provider failed with HTTP 403/
+    );
+  });
+
   it("fails closed when a Pi provider attempts a tool call", async () => {
     const infer = createPiPublicMeckyInference({
       baseUrl: "https://inference.hetzner.com/api/v1",
@@ -496,6 +513,8 @@ describe("Public Mecky", () => {
     assert.deepEqual(await mecky.answerMention("Was ist der Stand?"), {
       status: "refused",
       reason: "inference_unavailable",
+      retryable: true,
+      diagnosticCode: "provider_transport_unavailable",
     });
   });
 
@@ -514,6 +533,8 @@ describe("Public Mecky", () => {
     assert.deepEqual(await mecky.answerMention("Was ist der Stand?"), {
       status: "refused",
       reason: "evidence_unavailable",
+      retryable: true,
+      diagnosticCode: "evidence_reader_unavailable",
     });
     assert.equal(inferenceCalls, 0);
   });
@@ -542,6 +563,8 @@ describe("Public Mecky", () => {
     assert.deepEqual(await mecky.answerMention("Ist das beschlossen?"), {
       status: "refused",
       reason: "unverified_evidence_reference",
+      retryable: false,
+      diagnosticCode: "unverified_evidence_reference",
     });
   });
 });

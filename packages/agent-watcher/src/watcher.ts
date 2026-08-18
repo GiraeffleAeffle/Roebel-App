@@ -6,7 +6,13 @@ import {
   type AgentIdentity,
   type NostrEvent,
 } from "@netizen-labs/nostr";
-import { recordReply, shouldAnswer, type Bounds, type ReplyHistory } from "./bounds";
+import {
+  deferReply,
+  recordReply,
+  shouldAnswer,
+  type Bounds,
+  type ReplyHistory,
+} from "./bounds";
 
 /**
  * Watch a relay for mentions of this node's agent and answer in place.
@@ -99,6 +105,8 @@ function restorePublishedReply(history: ReplyHistory, event: NostrEvent): void {
   if (!parentId || history.answered.has(parentId)) return;
 
   history.answered.add(parentId);
+  history.retryAfter.delete(parentId);
+  history.retryAttempts.delete(parentId);
   history.repliedAt.push(event.created_at);
   const author = event.tags.find(
     (tag) => tag[0] === "p" && typeof tag[1] === "string",
@@ -189,6 +197,9 @@ export async function watchOnce(deps: WatcherDeps): Promise<PassResult> {
         answer = normalizeReply(await deps.think(event.content, event));
       } catch (error) {
         log(`thinking failed for ${event.id.slice(0, 12)}: ${(error as Error).message}`);
+        deferReply(deps.history, event, now);
+        refused["thinking-failed"] = (refused["thinking-failed"] ?? 0) + 1;
+        continue;
       }
 
       if (!answer) {

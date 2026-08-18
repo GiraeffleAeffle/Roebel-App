@@ -60,6 +60,8 @@ export type PublicMeckyResult =
   | {
       status: "refused";
       reason: string;
+      retryable: boolean;
+      diagnosticCode: string;
     };
 
 export interface PublicMecky {
@@ -168,6 +170,7 @@ function createHetznerPiTransport(options: {
             temperature: 0,
             max_tokens: 500,
             stream: false,
+            response_format: { type: "json_object" },
             messages: openAiMessages(context),
           }),
           signal: streamOptions?.signal,
@@ -438,6 +441,17 @@ export function createPiPublicMeckyInference(
         (message): message is AssistantMessage => message.role === "assistant"
       );
     if (!assistant || assistant.stopReason !== "stop") {
+      const providerStatus = /HTTP ([45][0-9]{2})/.exec(
+        assistant?.errorMessage ?? ""
+      )?.[1];
+      if (providerStatus) {
+        throw new Error(
+          `Public Mecky provider failed with HTTP ${providerStatus}.`
+        );
+      }
+      if (assistant?.stopReason === "aborted") {
+        throw new Error("Public Mecky Pi run was aborted.");
+      }
       throw new Error("Public Mecky provider failed to complete the Pi run.");
     }
     if (assistant.content.some((block) => block.type !== "text")) {
@@ -558,23 +572,52 @@ export function createPublicMecky(
       try {
         evidence = await dependencies.readReviewedEvidence();
       } catch {
-        return { status: "refused", reason: "evidence_unavailable" };
+        return {
+          status: "refused",
+          reason: "evidence_unavailable",
+          retryable: true,
+          diagnosticCode: "evidence_reader_unavailable",
+        };
       }
       if (evidence.length === 0) {
-        return { status: "refused", reason: "no_reviewed_evidence" };
+        return {
+          status: "refused",
+          reason: "no_reviewed_evidence",
+          retryable: false,
+          diagnosticCode: "no_reviewed_evidence",
+        };
       }
       let inference: PublicMeckyInference;
       try {
         inference = await dependencies.infer({ question, evidence });
-      } catch {
-        return { status: "refused", reason: "inference_unavailable" };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        const httpStatus = /HTTP ([45][0-9]{2})/.exec(message)?.[1];
+        const diagnosticCode = httpStatus
+          ? `provider_http_${httpStatus}`
+          : /timed out|aborted/i.test(message)
+            ? "provider_timeout"
+            : /invalid|failed to complete/i.test(message)
+              ? "provider_invalid_response"
+              : "provider_transport_unavailable";
+        return {
+          status: "refused",
+          reason: "inference_unavailable",
+          retryable: true,
+          diagnosticCode,
+        };
       }
       const evidenceById = new Map(
         evidence.map((entry) => [entry.evidenceId, entry] as const)
       );
       const cited = inference.evidenceIds.map((id) => evidenceById.get(id));
       if (cited.length === 0 || cited.some((entry) => !entry)) {
-        return { status: "refused", reason: "unverified_evidence_reference" };
+        return {
+          status: "refused",
+          reason: "unverified_evidence_reference",
+          retryable: false,
+          diagnosticCode: "unverified_evidence_reference",
+        };
       }
       const evidenceRefs = cited.map((entry) => ({
         evidenceId: entry!.evidenceId,

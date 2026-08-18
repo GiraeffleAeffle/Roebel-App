@@ -133,8 +133,11 @@ async function main(): Promise<void> {
               : answer.content;
           }
           console.log(
-            `[${new Date().toISOString()}] declined public Mecky answer: ${answer.reason}`,
+            `[${new Date().toISOString()}] declined public Mecky answer: ${answer.reason} (${answer.diagnosticCode})`,
           );
+          if (answer.retryable) {
+            throw new Error(`public_mecky_retryable:${answer.diagnosticCode}`);
+          }
           return null;
         },
         log: (m) => console.log(`[${new Date().toISOString()}] ${m}`),

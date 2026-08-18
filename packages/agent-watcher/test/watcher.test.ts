@@ -365,16 +365,30 @@ describe("answering a mention", () => {
     assert.equal(published.length, 2, "a rejected reply must be retried");
   });
 
-  it("a thinking failure does not abort the pass", async () => {
+  it("a thinking failure does not abort the pass and is retried after backoff", async () => {
     const bad = buildNoteEvent(CITIZEN, "explodiert", { createdAt: NOW - 50 });
     const good = buildNoteEvent(CITIZEN, "geht", { createdAt: NOW - 10 });
+    let now = NOW;
     let call = 0;
     const h = harness([bad, good], async () => {
       call += 1;
       if (call === 1) throw new Error("model down");
       return "Antwort";
     });
-    const result = await watchOnce(h.deps);
-    assert.equal(result.answered, 1);
+    h.deps.now = () => now;
+
+    const first = await watchOnce(h.deps);
+    assert.equal(first.answered, 1);
+    assert.equal(first.refused["thinking-failed"], 1);
+    assert.equal(h.deps.history.answered.has(bad.id), false);
+
+    const duringBackoff = await watchOnce(h.deps);
+    assert.equal(duringBackoff.answered, 0);
+    assert.equal(duringBackoff.refused["retry-backoff"], 1);
+
+    now += 60;
+    const retried = await watchOnce(h.deps);
+    assert.equal(retried.answered, 1);
+    assert.equal(h.deps.history.answered.has(bad.id), true);
   });
 });

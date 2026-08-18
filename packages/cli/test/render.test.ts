@@ -477,7 +477,7 @@ test("a declared watcher becomes a rendered service, not a hand-started containe
         inference: {
           baseUrl: "https://inference.hetzner.com/api/v1",
           apiKey: "$HETZNER_INFERENCE_API_KEY",
-          model: "DeepSeek-V4-Flash-0731",
+          model: "Qwen/Qwen3.6-35B-A3B-FP8",
         },
         perAuthorPerHour: 5,
         perDay: 100,
@@ -516,7 +516,7 @@ test("a declared watcher becomes a rendered service, not a hand-started containe
     watcherBlock,
     /MECKY_INFERENCE_BASE_URL: "https:\/\/inference\.hetzner\.com\/api\/v1"/,
   );
-  assert.match(watcherBlock, /MECKY_INFERENCE_MODEL: "DeepSeek-V4-Flash-0731"/);
+  assert.match(watcherBlock, /MECKY_INFERENCE_MODEL: "Qwen\/Qwen3\.6-35B-A3B-FP8"/);
   assert.match(watcherBlock, /AGENT_PER_AUTHOR_PER_HOUR: "5"/);
   assert.match(watcherBlock, /AGENT_PER_DAY: "100"/);
   // Secrets are compose-interpolated from the box's .env, never inlined —

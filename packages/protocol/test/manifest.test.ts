@@ -35,7 +35,7 @@ test("Public Mecky declares reviewed evidence and a referenced inference credent
     watcher?.inference.baseUrl,
     "https://inference.hetzner.com/api/v1",
   );
-  assert.equal(watcher?.inference.model, "DeepSeek-V4-Flash-0731");
+  assert.equal(watcher?.inference.model, "Qwen/Qwen3.6-35B-A3B-FP8");
   assert.equal(watcher?.inference.apiKey, "$HETZNER_INFERENCE_API_KEY");
 
   const inlineKey = structuredClone(roebel);
