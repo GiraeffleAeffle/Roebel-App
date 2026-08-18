@@ -77,6 +77,24 @@ test("keeps ordinary posts distinct and requires an explicit human promotion act
   assert.match(postPromotion, /Nur du als Autor/);
 });
 
+test("lets explicit @Mecky mentions answer inside an ordinary app thread without auto-promotion", () => {
+  assert.match(postPromotion, /promoteAppPostToCivicTopic/);
+  assert.match(
+    readFileSync(
+      new URL("../src/components/app/PostComposer.tsx", import.meta.url),
+      "utf8"
+    ),
+    /requestAppMeckyConversationAnswer/
+  );
+  assert.match(
+    readFileSync(
+      new URL("../src/components/app/CommentSection.tsx", import.meta.url),
+      "utf8"
+    ),
+    /data-mecky-conversation-reply/
+  );
+});
+
 test("lets a signed-in citizen publish their own pro or contra argument", () => {
   assert.match(discussion, /useCitizenSession/);
   assert.match(discussion, /createAdmissionProof/);

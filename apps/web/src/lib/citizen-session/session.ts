@@ -49,6 +49,14 @@ export type PublicPostInput = {
   sourceAppPostId?: string;
 };
 
+export type ConversationMentionInput = {
+  content: string;
+  createdAt: number;
+  agentPubkey: string;
+  sourceAppPostId: string;
+  sourceAppCommentId?: string;
+};
+
 export type CitizenAdmissionProof = Readonly<{
   schemaVersion: "roebel_citizen_admission_proof_v1";
   credential: CitizenSessionSnapshot["credential"];
@@ -64,6 +72,7 @@ export interface CitizenSession {
   }): Promise<CitizenAdmissionProof>;
   signMessage(message: string): Promise<string>;
   signPublicPost(input: PublicPostInput): Promise<NostrEvent>;
+  signConversationMention(input: ConversationMentionInput): Promise<NostrEvent>;
   promotePublicPost(input: CivicPromotionInput): Promise<NostrEvent>;
   promotePublicPostToTopic(
     input: CivicTopicPromotionInput
@@ -255,6 +264,37 @@ export function createCitizenSession(
                   : [["source-app-post", input.sourceAppPostId]]),
               ],
             }),
+      });
+    },
+    async signConversationMention(
+      input: ConversationMentionInput
+    ): Promise<NostrEvent> {
+      ensureActive();
+      const uuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+      if (
+        typeof input.content !== "string" ||
+        input.content !== input.content.trim() ||
+        input.content.length < 1 ||
+        input.content.length > 2_000 ||
+        !/^[0-9a-f]{64}$/.test(input.agentPubkey) ||
+        !uuid.test(input.sourceAppPostId) ||
+        (input.sourceAppCommentId !== undefined &&
+          !uuid.test(input.sourceAppCommentId))
+      ) {
+        throw new Error("citizen_session_conversation_mention_invalid");
+      }
+      const signer = await identity();
+      return buildNoteEvent(signer.secretKey, input.content, {
+        createdAt: timestamp(input.createdAt),
+        tags: [
+          ["p", input.agentPubkey],
+          ["source-app-post", input.sourceAppPostId],
+          ...(input.sourceAppCommentId === undefined
+            ? []
+            : [["source-app-comment", input.sourceAppCommentId]]),
+          ["t", "roebel-app-conversation"],
+        ],
       });
     },
     async promotePublicPost(input: CivicPromotionInput): Promise<NostrEvent> {

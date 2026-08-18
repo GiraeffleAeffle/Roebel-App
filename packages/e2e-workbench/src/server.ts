@@ -333,6 +333,38 @@ function sourceAppPostIdFor(event: NostrEvent): string | null {
     : null;
 }
 
+function sourceAppCommentIdFor(event: NostrEvent): string | null {
+  const matches = event.tags.filter((tag) => tag[0] === "source-app-comment");
+  return matches.length === 1 &&
+    matches[0]!.length === 2 &&
+    UUID.test(matches[0]![1] ?? "")
+    ? matches[0]![1]!
+    : null;
+}
+
+function isAppConversationMention(
+  config: WorkbenchConfig,
+  candidate: NostrEvent
+): boolean {
+  const postId = sourceAppPostIdFor(candidate);
+  const commentId = sourceAppCommentIdFor(candidate);
+  const expectedTags = [
+    ["p", config.meckyPubkey],
+    ["source-app-post", postId],
+    ...(commentId === null ? [] : [["source-app-comment", commentId]]),
+    ["t", "roebel-app-conversation"],
+  ];
+  return (
+    candidate.kind === 1 &&
+    verifyEvent(candidate) &&
+    postId !== null &&
+    candidate.content === candidate.content.trim() &&
+    candidate.content.length > 0 &&
+    candidate.content.length <= 2_000 &&
+    JSON.stringify(candidate.tags) === JSON.stringify(expectedTags)
+  );
+}
+
 function topicFor(event: NostrEvent): { id: string; title: string } | null {
   const explicit = tagValue(event, "topic");
   const municipality = tagValue(event, "municipality");
@@ -343,8 +375,7 @@ function topicFor(event: NostrEvent): { id: string; title: string } | null {
   );
   if (
     topicParts.length === 6 &&
-    topicParts.slice(0, 4).join(":") ===
-      "urn:stadtstack:topic:municipality" &&
+    topicParts.slice(0, 4).join(":") === "urn:stadtstack:topic:municipality" &&
     topicParts[4] === municipality &&
     SLUG.test(municipality ?? "") &&
     SLUG.test(topicParts[5] ?? "") &&
@@ -894,6 +925,86 @@ export async function startWorkbench(
           authorityBinding: "none",
         });
       }
+      if (
+        request.method === "GET" &&
+        path.startsWith("/api/conversation?post=")
+      ) {
+        const postId =
+          new URL(path, "http://workbench").searchParams.get("post") ?? "";
+        if (!UUID.test(postId))
+          return json(response, 400, { error: "conversation_post_invalid" });
+        const [citizenEvents, agentEvents] = await Promise.all([
+          citizenRelay.query([{ kinds: [1], limit: 300 }]),
+          agentRelay.query([
+            {
+              kinds: [1],
+              authors: [config.meckyPubkey],
+              limit: 300,
+            },
+          ]),
+        ]);
+        const mentionsBySource = new Map<string, NostrEvent>();
+        for (const mention of citizenEvents
+          .filter(verifyEvent)
+          .filter((entry) => isAppConversationMention(config, entry))
+          .filter((entry) => sourceAppPostIdFor(entry) === postId)
+          .sort(
+            (a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id)
+          )) {
+          const sourceKey = sourceAppCommentIdFor(mention) ?? postId;
+          if (!mentionsBySource.has(sourceKey))
+            mentionsBySource.set(sourceKey, mention);
+        }
+        const verifiedAgentEvents = agentEvents.filter(
+          (entry) =>
+            verifyEvent(entry) &&
+            entry.pubkey === config.meckyPubkey &&
+            isAgentEvent(entry)
+        );
+        const replies = [...mentionsBySource.values()].flatMap((mention) => {
+          const reply = verifiedAgentEvents
+            .filter((candidate) =>
+              candidate.tags.some(
+                (tag) =>
+                  tag[0] === "e" && tag[1] === mention.id && tag[3] === "reply"
+              )
+            )
+            .sort(
+              (a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id)
+            )[0];
+          if (!reply) return [];
+          return [
+            {
+              id: reply.id,
+              mentionId: mention.id,
+              sourceAppCommentId: sourceAppCommentIdFor(mention),
+              content: reply.content,
+              createdAt: new Date(reply.created_at * 1_000).toISOString(),
+              evidenceRefs: reply.tags
+                .filter(
+                  (tag) =>
+                    tag.length === 3 &&
+                    tag[0] === "evidence" &&
+                    /^sha256:[0-9a-f]{64}$/.test(tag[1] ?? "") &&
+                    /^https:\/\//.test(tag[2] ?? "")
+                )
+                .map((tag) => ({ digest: tag[1]!, url: tag[2]! })),
+            },
+          ];
+        });
+        return json(response, 200, {
+          schemaVersion: "roebel_app_mecky_conversation_v1",
+          postId,
+          requestCount: mentionsBySource.size,
+          mentionIds: [...mentionsBySource.values()].map((entry) => entry.id),
+          pendingCount: mentionsBySource.size - replies.length,
+          replies: replies.sort(
+            (a, b) =>
+              a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)
+          ),
+          authorityBinding: "none",
+        });
+      }
       if (request.method === "GET" && path.startsWith("/api/thread?root=")) {
         const rootId =
           new URL(path, "http://workbench").searchParams.get("root") ?? "";
@@ -919,11 +1030,11 @@ export async function startWorkbench(
                 asArgument(config, entry)?.stance === "root"
             ) ?? null;
         const sourceEvent = rootEvent
-          ? citizenEvents
+          ? (citizenEvents
               .filter(verifyEvent)
               .find(
-                (entry) => entry.id === tagValue(rootEvent, "source-post"),
-              ) ?? null
+                (entry) => entry.id === tagValue(rootEvent, "source-post")
+              ) ?? null)
           : null;
         const meckyReply =
           meckyEvents
@@ -939,14 +1050,12 @@ export async function startWorkbench(
             citizenEvents
               .filter(verifyEvent)
               .filter((entry) =>
-                argumentsList.some((argument) => argument.id === entry.id),
+                argumentsList.some((argument) => argument.id === entry.id)
               )
-              .map((entry) => [entry.id, entry]),
+              .map((entry) => [entry.id, entry])
           ),
           rootEvent,
-          sourceAppPostId: sourceEvent
-            ? sourceAppPostIdFor(sourceEvent)
-            : null,
+          sourceAppPostId: sourceEvent ? sourceAppPostIdFor(sourceEvent) : null,
           topic: rootEvent ? topicFor(rootEvent) : null,
           caseBinding: rootEvent ? caseBindingFor(rootEvent) : null,
           mecky: meckyReply
@@ -1050,7 +1159,8 @@ export async function startWorkbench(
           !exactRecord(body, ["intent", "event"]) ||
           (body.intent !== "post" &&
             body.intent !== "promotion" &&
-            body.intent !== "argument")
+            body.intent !== "argument" &&
+            body.intent !== "conversation")
         )
           throw new Error("signed_event_invalid");
         const signed = event(body.event);
@@ -1082,6 +1192,31 @@ export async function startWorkbench(
             )
           )
             throw new Error("signed_post_tags_invalid");
+        } else if (body.intent === "conversation") {
+          if (!isAppConversationMention(config, signed))
+            throw new Error("signed_conversation_invalid");
+          const postId = sourceAppPostIdFor(signed)!;
+          const commentId = sourceAppCommentIdFor(signed);
+          const prior = (
+            await citizenRelay.query([
+              { kinds: [1], authors: [signed.pubkey], limit: 300 },
+            ])
+          )
+            .filter(verifyEvent)
+            .filter((candidate) => isAppConversationMention(config, candidate))
+            .find(
+              (candidate) =>
+                sourceAppPostIdFor(candidate) === postId &&
+                sourceAppCommentIdFor(candidate) === commentId
+            );
+          if (prior && prior.id !== signed.id)
+            throw new Error("signed_conversation_source_already_requested");
+          if (prior?.id === signed.id)
+            return json(response, 200, {
+              status: "published",
+              event: prior,
+              authorityBinding: "none",
+            });
         } else if (body.intent === "promotion") {
           const sourcePostId = tagValue(signed, "source-post");
           if (
@@ -1122,19 +1257,21 @@ export async function startWorkbench(
           const rootId = tagValue(signed, "argument-root");
           const parentId =
             signed.tags.find(
-              (tag) => tag[0] === "e" && tag[3] === "reply",
+              (tag) => tag[0] === "e" && tag[3] === "reply"
             )?.[1] ?? null;
           const relatedEvents =
             rootId && parentId
-              ? (await citizenRelay.query([
-                  { ids: [rootId, parentId], kinds: [1], limit: 2 },
-                ])).filter(verifyEvent)
+              ? (
+                  await citizenRelay.query([
+                    { ids: [rootId, parentId], kinds: [1], limit: 2 },
+                  ])
+                ).filter(verifyEvent)
               : [];
           const rootEvent = relatedEvents.find(
-            (candidate) => candidate.id === rootId,
+            (candidate) => candidate.id === rootId
           );
           const parentEvent = relatedEvents.find(
-            (candidate) => candidate.id === parentId,
+            (candidate) => candidate.id === parentId
           );
           const rootArgument = rootEvent ? asArgument(config, rootEvent) : null;
           const parentArgument = parentEvent
@@ -1171,8 +1308,7 @@ export async function startWorkbench(
         if (!published.ok)
           throw new Error(`citizen_relay_${published.message}`);
         return json(response, 200, {
-          status:
-            body.intent === "promotion" ? "promoted" : "published",
+          status: body.intent === "promotion" ? "promoted" : "published",
           event: signed,
           authorityBinding: "none",
         });
@@ -1318,18 +1454,20 @@ export async function startWorkbench(
           body.content.length > 1_000
         )
           throw new Error("claim_invalid");
-        const relatedEvents = (await citizenRelay.query([
-          {
-            ids: [body.rootEventId, body.parentEventId],
-            kinds: [1],
-            limit: 2,
-          },
-        ])).filter(verifyEvent);
+        const relatedEvents = (
+          await citizenRelay.query([
+            {
+              ids: [body.rootEventId, body.parentEventId],
+              kinds: [1],
+              limit: 2,
+            },
+          ])
+        ).filter(verifyEvent);
         const rootEvent = relatedEvents.find(
-          (candidate) => candidate.id === body.rootEventId,
+          (candidate) => candidate.id === body.rootEventId
         );
         const parentEvent = relatedEvents.find(
-          (candidate) => candidate.id === body.parentEventId,
+          (candidate) => candidate.id === body.parentEventId
         );
         const rootArgument = rootEvent ? asArgument(config, rootEvent) : null;
         const parentArgument = parentEvent

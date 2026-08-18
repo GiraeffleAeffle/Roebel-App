@@ -8,7 +8,18 @@ import { useUserProfile } from "@/hooks/useUserProfile";
 import { createPost } from "@/app/actions/posts";
 import { useAccount } from "@/lib/context/AccountContext";
 import { isOrgAccount, ACCOUNT_TYPE_LABELS } from "@/types/account";
-import { ImagePlus, Video, X, Loader2, Link as LinkIcon, BarChart3, Home, Landmark, Sparkles, Check } from "lucide-react";
+import {
+  ImagePlus,
+  Video,
+  X,
+  Loader2,
+  Link as LinkIcon,
+  BarChart3,
+  Home,
+  Landmark,
+  Sparkles,
+  Check,
+} from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { uploadResumable } from "@/lib/storage/resumable-upload";
@@ -20,9 +31,25 @@ import {
 } from "@/lib/stream-upload";
 import { PollCreator } from "@/components/app/PollCreator";
 import { CategorySelector } from "@/components/app/CategorySelector";
-import { GuidelinesBanner, GuidelinesInfoButton } from "@/components/app/CommunityGuidelines";
-import type { OGMetadata, CreatePollInput, PostCategory, FeedType } from "@/types/post";
+import {
+  GuidelinesBanner,
+  GuidelinesInfoButton,
+} from "@/components/app/CommunityGuidelines";
+import type {
+  OGMetadata,
+  CreatePollInput,
+  PostCategory,
+  FeedType,
+} from "@/types/post";
 import { hasSupabase } from "@/lib/record";
+import { useRouter } from "next/navigation";
+import { useCitizenSession } from "@/lib/citizen-session/CitizenSessionContext";
+import {
+  containsExplicitMeckyMention,
+  requestAppMeckyConversationAnswer,
+} from "@/lib/stadtstack/app-mecky-conversation";
+import { appMeckyConversationGateway } from "@/lib/stadtstack/app-mecky-gateway";
+import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
 
 const MAX_CHARS = 500;
 const MAX_IMAGES = 10;
@@ -47,8 +74,11 @@ export function PostComposer({
   defaultFeedType = "main",
   requireVerified = true,
 }: PostComposerProps) {
+  const router = useRouter();
   const account = useActiveAccount();
-  const { isVerified, isLoading: verificationLoading } = useVerificationStatus();
+  const citizenSession = useCitizenSession();
+  const { isVerified, isLoading: verificationLoading } =
+    useVerificationStatus();
   const { user } = useUserProfile();
   const { activeAccount } = useAccount();
 
@@ -66,7 +96,9 @@ export function PostComposer({
   const [category, setCategory] = useState<PostCategory | null>(null);
   const [feedType, setFeedType] = useState<FeedType>(defaultFeedType);
   const [feedMenuOpen, setFeedMenuOpen] = useState(false);
-  const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null);
+  const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(
+    null
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPending, startTransition] = useTransition();
 
@@ -87,25 +119,34 @@ export function PostComposer({
   const displayName = user?.username || shortAddress;
 
   // Auto-detect URLs in content and fetch OG previews
-  const fetchOGForUrls = useCallback(async (text: string) => {
-    const urls = text.match(URL_REGEX) || [];
-    for (const url of urls) {
-      if (fetchedUrls.has(url)) continue;
-      setFetchedUrls((prev) => new Set(prev).add(url));
-      try {
-        const res = await fetch(`/api/og-metadata?url=${encodeURIComponent(url)}`);
-        const json = await res.json();
-        if (json.success && json.data && (json.data.title || json.data.image)) {
-          setLinkPreviews((prev) => {
-            if (prev.some((p) => p.url === json.data.url)) return prev;
-            return [...prev, json.data];
-          });
+  const fetchOGForUrls = useCallback(
+    async (text: string) => {
+      const urls = text.match(URL_REGEX) || [];
+      for (const url of urls) {
+        if (fetchedUrls.has(url)) continue;
+        setFetchedUrls((prev) => new Set(prev).add(url));
+        try {
+          const res = await fetch(
+            `/api/og-metadata?url=${encodeURIComponent(url)}`
+          );
+          const json = await res.json();
+          if (
+            json.success &&
+            json.data &&
+            (json.data.title || json.data.image)
+          ) {
+            setLinkPreviews((prev) => {
+              if (prev.some((p) => p.url === json.data.url)) return prev;
+              return [...prev, json.data];
+            });
+          }
+        } catch {
+          // Ignore fetch errors
         }
-      } catch {
-        // Ignore fetch errors
       }
-    }
-  }, [fetchedUrls]);
+    },
+    [fetchedUrls]
+  );
 
   // Debounced URL detection
   useEffect(() => {
@@ -191,7 +232,10 @@ export function PostComposer({
   // Upload a file directly to Supabase Storage (bypasses Vercel body size limit).
   // Images use the simple non-resumable path; videos use TUS resumable so multi-
   // hundred-MB uploads survive flaky networks and don't hit the per-request cap.
-  const uploadToStorage = async (file: File, type: "image" | "video"): Promise<string | null> => {
+  const uploadToStorage = async (
+    file: File,
+    type: "image" | "video"
+  ): Promise<string | null> => {
     const maxSize = type === "video" ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
     if (file.size > maxSize) {
       toast.error(
@@ -202,7 +246,8 @@ export function PostComposer({
       return null;
     }
 
-    const fileExt = file.name.split(".").pop() || (type === "video" ? "mp4" : "jpg");
+    const fileExt =
+      file.name.split(".").pop() || (type === "video" ? "mp4" : "jpg");
     const prefix = type === "video" ? "post-videos" : "post-images";
     const fileName = `${prefix}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
 
@@ -211,10 +256,15 @@ export function PostComposer({
         setVideoUploadProgress(0);
         // Cloudflare Stream (adaptive HLS) when configured; Supabase Storage otherwise.
         if (await probeStreamConfigured()) {
-          const url = await uploadVideoToStream(file, account?.address ?? "", (pct) =>
-            setVideoUploadProgress(pct),
+          const url = await uploadVideoToStream(
+            file,
+            account?.address ?? "",
+            (pct) => setVideoUploadProgress(pct)
           );
-          if (!url) toast.error("Video-Upload fehlgeschlagen. Bitte versuche es erneut.");
+          if (!url)
+            toast.error(
+              "Video-Upload fehlgeschlagen. Bitte versuche es erneut."
+            );
           return url;
         }
         const url = await uploadResumable({
@@ -245,7 +295,9 @@ export function PostComposer({
       return null;
     }
 
-    const { data: { publicUrl } } = supabase.storage.from("images").getPublicUrl(fileName);
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from("images").getPublicUrl(fileName);
     return publicUrl;
   };
 
@@ -280,18 +332,20 @@ export function PostComposer({
       const linkUrls = content.match(URL_REGEX) || [];
 
       // Validate poll options if poll is attached
-      const validPoll = pollInput && pollInput.options.filter((o) => o.trim()).length >= 2
-        ? { ...pollInput, options: pollInput.options.filter((o) => o.trim()) }
-        : undefined;
+      const validPoll =
+        pollInput && pollInput.options.filter((o) => o.trim()).length >= 2
+          ? { ...pollInput, options: pollInput.options.filter((o) => o.trim()) }
+          : undefined;
 
       const targetFeedType: FeedType =
         feedType === "rathaus" && !canPostToRathaus ? "main" : feedType;
+      const submittedContent = content.trim();
 
       startTransition(async () => {
         const result = await createPost({
           wallet_address: account.address,
           account_id: activeAccount?.id,
-          content: content.trim(),
+          content: submittedContent,
           category: category || "generell",
           feed_type: targetFeedType,
           media_urls: uploadedImageUrls,
@@ -300,7 +354,34 @@ export function PostComposer({
           poll: validPoll,
         });
 
-        if (result.success) {
+        if (result.success && result.data) {
+          let meckyRequested = false;
+          if (
+            citizenSession &&
+            resolveStadtstackStagingLab(
+              process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB
+            ) &&
+            containsExplicitMeckyMention(submittedContent)
+          ) {
+            try {
+              await requestAppMeckyConversationAnswer({
+                session: citizenSession,
+                gateway: appMeckyConversationGateway,
+                source: {
+                  postId: result.data.id,
+                  walletAddress: result.data.wallet_address.toLowerCase(),
+                  content: result.data.content,
+                  createdAt: result.data.created_at,
+                },
+              });
+              meckyRequested = true;
+            } catch (error) {
+              console.error("Mecky conversation request failed", error);
+              toast.warning(
+                "Der Beitrag ist veröffentlicht, aber Mecky konnte noch nicht gefragt werden."
+              );
+            }
+          }
           // Reset form
           setContent("");
           setImageFiles([]);
@@ -312,8 +393,13 @@ export function PostComposer({
           setCategory(null);
           setFeedType(defaultFeedType);
           setIsExpanded(false);
-          toast.success("Beitrag veröffentlicht!");
+          toast.success(
+            meckyRequested
+              ? "Beitrag veröffentlicht – Mecky antwortet im Gespräch."
+              : "Beitrag veröffentlicht!"
+          );
           onPostCreated?.();
+          if (meckyRequested) router.push(`/app/posts/${result.data.id}`);
         } else {
           toast.error(result.error || "Fehler beim Veröffentlichen");
         }
@@ -329,7 +415,13 @@ export function PostComposer({
   if (!hasSupabase) return null;
 
   // Non-citizen state — only blocks when the parent feed requires verification
-  if (requireVerified && !verificationLoading && account && !isVerified && !isPostingAsOrg) {
+  if (
+    requireVerified &&
+    !verificationLoading &&
+    account &&
+    !isVerified &&
+    !isPostingAsOrg
+  ) {
     return (
       <div className="bg-card rounded-lg border border-border p-4">
         <div className="flex items-center gap-3">
@@ -437,7 +529,12 @@ export function PostComposer({
         </div>
         <button
           onClick={() => {
-            if (!content && imageFiles.length === 0 && !videoFile && !pollInput) {
+            if (
+              !content &&
+              imageFiles.length === 0 &&
+              !videoFile &&
+              !pollInput
+            ) {
               setIsExpanded(false);
             }
           }}
@@ -547,7 +644,10 @@ export function PostComposer({
         <div className="px-4 pb-2">
           <div className="flex gap-2 flex-wrap">
             {imagePreviews.map((preview, i) => (
-              <div key={i} className="relative w-20 h-20 rounded-lg overflow-hidden">
+              <div
+                key={i}
+                className="relative w-20 h-20 rounded-lg overflow-hidden"
+              >
                 <Image
                   src={preview}
                   alt={`Vorschau ${i + 1}`}
@@ -698,7 +798,12 @@ export function PostComposer({
 
         <button
           onClick={handleSubmit}
-          disabled={!content.trim() || isSubmitting || isPending || videoUploadProgress != null}
+          disabled={
+            !content.trim() ||
+            isSubmitting ||
+            isPending ||
+            videoUploadProgress != null
+          }
           className="px-4 py-2 bg-primary text-primary-foreground rounded-full text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
         >
           {(isSubmitting || isPending) && (

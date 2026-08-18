@@ -83,6 +83,25 @@ export type StagingConfigResponse = {
   authorityBinding: "none";
 };
 
+export type StagingMeckyConversationReply = {
+  id: string;
+  mentionId: string;
+  sourceAppCommentId: string | null;
+  content: string;
+  createdAt: string;
+  evidenceRefs: { digest: string; url: string }[];
+};
+
+export type StagingMeckyConversationResponse = {
+  schemaVersion: "roebel_app_mecky_conversation_v1";
+  postId: string;
+  requestCount: number;
+  mentionIds: string[];
+  pendingCount: number;
+  replies: StagingMeckyConversationReply[];
+  authorityBinding: "none";
+};
+
 export async function stagingGet<T>(path: string): Promise<T> {
   const response = await fetch(`${STADTSTACK_STAGING_API}${path}`, {
     cache: "no-store",

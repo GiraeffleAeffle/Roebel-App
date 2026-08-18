@@ -151,6 +151,41 @@ test("binds an ordinary signed post to the immutable Röbel app post it mirrors"
   assert.equal(verifyEvent(post), true);
 });
 
+test("signs an ordinary app conversation mention without civic authority tags", async () => {
+  const session = createCitizenSession({
+    appAccountId: "account-1",
+    credential: credential(),
+    memberId: null,
+  });
+  const mention = await session.signConversationMention({
+    content: "@Mecky, welche geprüften Informationen gibt es dazu?",
+    createdAt: 15,
+    agentPubkey: "ab".repeat(32),
+    sourceAppPostId: "018f1c63-7b2a-7a11-8a55-2e3d9c4b5a61",
+    sourceAppCommentId: "018f1c63-7b2a-7a11-8a55-2e3d9c4b5a62",
+  });
+
+  assert.deepEqual(mention.tags, [
+    ["p", "ab".repeat(32)],
+    ["source-app-post", "018f1c63-7b2a-7a11-8a55-2e3d9c4b5a61"],
+    ["source-app-comment", "018f1c63-7b2a-7a11-8a55-2e3d9c4b5a62"],
+    ["t", "roebel-app-conversation"],
+  ]);
+  assert.equal(verifyEvent(mention), true);
+  assert.equal(
+    mention.tags.some((tag) => tag[0] === "topic"),
+    false
+  );
+  assert.equal(
+    mention.tags.some((tag) => tag[0] === "case"),
+    false
+  );
+  assert.equal(
+    mention.tags.some((tag) => tag[0] === "stadtstack-case"),
+    false
+  );
+});
+
 test("promotes only the authenticated citizen's signed source post", async () => {
   const session = createCitizenSession({
     appAccountId: "account-1",
@@ -213,7 +248,10 @@ test("starts a signed civic topic without creating a CivicCase binding", async (
   });
 
   assert.equal(verifyEvent(promoted), true);
-  assert.equal(promoted.tags.some((tag) => tag[0] === "case"), false);
+  assert.equal(
+    promoted.tags.some((tag) => tag[0] === "case"),
+    false
+  );
   assert.equal(
     promoted.tags.some((tag) => tag[0] === "stadtstack-case"),
     false
@@ -260,7 +298,10 @@ test("signs a participant's argument without exposing either citizen key", async
 
   assert.notEqual(argument.pubkey, root.pubkey);
   assert.equal(verifyEvent(argument), true);
-  assert.equal(argument.tags.some((tag) => tag[0] === "case"), false);
+  assert.equal(
+    argument.tags.some((tag) => tag[0] === "case"),
+    false
+  );
 });
 
 test("fails closed when the provider returns a malformed signature", async () => {
