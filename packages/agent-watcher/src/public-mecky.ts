@@ -171,6 +171,7 @@ function createHetznerPiTransport(options: {
             max_tokens: 500,
             stream: false,
             response_format: { type: "json_object" },
+            chat_template_kwargs: { enable_thinking: false },
             messages: openAiMessages(context),
           }),
           signal: streamOptions?.signal,

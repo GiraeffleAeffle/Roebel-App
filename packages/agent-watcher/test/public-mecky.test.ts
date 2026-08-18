@@ -374,6 +374,9 @@ describe("Public Mecky", () => {
     assert.equal(requestBody.temperature, 0);
     assert.equal(requestBody.max_tokens, 500);
     assert.deepEqual(requestBody.response_format, { type: "json_object" });
+    assert.deepEqual(requestBody.chat_template_kwargs, {
+      enable_thinking: false,
+    });
     assert.ok(!("tools" in requestBody));
     assert.match(JSON.stringify(requestBody), /Kann ich schon abstimmen/);
     assert.match(JSON.stringify(requestBody), new RegExp(EVIDENCE_ID));
