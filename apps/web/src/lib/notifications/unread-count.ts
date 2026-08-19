@@ -26,6 +26,9 @@ export async function countUnreadNotifications({
       : []),
   ]);
 
-  const total = counts.reduce((sum, count) => sum + Math.max(0, count), 0);
+  const total = counts.reduce(
+    (sum, count) => sum + (Number.isFinite(count) ? Math.max(0, count) : 0),
+    0
+  );
   return Math.min(total, cap);
 }
