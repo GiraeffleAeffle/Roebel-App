@@ -1,0 +1,152 @@
+name: Röbel staging publisher (candidate, fail closed)
+
+# This is deliberately a non-activating delivery-lane candidate.  It describes
+# the only permitted GHCR destinations and records the evidence/CAS contract,
+# but it cannot publish until a separately reviewed change binds a protected
+# release-set-head compare-and-swap implementation.  Do not set a repository
+# variable to try to activate it: the literal `false` on `publish` is an
+# intentional second blocker.
+on:
+  workflow_dispatch:
+    inputs:
+      promotion_revision:
+        description: "Exact main commit to promote (40 lowercase hexadecimal characters)"
+        required: true
+        type: string
+      expected_previous_head_digest:
+        description: "sha256 digest read from the protected release-set head before this dispatch"
+        required: true
+        type: string
+      previous_head_json:
+        description: "Canonical, non-secret roebel_staging_release_set_head_v1 JSON used as the CAS input"
+        required: true
+        type: string
+
+# Jobs opt into only the permissions they use.  There are no cluster, Talos,
+# Hetzner, Flux, runtime, or application-secret inputs in this workflow.
+permissions: {}
+
+concurrency:
+  group: roebel-staging-publisher-main
+  cancel-in-progress: false
+
+env:
+  PUBLISHER_ACTIVATION_STATE: UNBOUND_REVIEW_REQUIRED
+  PUBLISHER_WORKFLOW_IDENTITY: https://github.com/GiraeffleAeffle/Roebel-App/.github/workflows/roebel-staging-publish.yml@refs/heads/main
+  WEB_IMAGE: ghcr.io/giraeffleaeffle/roebel-web-staging
+  MECKY_IMAGE: ghcr.io/giraeffleaeffle/public-mecky
+
+jobs:
+  guard:
+    # workflow_dispatch permits a ref selector, so the workflow itself rejects
+    # every ref but protected main and requires the checked-out SHA to match.
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Validate the immutable promotion and previous-head CAS inputs
+        shell: bash
+        env:
+          PROMOTION_REVISION: ${{ inputs.promotion_revision }}
+          EXPECTED_PREVIOUS_HEAD_DIGEST: ${{ inputs.expected_previous_head_digest }}
+          PREVIOUS_HEAD_JSON: ${{ inputs.previous_head_json }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$GITHUB_SHA" = "$PROMOTION_REVISION"
+          [[ "$PROMOTION_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EXPECTED_PREVIOUS_HEAD_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          test "$(printf '%s' "$PREVIOUS_HEAD_JSON" | sha256sum | cut -d' ' -f1)" = "${EXPECTED_PREVIOUS_HEAD_DIGEST#sha256:}"
+          node --input-type=module <<'NODE'
+          const head = JSON.parse(process.env.PREVIOUS_HEAD_JSON);
+          const keys = Object.keys(head).sort().join(",");
+          if (keys !== "components,promotionRevision,releaseSetDigest,schemaVersion") process.exit(1);
+          if (head.schemaVersion !== "roebel_staging_release_set_head_v1") process.exit(1);
+          if (!Array.isArray(head.components) || head.components.length !== 2) process.exit(1);
+          NODE
+      - name: Stop until a protected head CAS is independently bound
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "This publisher is intentionally UNBOUND_REVIEW_REQUIRED."
+          printf '%s\n' "It cannot publish, attest, update a release head, or contact deployment infrastructure."
+          exit 1
+
+  publish:
+    # Second independent blocker: a reviewed binding delta must replace this
+    # literal false only after the protected CAS endpoint/protocol exists.
+    if: ${{ false }}
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: roebel-staging-publisher
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Check out the guarded immutable source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.promotion_revision }}
+          persist-credentials: false
+
+      # This tag is registry transport only.  No deployment or Release Set may
+      # consume it; the build output digest below is the only image identity.
+      # UNBOUND: this third-party action remains on a version label only because
+      # no locally evidenced official commit SHA is available. A binding review
+      # must replace it with that immutable SHA before it can be activated.
+      - name: Publish web once and retain its immutable digest
+        id: web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.staging-web
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.WEB_IMAGE }}:candidate-${{ inputs.promotion_revision }}
+          provenance: mode=max
+          sbom: true
+
+      # UNBOUND: use the same reviewed immutable build-push-action commit SHA
+      # as the web step before replacing either activation blocker.
+      - name: Publish public Mecky once and retain its immutable digest
+        id: mecky
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/agent-watcher/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.MECKY_IMAGE }}:candidate-${{ inputs.promotion_revision }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Attach GitHub OIDC provenance to immutable web digest
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.WEB_IMAGE }}
+          subject-digest: ${{ steps.web.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attach GitHub OIDC provenance to immutable Mecky digest
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.MECKY_IMAGE }}
+          subject-digest: ${{ steps.mecky.outputs.digest }}
+          push-to-registry: true
+
+      # A binding implementation must (1) verify the BuildKit SPDX-2.3 SBOM
+      # and GitHub OIDC provenance referrers, (2) produce the existing two OCI
+      # verification receipts and evidence JSON, (3) run the effect-free
+      # assembler, then (4) atomically CAS the protected release-set head from
+      # expected_previous_head_digest.  Only after that succeeds may it upload
+      # the deterministic candidate below and expose digest-pinned images.
+      - name: Assemble and publish the release-set candidate after CAS binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "UNREACHABLE until a reviewed protected head-CAS binding is added."
+          exit 1
