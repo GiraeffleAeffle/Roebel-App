@@ -129,10 +129,11 @@ Tag Mecky in the app's Nostr test section and it answers in place.
 relay — threaded onto the question, addressed back to the asker, and tagged `netizen_agent`.
 
 The historical live proof used Anthropic. The replacement watcher no longer receives that
-secret; it receives `HETZNER_INFERENCE_API_KEY`, `NODE_AGENT_SECRET`, and the narrowly scoped
-`STADTSTACK_NOSTR_INGESTOR_TOKEN`. The ingestor token can record an exact signed discussion but
-cannot admit a suggestion or perform administration, participation, outcome, or vote actions. Other Röbel
-services that still use Anthropic remain separate and are not silently rerouted.
+secret or any Stadtstack control credential. It receives only `HETZNER_INFERENCE_API_KEY`
+and `NODE_AGENT_SECRET`: inference quota plus its Nostr reply identity. Discussion intake
+belongs to a separately scoped human-triggered ingestor and cannot be invoked by Public
+Mecky. Other Röbel services that still use Anthropic remain separate and are not silently
+rerouted.
 
 **Rotate `NODE_AGENT_SECRET` before this is public.** It currently holds a demonstration value
 that appeared in a chat log, and it determines Mecky's identity — someone holding it could

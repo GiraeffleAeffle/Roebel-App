@@ -16,7 +16,9 @@ export {
   createOpenAICompatiblePublicMeckyInference,
   createPiPublicMeckyInference,
   createPublicMecky,
+  createPublicMeckyEvidenceReply,
   createPublicMeckyRelayReply,
+  createStadtstackPublicEvidenceRetriever,
   createStadtstackReviewedEvidenceReader,
   publicMeckyDiscussionBindingFor,
 } from "./public-mecky";
@@ -25,6 +27,7 @@ export type {
   PiPublicMeckyInferenceOptions,
   PublicMecky,
   PublicMeckyDiscussionBinding,
+  PublicMeckyEvidenceReply,
   PublicMeckyDependencies,
   PublicMeckyInference,
   PublicMeckyInferenceInput,
@@ -32,7 +35,32 @@ export type {
   PublicMeckyResult,
   ReviewedCivicEvidence,
   StadtstackReviewedEvidenceReaderOptions,
+  StadtstackPublicEvidenceRetrieverOptions,
 } from "./public-mecky";
+export {
+  createInMemoryPublicEvidenceCatalog,
+  parsePublicEvidence,
+  publicEvidenceUrl,
+  renderPromptEvidence,
+  retrievePublicEvidence,
+  toPromptPublicEvidence,
+  DEFAULT_PUBLIC_EVIDENCE_LIMIT,
+  DEFAULT_PUBLIC_EVIDENCE_MAX_PROMPT_BYTES,
+} from "./public-evidence";
+export type {
+  LocalNewsEvidence,
+  NostrPostEvidence,
+  PromptPublicEvidence,
+  PublicEvidence,
+  PublicEvidenceAuthority,
+  PublicEvidenceLifecycle,
+  PublicEvidenceRetrievalOptions,
+  PublicEvidenceReviewState,
+  PublicEvidenceSourceKind,
+  RatsinformationEvidence,
+  RetrievedPublicEvidence,
+  ReviewedCivicCaseEvidence,
+} from "./public-evidence";
 export { createStadtstackNostrIntakeClient } from "./stadtstack-control";
 export type {
   StadtstackCommandReceipt,

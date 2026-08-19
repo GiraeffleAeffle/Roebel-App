@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useActiveAccount } from "thirdweb/react";
 import { createClient } from "@/lib/supabase/client";
-import { getPostsForFeed } from "@/app/actions/posts";
+import { getPublicFeedPosts } from "@/lib/public-feed-client";
 import { fetchProposalsForFeed } from "@/app/actions/proposals-feed";
 import { fetchRecentProposalComments } from "@/app/actions/proposal-comments";
 import { PostComposer } from "@/components/app/PostComposer";
@@ -84,12 +84,10 @@ export function StadtFeed() {
     async function fetchStadt() {
       setLoading(true);
 
-      // getPostsForFeed already branches on hasSupabase internally (it is
-      // the app-wide "record mode" feed reader), so it is called the same
-      // way in both modes.
-      const postsResult = await getPostsForFeed({
+      // The public GET reader already selects the configured read model, so
+      // it is called the same way in both modes.
+      const postsResult = await getPublicFeedPosts({
         limit: 30,
-        viewerWallet: account?.address,
         feedType: "rathaus",
       });
       if (postsResult.success && postsResult.data) {

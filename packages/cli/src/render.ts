@@ -706,13 +706,7 @@ export function renderComposeYml(m: NetizenManifest): string {
           "agents.watcher.inference.apiKey: the compose renderer needs a $ENV_VAR ref",
         );
       }
-      if (!w.stadtstackControl.nostrIngestorToken.startsWith("$")) {
-        throw new Error(
-          "agents.watcher.stadtstackControl.nostrIngestorToken: the compose renderer needs a $ENV_VAR ref",
-        );
-      }
       const inferenceKey = w.inference.apiKey.slice(1);
-      const stadtstackIngestorKey = w.stadtstackControl.nostrIngestorToken.slice(1);
       const optional = [
         w.displayName ? `      AGENT_DISPLAY_NAME: ${JSON.stringify(w.displayName)}` : "",
         w.perAuthorPerHour ? `      AGENT_PER_AUTHOR_PER_HOUR: "${w.perAuthorPerHour}"` : "",
@@ -731,8 +725,6 @@ export function renderComposeYml(m: NetizenManifest): string {
       AGENT_NAME: "${w.agent}"
       RELAY_URL: "ws://strfry:7777"
       STADTSTACK_PUBLIC_BASE_URL: ${JSON.stringify(w.publicEvidence.baseUrl)}
-      STADTSTACK_CONTROL_BASE_URL: ${JSON.stringify(w.stadtstackControl.baseUrl)}
-      STADTSTACK_NOSTR_INGESTOR_TOKEN: "\${${stadtstackIngestorKey}}"
       MECKY_MUNICIPALITY_ID: "${w.publicEvidence.municipalityId}"
       MECKY_SOURCE_CASE_ID: "${w.publicEvidence.sourceCaseId}"
       MECKY_CANONICAL_CASE_ID: "${w.publicEvidence.canonicalCaseId}"

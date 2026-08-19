@@ -291,10 +291,6 @@
         "sourceCaseId": "marienfelder-strasse",
         "canonicalCaseId": "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001"
       },
-      "stadtstackControl": {
-        "baseUrl": "http://stadtstack-control.stadtstack-system.svc.cluster.local:18081",
-        "nostrIngestorToken": "$STADTSTACK_NOSTR_INGESTOR_TOKEN"
-      },
       "inference": {
         "baseUrl": "https://inference.hetzner.com/api/v1",
         "apiKey": "$HETZNER_INFERENCE_API_KEY",

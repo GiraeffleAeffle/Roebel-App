@@ -40,6 +40,20 @@ export type StagingFeedResponse = {
   authorityBinding: "none";
 };
 
+/** Resolve legacy staging mirrors without pretending they are Supabase rows. */
+export function findStagingPostMirror(
+  posts: readonly StagingFeedPost[],
+  sourceAppPostId: string
+): StagingOrdinaryPost | null {
+  return (
+    posts.find(
+      (post): post is StagingOrdinaryPost =>
+        post.entryType === "post" &&
+        post.sourceAppPostId === sourceAppPostId
+    ) ?? null
+  );
+}
+
 export type StagingThreadResponse = {
   schemaVersion: "roebel_staging_argument_thread_v1";
   arguments: StagingArgument[];

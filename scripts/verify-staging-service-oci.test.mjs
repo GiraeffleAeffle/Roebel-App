@@ -105,3 +105,18 @@ test("rejects a credential embedded in a service image", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("rejects a Stadtstack control credential embedded in Public Mecky", () => {
+  const root = mkdtempSync(join(tmpdir(), "roebel-service-oci-control-negative-"));
+  try {
+    writeLayout(root, "a".repeat(40), "public-mecky", ["node", "/app/agent-watcher.cjs"], (config) => {
+      config.config.Env.push("STADTSTACK_NOSTR_INGESTOR_TOKEN=must-not-be-in-image");
+    });
+    assert.throws(
+      () => verifyStagingServiceOci(root, "a".repeat(40), "public-mecky"),
+      /runtime_secret_embedded/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

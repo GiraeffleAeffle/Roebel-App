@@ -13,15 +13,24 @@ import {
   type ReviewedCivicCasesResult,
   type StadtstackFederationClientOptions,
 } from "@roebel/stadtstack-federation-client";
+import {
+  publicEvidenceUrl,
+  retrievePublicEvidence,
+  type PromptPublicEvidence,
+  type PublicEvidence,
+  type RetrievedPublicEvidence,
+} from "./public-evidence";
 import type { PublicMeckyAnsweredResult } from "./public-mecky-receipt";
 
 export {
+  createPublicMeckyEvidenceReply,
   createPublicMeckyRelayReply,
   publicMeckyDiscussionBindingFor,
   toPublicMeckyWatcherReply,
 } from "./public-mecky-receipt";
 export type {
   PublicMeckyDiscussionBinding,
+  PublicMeckyEvidenceReply,
   PublicMeckyRelayReply,
 } from "./public-mecky-receipt";
 
@@ -42,7 +51,7 @@ export interface ReviewedCivicEvidence {
 
 export interface PublicMeckyInferenceInput {
   question: string;
-  evidence: readonly ReviewedCivicEvidence[];
+  evidence: readonly (ReviewedCivicEvidence | PromptPublicEvidence)[];
 }
 
 export interface PublicMeckyInference {
@@ -51,7 +60,10 @@ export interface PublicMeckyInference {
 }
 
 export interface PublicMeckyDependencies {
-  readReviewedEvidence: () => Promise<readonly ReviewedCivicEvidence[]>;
+  readReviewedEvidence?: () => Promise<readonly ReviewedCivicEvidence[]>;
+  retrieveEvidence?: (
+    question: string,
+  ) => Promise<readonly RetrievedPublicEvidence[]>;
   infer: (input: PublicMeckyInferenceInput) => Promise<PublicMeckyInference>;
 }
 
@@ -482,6 +494,9 @@ export interface StadtstackReviewedEvidenceReaderOptions {
   ) => Promise<ReviewedCivicCasesResult>;
 }
 
+export type StadtstackPublicEvidenceRetrieverOptions =
+  StadtstackReviewedEvidenceReaderOptions;
+
 const STATIC_EVIDENCE_KEYS = [
   "evidenceId", "title", "publicSummary", "currentStageLabel", "nextAction",
   "participationAuthorityState", "reviewedAt", "publicCaseUrl",
@@ -564,14 +579,81 @@ export function createStadtstackReviewedEvidenceReader(
   };
 }
 
+/**
+ * Convert the checksum-bound federation projection into the shared public
+ * evidence vocabulary, then select only records relevant to this question.
+ * The inference prompt receives the minimized projection, never provider
+ * URLs or internal federation metadata.
+ */
+export function createStadtstackPublicEvidenceRetriever(
+  options: StadtstackPublicEvidenceRetrieverOptions,
+): (question: string) => Promise<readonly RetrievedPublicEvidence[]> {
+  const load = options.loadReviewedCases ?? loadReviewedCivicCases;
+  return async (question) => {
+    const result = await load({
+      baseUrl: options.baseUrl,
+      municipalityId: options.municipalityId,
+      allowClusterInternalHttp: true,
+    });
+    const entries: PublicEvidence[] = result.cases.map((entry) => ({
+      evidenceId: entry.manifest.stageMap.contentSha256 as `sha256:${string}`,
+      sourceKind: "reviewed_civic_case",
+      authority: "reviewed_civic_evidence",
+      title: entry.summary.title,
+      summary: [
+        entry.summary.publicSummary,
+        `Stand: ${entry.stageMap.current.label}.`,
+        entry.stageMap.current.nextAction
+          ? `Nächster Schritt: ${entry.stageMap.current.nextAction}`
+          : null,
+      ].filter(Boolean).join(" "),
+      publishedAt: entry.summary.updatedAt,
+      reviewState: "reviewed",
+      lifecycle: "current",
+      caseId: entry.summary.decisionCaseSlug,
+      caseUrl: entry.summary.publicCaseUrl,
+      reviewedAt: entry.summary.updatedAt,
+    }));
+    return retrievePublicEvidence(entries, question);
+  };
+}
+
 export function createPublicMecky(
   dependencies: PublicMeckyDependencies
 ): PublicMecky {
+  if (
+    (dependencies.readReviewedEvidence ? 1 : 0) +
+      (dependencies.retrieveEvidence ? 1 : 0) !==
+    1
+  ) {
+    throw new Error("Public Mecky requires exactly one evidence reader.");
+  }
   return {
     async answerMention(question) {
-      let evidence: readonly ReviewedCivicEvidence[];
+      let evidence: readonly {
+        evidenceId: string;
+        title: string;
+        publicUrl: string;
+        prompt: ReviewedCivicEvidence | PromptPublicEvidence;
+      }[];
       try {
-        evidence = await dependencies.readReviewedEvidence();
+        if (dependencies.retrieveEvidence) {
+          const retrieved = await dependencies.retrieveEvidence(question);
+          evidence = retrieved.map((entry) => ({
+            evidenceId: entry.evidence.evidenceId,
+            title: entry.evidence.title,
+            publicUrl: publicEvidenceUrl(entry.evidence),
+            prompt: entry.prompt,
+          }));
+        } else {
+          const reviewed = await dependencies.readReviewedEvidence!();
+          evidence = reviewed.map((entry) => ({
+            evidenceId: entry.evidenceId,
+            title: entry.title,
+            publicUrl: entry.publicCaseUrl,
+            prompt: entry,
+          }));
+        }
       } catch {
         return {
           status: "refused",
@@ -590,7 +672,10 @@ export function createPublicMecky(
       }
       let inference: PublicMeckyInference;
       try {
-        inference = await dependencies.infer({ question, evidence });
+        inference = await dependencies.infer({
+          question,
+          evidence: evidence.map((entry) => entry.prompt),
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : "";
         const httpStatus = /HTTP ([45][0-9]{2})/.exec(message)?.[1];
@@ -623,7 +708,7 @@ export function createPublicMecky(
       const evidenceRefs = cited.map((entry) => ({
         evidenceId: entry!.evidenceId,
         title: entry!.title,
-        publicCaseUrl: entry!.publicCaseUrl,
+        publicCaseUrl: entry!.publicUrl,
       }));
       const sourceLines = evidenceRefs.map(
         (entry) => `${entry.title} – ${entry.publicCaseUrl}`

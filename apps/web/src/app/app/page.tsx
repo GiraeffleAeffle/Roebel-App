@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useActiveAccount } from "thirdweb/react";
 import { createClient } from "@/lib/supabase/client";
-import { getPostsForFeed } from "@/app/actions/posts";
+import { getPublicFeedPosts } from "@/lib/public-feed-client";
 import { PostComposer } from "@/components/app/PostComposer";
 import { FeedFilters } from "@/components/app/FeedFilters";
 import { FeedCard } from "@/components/app/FeedCard";
@@ -468,9 +468,8 @@ export default function AppHomePage() {
       let fetchedPosts: PostWithEngagement[] = [];
       if (showPosts) {
         const categoryFilter = activeFilter === "posts" && activeCategory !== "all" ? activeCategory : undefined;
-        const postsResult = await getPostsForFeed({
+        const postsResult = await getPublicFeedPosts({
           limit: 20,
-          viewerWallet: account?.address,
           feedType: "main",
           category: categoryFilter,
         });

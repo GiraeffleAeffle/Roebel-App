@@ -467,13 +467,6 @@ const Agents = z.object({
             });
           }
         }),
-      /** Actor-bound, cluster-internal bridge for persisting signed discussions. */
-      stadtstackControl: z
-        .object({
-          baseUrl: z.string().url(),
-          nostrIngestorToken: secretRef,
-        })
-        .strict(),
       /** Replaceable OpenAI-compatible inference provider. The key stays a reference. */
       inference: z
         .object({

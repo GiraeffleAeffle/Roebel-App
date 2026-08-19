@@ -2,8 +2,15 @@ import { createServerClient as createSupabaseServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+// The Talos presentation rewrites NEXT_PUBLIC_* into browser-safe relative
+// paths, while server-side GET handlers need the namespace-local read gateway.
+// Both values are public/anon and the gateway itself remains GET/HEAD-only.
+const supabaseUrl =
+  process.env.ROEBEL_PUBLIC_SUPABASE_URL ??
+  process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseAnonKey =
+  process.env.ROEBEL_PUBLIC_SUPABASE_ANON_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 /** In record mode any ACCESS of the client throws with a clear message, so an
  * unported private-data path surfaces as a visible error, not a

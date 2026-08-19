@@ -7,12 +7,31 @@ import {
   createOpenAICompatiblePublicMeckyInference,
   createPiPublicMeckyInference,
   createPublicMecky,
+  createPublicMeckyEvidenceReply,
   createPublicMeckyRelayReply,
+  createStadtstackPublicEvidenceRetriever,
   createStadtstackReviewedEvidenceReader,
   toPublicMeckyWatcherReply,
 } from "../src/public-mecky";
 
 const EVIDENCE_ID = `sha256:${"a".repeat(64)}`;
+
+it("adds evidence tags to an ordinary Mecky reply without civic authority", () => {
+  const reply = createPublicMeckyEvidenceReply({
+    status: "answered",
+    content: "KI-Zusammenfassung: Geprüfte Einordnung.",
+    evidenceRefs: [{
+      evidenceId: EVIDENCE_ID,
+      title: "Öffentliche Quelle",
+      publicCaseUrl: "https://roebel.example/quelle",
+    }],
+  });
+  assert.deepEqual(reply, {
+    content: "KI-Zusammenfassung: Geprüfte Einordnung.",
+    tags: [["evidence", EVIDENCE_ID, "https://roebel.example/quelle"]],
+  });
+  assert.equal(reply.tags.some((tag) => ["case", "topic", "municipality", "mecky-receipt"].includes(tag[0]!)), false);
+});
 
 it("loads only an exact checksum-bound synthetic reviewed snapshot", async () => {
   const snapshot = JSON.stringify([{
@@ -240,6 +259,39 @@ describe("Public Mecky", () => {
           "https://stadtstack.example/kommunen/roebel-mueritz/entscheidungen/marienfelder-strasse",
       },
     ]);
+  });
+
+  it("retrieves only question-relevant minimized Stadtstack evidence", async () => {
+    const retrieve = createStadtstackPublicEvidenceRetriever({
+      baseUrl: "https://stadtstack.example",
+      municipalityId: "roebel-mueritz",
+      loadReviewedCases: async () => ({
+        municipality: {
+          id: "roebel-mueritz",
+          name: "Röbel/Müritz",
+          state: "Mecklenburg-Vorpommern",
+          country: "DE",
+        },
+        generatedAt: "2026-08-10T12:00:00.000Z",
+        cases: [{
+          summary: {
+            decisionCaseSlug: "marienfelder-strasse",
+            title: "Marienfelder Straße",
+            publicSummary: "Geprüfter Stand zur geplanten Querung.",
+            updatedAt: "2026-08-10T11:30:00.000Z",
+            publicCaseUrl: "https://stadtstack.example/kommunen/roebel-mueritz/entscheidungen/marienfelder-strasse",
+          },
+          manifest: { stageMap: { contentSha256: EVIDENCE_ID } },
+          stageMap: { current: { label: "Fakten verstehen", nextAction: null } },
+        }],
+      } as never),
+    });
+
+    const selected = await retrieve("Was ist zur Querung der Marienfelder Straße belegt?");
+    assert.equal(selected.length, 1);
+    assert.equal(selected[0]!.prompt.evidenceId, EVIDENCE_ID);
+    assert.equal(Object.hasOwn(selected[0]!.prompt, "caseUrl"), false);
+    assert.deepEqual(await retrieve("Wann öffnet das Schwimmbad?"), []);
   });
 
   it("uses an OpenAI-compatible provider with only the question and reviewed evidence", async () => {

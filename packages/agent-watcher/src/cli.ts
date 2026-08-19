@@ -5,9 +5,10 @@ import { announceAgentProfile } from "./profile";
 import {
   createPiPublicMeckyInference,
   createPublicMecky,
+  createPublicMeckyEvidenceReply,
   createPublicMeckyRelayReply,
   createStaticReviewedEvidenceReader,
-  createStadtstackReviewedEvidenceReader,
+  createStadtstackPublicEvidenceRetriever,
   publicMeckyDiscussionBindingFor,
   toPublicMeckyWatcherReply,
 } from "./public-mecky";
@@ -51,17 +52,20 @@ async function main(): Promise<void> {
   const lookbackSeconds = Number(process.env.WATCH_LOOKBACK_SECONDS ?? 86_400);
 
   const syntheticEvidenceMode = process.env.STADTSTACK_E2E_MODE === "synthetic-reviewed";
-  const readReviewedEvidence = syntheticEvidenceMode
-    ? createStaticReviewedEvidenceReader(
-        required("STADTSTACK_E2E_REVIEWED_EVIDENCE"),
-        required("STADTSTACK_E2E_REVIEWED_EVIDENCE_SHA256"),
-      )
-    : createStadtstackReviewedEvidenceReader({
-        baseUrl: publicEvidenceBaseUrl,
-        municipalityId,
-      });
   const publicMecky = createPublicMecky({
-    readReviewedEvidence,
+    ...(syntheticEvidenceMode
+      ? {
+          readReviewedEvidence: createStaticReviewedEvidenceReader(
+            required("STADTSTACK_E2E_REVIEWED_EVIDENCE"),
+            required("STADTSTACK_E2E_REVIEWED_EVIDENCE_SHA256"),
+          ),
+        }
+      : {
+          retrieveEvidence: createStadtstackPublicEvidenceRetriever({
+            baseUrl: publicEvidenceBaseUrl,
+            municipalityId,
+          }),
+        }),
     infer: createPiPublicMeckyInference({
       baseUrl: inferenceBaseUrl,
       apiKey: inferenceApiKey,
@@ -130,7 +134,7 @@ async function main(): Promise<void> {
                   }),
                   result: answer,
                 }))
-              : answer.content;
+              : createPublicMeckyEvidenceReply(answer);
           }
           console.log(
             `[${new Date().toISOString()}] declined public Mecky answer: ${answer.reason} (${answer.diagnosticCode})`,

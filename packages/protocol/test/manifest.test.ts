@@ -37,10 +37,20 @@ test("Public Mecky declares reviewed evidence and a referenced inference credent
   );
   assert.equal(watcher?.inference.model, "Qwen/Qwen3.6-35B-A3B-FP8");
   assert.equal(watcher?.inference.apiKey, "$HETZNER_INFERENCE_API_KEY");
+  assert.equal(Object.hasOwn(watcher ?? {}, "stadtstackControl"), false);
 
   const inlineKey = structuredClone(roebel);
   inlineKey.agents.watcher.inference.apiKey = "secret-token";
   assert.equal(safeParseManifest(inlineKey).success, false);
+
+  const overPrivilegedWatcher = structuredClone(roebel) as typeof roebel & {
+    agents: { watcher: Record<string, unknown> };
+  };
+  overPrivilegedWatcher.agents.watcher.stadtstackControl = {
+    baseUrl: "http://stadtstack-control.invalid",
+    nostrIngestorToken: "$STADTSTACK_NOSTR_INGESTOR_TOKEN",
+  };
+  assert.equal(safeParseManifest(overPrivilegedWatcher).success, false);
 
   const legacyUngroundedWatcher = structuredClone(roebel);
   legacyUngroundedWatcher.agents.watcher = {

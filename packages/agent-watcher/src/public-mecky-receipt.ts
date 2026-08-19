@@ -29,6 +29,11 @@ export interface PublicMeckyRelayReply {
   tags: string[][];
 }
 
+export interface PublicMeckyEvidenceReply {
+  content: string;
+  tags: string[][];
+}
+
 const TOPIC_ID =
   /^urn:stadtstack:topic:municipality:([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?):([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)$/;
 
@@ -152,6 +157,25 @@ export function toPublicMeckyWatcherReply(
   return {
     content: reply.content,
     tags: reply.tags.map((tag) => [...tag]),
+  };
+}
+
+/**
+ * Attach evidence provenance to an ordinary conversation reply without
+ * manufacturing a Case, topic, municipality or civic receipt. The watcher
+ * adds the normal NIP-10 thread tags when it signs the reply.
+ */
+export function createPublicMeckyEvidenceReply(
+  result: PublicMeckyAnsweredResult,
+): PublicMeckyEvidenceReply {
+  validateAnswer(result);
+  return {
+    content: result.content,
+    tags: result.evidenceRefs.map((entry) => [
+      "evidence",
+      entry.evidenceId,
+      entry.publicCaseUrl,
+    ]),
   };
 }
 

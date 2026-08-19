@@ -4,7 +4,8 @@ import { useState, useRef, useEffect, useTransition, useCallback } from "react";
 import Image from "next/image";
 import { useActiveAccount } from "thirdweb/react";
 import { useVerificationStatus } from "@/hooks/useVerificationStatus";
-import { getComments, createComment } from "@/app/actions/posts";
+import { createComment } from "@/app/actions/posts";
+import { getPublicFeedComments } from "@/lib/public-feed-client";
 import { createClient } from "@/lib/supabase/client";
 import { uploadResumable } from "@/lib/storage/resumable-upload";
 import { PostMediaGrid } from "@/components/app/PostMediaGrid";
@@ -283,7 +284,7 @@ export function CommentSection({
     if (isLoading) return;
     setIsLoading(true);
     const [result] = await Promise.all([
-      getComments(postId, 50, 0),
+      getPublicFeedComments(postId, 50, 0),
       refreshMeckyConversation().catch(() => null),
     ]);
     if (result.success && result.data) {
