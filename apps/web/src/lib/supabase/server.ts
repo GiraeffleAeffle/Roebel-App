@@ -2,10 +2,11 @@ import { createServerClient as createSupabaseServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
-// The Talos presentation rewrites NEXT_PUBLIC_* into browser-safe relative
-// paths, while server-side GET handlers need the namespace-local read gateway.
-// Both values are public/anon and the gateway itself remains GET/HEAD-only.
+// Browser requests keep the same-origin public read path. Server-side readers
+// prefer the namespace-local read gateway so they do not hairpin through the
+// public load balancer. Both paths use the public anon key and remain GET/HEAD-only.
 const supabaseUrl =
+  process.env.ROEBEL_SERVER_SUPABASE_URL ??
   process.env.ROEBEL_PUBLIC_SUPABASE_URL ??
   process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey =

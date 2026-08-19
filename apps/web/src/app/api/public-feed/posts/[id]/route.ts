@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getPostById } from "@/app/actions/posts";
+import { withPublicFeedServerDeadline } from "@/lib/server/public-feed-deadline";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -19,7 +20,17 @@ export async function GET(
       { status: 404, headers: { "cache-control": "no-store" } }
     );
   }
-  const result = await getPostById(id);
+  const outcome = await withPublicFeedServerDeadline(() => getPostById(id));
+  if (outcome.timedOut) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Öffentlicher Feed antwortet gerade nicht. Bitte erneut laden.",
+      },
+      { status: 503, headers: { "cache-control": "no-store" } }
+    );
+  }
+  const result = outcome.value;
   return NextResponse.json(result, {
     status: result.success ? 200 : 404,
     headers: { "cache-control": "no-store" },

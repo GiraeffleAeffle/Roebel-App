@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { getComments } from "@/app/actions/posts";
+import { withPublicFeedServerDeadline } from "@/lib/server/public-feed-deadline";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -28,11 +29,24 @@ export async function GET(
       { status: 404, headers: { "cache-control": "no-store" } }
     );
   }
-  const result = await getComments(
-    id,
-    boundedInteger(request.nextUrl.searchParams.get("limit"), 50, 100),
-    boundedInteger(request.nextUrl.searchParams.get("offset"), 0, 500)
+  const outcome = await withPublicFeedServerDeadline(
+    () =>
+      getComments(
+        id,
+        boundedInteger(request.nextUrl.searchParams.get("limit"), 50, 100),
+        boundedInteger(request.nextUrl.searchParams.get("offset"), 0, 500)
+      )
   );
+  if (outcome.timedOut) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Öffentlicher Feed antwortet gerade nicht. Bitte erneut laden.",
+      },
+      { status: 503, headers: { "cache-control": "no-store" } }
+    );
+  }
+  const result = outcome.value;
   return NextResponse.json(result, {
     status: result.success ? 200 : 503,
     headers: { "cache-control": "no-store" },

@@ -40,27 +40,43 @@ export default function PostDetailPage({
       setError(null);
       setPost(null);
       setStagingMirror(null);
+
+      async function loadStagingMirror() {
+        if (!stagingEnabled) return null;
+        const feed = await stagingGet<StagingFeedResponse>("/feed");
+        const mirror = findStagingPostMirror(feed.posts, id);
+        if (!mirror) return null;
+        const conversation = await stagingGet<StagingMeckyConversationResponse>(
+          `/conversation?post=${encodeURIComponent(id)}`
+        );
+        return { post: mirror, conversation };
+      }
+
       try {
-        const result = await getPublicFeedPost(id);
-        if (result.success && result.data) {
-          setPost(result.data);
-          return;
-        }
-        if (stagingEnabled) {
-          const feed = await stagingGet<StagingFeedResponse>("/feed");
-          const mirror = findStagingPostMirror(feed.posts, id);
-          if (mirror) {
-            const conversation =
-              await stagingGet<StagingMeckyConversationResponse>(
-                `/conversation?post=${encodeURIComponent(id)}`
-              );
-            setStagingMirror({ post: mirror, conversation });
+        let primaryError = "Beitrag konnte nicht geladen werden";
+
+        try {
+          const result = await getPublicFeedPost(id);
+          if (result.success && result.data) {
+            setPost(result.data);
             return;
           }
+          primaryError = result.error || "Beitrag nicht gefunden";
+        } catch {
+          primaryError = "Beitrag konnte nicht geladen werden";
         }
-        setError(result.error || "Beitrag nicht gefunden");
-      } catch {
-        setError("Beitrag konnte nicht geladen werden");
+
+        try {
+          const stagingMirror = await loadStagingMirror();
+          if (stagingMirror) {
+            setStagingMirror(stagingMirror);
+            return;
+          }
+        } catch {
+          // The staging mirror is a labelled, non-authoritative fallback.
+        }
+
+        setError(primaryError);
       } finally {
         setIsLoading(false);
       }

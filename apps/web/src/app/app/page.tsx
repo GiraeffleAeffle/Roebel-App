@@ -38,6 +38,7 @@ import type { ListingWithSeller } from "@/types/marketplace";
 import type { Business } from "@/types/business";
 import type { PostWithEngagement } from "@/types/post";
 import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
+import { settleHomeFeedAncillary } from "@/lib/home-feed-loading";
 
 interface FeedItem {
   type: "event" | "news" | "ad";
@@ -296,6 +297,54 @@ export default function AppHomePage() {
       // StadtFeed and AppFeed manage their own data fetching
       return;
     }
+
+    const showEvents =
+      activeFilter === "all" ||
+      activeFilter === "events" ||
+      activeFilter === "latest";
+    const showNews =
+      activeFilter === "all" ||
+      activeFilter === "news" ||
+      activeFilter === "latest";
+    const showAds =
+      activeFilter === "all" ||
+      activeFilter === "ads" ||
+      activeFilter === "latest";
+    const showPosts =
+      activeFilter === "all" ||
+      activeFilter === "posts" ||
+      activeFilter === "latest";
+    const categoryFilter =
+      activeFilter === "posts" && activeCategory !== "all"
+        ? activeCategory
+        : undefined;
+
+    // Start the ordinary post request before any ancillary Supabase query.
+    // The post feed is the page's primary content and must be able to leave
+    // the loading state while alerts, events, news, ads, or rows recover.
+    const postsRequest = showPosts
+      ? getPublicFeedPosts({
+          limit: 20,
+          feedType: "main",
+          category: categoryFilter,
+        })
+      : null;
+
+    if (postsRequest) {
+      void postsRequest
+        .then((postsResult) => {
+          const fetchedPosts =
+            postsResult.success && postsResult.data ? postsResult.data : [];
+          setPosts(fetchedPosts);
+          setLoading(false);
+        })
+        .catch((error) => {
+          console.error("app_public_posts_load_failed", error);
+          setPosts([]);
+          setLoading(false);
+        });
+    }
+
     async function fetchFeed() {
       setLoading(true);
       const supabase = createClient();
@@ -303,26 +352,32 @@ export default function AppHomePage() {
       const today = now.toISOString().split("T")[0];
 
       // Always fetch active alerts (shown on all filters)
-      const { data: alertsData } = await supabase
-        .from("service_alerts")
-        .select("*")
-        .eq("status", "active")
-        .order("severity", { ascending: true })
-        .order("starts_at", { ascending: false })
-        .limit(5);
+      const { data: alertsData } = await settleHomeFeedAncillary(
+        supabase
+          .from("service_alerts")
+          .select("*")
+          .eq("status", "active")
+          .order("severity", { ascending: true })
+          .order("starts_at", { ascending: false })
+          .limit(5),
+        { data: null },
+      );
       setAlerts((alertsData || []) as ServiceAlert[]);
 
       // Handle "brett" filter — show board listings as grid
       if (activeFilter === "brett") {
-        const { data: brettData } = await supabase
-          .from("marketplace_listings")
-          .select(
-            "*, users!marketplace_listings_seller_wallet_address_fkey(username, profile_picture_url, neighborhood)"
-          )
-          .eq("status", "active")
-          .eq("listing_type", "schwarzes_brett")
-          .order("created_at", { ascending: false })
-          .limit(50);
+        const { data: brettData } = await settleHomeFeedAncillary(
+          supabase
+            .from("marketplace_listings")
+            .select(
+              "*, users!marketplace_listings_seller_wallet_address_fkey(username, profile_picture_url, neighborhood)"
+            )
+            .eq("status", "active")
+            .eq("listing_type", "schwarzes_brett")
+            .order("created_at", { ascending: false })
+            .limit(50),
+          { data: null },
+        );
 
         if (brettData) {
           setBoardListings(
@@ -343,34 +398,20 @@ export default function AppHomePage() {
         return;
       }
 
-      const showEvents =
-        activeFilter === "all" ||
-        activeFilter === "events" ||
-        activeFilter === "latest";
-      const showNews =
-        activeFilter === "all" ||
-        activeFilter === "news" ||
-        activeFilter === "latest";
-      const showAds =
-        activeFilter === "all" ||
-        activeFilter === "ads" ||
-        activeFilter === "latest";
-      const showPosts =
-        activeFilter === "all" ||
-        activeFilter === "posts" ||
-        activeFilter === "latest";
-
       const contentItems: FeedItem[] = [];
       const adItems: FeedItem[] = [];
 
       // Fetch events — sorted ascending so we can split upcoming/past
       if (showEvents) {
-        const { data: events } = await supabase
-          .from("events")
-          .select("*")
-          .eq("status", "approved")
-          .order("date", { ascending: true })
-          .limit(30);
+        const { data: events } = await settleHomeFeedAncillary(
+          supabase
+            .from("events")
+            .select("*")
+            .eq("status", "approved")
+            .order("date", { ascending: true })
+            .limit(30),
+          { data: null },
+        );
 
         if (events) {
           const upcoming = events
@@ -392,12 +433,15 @@ export default function AppHomePage() {
 
       // Fetch news — newest first
       if (showNews) {
-        const { data: news } = await supabase
-          .from("news_articles")
-          .select("*")
-          .eq("status", "published")
-          .order("published_at", { ascending: false })
-          .limit(20);
+        const { data: news } = await settleHomeFeedAncillary(
+          supabase
+            .from("news_articles")
+            .select("*")
+            .eq("status", "published")
+            .order("published_at", { ascending: false })
+            .limit(20),
+          { data: null },
+        );
 
         if (news) {
           contentItems.push(
@@ -420,17 +464,20 @@ export default function AppHomePage() {
 
       // Fetch ads for feed interleaving
       if (showAds) {
-        const { data: ads } = await supabase
-          .from("business_deals")
-          .select(
-            `*, businesses!inner (name, slug, logo_url, category, status)`
-          )
-          .eq("is_active", true)
-          .neq("businesses.status", "rejected")
-          .or(`end_date.is.null,end_date.gte.${today}`)
-          .order("is_boosted", { ascending: false })
-          .order("created_at", { ascending: false })
-          .limit(5);
+        const { data: ads } = await settleHomeFeedAncillary(
+          supabase
+            .from("business_deals")
+            .select(
+              `*, businesses!inner (name, slug, logo_url, category, status)`
+            )
+            .eq("is_active", true)
+            .neq("businesses.status", "rejected")
+            .or(`end_date.is.null,end_date.gte.${today}`)
+            .order("is_boosted", { ascending: false })
+            .order("created_at", { ascending: false })
+            .limit(5),
+          { data: null },
+        );
 
         if (ads) {
           adItems.push(
@@ -464,21 +511,6 @@ export default function AppHomePage() {
         }
       }
 
-      // Fetch posts (with optional category filter)
-      let fetchedPosts: PostWithEngagement[] = [];
-      if (showPosts) {
-        const categoryFilter = activeFilter === "posts" && activeCategory !== "all" ? activeCategory : undefined;
-        const postsResult = await getPublicFeedPosts({
-          limit: 20,
-          feedType: "main",
-          category: categoryFilter,
-        });
-        if (postsResult.success && postsResult.data) {
-          fetchedPosts = postsResult.data;
-        }
-      }
-      setPosts(fetchedPosts);
-
       // Fetch horizontal row data (only on "all" filter)
       if (activeFilter === "all") {
         const [
@@ -489,51 +521,69 @@ export default function AppHomePage() {
           moviesRes,
           newsRes,
         ] = await Promise.all([
-          supabase
-            .from("marketplace_listings")
-            .select(
-              "*, users!marketplace_listings_seller_wallet_address_fkey(username, profile_picture_url, neighborhood)"
-            )
-            .eq("status", "active")
-            .neq("listing_type", "schwarzes_brett")
-            .order("created_at", { ascending: false })
-            .limit(10),
-          supabase
-            .from("marketplace_listings")
-            .select(
-              "*, users!marketplace_listings_seller_wallet_address_fkey(username, profile_picture_url, neighborhood)"
-            )
-            .eq("status", "active")
-            .eq("listing_type", "schwarzes_brett")
-            .order("created_at", { ascending: false })
-            .limit(10),
-          supabase
-            .from("businesses")
-            .select("*")
-            .eq("status", "published")
-            .order("is_featured", { ascending: false })
-            .order("created_at", { ascending: false })
-            .limit(10),
-          supabase
-            .from("restaurants")
-            .select("*")
-            .in("status", ["approved", "published"])
-            .order("is_featured", { ascending: false })
-            .order("sort_order", { ascending: true })
-            .limit(10),
-          supabase
-            .from("movies")
-            .select("*")
-            .eq("status", "published")
-            .gte("date", today)
-            .order("date", { ascending: true })
-            .limit(10),
-          supabase
-            .from("news_articles")
-            .select("id, title, slug, excerpt, cover_image_url: cover_image, author_name, category, published_at")
-            .eq("status", "published")
-            .order("published_at", { ascending: false })
-            .limit(10),
+          settleHomeFeedAncillary(
+            supabase
+              .from("marketplace_listings")
+              .select(
+                "*, users!marketplace_listings_seller_wallet_address_fkey(username, profile_picture_url, neighborhood)"
+              )
+              .eq("status", "active")
+              .neq("listing_type", "schwarzes_brett")
+              .order("created_at", { ascending: false })
+              .limit(10),
+            { data: null },
+          ),
+          settleHomeFeedAncillary(
+            supabase
+              .from("marketplace_listings")
+              .select(
+                "*, users!marketplace_listings_seller_wallet_address_fkey(username, profile_picture_url, neighborhood)"
+              )
+              .eq("status", "active")
+              .eq("listing_type", "schwarzes_brett")
+              .order("created_at", { ascending: false })
+              .limit(10),
+            { data: null },
+          ),
+          settleHomeFeedAncillary(
+            supabase
+              .from("businesses")
+              .select("*")
+              .eq("status", "published")
+              .order("is_featured", { ascending: false })
+              .order("created_at", { ascending: false })
+              .limit(10),
+            { data: null },
+          ),
+          settleHomeFeedAncillary(
+            supabase
+              .from("restaurants")
+              .select("*")
+              .in("status", ["approved", "published"])
+              .order("is_featured", { ascending: false })
+              .order("sort_order", { ascending: true })
+              .limit(10),
+            { data: null },
+          ),
+          settleHomeFeedAncillary(
+            supabase
+              .from("movies")
+              .select("*")
+              .eq("status", "published")
+              .gte("date", today)
+              .order("date", { ascending: true })
+              .limit(10),
+            { data: null },
+          ),
+          settleHomeFeedAncillary(
+            supabase
+              .from("news_articles")
+              .select("id, title, slug, excerpt, cover_image_url: cover_image, author_name, category, published_at")
+              .eq("status", "published")
+              .order("published_at", { ascending: false })
+              .limit(10),
+            { data: null },
+          ),
         ]);
 
         const mapListingWithSeller = (l: Record<string, unknown>) => {
@@ -612,7 +662,6 @@ export default function AppHomePage() {
     fetchFeed().catch((error) => {
       console.error("app_feed_load_failed", error);
       setFeedItems([]);
-      setPosts([]);
       setLoading(false);
     });
   }, [activeTab, activeFilter, activeCategory, refreshKey, account?.address]);

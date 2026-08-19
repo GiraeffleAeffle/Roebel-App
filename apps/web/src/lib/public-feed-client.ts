@@ -6,18 +6,41 @@ type PublicFeedEnvelope<T> = Readonly<{
   error?: string;
 }>;
 
+/**
+ * A public staging reader must never leave the feed's loading state pending
+ * forever when its read gateway loses a connection. This is deliberately a
+ * client-facing deadline: the server route remains fail-closed and rollout
+ * verification still requires a successful direct Service response.
+ */
+export const PUBLIC_FEED_REQUEST_TIMEOUT_MS = 8_000;
+
 async function publicFeedGet<T>(path: string): Promise<PublicFeedEnvelope<T>> {
-  const response = await fetch(`/api/public-feed${path}`, {
-    cache: "no-store",
-    headers: { accept: "application/json" },
-  });
-  const value = (await response.json().catch(() => null)) as
-    | PublicFeedEnvelope<T>
-    | null;
-  if (!value || typeof value !== "object") {
-    return { success: false, error: "Öffentlicher Feed ist nicht erreichbar" };
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    PUBLIC_FEED_REQUEST_TIMEOUT_MS
+  );
+  try {
+    const response = await fetch(`/api/public-feed${path}`, {
+      cache: "no-store",
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    });
+    const value = (await response.json().catch(() => null)) as
+      | PublicFeedEnvelope<T>
+      | null;
+    if (!value || typeof value !== "object") {
+      return { success: false, error: "Öffentlicher Feed ist nicht erreichbar" };
+    }
+    return value;
+  } catch {
+    return {
+      success: false,
+      error: "Öffentlicher Feed antwortet gerade nicht. Bitte erneut laden.",
+    };
+  } finally {
+    clearTimeout(timeout);
   }
-  return value;
 }
 
 export async function getPublicFeedPosts(input: {

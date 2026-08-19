@@ -116,22 +116,74 @@ export type StagingMeckyConversationResponse = {
   authorityBinding: "none";
 };
 
+/**
+ * The staging mirror is a labelled fallback. It must fail closed instead of
+ * keeping a post or feed loading state alive when the cluster gateway stalls.
+ */
+export const STADTSTACK_STAGING_REQUEST_TIMEOUT_MS = 8_000;
+export const STADTSTACK_STAGING_UNAVAILABLE_MESSAGE =
+  "Stadtstack-Staging ist gerade nicht erreichbar.";
+
+export class StagingUnavailableError extends Error {
+  readonly code = "STADTSTACK_STAGING_UNAVAILABLE" as const;
+
+  constructor() {
+    super(STADTSTACK_STAGING_UNAVAILABLE_MESSAGE);
+    this.name = "StagingUnavailableError";
+    Object.setPrototypeOf(this, StagingUnavailableError.prototype);
+  }
+}
+
+async function stagingRequest<T>(
+  path: string,
+  init: RequestInit
+): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    STADTSTACK_STAGING_REQUEST_TIMEOUT_MS
+  );
+
+  try {
+    let response: Response;
+    try {
+      response = await fetch(`${STADTSTACK_STAGING_API}${path}`, {
+        ...init,
+        signal: controller.signal,
+      });
+    } catch {
+      throw new StagingUnavailableError();
+    }
+
+    let value: unknown;
+    try {
+      value = await response.json();
+    } catch {
+      throw new StagingUnavailableError();
+    }
+
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      throw new StagingUnavailableError();
+    }
+
+    const payload = value as { error?: string } & T;
+    if (!response.ok) throw new Error(payload.error ?? `HTTP ${response.status}`);
+    return payload;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function stagingGet<T>(path: string): Promise<T> {
-  const response = await fetch(`${STADTSTACK_STAGING_API}${path}`, {
+  return stagingRequest<T>(path, {
     cache: "no-store",
   });
-  const value = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(value.error ?? `HTTP ${response.status}`);
-  return value;
 }
 
 export async function stagingPost<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${STADTSTACK_STAGING_API}${path}`, {
+  return stagingRequest<T>(path, {
     method: "POST",
     headers: { "content-type": "application/json", "x-stadtstack-e2e": "1" },
     body: JSON.stringify(body),
   });
-  const value = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(value.error ?? `HTTP ${response.status}`);
-  return value;
 }
