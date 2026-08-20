@@ -1,63 +1,64 @@
-# Röbel staging publisher candidate
+# Röbel staging publisher foundation
 
-`roebel-staging-publish.yml` is a deliberately **non-activating** manual-main
-candidate. It is not a deployment workflow and has no Talos, Kubernetes,
-Flux, Hetzner, Tailscale, runtime, or application-secret surface.
-
-It names exactly two possible registry destinations:
+`roebel-staging-publish.yml` is the protected remote build and publication
+module for two secret-free staging images:
 
 - `ghcr.io/giraeffleaeffle/roebel-web-staging`
 - `ghcr.io/giraeffleaeffle/public-mecky`
 
-The mutable `candidate-<source-sha>` tags in its unreachable skeleton are
-transport labels only. A release set must contain only the corresponding
-Buildx output digests and may never use those tags as an image identity.
-Buildx is configured to emit an SPDX SBOM and maximal provenance; GitHub OIDC
-provenance is attached to each exact image digest. The expected workflow
-identity is pinned in the release-set assembler to this workflow on
-`refs/heads/main`.
+It accepts one exact same-repository source commit, builds each component once
+as a bounded `linux/amd64` OCI archive, verifies runtime identity and absence of
+embedded runtime secrets with the source revision's verifier, and copies that
+exact manifest to GHCR. It then generates an SPDX-2.3 SBOM and attaches both an
+SBOM attestation and GitHub OIDC build provenance to the immutable digest.
 
-## Why it fails closed today
+Mutable `source-<sha>` tags are transport labels only. An existing identical
+tag is reused; a different digest is never overwritten. Talos, Release Sets
+and Flux may consume only `image@sha256:...` identities from the resulting
+publication receipts.
 
-Two independent activation blockers are intentional:
+## Publication is not promotion
 
-1. `guard` validates the exact `main` commit plus a canonical, non-secret
-   previous-head JSON and its digest, then exits non-zero with
-   `UNBOUND_REVIEW_REQUIRED`.
-2. `publish` is additionally guarded by the literal `if: ${{ false }}`.
+The workflow deliberately has no Talos, Kubernetes, Hetzner, Flux, Tailscale,
+runtime-secret or application-secret input. It cannot deploy, change a Release
+Set head, update a reviewed render, activate Flux or exercise civic authority.
+It does not merge or deploy PR #8: a maintainer explicitly supplies the exact
+reviewed source commit to publish.
 
-There is no assumed source of truth for a release-set head. Replacing either
-blocker without an independently reviewed atomic compare-and-swap mechanism
-would permit a stale promotion to overwrite a newer release set.
+Promotion remains a separate protected module:
 
-## Required activation authorization and binding work
+1. verify the publication receipt, GitHub OIDC identity and SPDX attestation;
+2. compare the current immutable Release Set head;
+3. admit a checksum-bound reviewed render with live UID/resourceVersion/image
+   preconditions;
+4. atomically advance the head; and
+5. let namespace-scoped Flux reconcile only the admitted Deployments.
 
-An authorized maintainer must approve a separate, narrowly scoped binding
-change that supplies all of the following:
+This separation keeps the publisher deep and narrow: callers need to know only
+the source commit and receive verified immutable image evidence, while all
+deployment ordering, rollback and civic boundaries remain elsewhere.
 
-1. A protected `main` branch and a protected `roebel-staging-publisher`
-   environment with required reviewers. The workflow may be manually
-   dispatched only from `main`.
-2. GitHub Actions package-write, attestation-write, and OIDC availability for
-   the two named GHCR packages. These are the sole allowed publication
-   permissions; no cluster or provider credentials belong here.
-3. A protected release-set-head store with an atomic CAS operation keyed by
-   `expected_previous_head_digest`. The checked candidate must be written only
-   if that exact head is still current. A non-atomic GitHub artifact upload is
-   not a substitute.
-4. An immutable verification implementation that reads the pushed image
-   digests, validates the GitHub OIDC provenance identity and BuildKit
-   SPDX-2.3 SBOM referrers, produces the existing bounded OCI receipts and
-   evidence JSON, runs `assemble-roebel-staging-release-set.mjs`, and verifies
-   the assembler’s expected previous head before the CAS.
-5. A reviewed rule for an existing `candidate-<sha>` registry tag: reject a
-   different digest and reuse only an already verified identical digest. The
-   digest—not a tag—remains the Release Set identity.
-6. An exact, locally or independently verified official commit SHA for every
-   third-party Action. In particular, the unreachable
-   `docker/build-push-action@v6` labels are intentionally **UNBOUND**: no such
-   SHA was retained with this candidate, so it must not be activated by
-   trusting or guessing a floating version label.
+## Activation and visibility
 
-Until all six are bound and reviewed, this file is useful as a precise
-contract only. It cannot publish or modify release state.
+Before the workflow can run, it must exist on protected `main` and the
+`roebel-staging-publisher` GitHub environment must require the repository owner
+to approve deployments. The job receives only the built-in `GITHUB_TOKEN` with
+`contents:read`, `packages:write`, `attestations:write` and `id-token:write`.
+
+GitHub initially creates personal-account packages as private. After the first
+successful publication, the owner must make exactly these two packages public
+and verify anonymous digest pulls. GitHub warns that public visibility cannot
+be reversed. This is acceptable here only because the repository and built
+application code are public and the OCI verification rejects embedded runtime
+credentials.
+
+The first bounded staging use is:
+
+1. publish exact reviewed digests;
+2. make both package identities public;
+3. verify anonymous `@sha256:` pulls;
+4. have all three Talos nodes pull those exact digests; and
+5. run the separately reviewed six-object, self-cleaning web canary.
+
+Routine deployment through Flux remains disabled until its own adoption gate
+and browser rollback proof pass.
