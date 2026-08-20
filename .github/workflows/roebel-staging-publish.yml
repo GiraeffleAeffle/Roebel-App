@@ -76,11 +76,6 @@ jobs:
       COMPONENT: ${{ matrix.component }}
       PACKAGE: ${{ matrix.package }}
       IMAGE: ${{ matrix.image }}
-      ARCHIVE: ${{ runner.temp }}/${{ matrix.archive }}
-      LAYOUT: ${{ runner.temp }}/${{ matrix.component }}-oci
-      SOURCE_RECEIPT: ${{ runner.temp }}/${{ matrix.component }}.source-receipt.json
-      SBOM: ${{ runner.temp }}/${{ matrix.component }}.spdx.json
-      PUBLICATION_RECEIPT: ${{ runner.temp }}/${{ matrix.component }}.publication-receipt.json
     steps:
       - name: Check out the exact source revision
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -99,6 +94,20 @@ jobs:
         with:
           version: 9.15.0
           run_install: false
+
+      - name: Bind runner-local evidence paths
+        shell: bash
+        env:
+          ARCHIVE_NAME: ${{ matrix.archive }}
+        run: |
+          set -euo pipefail
+          {
+            printf 'ARCHIVE=%s/%s\n' "$RUNNER_TEMP" "$ARCHIVE_NAME"
+            printf 'LAYOUT=%s/%s-oci\n' "$RUNNER_TEMP" "$COMPONENT"
+            printf 'SOURCE_RECEIPT=%s/%s.source-receipt.json\n' "$RUNNER_TEMP" "$COMPONENT"
+            printf 'SBOM=%s/%s.spdx.json\n' "$RUNNER_TEMP" "$COMPONENT"
+            printf 'PUBLICATION_RECEIPT=%s/%s.publication-receipt.json\n' "$RUNNER_TEMP" "$COMPONENT"
+          } >> "$GITHUB_ENV"
 
       - name: Prune to the exact component dependency graph
         working-directory: source

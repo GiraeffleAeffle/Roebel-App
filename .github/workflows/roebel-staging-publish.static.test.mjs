@@ -26,6 +26,16 @@ test("publisher is manual, main-only and protected by an environment", () => {
   assert.match(workflow, /repos\/\$GITHUB_REPOSITORY\/commits\/\$SOURCE_REVISION/u);
 });
 
+test("runner-local paths are bound only after the runner exists", () => {
+  assert.doesNotMatch(workflow, /\$\{\{\s*runner\./u);
+  assert.match(workflow, /- name: Bind runner-local evidence paths/u);
+  assert.match(workflow, /printf 'ARCHIVE=%s\/%s\\n' "\$RUNNER_TEMP" "\$ARCHIVE_NAME"/u);
+  for (const variable of ["LAYOUT", "SOURCE_RECEIPT", "SBOM", "PUBLICATION_RECEIPT"]) {
+    assert.match(workflow, new RegExp(`printf '${variable}=`, "u"));
+  }
+  assert.match(workflow, /\} >> "\$GITHUB_ENV"/u);
+});
+
 test("publisher builds and publishes exactly the two secret-free staging components", () => {
   for (const component of ["roebel-web-staging", "public-mecky"]) {
     assert.match(workflow, new RegExp(`component: ${component}`, "u"));
