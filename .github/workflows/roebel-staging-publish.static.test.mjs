@@ -66,6 +66,8 @@ test("all third-party actions are immutable and expected", () => {
     assert.equal(sha, actionPins.get(name), `${name} pin drift`);
   }
   assert.deepEqual(new Set(uses.map((use) => use.split("@")[0])), new Set(actionPins.keys()));
+  assert.match(workflow, /uses: oras-project\/setup-oras@[0-9a-f]{40}[\s\S]*?version: 1\.3\.0/u);
+  assert.doesNotMatch(workflow, /version: 1\.3\.3/u);
 });
 
 test("publication produces SPDX and GitHub OIDC attestations for exact digests", () => {
