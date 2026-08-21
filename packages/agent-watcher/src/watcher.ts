@@ -39,6 +39,11 @@ export interface WatcherDeps {
   makeClient?: (url: string) => Pick<RelayClient, "query" | "publish" | "close">;
   /** Relay that stores the agent profile and replies. Defaults to relayUrl. */
   replyRelayUrl?: string;
+  /**
+   * Optional durable app-read-model sink. The signed event is the credential;
+   * projection failure never suppresses or invalidates the relay reply.
+   */
+  projectReply?: (event: NostrEvent) => Promise<void>;
   relayUrl: string;
 }
 
@@ -50,6 +55,8 @@ export interface WatcherReply {
 export interface PassResult {
   seen: number;
   answered: number;
+  projected: number;
+  projectionFailed: number;
   refused: Record<string, number>;
 }
 
@@ -158,7 +165,27 @@ export async function watchOnce(deps: WatcherDeps): Promise<PassResult> {
 
   const refused: Record<string, number> = {};
   let answered = 0;
+  let projected = 0;
+  let projectionFailed = 0;
   let mentions: NostrEvent[] = [];
+
+  const projectSourceBoundReply = async (event: NostrEvent): Promise<void> => {
+    if (
+      !deps.projectReply ||
+      deps.history.projected.has(event.id) ||
+      conversationSourceTags(event).length === 0
+    ) {
+      return;
+    }
+    try {
+      await deps.projectReply(event);
+      deps.history.projected.add(event.id);
+      projected += 1;
+    } catch (error) {
+      projectionFailed += 1;
+      log(`projection failed for ${event.id.slice(0, 12)}: ${(error as Error).message}`);
+    }
+  };
 
   try {
     const [mentionEvents, replyEvents] = await Promise.all([
@@ -186,6 +213,7 @@ export async function watchOnce(deps: WatcherDeps): Promise<PassResult> {
         event.pubkey.toLowerCase() === deps.agent.publicKey.toLowerCase() &&
         isAgentEvent(event)
       ) {
+        await projectSourceBoundReply(event);
         restorePublishedReply(deps.history, event);
       }
     }
@@ -239,6 +267,7 @@ export async function watchOnce(deps: WatcherDeps): Promise<PassResult> {
       });
       const result = await replyClient.publish(reply);
       if (result.ok) {
+        await projectSourceBoundReply(reply);
         recordReply(deps.history, event, now);
         answered += 1;
         log(`answered ${event.id.slice(0, 12)} by ${event.pubkey.slice(0, 12)}`);
@@ -252,7 +281,13 @@ export async function watchOnce(deps: WatcherDeps): Promise<PassResult> {
     if (replyClient !== citizenClient) replyClient.close();
   }
 
-  return { seen: mentions.length, answered, refused };
+  return {
+    seen: mentions.length,
+    answered,
+    projected,
+    projectionFailed,
+    refused,
+  };
 }
 
 /** Exported for the CLI's logging, and so callers can reason about what was skipped. */

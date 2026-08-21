@@ -31,6 +31,8 @@ export interface ReplyHistory {
   retryAfter: Map<string, number>;
   /** In-memory exponential backoff state; relay replies remain the durable truth. */
   retryAttempts: Map<string, number>;
+  /** Signed replies already copied into the app read model during this process. */
+  projected: Set<string>;
 }
 
 export type Refusal =
@@ -120,5 +122,6 @@ export function emptyHistory(): ReplyHistory {
     answered: new Set(),
     retryAfter: new Map(),
     retryAttempts: new Map(),
+    projected: new Set(),
   };
 }

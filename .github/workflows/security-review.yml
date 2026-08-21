@@ -1,15 +1,14 @@
 name: Security review
 
-# Two-part AI security agent:
-#   1. pr-review    — diff-aware review on every same-repo PR (Anthropic's
-#                     official claude-code-security-review action).
-#   2. weekly-audit — scheduled full-repo security sweep that opens/updates a
-#                     tracking issue when it finds something.
+# Two-part security boundary:
+#   1. pr-review    — a fast deterministic credential/RLS check on every
+#                     same-repo PR, plus an optional AI review.
+#   2. weekly-audit — an optional scheduled full-repo AI sweep.
 #
-# Required repo secret:
-#   CLAUDE_API_KEY    — Anthropic API key (Settings → Secrets → Actions).
-#                       (ANTHROPIC_API_KEY also referenced by the audit job;
-#                        set both to the same value, or rename to taste.)
+# Optional repo secrets:
+#   CLAUDE_API_KEY    — PR AI security review.
+#   ANTHROPIC_API_KEY — weekly AI audit.
+# Their absence must never turn the deterministic PR boundary red.
 #
 # Prompt-injection note: fork PRs do NOT receive secrets, so pr-review is
 # guarded to same-repo PRs only. Review external contributions manually or
@@ -22,10 +21,7 @@ on:
     - cron: "0 6 * * 1"
   workflow_dispatch: {}
 
-permissions:
-  contents: read
-  pull-requests: write
-  issues: write
+permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -35,16 +31,35 @@ jobs:
   pr-review:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 2
+          fetch-depth: 0
 
-      - uses: anthropics/claude-code-security-review@main
+      - name: Deterministic credential and RLS boundary
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node --test scripts/review-pr-security-boundary.test.mjs
+          node scripts/review-pr-security-boundary.mjs "$BASE_SHA" "$HEAD_SHA"
+
+      - name: Explain unavailable AI security review
+        if: env.CLAUDE_API_KEY == ''
+        run: echo "::notice::CLAUDE_API_KEY is unavailable; skipping the optional AI security review."
+
+      - name: Optional AI security review
+        if: env.CLAUDE_API_KEY != ''
+        uses: anthropics/claude-code-security-review@0c6a49f1fa56a1d472575da86a94dbc1edb78eda
         with:
           comment-pr: true
-          claude-api-key: ${{ secrets.CLAUDE_API_KEY }}
+          claude-api-key: ${{ env.CLAUDE_API_KEY }}
           # Single line to bump for a model upgrade (e.g. a future model):
           claude-model: claude-opus-4-8
           # Skip vendored / generated paths to save tokens and noise.
@@ -53,13 +68,23 @@ jobs:
   weekly-audit:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+
+      - name: Explain unavailable weekly AI audit
+        if: env.ANTHROPIC_API_KEY == ''
+        run: echo "::notice::ANTHROPIC_API_KEY is unavailable; skipping the optional weekly AI audit."
 
       - name: Full-repo security sweep
-        uses: anthropics/claude-code-action@v1
+        if: env.ANTHROPIC_API_KEY != ''
+        uses: anthropics/claude-code-action@3f854a8fb5146b39d5cbf8b57f70d80810e1366f # v1.0.198
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
           model: claude-opus-4-8
           allowed_tools: "Bash(gh issue:*),Bash(git log:*),Read,Grep,Glob"
           prompt: |

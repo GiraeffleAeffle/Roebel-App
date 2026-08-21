@@ -296,6 +296,9 @@
         "apiKey": "$HETZNER_INFERENCE_API_KEY",
         "model": "Qwen/Qwen3.6-35B-A3B-FP8"
       },
+      "replyProjection": {
+        "endpoint": "https://wwbeqhkslxdxhktqzqti.supabase.co/functions/v1/project-public-mecky-reply"
+      },
       "perAuthorPerHour": 5,
       "perDay": 100
     }

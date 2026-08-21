@@ -475,6 +475,31 @@ const Agents = z.object({
           model: z.string().trim().min(1),
         })
         .strict(),
+      /**
+       * Optional credential-free sink for source-bound signed replies. The
+       * receiver authenticates the Nostr event itself; no database credential
+       * belongs in the watcher.
+       */
+      replyProjection: z
+        .object({ endpoint: z.string().url() })
+        .strict()
+        .superRefine((projection, context) => {
+          const endpoint = new URL(projection.endpoint);
+          if (
+            endpoint.protocol !== "https:" ||
+            endpoint.username ||
+            endpoint.password ||
+            endpoint.search ||
+            endpoint.hash
+          ) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["endpoint"],
+              message: "reply projection must be a credential-free https URL",
+            });
+          }
+        })
+        .optional(),
       perAuthorPerHour: z.number().int().positive().optional(),
       perDay: z.number().int().positive().optional(),
     })

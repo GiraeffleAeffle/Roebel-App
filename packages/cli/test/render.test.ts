@@ -475,6 +475,10 @@ test("a declared watcher becomes a rendered service, not a hand-started containe
           apiKey: "$HETZNER_INFERENCE_API_KEY",
           model: "Qwen/Qwen3.6-35B-A3B-FP8",
         },
+        replyProjection: {
+          endpoint:
+            "https://wwbeqhkslxdxhktqzqti.supabase.co/functions/v1/project-public-mecky-reply",
+        },
         perAuthorPerHour: 5,
         perDay: 100,
       },
@@ -507,6 +511,10 @@ test("a declared watcher becomes a rendered service, not a hand-started containe
     /MECKY_INFERENCE_BASE_URL: "https:\/\/inference\.hetzner\.com\/api\/v1"/,
   );
   assert.match(watcherBlock, /MECKY_INFERENCE_MODEL: "Qwen\/Qwen3\.6-35B-A3B-FP8"/);
+  assert.match(
+    watcherBlock,
+    /MECKY_REPLY_PROJECTION_URL: "https:\/\/wwbeqhkslxdxhktqzqti\.supabase\.co\/functions\/v1\/project-public-mecky-reply"/,
+  );
   assert.match(watcherBlock, /AGENT_PER_AUTHOR_PER_HOUR: "5"/);
   assert.match(watcherBlock, /AGENT_PER_DAY: "100"/);
   // Secrets are compose-interpolated from the box's .env, never inlined —
