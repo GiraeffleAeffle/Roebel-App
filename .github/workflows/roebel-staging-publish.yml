@@ -358,3 +358,175 @@ jobs:
           if-no-files-found: error
           compression-level: 9
           retention-days: 30
+
+  assemble-release-set:
+    name: Assemble verified Release Set candidate
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      attestations: read
+    env:
+      SOURCE_REVISION: ${{ github.event_name == 'workflow_dispatch' && inputs.source_revision || github.sha }}
+      SIGNER_IDENTITY: https://github.com/GiraeffleAeffle/Roebel-App/.github/workflows/roebel-staging-publish.yml@refs/heads/main
+      OPERATIONS_HEAD_URL: https://raw.githubusercontent.com/GiraeffleAeffle/roebel-staging-operations/main/reviewed-render/roebel-staging/head.json
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_revision || github.sha }}
+          path: source
+          persist-credentials: false
+
+      - name: Download this run's exact publication evidence
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          pattern: "*-publication-${{ github.event_name == 'workflow_dispatch' && inputs.source_revision || github.sha }}"
+          path: publication
+          merge-multiple: true
+
+      - name: Verify receipts and signed attestations
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-set/evidence release-set/bundles/provenance release-set/bundles/sbom
+          test "$(find publication -maxdepth 1 -type f | wc -l | tr -d ' ')" = 6
+
+          verify_component() {
+            component="$1"
+            image="$2"
+            source_receipt="publication/$component.source-receipt.json"
+            publication_receipt="publication/$component.publication-receipt.json"
+            sbom="publication/$component.spdx.json"
+            test -f "$source_receipt"
+            test -f "$publication_receipt"
+            test -f "$sbom"
+            manifest_digest="$(jq -er .manifestDigest "$publication_receipt")"
+            [[ "$manifest_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            test "$(jq -er .schemaVersion "$publication_receipt")" = roebel_staging_publication_receipt_v1
+            test "$(jq -er .component "$publication_receipt")" = "$component"
+            test "$(jq -er .sourceRevision "$publication_receipt")" = "$SOURCE_REVISION"
+            test "$(jq -er .image "$publication_receipt")" = "$image"
+            test "$(jq -er .tag "$publication_receipt")" = "source-$SOURCE_REVISION"
+            test "$(jq -er .workflowIdentity "$publication_receipt")" = "$SIGNER_IDENTITY"
+            test "$(jq -er .runId "$publication_receipt")" = "$GITHUB_RUN_ID"
+            test "$(jq -er .civicAuthority "$publication_receipt")" = none
+            test "$(jq -er .deploymentEffect "$publication_receipt")" = false
+            test "$(jq -er .manifestDigest "$source_receipt")" = "$manifest_digest"
+            test "$(jq -er .sourceRevision "$source_receipt")" = "$SOURCE_REVISION"
+            test "$(jq -er .sourceReceiptSha256 "$publication_receipt")" = "sha256:$(sha256sum "$source_receipt" | cut -d' ' -f1)"
+            test "$(jq -er .sbomSha256 "$publication_receipt")" = "sha256:$(sha256sum "$sbom" | cut -d' ' -f1)"
+            test "$(jq -er .spdxVersion "$sbom")" = SPDX-2.3
+
+            provenance_directory="release-set/bundles/provenance/$component"
+            sbom_directory="release-set/bundles/sbom/$component"
+            mkdir "$provenance_directory" "$sbom_directory"
+            (
+              cd "$provenance_directory"
+              gh attestation download "oci://$image@$manifest_digest" \
+                --repo "$GITHUB_REPOSITORY" \
+                --predicate-type https://slsa.dev/provenance/v1
+            )
+            (
+              cd "$sbom_directory"
+              gh attestation download "oci://$image@$manifest_digest" \
+                --repo "$GITHUB_REPOSITORY" \
+                --predicate-type https://spdx.dev/Document/v2.3
+            )
+            bundle_name="${manifest_digest}.jsonl"
+            provenance_bundle="$provenance_directory/$bundle_name"
+            sbom_bundle="$sbom_directory/$bundle_name"
+            test -s "$provenance_bundle"
+            test -s "$sbom_bundle"
+            gh attestation verify "oci://$image@$manifest_digest" \
+              --bundle "$provenance_bundle" \
+              --repo "$GITHUB_REPOSITORY" \
+              --cert-identity "$SIGNER_IDENTITY" \
+              --source-digest "$SOURCE_REVISION" \
+              --source-ref refs/heads/main \
+              --predicate-type https://slsa.dev/provenance/v1 \
+              --deny-self-hosted-runners \
+              --format json --jq 'length == 1' | grep -Fx true
+            gh attestation verify "oci://$image@$manifest_digest" \
+              --bundle "$sbom_bundle" \
+              --repo "$GITHUB_REPOSITORY" \
+              --cert-identity "$SIGNER_IDENTITY" \
+              --source-digest "$SOURCE_REVISION" \
+              --source-ref refs/heads/main \
+              --predicate-type https://spdx.dev/Document/v2.3 \
+              --deny-self-hosted-runners \
+              --format json --jq 'length == 1' | grep -Fx true
+
+            jq -n \
+              --arg schemaVersion roebel_staging_component_evidence_v1 \
+              --arg component "$component" \
+              --arg sourceRevision "$SOURCE_REVISION" \
+              --arg manifestDigest "$manifest_digest" \
+              --arg issuer https://token.actions.githubusercontent.com \
+              --arg identity "$SIGNER_IDENTITY" \
+              --arg predicateType https://slsa.dev/provenance/v1 \
+              --arg attestationDigest "sha256:$(sha256sum "$provenance_bundle" | cut -d' ' -f1)" \
+              --arg sbomDigest "sha256:$(sha256sum "$sbom" | cut -d' ' -f1)" \
+              '{schemaVersion:$schemaVersion,component:$component,sourceRevision:$sourceRevision,manifestDigest:$manifestDigest,provenance:{issuer:$issuer,identity:$identity,predicateType:$predicateType,subjectDigest:$manifestDigest,attestationDigest:$attestationDigest},sbom:{format:"SPDX-2.3",identity:"https://spdx.dev/spdx/v2.3",subjectDigest:$manifestDigest,artifactDigest:$sbomDigest}}' \
+              > "release-set/evidence/$component.component-evidence.json"
+          }
+
+          verify_component roebel-web-staging "$WEB_IMAGE"
+          verify_component public-mecky "$MECKY_IMAGE"
+
+      - name: Bind the current public operations head once
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --proto '=https' --tlsv1.2 --max-time 30 \
+            "$OPERATIONS_HEAD_URL" \
+            --output release-set/previous-head.json
+          jq -e '
+            .schemaVersion == "roebel_staging_release_set_head_v1" and
+            (.promotionRevision | test("^[0-9a-f]{40}$")) and
+            (.releaseSetDigest | test("^sha256:[0-9a-f]{64}$")) and
+            (.components | length == 2)
+          ' release-set/previous-head.json >/dev/null
+
+      - name: Assemble the CAS-bound candidate
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/assemble-roebel-staging-release-set.mjs \
+            "$SOURCE_REVISION" \
+            "$GITHUB_WORKSPACE/publication/roebel-web-staging.source-receipt.json" \
+            "$GITHUB_WORKSPACE/publication/public-mecky.source-receipt.json" \
+            "$GITHUB_WORKSPACE/release-set/evidence/roebel-web-staging.component-evidence.json" \
+            "$GITHUB_WORKSPACE/release-set/evidence/public-mecky.component-evidence.json" \
+            "$GITHUB_WORKSPACE/release-set/previous-head.json" \
+            "$GITHUB_WORKSPACE/release-set/release-set.candidate.json" \
+            > "$RUNNER_TEMP/release-set-output.json"
+          cmp "$RUNNER_TEMP/release-set-output.json" "$GITHUB_WORKSPACE/release-set/release-set.candidate.json"
+          jq -e --arg source "$SOURCE_REVISION" '
+            .schemaVersion == "roebel_staging_release_set_candidate_v1" and
+            .promotionRevision == $source and
+            (.candidatePayloadDigest | test("^sha256:[0-9a-f]{64}$")) and
+            ([.components[].sourceRevision] | all(. == $source))
+          ' "$GITHUB_WORKSPACE/release-set/release-set.candidate.json" >/dev/null
+
+      - name: Upload the effect-free Release Set candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: roebel-staging-release-set-${{ github.event_name == 'workflow_dispatch' && inputs.source_revision || github.sha }}
+          path: |
+            release-set/release-set.candidate.json
+            release-set/previous-head.json
+            release-set/evidence/*.component-evidence.json
+            release-set/bundles/**/*.jsonl
+            publication/*.source-receipt.json
+            publication/*.publication-receipt.json
+          if-no-files-found: error
+          compression-level: 9
+          retention-days: 30
