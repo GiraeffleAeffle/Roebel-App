@@ -95,6 +95,19 @@ test("protected builds reuse only component-scoped public BuildKit caches", () =
   );
   assert.match(workflow, /--build-context "dependency-manifests=\$RUNNER_TEMP\/dependency-manifests"/u);
   assert.match(workflow, /cp -a "\$RUNNER_TEMP\/pruned\/json\/\." "\$RUNNER_TEMP\/dependency-manifests\/"/u);
+  assert.match(
+    workflow,
+    /cp -a "\$RUNNER_TEMP\/dependency-manifests\/\." "\$RUNNER_TEMP\/fetch-input\/"/u,
+  );
+  assert.match(
+    workflow,
+    /pnpm fetch --store-dir "\$RUNNER_TEMP\/pnpm-store" --dir "\$RUNNER_TEMP\/fetch-input"/u,
+  );
+  assert.doesNotMatch(
+    workflow,
+    /pnpm fetch --store-dir "\$RUNNER_TEMP\/pnpm-store" --dir "\$RUNNER_TEMP\/context"/u,
+  );
+  assert.match(workflow, /test ! -e "\$RUNNER_TEMP\/context\/node_modules"/u);
   assert.match(webDockerfile, /COPY --from=dependency-manifests \. \./u);
   assert.match(
     webDockerfile,
@@ -107,7 +120,24 @@ test("protected builds reuse only component-scoped public BuildKit caches", () =
   for (const candidateWorkflow of [webCandidateWorkflow, servicesCandidateWorkflow]) {
     assert.match(candidateWorkflow, /cp -a "\$RUNNER_TEMP\/pruned\/json\/\." "\$RUNNER_TEMP\/dependency-manifests\/"/u);
     assert.match(candidateWorkflow, /--build-context "dependency-manifests=\$RUNNER_TEMP\/dependency-manifests"/u);
+    assert.match(
+      candidateWorkflow,
+      /pnpm fetch --store-dir "\$RUNNER_TEMP\/pnpm-store" --dir "\$RUNNER_TEMP\/fetch-input"/u,
+    );
+    assert.doesNotMatch(
+      candidateWorkflow,
+      /pnpm fetch --store-dir "\$RUNNER_TEMP\/pnpm-store" --dir "\$RUNNER_TEMP\/context"/u,
+    );
+    assert.match(candidateWorkflow, /test ! -e "\$RUNNER_TEMP\/context\/node_modules"/u);
   }
+  assert.match(
+    servicesCandidateWorkflow,
+    /pnpm --dir "\$RUNNER_TEMP\/test-context" --store-dir "\$RUNNER_TEMP\/pnpm-store" --offline install/u,
+  );
+  assert.doesNotMatch(
+    servicesCandidateWorkflow,
+    /pnpm --dir "\$RUNNER_TEMP\/context" --store-dir "\$RUNNER_TEMP\/pnpm-store" --offline install/u,
+  );
   assert.match(docs, /component-scoped BuildKit cache/iu);
   assert.match(docs, /never a deployment input/iu);
 });
