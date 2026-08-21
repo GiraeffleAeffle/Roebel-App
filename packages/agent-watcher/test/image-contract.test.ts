@@ -54,7 +54,7 @@ describe("Public Mecky image contract", () => {
     );
   });
 
-  it("installs only the three-workspace closure from the reviewed lock", () => {
+  it("installs only the pruned three-workspace closure from the reviewed lock", () => {
     assert.doesNotMatch(dockerfile, /pnpm fetch/);
     const installIndex = dockerfile.indexOf(
       "pnpm --filter @netizen-labs/agent-watcher... install --frozen-lockfile --offline --ignore-scripts",
@@ -66,15 +66,16 @@ describe("Public Mecky image contract", () => {
       dockerfile.match(/--mount=type=bind,from=corepack-cache,source=\.,target=\/root\/.cache\/node\/corepack,ro/g)?.length,
       3,
     );
-    for (const manifest of [
-      "packages/nostr/package.json",
-      "packages/stadtstack-federation-client/package.json",
-      "packages/agent-watcher/package.json",
-    ]) {
-      const copyIndex = dockerfile.indexOf(`COPY ${manifest}`);
-      assert.ok(copyIndex >= 0, `${manifest} must be copied into the dependency layer`);
-      assert.ok(copyIndex < installIndex, `${manifest} must be present before pnpm install`);
-    }
+    const manifestContextIndex = dockerfile.indexOf("COPY --from=dependency-manifests . .");
+    assert.ok(manifestContextIndex >= 0, "the reviewed pruned manifest context must be copied");
+    assert.ok(
+      manifestContextIndex < installIndex,
+      "the reviewed pruned manifest context must be present before pnpm install",
+    );
+    assert.ok(
+      dockerfile.indexOf("COPY . .") > installIndex,
+      "application source must not invalidate the dependency layer",
+    );
   });
 
   it("contains no runtime credential or secret value", () => {

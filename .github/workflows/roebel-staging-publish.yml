@@ -588,15 +588,19 @@ jobs:
             test "$(find "$existing/release-set" -type l | wc -l | tr -d ' ')" = 0
             diff -r "$existing/release-set" release-set
           elif test "$state" = ABSENT; then
+            mecky_manifest_hex="$(jq -er '.components[] | select(.component == "public-mecky") | .manifestDigest | sub("^sha256:"; "")' "$candidate")"
+            web_manifest_hex="$(jq -er '.components[] | select(.component == "roebel-web-staging") | .manifestDigest | sub("^sha256:"; "")' "$candidate")"
+            [[ "$mecky_manifest_hex" =~ ^[0-9a-f]{64}$ ]]
+            [[ "$web_manifest_hex" =~ ^[0-9a-f]{64}$ ]]
             files=(
               "release-set/release-set.candidate.json:application/vnd.stadtstack.roebel.release-set.v1+json"
               "release-set/previous-head.json:application/json"
               "release-set/evidence/public-mecky.component-evidence.json:application/json"
               "release-set/evidence/roebel-web-staging.component-evidence.json:application/json"
-              "release-set/bundles/provenance/public-mecky/sha256-$(jq -er '.components[] | select(.component == \"public-mecky\") | .manifestDigest | sub(\"^sha256:\"; \"\")' "$candidate").jsonl:application/jsonl"
-              "release-set/bundles/provenance/roebel-web-staging/sha256-$(jq -er '.components[] | select(.component == \"roebel-web-staging\") | .manifestDigest | sub(\"^sha256:\"; \"\")' "$candidate").jsonl:application/jsonl"
-              "release-set/bundles/sbom/public-mecky/sha256-$(jq -er '.components[] | select(.component == \"public-mecky\") | .manifestDigest | sub(\"^sha256:\"; \"\")' "$candidate").jsonl:application/jsonl"
-              "release-set/bundles/sbom/roebel-web-staging/sha256-$(jq -er '.components[] | select(.component == \"roebel-web-staging\") | .manifestDigest | sub(\"^sha256:\"; \"\")' "$candidate").jsonl:application/jsonl"
+              "release-set/bundles/provenance/public-mecky/sha256-$mecky_manifest_hex.jsonl:application/jsonl"
+              "release-set/bundles/provenance/roebel-web-staging/sha256-$web_manifest_hex.jsonl:application/jsonl"
+              "release-set/bundles/sbom/public-mecky/sha256-$mecky_manifest_hex.jsonl:application/jsonl"
+              "release-set/bundles/sbom/roebel-web-staging/sha256-$web_manifest_hex.jsonl:application/jsonl"
             )
             test "${#files[@]}" = 8
             for entry in "${files[@]}"; do

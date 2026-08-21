@@ -190,6 +190,17 @@ test("verified Release Set is handed off immutably inside the existing Web packa
   assert.match(assemblyJob, /oras push "\$target"/u);
   assert.match(assemblyJob, /org\.opencontainers\.image\.revision=\$SOURCE_REVISION/u);
   assert.match(assemblyJob, /stadtstack\.io\/candidate-payload-digest=\$candidate_digest/u);
+  assert.match(
+    assemblyJob,
+    /mecky_manifest_hex="\$\(jq -er '\.components\[\] \| select\(\.component == "public-mecky"\)/u,
+  );
+  assert.match(
+    assemblyJob,
+    /web_manifest_hex="\$\(jq -er '\.components\[\] \| select\(\.component == "roebel-web-staging"\)/u,
+  );
+  assert.doesNotMatch(assemblyJob, /\\"(?:public-mecky|roebel-web-staging)\\"/u);
+  assert.match(assemblyJob, /\[\[ "\$mecky_manifest_hex" =~ \^\[0-9a-f\]\{64\}\$ \]\]/u);
+  assert.match(assemblyJob, /\[\[ "\$web_manifest_hex" =~ \^\[0-9a-f\]\{64\}\$ \]\]/u);
   assert.match(assemblyJob, /refusing to overwrite|diff -r "\$existing\/release-set" release-set/u);
   assert.match(assemblyJob, /oras manifest fetch "\$WEB_IMAGE@\$artifact_digest"/u);
   assert.match(assemblyJob, /roebel_staging_release_set_publication_v1/u);
