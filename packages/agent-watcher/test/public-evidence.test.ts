@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   createInMemoryPublicEvidenceCatalog,
+  createPublicEvidencePacket,
+  createPublicKnowledgeCatalog,
   parsePublicEvidence,
   renderPromptEvidence,
   retrievePublicEvidence,
@@ -15,6 +17,7 @@ import {
 
 const id = (digit: string) => `sha256:${digit.repeat(64)}` as const;
 const COMMON = {
+  municipalityId: "roebel-mueritz",
   publishedAt: "2026-08-19T10:00:00.000Z",
   reviewState: "reviewed" as const,
   lifecycle: "current" as const,
@@ -103,6 +106,96 @@ describe("public evidence retrieval", () => {
     assert.deepEqual(results, []);
   });
 
+  it("builds a deterministic municipality packet with correction-aware omission counts", () => {
+    const query = {
+      municipalityId: "roebel-mueritz",
+      question: "Was ist zur Marienfelder Straße belegt?",
+      now: "2026-08-19T12:00:00.000Z",
+    } as const;
+    const first = createPublicEvidencePacket([
+      ris(),
+      news({ municipalityId: "malchow" }),
+      civic({ lifecycle: "withdrawn" }),
+      nostr({ publishedAt: "2026-08-20T10:00:00.000Z" }),
+    ], query);
+    const second = createPublicEvidencePacket([
+      ris(),
+      news({ municipalityId: "malchow" }),
+      civic({ lifecycle: "withdrawn" }),
+      nostr({ publishedAt: "2026-08-20T10:00:00.000Z" }),
+    ], query);
+
+    assert.equal(first.schemaVersion, "public_evidence_packet_v1");
+    assert.equal(first.municipalityId, "roebel-mueritz");
+    assert.equal(first.generatedAt, query.now);
+    assert.match(first.packetId, /^sha256:[0-9a-f]{64}$/u);
+    assert.equal(first.packetId, second.packetId);
+    assert.deepEqual(first.passages.map((entry) => entry.evidence.evidenceId), [id("c")]);
+    assert.deepEqual(first.omissions, [
+      { sourceKind: "nostr_post", reason: "future_dated", count: 1 },
+      { sourceKind: "local_news", reason: "municipality_mismatch", count: 1 },
+      { sourceKind: "reviewed_civic_case", reason: "withdrawn", count: 1 },
+    ]);
+    assert.equal(Object.hasOwn(first, "question"), false);
+  });
+
+  it("isolates a failed source adapter while preserving admitted evidence and reporting the omission", async () => {
+    const catalog = createPublicKnowledgeCatalog([
+      {
+        sourceKind: "ratsinformation",
+        load: async () => [ris()],
+      },
+      {
+        sourceKind: "local_news",
+        load: async () => { throw new Error("reviewed projection unavailable"); },
+      },
+    ]);
+    const packet = await catalog.retrieve({
+      municipalityId: "roebel-mueritz",
+      question: "Marienfelder Straße Vorlage",
+      now: "2026-08-19T12:00:00.000Z",
+    });
+    assert.deepEqual(packet.passages.map((entry) => entry.evidence.evidenceId), [id("c")]);
+    assert.deepEqual(packet.omissions, [
+      { sourceKind: "local_news", reason: "source_unavailable", count: 1 },
+    ]);
+  });
+
+  it("rejects an adapter that tries to cross its admitted source-kind seam", async () => {
+    const catalog = createPublicKnowledgeCatalog([{
+      sourceKind: "local_news",
+      load: async () => [ris()],
+    }]);
+    const packet = await catalog.retrieve({
+      municipalityId: "roebel-mueritz",
+      question: "Marienfelder Straße",
+      now: "2026-08-19T12:00:00.000Z",
+    });
+    assert.deepEqual(packet.passages, []);
+    assert.deepEqual(packet.omissions, [
+      { sourceKind: "local_news", reason: "source_unavailable", count: 1 },
+    ]);
+  });
+
+  it("rejects ambiguous clocks, unbounded options, and forged omission summaries", () => {
+    assert.throws(() => createPublicEvidencePacket([news()], {
+      municipalityId: "roebel-mueritz",
+      question: "Marienfelder Straße",
+      now: "2026-08-19 12:00:00",
+    }), /Invalid public evidence query/u);
+    assert.throws(() => createPublicEvidencePacket([news()], {
+      municipalityId: "roebel-mueritz",
+      question: "Marienfelder Straße",
+      now: "2026-08-19T12:00:00.000Z",
+      limit: Number.NaN,
+    }), /Invalid public evidence query/u);
+    assert.throws(() => createPublicEvidencePacket([news()], {
+      municipalityId: "roebel-mueritz",
+      question: "Marienfelder Straße",
+      now: "2026-08-19T12:00:00.000Z",
+    }, [{ sourceKind: "local_news", reason: "source_unavailable", count: 0 }]), /Invalid public evidence omission/u);
+  });
+
   it("bounds the prompt and does not leak URLs, public keys, or wallet addresses", () => {
     const unsafe = nostr({
       title: `Hinweis https://private.example/${"x".repeat(20)}`,
@@ -129,10 +222,15 @@ describe("public evidence retrieval", () => {
     assert.doesNotMatch(parsed.evidence[0].summary, /0x[a-f0-9]{40}/i);
   });
 
-  it("uses an in-memory catalog only and keeps its admitted snapshot isolated", () => {
+  it("uses an in-memory catalog only and keeps its admitted snapshot isolated", async () => {
     const source: PublicEvidence[] = [news()];
     const catalog = createInMemoryPublicEvidenceCatalog(source);
     source.push(ris());
-    assert.deepEqual(catalog.retrieve("Marienfelder Straße").map((entry) => entry.evidence.evidenceId), [id("b")]);
+    const packet = await catalog.retrieve({
+      municipalityId: "roebel-mueritz",
+      question: "Marienfelder Straße",
+      now: "2026-08-19T12:00:00.000Z",
+    });
+    assert.deepEqual(packet.passages.map((entry) => entry.evidence.evidenceId), [id("b")]);
   });
 });
