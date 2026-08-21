@@ -288,10 +288,39 @@ describe("Public Mecky", () => {
     });
 
     const selected = await retrieve("Was ist zur Querung der Marienfelder Straße belegt?");
-    assert.equal(selected.length, 1);
-    assert.equal(selected[0]!.prompt.evidenceId, EVIDENCE_ID);
-    assert.equal(Object.hasOwn(selected[0]!.prompt, "caseUrl"), false);
-    assert.deepEqual(await retrieve("Wann öffnet das Schwimmbad?"), []);
+    assert.equal(selected.passages.length, 1);
+    assert.equal(selected.passages[0]!.prompt.evidenceId, EVIDENCE_ID);
+    assert.equal(Object.hasOwn(selected.passages[0]!.prompt, "caseUrl"), false);
+    assert.deepEqual(
+      (await retrieve("Wann öffnet das Schwimmbad?")).passages,
+      [],
+    );
+  });
+
+  it("distinguishes an unavailable reviewed source from a truthful empty result", async () => {
+    let inferenceCalls = 0;
+    const mecky = createPublicMecky({
+      retrieveEvidence: async () => ({
+        schemaVersion: "public_evidence_packet_v1",
+        packetId: `sha256:${"f".repeat(64)}`,
+        municipalityId: "roebel-mueritz",
+        generatedAt: "2026-08-21T12:00:00.000Z",
+        passages: [],
+        omissions: [{ sourceKind: "reviewed_civic_case", reason: "source_unavailable", count: 1 }],
+      }),
+      infer: async () => {
+        inferenceCalls += 1;
+        return { answer: "Nicht belegt", evidenceIds: [EVIDENCE_ID] };
+      },
+    });
+
+    assert.deepEqual(await mecky.answerMention("Was ist der Stand?"), {
+      status: "refused",
+      reason: "evidence_unavailable",
+      retryable: true,
+      diagnosticCode: "evidence_source_unavailable",
+    });
+    assert.equal(inferenceCalls, 0);
   });
 
   it("uses an OpenAI-compatible provider with only the question and reviewed evidence", async () => {
@@ -327,6 +356,7 @@ describe("Public Mecky", () => {
 
     const result = await infer({
       question: "Kann ich schon abstimmen?",
+      omissions: [{ sourceKind: "local_news", reason: "source_unavailable", count: 1 }],
       evidence: [
         {
           evidenceId: EVIDENCE_ID,
@@ -352,6 +382,10 @@ describe("Public Mecky", () => {
     assert.equal(requestBody.model, "DeepSeek-V4-Flash-0731");
     assert.match(JSON.stringify(requestBody), /Kann ich schon abstimmen/);
     assert.match(JSON.stringify(requestBody), new RegExp(EVIDENCE_ID));
+    assert.match(JSON.stringify(requestBody), /source_unavailable/);
+    assert.match(JSON.stringify(requestBody), /community_statement/);
+    assert.match(JSON.stringify(requestBody), /publicEvidence/);
+    assert.doesNotMatch(JSON.stringify(requestBody), /reviewedEvidence/);
     assert.deepEqual(result, {
       answer: "Eine Abstimmung ist noch nicht eröffnet.",
       evidenceIds: [EVIDENCE_ID],
