@@ -22,6 +22,13 @@ The mutable `buildcache-main` reference contains only public build inputs, is
 never a deployment input, carries no release authority, and cannot bypass the
 post-build OCI verifier. A missing cache always falls back to a clean build.
 
+Dependency fetching is isolated from the source build context. `pnpm fetch`
+writes its virtual store into a runner-only fetch directory; neither the
+source context nor the dependency-manifest context may contain `node_modules`.
+This prevents runner-generated executable shims or package side effects from
+overwriting the clean, platform-specific install inside the linux/amd64 image
+builder.
+
 Mutable `source-<sha>` tags are transport labels only. An existing identical
 tag is reused; a different digest is never overwritten. Talos, Release Sets
 and Flux may consume only `image@sha256:...` identities from the resulting

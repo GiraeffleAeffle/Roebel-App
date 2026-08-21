@@ -151,9 +151,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/corepack-cache" "$RUNNER_TEMP/pnpm-store"
+          mkdir -p "$RUNNER_TEMP/corepack-cache" "$RUNNER_TEMP/pnpm-store" "$RUNNER_TEMP/fetch-input"
+          cp -a "$RUNNER_TEMP/dependency-manifests/." "$RUNNER_TEMP/fetch-input/"
           COREPACK_HOME="$RUNNER_TEMP/corepack-cache" corepack prepare pnpm@9.15.0 --activate
-          pnpm fetch --store-dir "$RUNNER_TEMP/pnpm-store" --dir "$RUNNER_TEMP/context"
+          pnpm fetch --store-dir "$RUNNER_TEMP/pnpm-store" --dir "$RUNNER_TEMP/fetch-input"
+          test -d "$RUNNER_TEMP/fetch-input/node_modules/.pnpm"
+          test ! -e "$RUNNER_TEMP/context/node_modules"
+          test ! -e "$RUNNER_TEMP/dependency-manifests/node_modules"
           store_bytes="$(du -sb "$RUNNER_TEMP/pnpm-store" | cut -f1)"
           test "$store_bytes" -le "$MAX_STORE_BYTES"
           printf 'store_bytes=%s\n' "$store_bytes"
