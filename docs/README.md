@@ -20,6 +20,7 @@ the right one.
 | Decide where a new kind of data belongs | [Data placement and CRUD](DATA_PLACEMENT_AND_CRUD.md) |
 | Publish app data (events, cinema, orgs, marketplace) to Nostr | [Public data on Nostr](PUBLIC_DATA_ON_NOSTR.md) |
 | Work with the Stadtstack contributor | [Röbel × Netizen × Stadtstack alignment](STADTSTACK_ALIGNMENT.md) |
+| Work on the post → discussion → proposal → case → outcome flow | [Röbel Civic Journey architecture map](CIVIC_JOURNEY_ARCHITECTURE.md) |
 | Understand the mission | [Mission and goals](MISSION_AND_GOALS.md) |
 
 ## How these documents relate

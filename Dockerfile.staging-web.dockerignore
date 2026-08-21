@@ -1,0 +1,35 @@
+# Staging web image: keep the context to the app and its exact workspace graph.
+**
+
+!.npmrc
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+
+!apps/
+!apps/web/
+!apps/web/**
+
+!packages/
+!packages/miniapp-sdk/
+!packages/miniapp-sdk/**
+!packages/nostr/
+!packages/nostr/**
+!packages/protocol/
+!packages/protocol/**
+!packages/publisher/
+!packages/publisher/**
+!packages/record-client/
+!packages/record-client/**
+!packages/workspace/
+!packages/workspace/**
+
+# Never copy local installs, stale build products, or competing lock files.
+**/node_modules
+**/dist
+**/.turbo
+apps/web/.next
+apps/web/node_modules
+apps/web/tsconfig.tsbuildinfo
+apps/web/package-lock.json
+apps/web/yarn.lock

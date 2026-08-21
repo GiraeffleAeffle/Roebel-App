@@ -1,6 +1,6 @@
 # State of Sovereign AI
 
-**Last verified: 2026-07-30.** Part of the [documentation index](README.md); the third pillar
+**Last verified: 2026-08-11.** Part of the [documentation index](README.md); the third pillar
 next to [State of the Netizen Stack](STATE_OF_THE_NETIZEN_STACK.md),
 [State of the Netizen Node](STATE_OF_THE_NETIZEN_NODE.md) and
 [State of Nostr](STATE_OF_NOSTR.md). Roadmap and skills:
@@ -41,7 +41,7 @@ spells out why the protocol is what makes that plurality safe.
 | Surface | What it does | Model actually used |
 |---|---|---|
 | **Mecky in-app** (`apps/expo/app/mecky.tsx`) | German chat assistant, 11 tools into the backend | Claude via API |
-| **Mecky on Nostr** (`packages/agent-watcher`) | Answers `p`-tag mentions on the town relay, bounded | `claude-sonnet-5` |
+| **Public Mecky on Nostr** (`packages/agent-watcher`) | Answers `p`-tag mentions only from checksum-bound, reviewed Stadtstack evidence; every answer cites its public case | Pi agent core `0.84.1` with zero tools and fresh bounded runs; Röbel declares Hetzner Inference as the replaceable provider (deployment pending) |
 | **Story engine / newsroom** | Co-writes local stories, self-publishes to feed + blog | Claude via API |
 | **Fördermittel outreach** | Finds funding programmes, drafts honest banded reports, daily cron, opt-out | Claude via API |
 | **Image generation** (flyers, menu photos, store images) | kie.ai `nano-banana-2-lite` via shared `lib/images/kie.ts` | — |
@@ -57,6 +57,10 @@ The agent's **identity** is where sovereignty is already real rather than aspira
   leaving a managed host takes its agent — name, npub, history, followers — with it.
 - The watcher introduces itself (kind 0 on startup) and answers under explicit bounds:
   kill switch, already-answered, self, other-agents, 5/author/hour, 100/day.
+- Public Mecky does not need a new administrative approval for every reply. Administration
+  reviews the public civic evidence once at the Stadtstack boundary; Mecky may then answer
+  automatically from that reviewed projection. Missing evidence, provider failure, or an
+  unverified citation produces no reply.
 
 The manifest declares the AI layer as first-class node configuration
 ([`roebel.netizen.json`](../packages/protocol/examples/roebel.netizen.json) → `ai`, `agents`):
@@ -130,8 +134,9 @@ cryptographically out of reach, not because a prompt asks nicely.
 | **Verification evidence** | Only a Poseidon commitment is on chain; the preimage stays in the citizen's device secure-store |
 | **Wallet↔npub registry** | Private table; the allow-list syncer reads it, the agent does not |
 
-The second-strongest property is **safe by construction**: the Nostr watcher's entire corpus
-is the public relay. It cannot leak what was never published to it, and the
+The second-strongest property is **safe by construction**: Public Mecky's answer context is
+the checksum-bound public Stadtstack projection. It cannot leak what never crossed that
+reviewed boundary, and the
 publish-the-minimum rule ([Public data on Nostr §2](PUBLIC_DATA_ON_NOSTR.md)) keeps that
 corpus clean — no emails, no addresses, no contact persons in published events. Grounding
 agents in the public record is not just good retrieval; it is the cleanest privacy stance
@@ -141,8 +146,10 @@ The honest tier below that is **policy, not structure**:
 
 - **In-app Mecky reads backend data through its 11 tools.** Its scope is enforced by the tool
   implementations, not by cryptography. Every new tool is a privacy decision, not a feature.
-- **Egress is the open flank.** Every question Mecky answers today transits Anthropic's API
-  under a DPA. The manifest's `dataEgressPolicy: governance-gated` names the intent —
+- **Egress is the open flank.** In-app Mecky and other AI features still use external model
+  APIs. Public Mecky's provider receives only the public question and reviewed public evidence,
+  through Pi's replaceable OpenAI-compatible provider adapter; the Röbel manifest currently selects Hetzner's
+  experimental Inference API. The manifest's `dataEgressPolicy: governance-gated` names the intent —
   *what leaves the node is a governed, auditable decision* — but no code enforces it yet.
   Local inference (§3) is the structural fix; until then this is the gap to be honest about
   in every conversation about "sovereign" AI.
@@ -183,17 +190,17 @@ the promise column into the enforcement column.
    [DSGVO & AI Act compliance §4](DSGVO_AI_ACT_COMPLIANCE.md). The irony worth noticing: the
    *protocol* side already complies in spirit — every Nostr event Mecky signs is labelled
    `bot: true` — while the app's own chat window does not yet say what the law requires.
-2. **Cognition is rented.** Every reasoning step runs on Anthropic's models via API. The
-   LiteLLM gateway and EuroLLM tier are declared in the manifest, deployed nowhere. Sovereign
-   today = identity, bounds, audit, memory, budget. Not the model.
+2. **Cognition is rented.** Pi can switch Public Mecky's OpenAI-compatible provider without
+   changing its closed civic evidence contract, but inference still leaves the node. The in-app and
+   newsroom paths remain separately tied to external providers. Sovereign today = identity,
+   bounds, evidence, audit, memory, budget. Not the model.
 3. **Egress is unenforced** (§4). `dataEgressPolicy` is a field, not a control.
 4. **The context graph does not exist.** Mecky's town memory is thin; the
    [agent roadmap](MECKY_AGENT_ROADMAP.md) backbone (Town Context Graph + Outbound Runtime)
    is designed, not built. An agent without durable local memory leans harder on the rented
    model — the opposite of the direction this document argues.
-5. **The agent-watcher is not in the manifest** — the one hand-started service on the node
-   ([node state §8](STATE_OF_THE_NETIZEN_NODE.md)). For the *AI* layer especially, running
-   outside the declaration undercuts the whole governance story of §5.
+5. ~~**The agent-watcher is not in the manifest.**~~ Fixed: the watcher, its reviewed public
+   evidence origin, provider endpoint/model and secret reference are declared and rendered.
 6. **One agent, one node.** Every claim about federation of agents is currently tested at
    n=1 town. The first cross-node agent answer with real provenance is still ahead.
 
@@ -201,8 +208,8 @@ the promise column into the enforcement column.
 
 1. **AI Act disclosure** — legal deadline, smallest effort, three days
    ([compliance doc §4](DSGVO_AI_ACT_COMPLIANCE.md)).
-2. **Declare the watcher in the manifest** — erases gap 5 and makes the agent's existence
-   itself a reviewable diff.
+2. **Deploy and browser-test the evidence-gated watcher** — publish an immutable Röbel image,
+   supply the scoped inference secret, and prove cited answers and fail-closed refusals live.
 3. **Town Context Graph** — moves memory onto the node; prerequisite for everything agentic
    ([roadmap](MECKY_AGENT_ROADMAP.md)).
 4. **Egress logging before egress gating** — an honest audit of what leaves the node is the

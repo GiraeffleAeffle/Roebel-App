@@ -36,8 +36,10 @@ import { VelocitySection } from "./economy/VelocitySection";
 import { ReputationSection } from "./economy/ReputationSection";
 import { FlowFeedSection } from "./economy/FlowFeedSection";
 import { ExportCard } from "./economy/ExportCard";
-const coinImg = "/assets/roebel-coin.png";
-const roebelLogo = "/assets/roebel-logo.png";
+import { withMiniAppBasePath } from "../lib/publicDemoMode";
+
+const coinImg = withMiniAppBasePath("/assets/roebel-coin.png");
+const roebelLogo = withMiniAppBasePath("/assets/roebel-logo.png");
 
 export default function PulseView({ connected }: { connected: Address | null }) {
   const [snap, setSnap] = useState<EconomySnapshot | null>(null);

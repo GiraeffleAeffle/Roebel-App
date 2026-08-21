@@ -4,6 +4,9 @@
   "private": true,
   "description": "Watches a Netizen relay for mentions of a node's agent and answers in place.",
   "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "main": "src/index.ts",
   "types": "src/index.ts",
   "bin": { "netizen-agent-watcher": "src/cli.ts" },
@@ -15,9 +18,16 @@
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "@netizen-labs/nostr": "workspace:*" },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.84.1",
+    "@earendil-works/pi-ai": "0.84.1",
+    "@netizen-labs/nostr": "workspace:*",
+    "@roebel/stadtstack-federation-client": "workspace:*",
+    "ws": "8.20.1"
+  },
   "devDependencies": {
     "@types/node": "^22.7.4",
+    "@types/ws": "8.18.1",
     "esbuild": "^0.27.7",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"

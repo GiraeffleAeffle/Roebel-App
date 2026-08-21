@@ -278,13 +278,24 @@
       "transport": "xmtp",
       "nostrKey": "NIP-06 derived from the agent smart account",
       "relayPubkeys": [
-        "412e639ad250e84faeb3033bba1d20ee09b8a68a2ca8542fcd19d3c2475df16b"
+        "412e639ad250e84faeb3033bba1d20ee09b8a68a2ca8542fcd19d3c2475df16b",
+        "f554072cc564dba1e7f101f932afdcf0920e7870e22459f6a7a6e192983d3f7f"
       ]
     },
     "watcher": {
       "agent": "mecky",
       "displayName": "Mecky",
-      "model": "claude-sonnet-5",
+      "publicEvidence": {
+        "baseUrl": "https://roebel-stadtstack.agentcart.eu",
+        "municipalityId": "roebel-mueritz",
+        "sourceCaseId": "marienfelder-strasse",
+        "canonicalCaseId": "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001"
+      },
+      "inference": {
+        "baseUrl": "https://inference.hetzner.com/api/v1",
+        "apiKey": "$HETZNER_INFERENCE_API_KEY",
+        "model": "Qwen/Qwen3.6-35B-A3B-FP8"
+      },
       "perAuthorPerHour": 5,
       "perDay": 100
     }

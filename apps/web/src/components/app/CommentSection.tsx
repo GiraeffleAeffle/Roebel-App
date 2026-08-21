@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect, useTransition } from "react";
+import { useState, useRef, useEffect, useTransition, useCallback } from "react";
 import Image from "next/image";
 import { useActiveAccount } from "thirdweb/react";
 import { useVerificationStatus } from "@/hooks/useVerificationStatus";
-import { getComments, createComment } from "@/app/actions/posts";
+import { createComment } from "@/app/actions/posts";
+import { getPublicFeedComments } from "@/lib/public-feed-client";
 import { createClient } from "@/lib/supabase/client";
 import { uploadResumable } from "@/lib/storage/resumable-upload";
 import { PostMediaGrid } from "@/components/app/PostMediaGrid";
@@ -12,8 +13,20 @@ import { VideoPlayer } from "@/components/app/VideoPlayer";
 import { useAccount } from "@/lib/context/AccountContext";
 import { isOrgAccount, ACCOUNT_TYPE_LABELS } from "@/types/account";
 import type { PostComment } from "@/types/post";
-import { Send, ImagePlus, Video, X } from "lucide-react";
+import { Bot, ExternalLink, Send, ImagePlus, Video, X } from "lucide-react";
 import { toast } from "sonner";
+import { useCitizenSession } from "@/lib/citizen-session/CitizenSessionContext";
+import {
+  containsExplicitMeckyMention,
+  requestAppMeckyConversationAnswer,
+} from "@/lib/stadtstack/app-mecky-conversation";
+import { appMeckyConversationGateway } from "@/lib/stadtstack/app-mecky-gateway";
+import {
+  stagingGet,
+  type StagingMeckyConversationReply,
+  type StagingMeckyConversationResponse,
+} from "@/lib/stadtstack/staging-api";
+import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
 
 const MAX_COMMENT_IMAGES = 3;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -23,6 +36,12 @@ interface CommentSectionProps {
   postId: string;
   commentsCount: number;
   defaultExpanded?: boolean;
+  postSource: {
+    id: string;
+    walletAddress: string;
+    content: string;
+    createdAt: string;
+  };
 }
 
 function formatRelativeTime(dateStr: string): string {
@@ -56,7 +75,9 @@ function CommentItem({ comment }: { comment: PostComment }) {
           />
         ) : (
           <span className="text-xs font-medium text-muted-foreground">
-            {(comment.author_username || shortAddress).slice(0, 2).toUpperCase()}
+            {(comment.author_username || shortAddress)
+              .slice(0, 2)
+              .toUpperCase()}
           </span>
         )}
       </div>
@@ -85,6 +106,65 @@ function CommentItem({ comment }: { comment: PostComment }) {
 
         <span className="text-xs text-muted-foreground ml-3">
           {formatRelativeTime(comment.created_at)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function linkifyMeckyText(text: string) {
+  return text.split(/(https?:\/\/[^\s]+)/g).map((part, index) =>
+    /^https?:\/\//.test(part) ? (
+      <a
+        key={`${part}-${index}`}
+        href={part}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-primary underline decoration-primary/40 underline-offset-2"
+      >
+        {part}
+      </a>
+    ) : (
+      part
+    )
+  );
+}
+
+function MeckyCommentItem({ reply }: { reply: StagingMeckyConversationReply }) {
+  return (
+    <div className="flex gap-2.5 py-2" data-mecky-conversation-reply>
+      <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+        <Bot className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900/50 dark:bg-amber-950/30">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-semibold text-foreground">Mecky</span>
+            <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+              KI · geprüfte Quellen
+            </span>
+          </div>
+          <p className="mt-1 whitespace-pre-wrap break-words text-sm text-foreground">
+            {linkifyMeckyText(reply.content)}
+          </p>
+          {reply.evidenceRefs.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {reply.evidenceRefs.map((evidence) => (
+                <a
+                  key={evidence.digest}
+                  href={evidence.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                >
+                  Geprüfter Nachweis <ExternalLink className="h-3 w-3" />
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+        <span className="ml-3 text-xs text-muted-foreground">
+          {formatRelativeTime(reply.createdAt)}
         </span>
       </div>
     </div>
@@ -153,8 +233,10 @@ export function CommentSection({
   postId,
   commentsCount,
   defaultExpanded = false,
+  postSource,
 }: CommentSectionProps) {
   const account = useActiveAccount();
+  const citizenSession = useCitizenSession();
   const { isVerified } = useVerificationStatus();
   const { activeAccount } = useAccount();
   const isCommentingAsOrg = activeAccount ? isOrgAccount(activeAccount) : false;
@@ -164,13 +246,24 @@ export function CommentSection({
   const [newComment, setNewComment] = useState("");
   const [isPending, startTransition] = useTransition();
   const [totalCount, setTotalCount] = useState(commentsCount);
+  const [meckyConversation, setMeckyConversation] =
+    useState<StagingMeckyConversationResponse | null>(null);
+  const [waitingForMentionId, setWaitingForMentionId] = useState<string | null>(
+    null
+  );
+  const [conversationPollVersion, setConversationPollVersion] = useState(0);
+  const stagingEnabled = resolveStadtstackStagingLab(
+    process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB
+  );
 
   // Media state
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
-  const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null);
+  const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(
+    null
+  );
   const [isUploading, setIsUploading] = useState(false);
 
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -178,10 +271,22 @@ export function CommentSection({
 
   const hasMedia = imageFiles.length > 0 || videoFile !== null;
 
+  const refreshMeckyConversation = useCallback(async () => {
+    if (!stagingEnabled) return null;
+    const response = await stagingGet<StagingMeckyConversationResponse>(
+      `/conversation?post=${encodeURIComponent(postId)}`
+    );
+    setMeckyConversation(response);
+    return response;
+  }, [postId, stagingEnabled]);
+
   const loadComments = async () => {
     if (isLoading) return;
     setIsLoading(true);
-    const result = await getComments(postId, 50, 0);
+    const [result] = await Promise.all([
+      getPublicFeedComments(postId, 50, 0),
+      refreshMeckyConversation().catch(() => null),
+    ]);
     if (result.success && result.data) {
       setComments(result.data);
     }
@@ -191,11 +296,50 @@ export function CommentSection({
 
   // Auto-load on default expanded
   useEffect(() => {
-    if (defaultExpanded && comments.length === 0 && commentsCount > 0) {
+    if (defaultExpanded && comments.length === 0) {
       loadComments();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultExpanded]);
+
+  useEffect(() => {
+    if (!stagingEnabled || !isExpanded) return;
+    const expectsTopLevelMention = containsExplicitMeckyMention(
+      postSource.content
+    );
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+    const poll = async () => {
+      attempts += 1;
+      let result: StagingMeckyConversationResponse | null = null;
+      try {
+        result = await refreshMeckyConversation();
+      } catch {
+        // A transient projection failure must not affect the ordinary thread.
+      }
+      if (cancelled) return;
+      const expectedRequestVisible = waitingForMentionId
+        ? result?.mentionIds.includes(waitingForMentionId) === true
+        : !expectsTopLevelMention || (result?.requestCount ?? 0) > 0;
+      const settled =
+        expectedRequestVisible && (result?.pendingCount ?? 0) === 0;
+      if (!settled && attempts < 40) timer = setTimeout(poll, 3_000);
+      if (settled && waitingForMentionId) setWaitingForMentionId(null);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [
+    conversationPollVersion,
+    isExpanded,
+    postSource.content,
+    refreshMeckyConversation,
+    stagingEnabled,
+    waitingForMentionId,
+  ]);
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -254,7 +398,12 @@ export function CommentSection({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!account?.address || (!newComment.trim() && !hasMedia) || isPending || isUploading)
+    if (
+      !account?.address ||
+      (!newComment.trim() && !hasMedia) ||
+      isPending ||
+      isUploading
+    )
       return;
 
     const content = newComment.trim() || " ";
@@ -297,9 +446,11 @@ export function CommentSection({
         video_url: videoPreview,
         status: "published",
         created_at: new Date().toISOString(),
-        author_username: isCommentingAsOrg ? activeAccount?.name ?? null : null,
+        author_username: isCommentingAsOrg
+          ? (activeAccount?.name ?? null)
+          : null,
         author_profile_picture_url: isCommentingAsOrg
-          ? activeAccount?.avatar_url ?? null
+          ? (activeAccount?.avatar_url ?? null)
           : null,
       };
 
@@ -321,10 +472,35 @@ export function CommentSection({
 
         if (result.success && result.data) {
           setComments((prev) =>
-            prev.map((c) =>
-              c.id === optimisticComment.id ? result.data! : c
-            )
+            prev.map((c) => (c.id === optimisticComment.id ? result.data! : c))
           );
+          if (
+            stagingEnabled &&
+            citizenSession &&
+            containsExplicitMeckyMention(result.data.content)
+          ) {
+            try {
+              const request = await requestAppMeckyConversationAnswer({
+                session: citizenSession,
+                gateway: appMeckyConversationGateway,
+                source: {
+                  postId,
+                  commentId: result.data.id,
+                  walletAddress: result.data.wallet_address.toLowerCase(),
+                  content: result.data.content,
+                  createdAt: result.data.created_at,
+                },
+              });
+              setWaitingForMentionId(request.mentionId);
+              setConversationPollVersion((value) => value + 1);
+              toast.success("Kommentar veröffentlicht – Mecky antwortet hier.");
+            } catch (error) {
+              console.error("Mecky conversation request failed", error);
+              toast.warning(
+                "Der Kommentar ist veröffentlicht, aber Mecky konnte noch nicht gefragt werden."
+              );
+            }
+          }
         } else {
           // Rollback
           setComments((prev) =>
@@ -344,16 +520,17 @@ export function CommentSection({
   return (
     <div className="border-t border-border">
       {/* Show all comments button */}
-      {totalCount > 0 && !isExpanded && (
-        <button
-          onClick={loadComments}
-          className="w-full px-4 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-left"
-        >
-          {totalCount === 1
-            ? "1 Kommentar anzeigen"
-            : `Alle ${totalCount} Kommentare anzeigen`}
-        </button>
-      )}
+      {totalCount + (meckyConversation?.replies.length ?? 0) > 0 &&
+        !isExpanded && (
+          <button
+            onClick={loadComments}
+            className="w-full px-4 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-left"
+          >
+            {totalCount + (meckyConversation?.replies.length ?? 0) === 1
+              ? "1 Kommentar anzeigen"
+              : `Alle ${totalCount + (meckyConversation?.replies.length ?? 0)} Kommentare anzeigen`}
+          </button>
+        )}
 
       {/* Comments list */}
       {isExpanded && (
@@ -367,6 +544,21 @@ export function CommentSection({
               <CommentItem key={comment.id} comment={comment} />
             ))
           )}
+          {!isLoading &&
+            meckyConversation?.replies.map((reply) => (
+              <MeckyCommentItem key={reply.id} reply={reply} />
+            ))}
+          {!isLoading &&
+            ((meckyConversation?.pendingCount ?? 0) > 0 ||
+              waitingForMentionId !== null) && (
+              <div
+                className="my-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"
+                aria-live="polite"
+              >
+                <Bot className="h-4 w-4" />
+                Mecky prüft die verfügbaren öffentlichen Nachweise …
+              </div>
+            )}
         </div>
       )}
 
@@ -396,7 +588,8 @@ export function CommentSection({
                   {activeAccount.name}
                 </span>
                 <span className="text-[10px] text-muted-foreground">
-                  Kommentiert als {ACCOUNT_TYPE_LABELS[activeAccount.account_type]}
+                  Kommentiert als{" "}
+                  {ACCOUNT_TYPE_LABELS[activeAccount.account_type]}
                 </span>
               </div>
             </div>
@@ -448,7 +641,9 @@ export function CommentSection({
                     <>
                       <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                         <span className="text-white text-[10px] font-medium">
-                          {videoUploadProgress < 100 ? `${videoUploadProgress}%` : "…"}
+                          {videoUploadProgress < 100
+                            ? `${videoUploadProgress}%`
+                            : "…"}
                         </span>
                       </div>
                       <div className="absolute inset-x-0 bottom-0 h-0.5 bg-white/20">

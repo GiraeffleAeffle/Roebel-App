@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useActiveAccount } from "thirdweb/react";
-import { getPostsForFeed } from "@/app/actions/posts";
+import { getPublicFeedPosts } from "@/lib/public-feed-client";
 import { PostComposer } from "@/components/app/PostComposer";
 import { PostCard } from "@/components/app/PostCard";
 import { FeedExperienceCard } from "@/components/app/FeedExperienceCard";
@@ -26,9 +26,8 @@ export function AppFeed() {
   useEffect(() => {
     async function fetchAppFeed() {
       setLoading(true);
-      const result = await getPostsForFeed({
+      const result = await getPublicFeedPosts({
         limit: 30,
-        viewerWallet: account?.address,
         feedType: "app",
       });
       if (result.success && result.data) {

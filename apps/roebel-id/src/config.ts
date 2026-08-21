@@ -44,11 +44,39 @@ export interface Config {
    * `ortis-id` — see README "Running a second instance for another community") typically sets
    * only the ORTIS_* block and none of NEXTCLOUD_*. */
   relyingParties: RelyingPartyConfig[]
+  /**
+   * The one resource indicator this keystone will mint access tokens for — the node signer's
+   * public URL. MUST equal `identity.authBridge.signer.url` in that node's manifest, which
+   * lives in the netizen_labs repo; the two cannot be checked against each other from here,
+   * so a mismatch shows up as the signer 401ing every request. Unset disables resource
+   * indicators entirely.
+   */
+  signerResourceUrl?: string
 }
 
 function required(name: string): string {
   const v = process.env[name]
   if (!v) throw new Error(`Missing required env: ${name}`)
+  return v
+}
+
+/**
+ * An optional absolute URL. Validated at boot rather than at first use: an invalid resource
+ * indicator does not fail loudly, it makes every token request answer `invalid_target` while
+ * /health stays green. Same reasoning as the redirect-URI check added in d9ce3651.
+ */
+function optionalAbsoluteUrl(name: string): string | undefined {
+  const v = process.env[name]?.trim()
+  if (!v) return undefined
+  let parsed: URL
+  try {
+    parsed = new URL(v)
+  } catch {
+    throw new Error(`Invalid ${name}: "${v}" is not an absolute URL (expected e.g. https://signer.example.org)`)
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Invalid ${name}: "${v}" must use http or https`)
+  }
   return v
 }
 
@@ -187,5 +215,6 @@ export function loadConfig(): Config {
     supabaseServiceKey: required('SUPABASE_SERVICE_KEY'),
     thirdwebClientId: required('THIRDWEB_CLIENT_ID'),
     relyingParties,
+    signerResourceUrl: optionalAbsoluteUrl('SIGNER_RESOURCE_URL'),
   }
 }

@@ -8,6 +8,9 @@ const MINI_APPS_SITE_HOST_RE = `(?<slug>[a-z0-9-]+)\\.${MINI_APPS_SITE_APEX_RE}`
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // The public/Vercel build keeps its existing output mode. Talos' immutable
+  // staging image opts into Next's self-contained server explicitly.
+  output: process.env.ROEBEL_STANDALONE_IMAGE === "1" ? "standalone" : undefined,
   // The Vercel build container is 4 cores / 8GB. Type-checking + ESLint over the
   // heavy crypto deps (thirdweb, snarkjs, ffjavascript, semaphore) ran the container
   // out of memory (exit 137 / SIGKILL) right after webpack compile. Move both passes

@@ -27,11 +27,16 @@ export interface ReplyHistory {
   byAuthor: Map<string, number[]>;
   /** Parent event ids already answered — the idempotency key. */
   answered: Set<string>;
+  /** Transient failures are retried, but never on every watcher pass. */
+  retryAfter: Map<string, number>;
+  /** In-memory exponential backoff state; relay replies remain the durable truth. */
+  retryAttempts: Map<string, number>;
 }
 
 export type Refusal =
   | "kill-switch"
   | "already-answered"
+  | "retry-backoff"
   | "self"
   | "other-agent"
   | "author-rate-limit"
@@ -63,6 +68,9 @@ export function shouldAnswer(args: {
 
   if (!bounds.enabled) return { answer: false, reason: "kill-switch" };
   if (history.answered.has(event.id)) return { answer: false, reason: "already-answered" };
+  if ((history.retryAfter.get(event.id) ?? 0) > now) {
+    return { answer: false, reason: "retry-backoff" };
+  }
 
   // Never answer itself. Without this a reply that mentions the agent loops forever.
   if (event.pubkey.toLowerCase() === agentPubkey.toLowerCase()) {
@@ -90,11 +98,27 @@ export function shouldAnswer(args: {
 /** Record a reply so the bounds see it on the next pass. */
 export function recordReply(history: ReplyHistory, event: NostrEvent, now: number): void {
   history.answered.add(event.id);
+  history.retryAfter.delete(event.id);
+  history.retryAttempts.delete(event.id);
   history.repliedAt.push(now);
   const author = event.pubkey.toLowerCase();
   history.byAuthor.set(author, [...(history.byAuthor.get(author) ?? []), now]);
 }
 
+/** Defer a transient failure with bounded exponential backoff (1, 2, 4…15 minutes). */
+export function deferReply(history: ReplyHistory, event: NostrEvent, now: number): void {
+  const attempts = (history.retryAttempts.get(event.id) ?? 0) + 1;
+  const delay = Math.min(60 * (2 ** Math.min(attempts - 1, 4)), 900);
+  history.retryAttempts.set(event.id, attempts);
+  history.retryAfter.set(event.id, now + delay);
+}
+
 export function emptyHistory(): ReplyHistory {
-  return { repliedAt: [], byAuthor: new Map(), answered: new Set() };
+  return {
+    repliedAt: [],
+    byAuthor: new Map(),
+    answered: new Set(),
+    retryAfter: new Map(),
+    retryAttempts: new Map(),
+  };
 }

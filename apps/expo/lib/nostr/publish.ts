@@ -1,5 +1,9 @@
 import {
   buildCalendarEvent,
+  buildCitizenSignedSuggestion,
+  buildCivicDiscussionEvent,
+  type CivicCaseBinding,
+  type CitizenSignedSuggestionV1,
   type NostrEvent,
   type ProfileMetadata,
   RelayClient,
@@ -11,6 +15,8 @@ import {
 } from '@netizen-labs/nostr';
 import { supabase } from '../supabase';
 import { type NostrIdentity, loadStoredIdentity } from './identity';
+import { resolvePublicRelayUrls } from './relay-config';
+import { appCommentMirrorTags, appPostMirrorTags } from './source-binding';
 
 /**
  * Publishing app content to the sovereign relay.
@@ -20,19 +26,30 @@ import { type NostrIdentity, loadStoredIdentity } from './identity';
  * parallel, signed, portable copy that other nodes and agents can read.
  */
 
-export const ROEBEL_RELAY_URL = 'wss://relay.roebel.app';
+const relayUrls = resolvePublicRelayUrls();
+export const ROEBEL_RELAY_URL = relayUrls.citizenRelayUrl;
+export const ROEBEL_MECKY_REPLY_RELAY_URL = relayUrls.agentRelayUrl;
 
-let client: RelayClient | null = null;
+let citizenClient: RelayClient | null = null;
+let agentClient: RelayClient | null = null;
 
-function relay(): RelayClient {
-  if (!client) client = new RelayClient(ROEBEL_RELAY_URL, { timeoutMs: 8000 });
-  return client;
+function citizenRelay(): RelayClient {
+  if (!citizenClient) citizenClient = new RelayClient(ROEBEL_RELAY_URL, { timeoutMs: 8000 });
+  return citizenClient;
+}
+
+function agentRelay(): RelayClient {
+  if (ROEBEL_MECKY_REPLY_RELAY_URL === ROEBEL_RELAY_URL) return citizenRelay();
+  if (!agentClient) agentClient = new RelayClient(ROEBEL_MECKY_REPLY_RELAY_URL, { timeoutMs: 8000 });
+  return agentClient;
 }
 
 /** Drop the pooled connection — call on sign-out. */
 export function closeRelay(): void {
-  client?.close();
-  client = null;
+  citizenClient?.close();
+  agentClient?.close();
+  citizenClient = null;
+  agentClient = null;
 }
 
 export type PublicationStatus = 'published' | 'rejected' | 'pending';
@@ -69,7 +86,7 @@ async function publish(
   sourceId: string,
 ): Promise<PublicationStatus> {
   try {
-    const result = await relay().publish(event);
+    const result = await citizenRelay().publish(event);
     const status: PublicationStatus = result.ok ? 'published' : 'rejected';
     await recordPublication(
       sourceType,
@@ -104,7 +121,14 @@ export async function publishPost(
   // The post's ORIGINAL wall-clock, not "now": a backfilled post from March
   // must appear in March on every Nostr client, not on the day the sweep ran.
   return publish(
-    buildNoteEvent(identity.secretKey, content, createdAtSec ? { createdAt: createdAtSec } : {}),
+    buildNoteEvent(identity.secretKey, content, {
+      ...(createdAtSec ? { createdAt: createdAtSec } : {}),
+      tags: appPostMirrorTags({
+        postId,
+        content,
+        meckyPubkey: process.env.EXPO_PUBLIC_MECKY_NOSTR_PUBKEY,
+      }),
+    }),
     'post',
     postId,
   );
@@ -173,7 +197,15 @@ export async function publishComment(
   const parent = await publishedEventIdOf('post', postId);
   if (!parent) return 'pending';
   const event = buildNoteEvent(identity.secretKey, content, {
-    tags: [['e', parent, '', 'root']],
+    tags: [
+      ['e', parent, '', 'root'],
+      ...appCommentMirrorTags({
+        postId,
+        commentId,
+        content,
+        meckyPubkey: process.env.EXPO_PUBLIC_MECKY_NOSTR_PUBKEY,
+      }),
+    ],
   });
   return publish(event, 'comment', commentId);
 }
@@ -201,7 +233,7 @@ export async function publishUnlike(postId: string): Promise<void> {
   const likeEventId = await publishedEventIdOf('like', `${postId}:${identity.publicKey.slice(0, 16)}`);
   if (!likeEventId) return;
   try {
-    await relay().publish(buildDeletionEvent(identity.secretKey, [likeEventId], { reason: 'Like zurückgenommen' }));
+    await citizenRelay().publish(buildDeletionEvent(identity.secretKey, [likeEventId], { reason: 'Like zurückgenommen' }));
   } catch {
     // Advisory anyway; the app state is authoritative for the UI.
   }
@@ -249,7 +281,7 @@ export async function publishDeletions(eventIds: string[], reason = 'Konto gelö
   const identity = await loadStoredIdentity();
   if (!identity) return false;
   try {
-    const result = await relay().publish(
+    const result = await citizenRelay().publish(
       buildDeletionEvent(identity.secretKey, eventIds, { reason }),
     );
     return result.ok;
@@ -270,7 +302,7 @@ export async function publishVanishRequest(reason = 'Konto gelöscht'): Promise<
   const identity = await loadStoredIdentity();
   if (!identity) return false;
   try {
-    const result = await relay().publish(
+    const result = await citizenRelay().publish(
       buildVanishEvent(identity.secretKey, 'ALL_RELAYS', { reason }),
     );
     return result.ok;
@@ -319,7 +351,7 @@ export async function publishTestNote(
   if (!identity) return { ok: false, message: 'Keine Nostr-Identität auf diesem Gerät.' };
   try {
     const event = buildNoteEvent(identity.secretKey, content);
-    const result = await relay().publish(event);
+    const result = await citizenRelay().publish(event);
     return result.ok
       ? { ok: true, eventId: event.id, message: 'Auf dem Relay veröffentlicht.' }
       : { ok: false, message: result.message || 'Vom Relay abgelehnt.' };
@@ -346,13 +378,109 @@ export async function publishAgentMention(
     const event = buildNoteEvent(identity.secretKey, content, {
       tags: [['p', agentPubkey.toLowerCase()]],
     });
-    const result = await relay().publish(event);
+    const result = await citizenRelay().publish(event);
     return result.ok
       ? { ok: true, eventId: event.id, message: 'Frage gestellt. Mecky antwortet gleich …' }
       : { ok: false, message: result.message || 'Vom Relay abgelehnt.' };
   } catch {
     return { ok: false, message: 'Relay nicht erreichbar.' };
   }
+}
+
+/**
+ * Mirror an app-visible civic discussion as the exact citizen-signed event the
+ * Stadtstack intake adapter accepts. The Supabase post remains the local UI
+ * record; this event is the portable signature/provenance record.
+ */
+export async function publishCivicDiscussion(
+  postId: string,
+  content: string,
+  binding: CivicCaseBinding,
+  createdAtSec?: number,
+): Promise<PublicationStatus> {
+  return (
+    await publishCivicDiscussionDetailed(
+      postId,
+      content,
+      binding,
+      createdAtSec,
+    )
+  ).status;
+}
+
+export async function publishCivicDiscussionDetailed(
+  postId: string,
+  content: string,
+  binding: CivicCaseBinding,
+  createdAtSec?: number,
+): Promise<{ status: PublicationStatus; event: NostrEvent | null }> {
+  const identity = await loadStoredIdentity();
+  if (!identity) return { status: 'pending', event: null };
+  const agentPubkey = process.env.EXPO_PUBLIC_MECKY_NOSTR_PUBKEY?.trim().toLowerCase();
+  if (!agentPubkey) return { status: 'pending', event: null };
+  try {
+    const event = buildCivicDiscussionEvent(identity.secretKey, {
+      ...binding,
+      agentPubkey,
+      content,
+      ...(createdAtSec === undefined ? {} : { createdAt: createdAtSec }),
+    });
+    return {
+      status: await publish(event, 'civic_discussion', postId),
+      event,
+    };
+  } catch {
+    return { status: 'pending', event: null };
+  }
+}
+
+/**
+ * Let the same citizen turn a verified Public Mecky answer into a signed
+ * suggestion candidate. Publishing still does not admit it into Stadtstack;
+ * the result remains explicitly awaiting a human Case steward.
+ */
+export async function publishCitizenSignedSuggestion(input: {
+  binding: CivicCaseBinding;
+  sourceDiscussion: NostrEvent;
+  sourceAnswer: NostrEvent;
+  title: string;
+  summary: string;
+  createdAt?: number;
+}): Promise<{
+  status: PublicationStatus;
+  suggestion: CitizenSignedSuggestionV1 | null;
+}> {
+  const identity = await loadStoredIdentity();
+  if (!identity) return { status: 'pending', suggestion: null };
+  const agentPubkey = process.env.EXPO_PUBLIC_MECKY_NOSTR_PUBKEY?.trim().toLowerCase();
+  if (!agentPubkey) return { status: 'pending', suggestion: null };
+
+  const suggestion = buildCitizenSignedSuggestion(identity.secretKey, {
+    binding: input.binding,
+    sourceDiscussion: input.sourceDiscussion,
+    sourceAnswer: input.sourceAnswer,
+    agentPubkey,
+    title: input.title,
+    summary: input.summary,
+    createdAt: input.createdAt ?? Math.floor(Date.now() / 1_000),
+  });
+  const event: NostrEvent = {
+    id: suggestion.event.id,
+    pubkey: suggestion.event.pubkey,
+    created_at: suggestion.event.createdAt,
+    kind: suggestion.event.kind,
+    tags: suggestion.event.tags,
+    content: suggestion.event.content,
+    sig: suggestion.event.signature,
+  };
+  return {
+    status: await publish(
+      event,
+      'citizen_signed_suggestion',
+      suggestion.candidateId,
+    ),
+    suggestion,
+  };
 }
 
 /**
@@ -366,7 +494,7 @@ export async function fetchAgentReply(
   agentPubkey: string,
 ): Promise<NostrEvent | null> {
   try {
-    const events = await relay().query([
+    const events = await agentRelay().query([
       { kinds: [1], authors: [agentPubkey.toLowerCase()], "#e": [parentEventId], limit: 5 },
     ]);
     return events.sort((a, b) => b.created_at - a.created_at)[0] ?? null;
@@ -429,7 +557,7 @@ export async function readFromRelay(
 ): Promise<NostrEvent[]> {
   try {
     const filter = authors.length > 0 ? { kinds, authors, limit } : { kinds, limit };
-    const events = await relay().query([filter]);
+    const events = await citizenRelay().query([filter]);
     return events.sort((a, b) => b.created_at - a.created_at);
   } catch {
     return [];
@@ -478,7 +606,7 @@ async function repairMisdatedMirrors(identity: NostrIdentity): Promise<void> {
       const isOrgPost = (post.account as { account_type?: string } | null)?.account_type === 'organisation';
       const driftedByADay = Math.abs((onRelay.get(eventId) ?? originalSec) - originalSec) > 86_400;
       if (!isOrgPost && !driftedByADay) continue;
-      await relay().publish(
+      await citizenRelay().publish(
         buildDeletionEvent(identity.secretKey, [eventId], {
           reason: isOrgPost ? 'Falsche Zuordnung' : 'Datum korrigiert',
         }),

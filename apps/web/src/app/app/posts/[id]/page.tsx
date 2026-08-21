@@ -2,10 +2,18 @@
 
 import { use, useState, useEffect } from "react";
 import Link from "next/link";
-import { useActiveAccount } from "thirdweb/react";
-import { ArrowLeft } from "lucide-react";
-import { getPostById } from "@/app/actions/posts";
+import { ArrowLeft, RotateCw } from "lucide-react";
 import { PostCard } from "@/components/app/PostCard";
+import { StadtstackStagingPostDetail } from "@/components/app/StadtstackStagingPostDetail";
+import { getPublicFeedPost } from "@/lib/public-feed-client";
+import {
+  findStagingPostMirror,
+  stagingGet,
+  type StagingMeckyConversationResponse,
+  type StagingOrdinaryPost,
+  type StagingFeedResponse,
+} from "@/lib/stadtstack/staging-api";
+import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
 import type { PostWithEngagement } from "@/types/post";
 
 export default function PostDetailPage({
@@ -14,24 +22,67 @@ export default function PostDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const account = useActiveAccount();
   const [post, setPost] = useState<PostWithEngagement | null>(null);
+  const [stagingMirror, setStagingMirror] = useState<{
+    post: StagingOrdinaryPost;
+    conversation: StagingMeckyConversationResponse;
+  } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  const stagingEnabled = resolveStadtstackStagingLab(
+    process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB
+  );
 
   useEffect(() => {
     async function load() {
       setIsLoading(true);
-      const result = await getPostById(id, account?.address);
-      if (result.success && result.data) {
-        setPost(result.data);
-      } else {
-        setError(result.error || "Beitrag nicht gefunden");
+      setError(null);
+      setPost(null);
+      setStagingMirror(null);
+
+      async function loadStagingMirror() {
+        if (!stagingEnabled) return null;
+        const feed = await stagingGet<StagingFeedResponse>("/feed");
+        const mirror = findStagingPostMirror(feed.posts, id);
+        if (!mirror) return null;
+        const conversation = await stagingGet<StagingMeckyConversationResponse>(
+          `/conversation?post=${encodeURIComponent(id)}`
+        );
+        return { post: mirror, conversation };
       }
-      setIsLoading(false);
+
+      try {
+        let primaryError = "Beitrag konnte nicht geladen werden";
+
+        try {
+          const result = await getPublicFeedPost(id);
+          if (result.success && result.data) {
+            setPost(result.data);
+            return;
+          }
+          primaryError = result.error || "Beitrag nicht gefunden";
+        } catch {
+          primaryError = "Beitrag konnte nicht geladen werden";
+        }
+
+        try {
+          const stagingMirror = await loadStagingMirror();
+          if (stagingMirror) {
+            setStagingMirror(stagingMirror);
+            return;
+          }
+        } catch {
+          // The staging mirror is a labelled, non-authoritative fallback.
+        }
+
+        setError(primaryError);
+      } finally {
+        setIsLoading(false);
+      }
     }
-    load();
-  }, [id, account?.address]);
+    void load();
+  }, [id, retry, stagingEnabled]);
 
   if (isLoading) {
     return (
@@ -56,6 +107,14 @@ export default function PostDetailPage({
   }
 
   if (error || !post) {
+    if (stagingMirror) {
+      return (
+        <StadtstackStagingPostDetail
+          post={stagingMirror.post}
+          conversation={stagingMirror.conversation}
+        />
+      );
+    }
     return (
       <div className="max-w-2xl mx-auto text-center py-12">
         <p className="text-muted-foreground font-medium">
@@ -68,6 +127,13 @@ export default function PostDetailPage({
           <ArrowLeft className="h-4 w-4" />
           Zurück
         </Link>
+        <button
+          type="button"
+          onClick={() => setRetry((value) => value + 1)}
+          className="mx-auto mt-3 flex items-center gap-1 text-sm font-medium text-primary hover:text-primary/80"
+        >
+          <RotateCw className="h-4 w-4" /> Erneut laden
+        </button>
       </div>
     );
   }

@@ -12,6 +12,30 @@ migration file.
 
 ---
 
+## ⚠️ Verified against production 2026-08-12 — still open, and wider than written
+
+That verification was finally done, 15 days later. Results, read from `pg_policies`
+and `information_schema.role_table_grants` on project `wwbeqhkslxdxhktqzqti`:
+
+- **`20260802_account_membership_lockdown.sql` was never applied.** The newest
+  applied migration is `20260731213311_membership_functions_revoke_default_privileges`.
+  The code fixes shipped; the policy drop did not.
+- **`anon` holds `INSERT, UPDATE, DELETE, SELECT`** on all three tables, and every
+  policy on them evaluates to `true`. The anon key ships inside the Expo bundle.
+- **The blast radius below is understated.** §1 describes joining any org and §2
+  renaming any account. Live, the same key can also **delete any account row** and
+  **delete any `account_owners` row** — walking straight past the
+  `delete_owner_guarded` last-owner protection, which only runs inside the signed
+  edge function. It can also forge `invite_tokens` rows and mutate existing ones.
+- **The gate is one question.** `org-membership` is deployed and ACTIVE (v2,
+  2026-07-31), so the only remaining condition is *"older installed Expo builds
+  still write `account_owners` directly"* — i.e. EAS-build adoption. That is Max's
+  call, and holding was Max's decision on 2026-08-12. Nothing here is applied.
+
+Then read §5, which is the finding that matters more than any of the three above.
+
+---
+
 ## 1. Anyone with the anon key can join any organisation — FIXED (code); policy drop gated
 
 `supabase/migrations/005_accounts_system.sql:42`
@@ -156,6 +180,56 @@ with an absent-vs-empty claim distinction and a sub-guard so a missing claims
 response can't be misread as "still a member". An ex-member's session now
 loses org file access at the next refresh instead of surviving to the
 cookie's 14-day `maxAge`.
+
+---
+
+## 5. RLS has no subject in this database — added 2026-08-12
+
+Findings §1–§3 were each treated as a bug on a specific table. Measuring the whole
+schema shows they are three samples of a property that holds almost everywhere:
+
+| Measured on production, 2026-08-12 | |
+|---|---|
+| Write policies (INSERT/UPDATE/DELETE/ALL) in `public` | **156** |
+| …that reference `auth.uid()` | **0** |
+| …whose *name* claims ownership ("own", "their", "self") | 25 |
+| …of those 25, that evaluate to literal `true` | **25 of 25** |
+| Tables `anon`/`authenticated` can write behind a `true` policy | **81** |
+
+**The cause is architectural, not sloppiness.** This app authenticates by wallet
+(thirdweb smart accounts), never by Supabase Auth. So `auth.uid()` is null on every
+request and RLS has nothing to bind a row to. A policy *cannot* express "only the
+owner" here. Authorization genuinely lives in the signed edge functions and the
+client — which is a defensible design, and is the direction `org-membership`
+already took.
+
+**What is not defensible is the naming.** Twenty-five policies are called things
+like *"Users can update their own posts"* while evaluating to `true`. That is not a
+comment that drifted; it is a security control that reads as enforced and is not.
+It is precisely why §1 and §2 sat unnoticed: whoever wrote them, and everyone who
+read the schema afterwards, saw a name that promised ownership.
+
+The three tables in §1–§3 were not uniquely broken. They were the three someone
+happened to open.
+
+**Actions, in order:**
+
+1. **Rename before re-architecting.** A policy that means "any client may write
+   this, authorization is upstream" should say so. Renaming 25 policies is cheap,
+   changes no behaviour, and removes the false assurance that hid these findings.
+   Do it as one mechanical migration.
+2. **Triage the 81 by consequence, not by count.** Some are genuinely fine
+   (`feedback`, `tour_completions`). Some are not, and deserve their own findings
+   after review — `roebel_points_ledger` (*"Users can insert points"*, INSERT
+   `true`), `vote_history`, `orders`, `users`, `proposals`, and the `allow_all`
+   policies on `conversations` / `conversation_participants` / `direct_messages`.
+   **This list is a starting point from schema shape alone — each needs its data
+   sensitivity and its client path checked before it is called a vulnerability.**
+3. **Hold the line with the ratchet.** [`supabase/checks/rls-write-policies.sql`](../supabase/checks/rls-write-policies.sql)
+   asserts both numbers against a dated baseline and fails when either grows. It
+   does not claim the debt is fixed — it stops it growing while §1–§2 wait on EAS,
+   and it turns this document from prose that rotted for 15 days into something the
+   database enforces.
 
 ---
 

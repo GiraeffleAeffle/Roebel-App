@@ -16,6 +16,7 @@ import { ReportButton } from "@/components/app/ReportButton";
 import { CategoryBadge } from "@/components/app/CategoryBadge";
 import { PollDisplay } from "@/components/app/PollDisplay";
 import { CommentSection } from "@/components/app/CommentSection";
+import { StadtstackPostPromotion } from "@/components/app/StadtstackPostPromotion";
 import { deletePost } from "@/app/actions/posts";
 import type { PostWithEngagement } from "@/types/post";
 import { toast } from "sonner";
@@ -96,11 +97,20 @@ export function PostCard({
   const [showComments, setShowComments] = useState(false);
 
   const isMecky = wallet_address === "mecky_bot";
-  const isAuthor = account?.address?.toLowerCase() === wallet_address.toLowerCase();
+  const isAuthor =
+    account?.address?.toLowerCase() === wallet_address.toLowerCase();
   const shortAddress = `${wallet_address.slice(0, 4)}...${wallet_address.slice(-3)}`;
-  const isOrgPost = author_account_type && author_account_type !== "personal" && author_account_name;
-  const displayName = isOrgPost ? author_account_name! : (author_username || shortAddress);
-  const displayAvatar = isOrgPost && author_account_avatar_url ? author_account_avatar_url : author_profile_picture_url;
+  const isOrgPost =
+    author_account_type &&
+    author_account_type !== "personal" &&
+    author_account_name;
+  const displayName = isOrgPost
+    ? author_account_name!
+    : author_username || shortAddress;
+  const displayAvatar =
+    isOrgPost && author_account_avatar_url
+      ? author_account_avatar_url
+      : author_profile_picture_url;
   // Record mode has no wallet-keyed profile route (wallet_address is "" for a
   // personal author, or the "mecky_bot" bot-badge sentinel) — `/app/profile/`
   // would be a dead link, so the author name/avatar render as plain, static
@@ -110,7 +120,12 @@ export function PostCard({
   const handleCardClick = (e: React.MouseEvent) => {
     if (mode === "detail") return;
     const target = e.target as HTMLElement;
-    if (target.closest('button, a, input, video, [role="button"], [data-radix-collection-item]')) return;
+    if (
+      target.closest(
+        'button, a, input, video, [role="button"], [data-radix-collection-item]'
+      )
+    )
+      return;
     router.push(`/app/posts/${id}`);
   };
 
@@ -212,14 +227,21 @@ export function PostCard({
                   {displayName}
                 </Link>
               ) : (
-                <span className="text-sm font-medium text-foreground">{displayName}</span>
+                <span className="text-sm font-medium text-foreground">
+                  {displayName}
+                </span>
               )}
               {isOrgPost && (
                 <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-[10px] font-medium">
-                  {author_account_type === "unternehmen" ? "Gewerbe" :
-                   author_account_type === "verein" ? "Verein" :
-                   author_account_type === "stadt" ? "Stadt" :
-                   author_account_type === "fraktion" ? "Fraktion" : ""}
+                  {author_account_type === "unternehmen"
+                    ? "Gewerbe"
+                    : author_account_type === "verein"
+                      ? "Verein"
+                      : author_account_type === "stadt"
+                        ? "Stadt"
+                        : author_account_type === "fraktion"
+                          ? "Fraktion"
+                          : ""}
                 </span>
               )}
               {isMecky && (
@@ -327,12 +349,29 @@ export function PostCard({
           )}
         </div>
 
+        {mode === "detail" && isAuthor && (
+          <StadtstackPostPromotion
+            post={{
+              id,
+              walletAddress: wallet_address,
+              content,
+              createdAt: created_at,
+            }}
+          />
+        )}
+
         {/* Comments section */}
-        {(showComments || comments_count > 0) && (
+        {(mode === "detail" || showComments || comments_count > 0) && (
           <CommentSection
             postId={id}
             commentsCount={comments_count}
             defaultExpanded={mode === "detail"}
+            postSource={{
+              id,
+              walletAddress: wallet_address,
+              content,
+              createdAt: created_at,
+            }}
           />
         )}
       </div>

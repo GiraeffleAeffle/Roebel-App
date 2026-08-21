@@ -1,0 +1,76 @@
+# syntax=docker/dockerfile:1.7
+
+FROM --platform=linux/amd64 docker.io/library/node@sha256:7c269ea419bfbaef1f5eed57e58016395bbe3036176411025a5093e39a948dcf AS builder
+
+ARG SOURCE_REVISION
+ARG SOURCE_DATE_EPOCH
+RUN test "${#SOURCE_REVISION}" -eq 40 \
+    && case "${SOURCE_REVISION}" in *[!0-9a-f]*) exit 1;; esac \
+    && test -n "${SOURCE_DATE_EPOCH}" \
+    && case "${SOURCE_DATE_EPOCH}" in *[!0-9]*) exit 1;; esac
+
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    NEXT_TELEMETRY_DISABLED=1 \
+    ROEBEL_STANDALONE_IMAGE=1 \
+    NEXT_PUBLIC_STADTSTACK_STAGING_LAB=1 \
+    ROEBEL_PUBLIC_DEPLOYMENT_PROFILE=talos_staging_synthetic_workflow \
+    ROEBEL_PUBLIC_BASE_URL=https://roebel-web.staging.agentcart.eu \
+    ROEBEL_PUBLIC_SITE_URL=https://roebel-web.staging.agentcart.eu \
+    ROEBEL_PUBLIC_SUPABASE_URL=https://runtime-config-required.invalid \
+    ROEBEL_PUBLIC_SUPABASE_ANON_KEY=__ROEBEL_RUNTIME_SUPABASE_ANON_KEY__ \
+    ROEBEL_PUBLIC_THIRDWEB_CLIENT_ID=__ROEBEL_RUNTIME_THIRDWEB_CLIENT_ID__ \
+    ROEBEL_PUBLIC_GNOSIS_BUNDLER_URL=/__roebel_runtime_gnosis_bundler_url__ \
+    ROEBEL_PUBLIC_STADTSTACK_BASE_URL=https://stadtstack-runtime-config-required.invalid \
+    NEXT_PUBLIC_SUPABASE_URL=https://runtime-config-required.invalid \
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=__ROEBEL_RUNTIME_SUPABASE_ANON_KEY__ \
+    NEXT_PUBLIC_TEMPLATE_CLIENT_ID=__ROEBEL_RUNTIME_THIRDWEB_CLIENT_ID__ \
+    NEXT_PUBLIC_GNOSIS_BUNDLER_URL=/__roebel_runtime_gnosis_bundler_url__ \
+    NEXT_PUBLIC_BASE_URL=https://roebel-web.staging.agentcart.eu \
+    NEXT_PUBLIC_SITE_URL=https://roebel-web.staging.agentcart.eu \
+    SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-for-build-only \
+    STRIPE_SECRET_KEY=sk_test_placeholder_for_build_1234567890 \
+    STRIPE_SECRET_KEY_CARD=sk_test_placeholder_card_build_1234567890 \
+    RESEND_API_KEY=re_placeholder_for_build \
+    SESSION_SECRET=placeholder-session-secret-for-build-32chars \
+    THIRDWEB_CLIENT_ID=placeholder-for-build
+
+WORKDIR /workspace
+RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
+    corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+COPY . .
+RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
+    --mount=type=bind,from=pnpm-store,source=.,target=/pnpm/store,ro \
+    pnpm --filter @roebel/web... install --offline --frozen-lockfile --ignore-scripts
+RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro pnpm --filter @roebel/web build
+
+FROM --platform=linux/amd64 docker.io/library/node@sha256:7c269ea419bfbaef1f5eed57e58016395bbe3036176411025a5093e39a948dcf
+ARG SOURCE_REVISION
+LABEL org.opencontainers.image.source="https://github.com/GiraeffleAeffle/Roebel-App" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      stadtstack.io/component="roebel-web-staging" \
+      stadtstack.io/environment="staging-synthetic-workflow" \
+      stadtstack.io/civic-authority="none"
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=8080 \
+    HOSTNAME=0.0.0.0 \
+    NEXT_PUBLIC_STADTSTACK_STAGING_LAB=1 \
+    ROEBEL_PUBLIC_DEPLOYMENT_PROFILE=talos_staging_synthetic_workflow \
+    ROEBEL_PUBLIC_BASE_URL=https://roebel-web.staging.agentcart.eu \
+    ROEBEL_PUBLIC_SITE_URL=https://roebel-web.staging.agentcart.eu \
+    ROEBEL_PUBLIC_SUPABASE_URL=https://runtime-config-required.invalid \
+    ROEBEL_PUBLIC_SUPABASE_ANON_KEY=__ROEBEL_RUNTIME_SUPABASE_ANON_KEY__ \
+    ROEBEL_PUBLIC_THIRDWEB_CLIENT_ID=__ROEBEL_RUNTIME_THIRDWEB_CLIENT_ID__ \
+    ROEBEL_PUBLIC_GNOSIS_BUNDLER_URL=/__roebel_runtime_gnosis_bundler_url__ \
+    ROEBEL_PUBLIC_STADTSTACK_BASE_URL=https://stadtstack-runtime-config-required.invalid
+WORKDIR /app
+COPY --from=builder --chown=65532:65532 /workspace/apps/web/.next/standalone ./
+COPY --from=builder --chown=65532:65532 /workspace/apps/web/.next/static ./apps/web/.next/static
+COPY --from=builder --chown=65532:65532 /workspace/apps/web/public ./apps/web/public
+COPY --from=builder --chown=65532:65532 /workspace/apps/web/scripts/inject-public-runtime-config.mjs ./apps/web/runtime-entrypoint.mjs
+USER 65532:65532
+EXPOSE 8080
+ENTRYPOINT ["node"]
+CMD ["apps/web/runtime-entrypoint.mjs"]

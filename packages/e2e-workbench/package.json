@@ -1,0 +1,26 @@
+{
+  "name": "@roebel/e2e-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Isolated Röbel discussion and Stadtstack staging workbench.",
+  "type": "module",
+  "engines": { "node": ">=22.19.0" },
+  "scripts": {
+    "build": "esbuild src/cli.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/e2e-workbench.cjs",
+    "start": "tsx src/cli.ts",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@netizen-labs/nostr": "workspace:*",
+    "@netizen-labs/relay-sync": "workspace:*",
+    "ws": "8.20.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "@types/ws": "8.18.1",
+    "esbuild": "^0.27.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { sdk } from "@netizen-labs/miniapp-sdk";
 import type { MiniAppContext, MuenzenBalance } from "@netizen-labs/miniapp-sdk";
 import { getAddress, isAddress, type Address } from "viem";
@@ -13,9 +13,24 @@ import GovernanceView from "./views/GovernanceView";
 import EventInviteView from "./views/EventInviteView";
 import DocumentaryView from "./views/DocumentaryView";
 import PulseView from "./views/PulseView";
+import {
+  ROEBEL_MARIENFELDER_DEMO_TOPIC_BINDING,
+  resolveGovernanceDeepLink,
+} from "./lib/municipalTopicBinding";
+import {
+  isMarienfelderPublicDemo,
+  withMiniAppBasePath,
+} from "./lib/publicDemoMode";
+import { buildCivicDiscussionDeepLink } from "./lib/civicDiscussionLink";
 
-// Brand mark ships in /public — Next serves it at an absolute URL path.
-const logoData = "/assets/Logo-data.png";
+// Brand mark ships in /public. Prefix it so a shared-host staging deployment
+// also works below NEXT_PUBLIC_MINIAPP_BASE_PATH.
+const logoData = withMiniAppBasePath("/assets/Logo-data.png");
+const publicDemoOnly = isMarienfelderPublicDemo(
+  process.env.NEXT_PUBLIC_STADTSTACK_PUBLIC_DEMO_MODE,
+);
+const permanentCanonicalCaseId =
+  process.env.NEXT_PUBLIC_STADTSTACK_CANONICAL_CASE_ID?.trim() ?? "";
 
 type Tab = "town" | "economy" | "governance";
 // Invite + Event + Documentary are not top-level tabs — they live inside the Town
@@ -27,65 +42,120 @@ const TABS: { id: Tab; label: string; icon: typeof Coins }[] = [
   { id: "governance", label: "Mitbestimmung", icon: BallotBox },
 ];
 
-const urlParam = (k: string) => {
-  try {
-    if (typeof window === "undefined") return null;
-    return new URLSearchParams(window.location.search).get(k);
-  } catch {
-    return null;
-  }
+type UrlDeepLinks = {
+  inviter: Address | null;
+  ref: Address | null;
+  governanceTarget: ReturnType<typeof resolveGovernanceDeepLink>;
 };
-// The Röbel host links here as `?inviter=<citizen address>` — use it as the initial
-// inviter (and open the Event page inside the Town tab) even before the host injects
-// the wallet.
-const urlInviter = (() => {
-  const p = urlParam("inviter");
-  return p && isAddress(p) ? getAddress(p) : null;
-})();
-// `?ref=<wallet>` — a referral link shared from inside the app.
-const urlRef = (() => {
-  const p = urlParam("ref");
-  return p && isAddress(p) ? getAddress(p) : null;
-})();
-// `?proposal=<proposal_id|tx hash>` — deep-link straight into a proposal's detail.
-const urlProposal = urlParam("proposal");
+
+const EMPTY_GOVERNANCE_TARGET = resolveGovernanceDeepLink({
+  proposalId: null,
+  stadtstackTopic: null,
+});
+
+const PUBLIC_DEMO_GOVERNANCE_TARGET: UrlDeepLinks["governanceTarget"] = {
+  proposalId: null,
+  civicTopicBinding: ROEBEL_MARIENFELDER_DEMO_TOPIC_BINDING,
+};
+
+function readUrlDeepLinks(): UrlDeepLinks {
+  try {
+    const search = new URLSearchParams(window.location.search);
+    const inviter = search.get("inviter");
+    const ref = search.get("ref");
+    return {
+      inviter: inviter && isAddress(inviter) ? getAddress(inviter) : null,
+      ref: ref && isAddress(ref) ? getAddress(ref) : null,
+      governanceTarget: resolveGovernanceDeepLink({
+        proposalId: search.get("proposal"),
+        stadtstackTopic: search.get("stadtstackTopic"),
+      }),
+    };
+  } catch {
+    return {
+      inviter: null,
+      ref: null,
+      governanceTarget: EMPTY_GOVERNANCE_TARGET,
+    };
+  }
+}
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>(urlProposal ? "governance" : "town");
-  // A deep-link with ?inviter opens straight onto the Event page within the Town tab.
-  const [subPage, setSubPage] = useState<SubPage | null>(urlInviter ? "event" : null);
-  const [inviter, setInviter] = useState<Address | null>(urlInviter);
+  // Keep the server render and first browser render identical. Deep links are
+  // applied after hydration; reading window at module/render time causes the
+  // server to render "Gemeinde" while the browser renders "Mitbestimmung".
+  const [governanceTarget, setGovernanceTarget] = useState(
+    publicDemoOnly ? PUBLIC_DEMO_GOVERNANCE_TARGET : EMPTY_GOVERNANCE_TARGET,
+  );
+  const [tab, setTab] = useState<Tab>(
+    publicDemoOnly ? "governance" : "town",
+  );
+  const [subPage, setSubPage] = useState<SubPage | null>(null);
+  const [inviter, setInviter] = useState<Address | null>(null);
   const [connected, setConnected] = useState<Address | null>(null);
   const [muenzen, setMuenzen] = useState<MuenzenBalance | null>(null);
   const [ctx, setCtx] = useState<MiniAppContext | null>(null);
   const connectedOnce = useRef(false);
   const refLanded = useRef(false);
+  const deepLinks = useRef<UrlDeepLinks>({
+    inviter: null,
+    ref: null,
+    governanceTarget: EMPTY_GOVERNANCE_TARGET,
+  });
 
   // ── Mount: dismiss host splash (MANDATORY) + context + analytics ────────────
   useEffect(() => {
+    // This is an intentionally isolated public build. It keeps the host
+    // splash contract, but never reads a wallet, establishes analytics or
+    // honours any invitation/proposal deep link.
+    if (publicDemoOnly) {
+      void sdk.actions.ready();
+      return;
+    }
+
+    const links = readUrlDeepLinks();
+    deepLinks.current = links;
+    setGovernanceTarget(links.governanceTarget);
+    if (
+      links.governanceTarget.proposalId ||
+      links.governanceTarget.civicTopicBinding
+    ) {
+      setTab("governance");
+    } else if (links.inviter) {
+      setSubPage("event");
+    }
+    setInviter(links.inviter);
+
     // #1 rule: without ready() the host shows an infinite splash.
     void sdk.actions.ready();
 
     // Untrusted context — display only (greet by name, read safe-area insets).
     void sdk.getContext().then(setCtx).catch(() => {});
 
-    initAnalytics({ ref: urlRef });
+    initAnalytics({ ref: links.ref });
     track("app_open", {
-      tab: urlProposal ? "governance" : "town",
-      subPage: urlInviter ? "event" : null,
-      hasInviter: !!urlInviter,
-      hasRef: !!urlRef,
-      hasProposal: !!urlProposal,
+      tab:
+        links.governanceTarget.proposalId ||
+        links.governanceTarget.civicTopicBinding
+          ? "governance"
+          : "town",
+      subPage: links.inviter ? "event" : null,
+      hasInviter: !!links.inviter,
+      hasRef: !!links.ref,
+      hasProposal: !!links.governanceTarget.proposalId,
+      hasStadtstackTopic: !!links.governanceTarget.civicTopicBinding,
     });
     return startHeartbeat(25);
   }, []);
 
   // ── Wallet: host injects the connected account (used by Invite/Event + analytics).
   useEffect(() => {
+    if (publicDemoOnly) return;
+
     const onAddress = (addr: string | null) => {
       const a = addr && isAddress(addr) ? getAddress(addr) : null;
       setConnected(a);
-      setInviter(a ?? urlInviter);
+      setInviter(a ?? deepLinks.current.inviter);
       setAnalyticsWallet(a);
       if (a) {
         // Refresh the Röbel-Münzen balance for the newly connected user.
@@ -97,9 +167,14 @@ export default function App() {
         connectedOnce.current = true;
         track("wallet_connect", {});
         // Referral attribution: a new wallet connected inside the app via someone's link.
-        if (urlRef && !refLanded.current && urlRef.toLowerCase() !== a.toLowerCase()) {
+        const referral = deepLinks.current.ref;
+        if (
+          referral &&
+          !refLanded.current &&
+          referral.toLowerCase() !== a.toLowerCase()
+        ) {
           refLanded.current = true;
-          track("referral_landed", { ref: urlRef.toLowerCase() });
+          track("referral_landed", { ref: referral.toLowerCase() });
         }
       }
     };
@@ -117,24 +192,56 @@ export default function App() {
   }, []);
 
   const selectTab = (id: Tab) => {
+    if (publicDemoOnly) return;
     setTab(id);
     setSubPage(null);
     track("tab_view", { tab: id });
   };
 
   const openSub = (p: SubPage) => {
+    if (publicDemoOnly) return;
     setSubPage(p);
     track("tab_view", { tab: p });
   };
   const closeSub = () => setSubPage(null);
+  const openReviewedMunicipalCase = useCallback((url: string) => {
+    if (publicDemoOnly) return;
+    // The federation client already confined this URL to the configured
+    // Stadtstack origin and exact public-case path. The shell owns navigation.
+    void sdk.actions.openUrl(url).catch(() => {});
+  }, []);
+  const openCivicDiscussion = useCallback(
+    (target: {
+      municipalityId: string;
+      sourceCaseId: string;
+      title: string;
+    }) => {
+      if (publicDemoOnly || !permanentCanonicalCaseId) return;
+      try {
+        const url = buildCivicDiscussionDeepLink({
+          ...target,
+          canonicalCaseId: permanentCanonicalCaseId,
+        });
+        void sdk.actions.openUrl(url).catch(() => {});
+      } catch {
+        // A malformed deployment binding must fail closed before the host can
+        // ask a citizen to sign against the wrong municipal Case.
+      }
+    },
+    [],
+  );
 
   return (
     <div className="mx-auto flex min-h-full w-full max-w-xl flex-col">
       {/* Sticky brand + tab bar */}
       <header className="sticky top-0 z-20 border-b border-border/70 bg-background/85 px-4 pb-2.5 pt-3 backdrop-blur-md">
         <div className="mb-2.5 flex items-center gap-2.5">
-          <img src={logoData} alt="Röbel Data" className="h-7 w-auto" />
-          {connected && (
+          <img
+            src={logoData}
+            alt={publicDemoOnly ? "Röbel Data · Stadtstack-Demo" : "Röbel Data"}
+            className="h-7 w-auto"
+          />
+          {!publicDemoOnly && connected && (
             // Never a raw wallet address (DESIGN.md §5) — show the live
             // Röbel-Münzen balance instead, resolved from the connected account.
             <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-foreground">
@@ -145,24 +252,34 @@ export default function App() {
           )}
         </div>
 
-        <nav className="no-scrollbar -mx-1 flex gap-1 overflow-x-auto rounded-[10px] bg-muted p-1">
-          {TABS.map((t) => {
-            const Icon = t.icon;
-            const active = tab === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => selectTab(t.id)}
-                className={`flex flex-1 min-w-[60px] flex-col items-center gap-1 rounded-[8px] py-1.5 text-[11px] font-medium transition ${
-                  active ? "bg-card text-[#00498B] shadow-sm" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Icon className="h-[18px] w-[18px]" />
-                {t.label}
-              </button>
-            );
-          })}
-        </nav>
+        {publicDemoOnly ? (
+          <div
+            aria-label="Öffentliche Demoansicht: Mitbestimmung"
+            className="-mx-1 flex items-center justify-center gap-1 rounded-[10px] bg-muted p-2 text-[11px] font-medium text-[#00498B]"
+          >
+            <BallotBox className="h-[18px] w-[18px]" />
+            Mitbestimmung · öffentliche Demo
+          </div>
+        ) : (
+          <nav className="no-scrollbar -mx-1 flex gap-1 overflow-x-auto rounded-[10px] bg-muted p-1">
+            {TABS.map((t) => {
+              const Icon = t.icon;
+              const active = tab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => selectTab(t.id)}
+                  className={`flex flex-1 min-w-[60px] flex-col items-center gap-1 rounded-[8px] py-1.5 text-[11px] font-medium transition ${
+                    active ? "bg-card text-[#00498B] shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Icon className="h-[18px] w-[18px]" />
+                  {t.label}
+                </button>
+              );
+            })}
+          </nav>
+        )}
       </header>
 
       <main className="flex-1 px-4 pb-12 pt-4">
@@ -189,12 +306,33 @@ export default function App() {
               />
             ))}
           {tab === "economy" && <PulseView connected={connected} />}
-          {tab === "governance" && <GovernanceView initialProposalId={urlProposal} />}
+          {tab === "governance" && (
+            <GovernanceView
+              initialProposalId={governanceTarget.proposalId}
+              initialCivicTopicBinding={
+                governanceTarget.civicTopicBinding
+              }
+              onOpenMunicipalCase={openReviewedMunicipalCase}
+              onDiscussMunicipalCase={
+                permanentCanonicalCaseId ? openCivicDiscussion : undefined
+              }
+              publicDemoOnly={publicDemoOnly}
+            />
+          )}
         </div>
 
         <footer className="mt-8 flex items-center justify-between border-t border-border/70 pt-4 text-[11px] text-muted-foreground">
-          <span>Röbel / Müritz{ctx?.host?.name ? ` · ${ctx.host.name}` : ""}</span>
-          <span className="font-medium text-[#00498B]">Gemeinschaftswährung</span>
+          {publicDemoOnly ? (
+            <>
+              <span>Röbel / Müritz</span>
+              <span className="font-medium text-[#00498B]">Demo · kein amtlicher Stand</span>
+            </>
+          ) : (
+            <>
+              <span>Röbel / Müritz{ctx?.host?.name ? ` · ${ctx.host.name}` : ""}</span>
+              <span className="font-medium text-[#00498B]">Gemeinschaftswährung</span>
+            </>
+          )}
         </footer>
       </main>
     </div>

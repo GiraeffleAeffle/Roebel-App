@@ -216,6 +216,11 @@ export default function ExploreScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView
+        // flex:1 is load-bearing on web: react-native-web sizes an unstyled
+        // ScrollView to its content, so `overflow-y: auto` never has anything
+        // to scroll and the page (body has overflow:hidden) just clips it.
+        // Native bounds it regardless, which is why this only broke the PWA.
+        style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}
@@ -321,6 +326,9 @@ export default function ExploreScreen() {
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  scrollView: {
     flex: 1,
   },
   skeletonSection: {

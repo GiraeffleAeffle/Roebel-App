@@ -12,6 +12,7 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { AccountProvider } from "@/lib/context/AccountContext";
 import { Analytics } from "@vercel/analytics/react";
 import { RecordModeNotice } from "@/components/RecordModeNotice";
+import { CitizenSessionProvider } from "@/lib/citizen-session/CitizenSessionContext";
 
 export const metadata: Metadata = {
   title: "Röbel App",
@@ -42,14 +43,16 @@ export default function RootLayout({
           <ThirdwebProvider>
             <GlobalAutoConnect />
             <AccountProvider>
-              <GlobalWalletRedirect />
-              <RecordModeNotice />
-              <div className="flex-1">{children}</div>
-              <ConditionalFooter />
-              <GlobalAppDownloadSheet />
-              <Toaster />
-              <Sonner position="top-right" richColors />
-              <Analytics />
+              <CitizenSessionProvider>
+                <GlobalWalletRedirect />
+                <RecordModeNotice />
+                <div className="flex-1">{children}</div>
+                <ConditionalFooter />
+                <GlobalAppDownloadSheet />
+                <Toaster />
+                <Sonner position="top-right" richColors />
+                <Analytics />
+              </CitizenSessionProvider>
             </AccountProvider>
           </ThirdwebProvider>
         </ThemeProvider>

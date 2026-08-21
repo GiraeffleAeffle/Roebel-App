@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildAgentNoteEvent, buildNoteEvent, deriveAgentIdentity, deriveNostrSecretKey } from "@netizen-labs/nostr";
-import { DEFAULT_BOUNDS, emptyHistory, recordReply, shouldAnswer } from "../src/bounds";
+import { DEFAULT_BOUNDS, deferReply, emptyHistory, recordReply, shouldAnswer } from "../src/bounds";
 
 const NODE_SECRET = "a-node-secret-with-plenty-of-entropy-0123456789";
 const MECKY = deriveAgentIdentity(NODE_SECRET, "roebel", "mecky");
@@ -36,6 +36,21 @@ describe("what an agent will answer", () => {
     recordReply(history, event, NOW);
     const d = shouldAnswer({ event, agentPubkey: MECKY.publicKey, history, now: NOW });
     assert.equal(d.reason, "already-answered");
+  });
+
+  it("backs off a transient failure and allows a later retry", () => {
+    const history = emptyHistory();
+    const event = ask("vorübergehend nicht erreichbar");
+    deferReply(history, event, NOW);
+
+    assert.equal(
+      shouldAnswer({ event, agentPubkey: MECKY.publicKey, history, now: NOW + 59 }).reason,
+      "retry-backoff",
+    );
+    assert.equal(
+      shouldAnswer({ event, agentPubkey: MECKY.publicKey, history, now: NOW + 60 }).answer,
+      true,
+    );
   });
 
   it("rate-limits a single author", () => {

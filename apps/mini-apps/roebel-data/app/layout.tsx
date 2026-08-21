@@ -1,11 +1,19 @@
 import type { Metadata, Viewport } from "next";
 import { monaSans, monaSansMono } from "./fonts";
-import { manifest } from "../netizen.manifest";
+import { manifest } from "@roebel-data/manifest";
+import { isMarienfelderPublicDemo } from "../src/lib/publicDemoMode";
 import "./globals.css";
+
+const publicDemoOnly = isMarienfelderPublicDemo(
+  process.env.NEXT_PUBLIC_STADTSTACK_PUBLIC_DEMO_MODE,
+);
 
 export const metadata: Metadata = {
   title: manifest.name,
   description: manifest.description,
+  robots: publicDemoOnly
+    ? { index: false, follow: false, nocache: true }
+    : undefined,
 };
 
 // Mini apps render in a phone-sized modal. Lock the viewport to the device

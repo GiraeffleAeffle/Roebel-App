@@ -90,6 +90,28 @@ test("source failures reject instead of silently undercounting", async () => {
   );
 });
 
+test("non-finite source counts cannot become a null unread badge", async () => {
+  const sources: UnreadNotificationCountSources = {
+    async countBroadcastPush() {
+      return Number.NaN;
+    },
+    async countBroadcastActivity() {
+      return 2;
+    },
+    async countPersonal() {
+      return Number.POSITIVE_INFINITY;
+    },
+  };
+
+  const count = await countUnreadNotifications({
+    walletAddress: "0x0000000000000000000000000000000000000000",
+    sources,
+  });
+
+  assert.equal(count, 2);
+  assert.ok(Number.isFinite(count));
+});
+
 test("targeted mini-app pushes are excluded from the global broadcast log", () => {
   assert.ok(PERSONAL_NOTIFICATION_LOG_TYPES.includes("mini_app"));
 });

@@ -17,20 +17,18 @@ export function useUnreadNotifications(pollingInterval: number = 60000) {
   const fetchUnreadCount = useCallback(
     async (signal: AbortSignal) => {
       try {
-        const payload: { since?: string; wallet?: string } = {}
+        const params = new URLSearchParams()
         const lastViewed = localStorage.getItem(LAST_VIEWED_NOTIFICATIONS_KEY)
         if (lastViewed) {
           const parsed = new Date(lastViewed)
           if (!Number.isNaN(parsed.getTime())) {
-            payload.since = parsed.toISOString()
+            params.set("since", parsed.toISOString())
           }
         }
-        if (walletAddress) payload.wallet = walletAddress
+        if (walletAddress) params.set("wallet", walletAddress)
 
-        const response = await fetch("/api/notifications/unread-count", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+        const query = params.toString()
+        const response = await fetch(`/api/notifications/unread-count${query ? `?${query}` : ""}`, {
           cache: "no-store",
           signal,
         })

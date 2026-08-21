@@ -40,6 +40,11 @@ export interface GnosisVerifierOptions {
   client?: PublicClient;
 }
 
+export type GnosisWalletVerifierOptions = Omit<
+  GnosisVerifierOptions,
+  "citizenNftAddress"
+>;
+
 /**
  * The on-chain half of verification, against Gnosis.
  *
@@ -48,11 +53,15 @@ export interface GnosisVerifierOptions {
  * right primitive here, because a Citizen's wallet is an ERC-4337 smart account
  * with no key of its own to ecrecover against.
  */
-export function createGnosisVerifier(options: GnosisVerifierOptions): ChainVerifier {
+export function createGnosisWalletVerifier(
+  options: GnosisWalletVerifierOptions
+): Pick<ChainVerifier, "verifyWalletSignature"> {
   const client =
     options.client ??
-    (createPublicClient({ chain: gnosis, transport: http(options.rpcUrl) }) as PublicClient);
-  const citizenNft = options.citizenNftAddress as `0x${string}`;
+    (createPublicClient({
+      chain: gnosis,
+      transport: http(options.rpcUrl),
+    }) as PublicClient);
 
   /**
    * A `false` from `verifyMessage` is ambiguous: it can mean "bad signature" or
@@ -123,6 +132,26 @@ export function createGnosisVerifier(options: GnosisVerifierOptions): ChainVerif
       await confirmNodeHealthy();
       return false;
     },
+  };
+}
+
+export function createGnosisVerifier(
+  options: GnosisVerifierOptions
+): ChainVerifier {
+  const client =
+    options.client ??
+    (createPublicClient({
+      chain: gnosis,
+      transport: http(options.rpcUrl),
+    }) as PublicClient);
+  const citizenNft = options.citizenNftAddress as `0x${string}`;
+  const walletVerifier = createGnosisWalletVerifier({
+    rpcUrl: options.rpcUrl,
+    client,
+  });
+
+  return {
+    ...walletVerifier,
 
     async holdsCitizenNft(address) {
       const balance = await client.readContract({

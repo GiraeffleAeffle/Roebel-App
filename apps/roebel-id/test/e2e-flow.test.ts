@@ -3,12 +3,13 @@ import http from 'node:http'
 import { createServer as createNetServer } from 'node:net'
 import type { Server } from 'node:http'
 import { Issuer, generators } from 'openid-client'
+import type { TokenSet } from 'openid-client'
 import { generateKeyPair, exportJWK } from 'jose'
 import type { Adapter, AdapterPayload } from 'oidc-provider'
 import { wireApp } from '../src/wire.js'
 import type { Config } from '../src/config.js'
 import type { AuthBridge } from '../src/auth-bridge/types.js'
-import type { RoebelClaims } from '../src/claims/types.js'
+import type { NetizenClaims } from '../src/claims/types.js'
 
 // Full IdP-conformance proof (spec §8.1): stand up the real interaction router + panva provider
 // wired through wireApp's DI seam (no Supabase/thirdweb/Gnosis involved — those are stubbed),
@@ -29,14 +30,14 @@ const stubBridge: AuthBridge = {
   verifyLogin: async () => ({ address: ADDRESS }),
 }
 
-const stubClaims = async (address: string): Promise<RoebelClaims> => ({
+const stubClaims = async (address: string): Promise<NetizenClaims> => ({
   sub: address,
   email: 'e@x.de',
   name: 'Test',
   preferred_username: 'Test',
   groups: ['citizen', 'org:o1:admin'],
-  'roebel:citizen': true,
-  'roebel:attester': false,
+  'netizen:citizen': true,
+  'netizen:attester': false,
 })
 
 // Plain Map-backed Adapter — panva's public Adapter contract implemented directly (no
@@ -155,6 +156,7 @@ describe('authorization_code + PKCE end-to-end (Nextcloud-as-relying-party proof
       supabaseUrl: 'http://unused.invalid',
       supabaseServiceKey: 'unused',
       thirdwebClientId: 'unused',
+      signerResourceUrl: 'https://signer.roebel.app',
       relyingParties: [
         {
           name: 'nextcloud',
@@ -194,28 +196,18 @@ describe('authorization_code + PKCE end-to-end (Nextcloud-as-relying-party proof
     await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())))
   })
 
-  it('completes authorization_code flow and returns roebel claims in the id_token', async () => {
-    const discovered = await Issuer.discover(issuer)
-    const client = new discovered.Client({
-      client_id: 'nextcloud',
-      client_secret: 'nextcloud-secret',
-      redirect_uris: [REDIRECT_URI],
-      response_types: ['code'],
-      token_endpoint_auth_method: 'client_secret_basic',
-    })
-
-    const code_verifier = generators.codeVerifier()
-    const code_challenge = generators.codeChallenge(code_verifier)
-    const state = generators.state()
-
-    const authorizationUrl = client.authorizationUrl({
-      scope: 'openid email profile roebel',
-      code_challenge,
-      code_challenge_method: 'S256',
-      redirect_uri: REDIRECT_URI,
-      state,
-    })
-
+  /** Drives the full authorization_code + PKCE flow to a token set, exactly as the original
+   *  inline test did. Extracted so more than one test can reach the token endpoint.
+   *  `client` is openid-client's per-issuer Client instance; its type is only reachable
+   *  through the discovered Issuer, so it is inferred from the caller rather than named.
+   *  Returns the real openid-client `TokenSet` (not just the two string fields) so callers
+   *  that need `.claims()` or that pass the set to `client.userinfo(...)` keep working. */
+  async function driveLoginFlow(
+    client: InstanceType<Awaited<ReturnType<typeof Issuer.discover>>['Client']>,
+    authorizationUrl: string,
+    code_verifier: string,
+    state: string,
+  ): Promise<TokenSet> {
     const jar = new CookieJar()
 
     // 1. GET /auth -> no session yet -> 303 to /interaction/:uid
@@ -264,6 +256,33 @@ describe('authorization_code + PKCE end-to-end (Nextcloud-as-relying-party proof
     const tokenSet = await client.callback(REDIRECT_URI, params, { code_verifier, state })
 
     expect(tokenSet.access_token).toBeTruthy()
+    return tokenSet
+  }
+
+  it('completes authorization_code flow and returns roebel claims in the id_token', async () => {
+    const discovered = await Issuer.discover(issuer)
+    const client = new discovered.Client({
+      client_id: 'nextcloud',
+      client_secret: 'nextcloud-secret',
+      redirect_uris: [REDIRECT_URI],
+      response_types: ['code'],
+      token_endpoint_auth_method: 'client_secret_basic',
+    })
+
+    const code_verifier = generators.codeVerifier()
+    const code_challenge = generators.codeChallenge(code_verifier)
+    const state = generators.state()
+
+    const authorizationUrl = client.authorizationUrl({
+      scope: 'openid email profile roebel',
+      code_challenge,
+      code_challenge_method: 'S256',
+      redirect_uri: REDIRECT_URI,
+      state,
+    })
+
+    const tokenSet = await driveLoginFlow(client, authorizationUrl, code_verifier, state)
+
     const claims = tokenSet.claims()
     expect(claims.sub).toBe(ADDRESS)
     expect(claims.iss).toBe(issuer)
@@ -273,6 +292,82 @@ describe('authorization_code + PKCE end-to-end (Nextcloud-as-relying-party proof
     const groups = (claims as { groups?: string[] }).groups ?? (userinfo as { groups?: string[] }).groups
     expect(groups).toEqual(['citizen', 'org:o1:admin'])
     expect(userinfo.sub).toBe(ADDRESS)
+  })
+
+  it('mints a signer-audienced JWT access token carrying the netizen claims', async () => {
+    const discovered = await Issuer.discover(issuer)
+    const client = new discovered.Client({
+      client_id: 'nextcloud',
+      client_secret: 'nextcloud-secret',
+      redirect_uris: [REDIRECT_URI],
+      response_types: ['code'],
+      token_endpoint_auth_method: 'client_secret_basic',
+    })
+
+    const code_verifier = generators.codeVerifier()
+    const code_challenge = generators.codeChallenge(code_verifier)
+    const state = generators.state()
+
+    const authorizationUrl = client.authorizationUrl({
+      scope: 'openid email profile netizen',
+      resource: 'https://signer.roebel.app',
+      code_challenge,
+      code_challenge_method: 'S256',
+      redirect_uri: REDIRECT_URI,
+      state,
+    })
+
+    const tokens = await driveLoginFlow(client, authorizationUrl, code_verifier, state)
+
+    // A JWT, not an opaque handle — the signer verifies it offline against our JWKS.
+    const parts = tokens.access_token!.split('.')
+    expect(parts).toHaveLength(3)
+
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as {
+      aud: string; iss: string; sub: string; scope: string; netizen_class: string; netizen_step_up: boolean
+    }
+    expect(payload.aud).toBe('https://signer.roebel.app')
+    expect(payload.iss).toBe(issuer)
+    expect(payload.sub).toBe(ADDRESS)
+    // Only the scope the resource server declares, NOT the full "openid email profile
+    // netizen" request scope — the login router must intersect against
+    // NETIZEN_RESOURCE_SCOPE before granting the resource scope (src/interaction/router.ts),
+    // otherwise oidc-provider's authorization_code grant path serializes the whole request
+    // scope into this JWT's `scope` claim, overstating what the token is for.
+    expect(payload.scope).toBe('netizen')
+    expect(payload.netizen_class).toBe('citizen')
+    // Explicitly false, never absent — see src/oidc/resource.ts.
+    expect(payload.netizen_step_up).toBe(false)
+  })
+
+  it('refuses to mint a token for a resource it does not know', async () => {
+    // The allowlist is the only thing standing between a first-party client and a token
+    // audienced at a service of its choosing.
+    const discovered = await Issuer.discover(issuer)
+    const client = new discovered.Client({
+      client_id: 'nextcloud',
+      client_secret: 'nextcloud-secret',
+      redirect_uris: [REDIRECT_URI],
+      response_types: ['code'],
+      token_endpoint_auth_method: 'client_secret_basic',
+    })
+
+    const authorizationUrl = client.authorizationUrl({
+      scope: 'openid netizen',
+      resource: 'https://evil.example/api',
+      code_challenge: generators.codeChallenge(generators.codeVerifier()),
+      code_challenge_method: 'S256',
+      redirect_uri: REDIRECT_URI,
+      state: generators.state(),
+    })
+
+    const res = await rawRequest(authorizationUrl)
+    // panva answers an unknown target by redirecting back with invalid_target, or by
+    // erroring outright — either is a refusal; what must never happen is a 303 into the
+    // login interaction as if the request were fine.
+    const location = res.headers.location ?? ''
+    expect(location).not.toMatch(/\/interaction\//)
+    expect(res.status === 400 || /error=invalid_target/.test(location)).toBe(true)
   })
 
   // I2 pilot-critical path: test/interaction-branding.test.ts already proves the router picks

@@ -24,6 +24,42 @@ test("rejects an inline secret where a reference is required", () => {
   assert.equal(safeParseManifest(bad).success, false);
 });
 
+test("Public Mecky declares reviewed evidence and a referenced inference credential", () => {
+  const watcher = parseManifest(roebel).agents?.watcher;
+  assert.equal(
+    watcher?.publicEvidence.baseUrl,
+    "https://roebel-stadtstack.agentcart.eu",
+  );
+  assert.equal(watcher?.publicEvidence.municipalityId, "roebel-mueritz");
+  assert.equal(
+    watcher?.inference.baseUrl,
+    "https://inference.hetzner.com/api/v1",
+  );
+  assert.equal(watcher?.inference.model, "Qwen/Qwen3.6-35B-A3B-FP8");
+  assert.equal(watcher?.inference.apiKey, "$HETZNER_INFERENCE_API_KEY");
+  assert.equal(Object.hasOwn(watcher ?? {}, "stadtstackControl"), false);
+
+  const inlineKey = structuredClone(roebel);
+  inlineKey.agents.watcher.inference.apiKey = "secret-token";
+  assert.equal(safeParseManifest(inlineKey).success, false);
+
+  const overPrivilegedWatcher = structuredClone(roebel) as typeof roebel & {
+    agents: { watcher: Record<string, unknown> };
+  };
+  overPrivilegedWatcher.agents.watcher.stadtstackControl = {
+    baseUrl: "http://stadtstack-control.invalid",
+    nostrIngestorToken: "$STADTSTACK_NOSTR_INGESTOR_TOKEN",
+  };
+  assert.equal(safeParseManifest(overPrivilegedWatcher).success, false);
+
+  const legacyUngroundedWatcher = structuredClone(roebel);
+  legacyUngroundedWatcher.agents.watcher = {
+    agent: "mecky",
+    model: "claude-sonnet-5",
+  };
+  assert.equal(safeParseManifest(legacyUngroundedWatcher).success, false);
+});
+
 test("rejects a missing required section", () => {
   // `services` is required: a node with no services is not a node.
   const bad = { ...roebel };

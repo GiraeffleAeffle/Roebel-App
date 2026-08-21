@@ -39,6 +39,7 @@ afterEach(() => {
     if (
       key in BASE ||
       key === 'FIRST_PARTY_RPS' ||
+      key === 'SIGNER_RESOURCE_URL' ||
       /_(CLIENT_ID|CLIENT_SECRET|REDIRECT_URIS|POST_LOGOUT_URIS|BRANDING|BRANDING_CONTEXT)$/.test(key)
     ) {
       delete process.env[key]
@@ -385,5 +386,31 @@ describe('branding', () => {
       ORTIS_BRANDING: 'roebel',
     })
     expect(loadConfig().relyingParties.find((rp) => rp.name === 'ortis')?.branding).toEqual({ preset: 'roebel' })
+  })
+})
+
+// Task 3 — the sovereign account-service signer's resource indicator. Optional: a keystone
+// with no signer configured is a valid deployment (resource indicators are disabled
+// entirely). But a value that IS set and is not an absolute http/https URL must fail at
+// boot, not lazily: oidc-provider would otherwise register a resource indicator no client
+// can ever match, so /health stays green while every /token call answers `invalid_target` —
+// same class of bug as the redirect-URI check above (see d9ce3651).
+describe('signer resource url (SIGNER_RESOURCE_URL)', () => {
+  it('accepts an absolute SIGNER_RESOURCE_URL', () => {
+    withEnv({ SIGNER_RESOURCE_URL: 'https://signer.roebel.app' })
+    expect(loadConfig().signerResourceUrl).toBe('https://signer.roebel.app')
+  })
+
+  it('leaves signerResourceUrl undefined when unset', () => {
+    withEnv({})
+    expect(loadConfig().signerResourceUrl).toBeUndefined()
+  })
+
+  it('refuses to boot on a non-absolute SIGNER_RESOURCE_URL', () => {
+    // A relative or placeholder value would register a resource indicator that no client
+    // can ever match, so every /token call returns invalid_target — a healthy-looking
+    // service that authorizes nobody. Fail at boot instead, where it is diagnosable.
+    withEnv({ SIGNER_RESOURCE_URL: 'signer.roebel.app' })
+    expect(() => loadConfig()).toThrow(/SIGNER_RESOURCE_URL/)
   })
 })
