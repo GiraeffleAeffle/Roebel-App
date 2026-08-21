@@ -57,6 +57,8 @@ export interface PassResult {
 export const DEFAULT_LOOKBACK_SECONDS = 86_400;
 const DAY_SECONDS = 86_400;
 const MAX_RELAY_REPLY_HISTORY = 500;
+const APP_SOURCE_ID =
+  /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9a-f]{64})$/i;
 const REPLY_TAG_NAMES = new Set([
   "mecky-receipt",
   "municipality",
@@ -96,6 +98,23 @@ function normalizeReply(value: string | WatcherReply | null): WatcherReply | nul
     return [...tag];
   });
   return { content, tags };
+}
+
+function conversationSourceTags(event: NostrEvent): string[][] {
+  const postTags = event.tags.filter(
+    (tag) => tag.length === 2 && tag[0] === "source-app-post" && APP_SOURCE_ID.test(tag[1] ?? ""),
+  );
+  if (postTags.length !== 1) return [];
+  const commentTags = event.tags.filter(
+    (tag) => tag.length === 2 && tag[0] === "source-app-comment" && APP_SOURCE_ID.test(tag[1] ?? ""),
+  );
+  if (commentTags.length > 1) return [];
+  return [
+    ["source-app-post", postTags[0]![1]!.toLowerCase()],
+    ...(commentTags.length === 1
+      ? [["source-app-comment", commentTags[0]![1]!.toLowerCase()]]
+      : []),
+  ];
 }
 
 function restorePublishedReply(history: ReplyHistory, event: NostrEvent): void {
@@ -214,6 +233,7 @@ export async function watchOnce(deps: WatcherDeps): Promise<PassResult> {
         tags: [
           ["e", event.id, "", "reply"],
           ["p", event.pubkey],
+          ...conversationSourceTags(event),
           ...answer.tags,
         ],
       });

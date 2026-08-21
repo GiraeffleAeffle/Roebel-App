@@ -16,6 +16,7 @@ import {
 import { supabase } from '../supabase';
 import { type NostrIdentity, loadStoredIdentity } from './identity';
 import { resolvePublicRelayUrls } from './relay-config';
+import { appCommentMirrorTags, appPostMirrorTags } from './source-binding';
 
 /**
  * Publishing app content to the sovereign relay.
@@ -120,7 +121,14 @@ export async function publishPost(
   // The post's ORIGINAL wall-clock, not "now": a backfilled post from March
   // must appear in March on every Nostr client, not on the day the sweep ran.
   return publish(
-    buildNoteEvent(identity.secretKey, content, createdAtSec ? { createdAt: createdAtSec } : {}),
+    buildNoteEvent(identity.secretKey, content, {
+      ...(createdAtSec ? { createdAt: createdAtSec } : {}),
+      tags: appPostMirrorTags({
+        postId,
+        content,
+        meckyPubkey: process.env.EXPO_PUBLIC_MECKY_NOSTR_PUBKEY,
+      }),
+    }),
     'post',
     postId,
   );
@@ -189,7 +197,15 @@ export async function publishComment(
   const parent = await publishedEventIdOf('post', postId);
   if (!parent) return 'pending';
   const event = buildNoteEvent(identity.secretKey, content, {
-    tags: [['e', parent, '', 'root']],
+    tags: [
+      ['e', parent, '', 'root'],
+      ...appCommentMirrorTags({
+        postId,
+        commentId,
+        content,
+        meckyPubkey: process.env.EXPO_PUBLIC_MECKY_NOSTR_PUBKEY,
+      }),
+    ],
   });
   return publish(event, 'comment', commentId);
 }

@@ -163,6 +163,46 @@ describe("answering a mention", () => {
     assert.ok(reply.tags.some((t) => t[0] === "netizen_agent"));
   });
 
+  it("carries one valid ordinary app source binding onto the signed reply", async () => {
+    const postId = "735187dc-d737-4e6c-bdd9-fe0792fec498";
+    const commentId = "018f1c63-7b2a-4a11-8a55-2e3d9c4b5a61";
+    const question = buildNoteEvent(CITIZEN, "@Mecky, was ist belegt?", {
+      createdAt: NOW - 5,
+      tags: [
+        ["p", MECKY.publicKey],
+        ["source-app-post", postId],
+        ["source-app-comment", commentId],
+      ],
+    });
+    const h = harness([question]);
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.answered, 1);
+    assert.ok(h.published[0]?.tags.some((tag) => tag[0] === "source-app-post" && tag[1] === postId));
+    assert.ok(h.published[0]?.tags.some((tag) => tag[0] === "source-app-comment" && tag[1] === commentId));
+  });
+
+  it("drops ambiguous or malformed app source bindings instead of projecting them", async () => {
+    const question = buildNoteEvent(CITIZEN, "@Mecky, was ist belegt?", {
+      createdAt: NOW - 5,
+      tags: [
+        ["p", MECKY.publicKey],
+        ["source-app-post", "735187dc-d737-4e6c-bdd9-fe0792fec498"],
+        ["source-app-post", "018f1c63-7b2a-4a11-8a55-2e3d9c4b5a61"],
+        ["source-app-comment", "../../comment"],
+      ],
+    });
+    const h = harness([question]);
+
+    await watchOnce(h.deps);
+
+    assert.equal(
+      h.published[0]?.tags.some((tag) => tag[0] === "source-app-post" || tag[0] === "source-app-comment"),
+      false,
+    );
+  });
+
   it("keeps a deterministic civic receipt on the signed Mecky reply", async () => {
     const question = buildCivicDiscussionEvent(CITIZEN, {
       municipalityId: "roebel-mueritz",
