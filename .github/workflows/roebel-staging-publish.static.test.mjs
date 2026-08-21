@@ -39,6 +39,8 @@ test("publisher follows protected relevant main pushes and retains exact-SHA rec
   assert.match(workflow, /test "\$GITHUB_REF" = "refs\/heads\/main"/u);
   assert.match(workflow, /\^\[0-9a-f\]\{40\}\$/u);
   assert.match(workflow, /repos\/\$GITHUB_REPOSITORY\/commits\/\$SOURCE_REVISION/u);
+  assert.match(workflow, /repos\/\$GITHUB_REPOSITORY\/compare\/\$SOURCE_REVISION\.\.\.main/u);
+  assert.match(workflow, /test "\$ancestry" = identical \|\| test "\$ancestry" = ahead/u);
 });
 
 test("runner-local paths are bound only after the runner exists", () => {
@@ -101,8 +103,8 @@ test("publication produces SPDX and GitHub OIDC attestations for exact digests",
 test("same-run evidence is verified into an effect-free CAS-bound Release Set candidate", () => {
   assert.notEqual(assemblyJobStart, -1);
   assert.match(assemblyJob, /needs: publish/u);
-  assert.match(assemblyJob, /permissions:\n      actions: read\n      contents: read\n      packages: read\n      attestations: read/u);
-  assert.doesNotMatch(assemblyJob, /(?:packages|attestations|contents): write/u);
+  assert.match(assemblyJob, /permissions:\n      actions: read\n      contents: read\n      packages: write\n      attestations: read/u);
+  assert.doesNotMatch(assemblyJob, /(?:attestations|contents): write/u);
   assert.doesNotMatch(assemblyJob, /id-token: write/u);
   assert.match(assemblyJob, /actions\/download-artifact@[0-9a-f]{40}/u);
   assert.match(assemblyJob, /pattern: "\*-publication-/u);
@@ -140,6 +142,21 @@ test("same-run evidence is verified into an effect-free CAS-bound Release Set ca
   assert.match(assemblyJob, /roebel-staging-release-set-/u);
   assert.match(assemblyJob, /test "\$\(jq -er \.deploymentEffect "\$publication_receipt"\)" = false/u);
   assert.doesNotMatch(assemblyJob, /^\s*(?:kubectl|helm|flux|talosctl|tailscale|ssh|oras cp)\b/imu);
+});
+
+test("verified Release Set is handed off immutably inside the existing Web package", () => {
+  assert.match(assemblyJob, /target="\$WEB_IMAGE:\$tag"/u);
+  assert.match(assemblyJob, /tag="release-set-\$SOURCE_REVISION"/u);
+  assert.match(assemblyJob, /application\/vnd\.stadtstack\.roebel\.release-set\.v1/u);
+  assert.match(assemblyJob, /oras push "\$target"/u);
+  assert.match(assemblyJob, /org\.opencontainers\.image\.revision=\$SOURCE_REVISION/u);
+  assert.match(assemblyJob, /stadtstack\.io\/candidate-payload-digest=\$candidate_digest/u);
+  assert.match(assemblyJob, /refusing to overwrite|diff -r "\$existing\/release-set" release-set/u);
+  assert.match(assemblyJob, /oras manifest fetch "\$WEB_IMAGE@\$artifact_digest"/u);
+  assert.match(assemblyJob, /roebel_staging_release_set_publication_v1/u);
+  assert.match(assemblyJob, /release-set\/release-set\.publication\.json/u);
+  assert.doesNotMatch(assemblyJob, /ghcr\.io\/giraeffleaeffle\/roebel-staging-release-set/u);
+  assert.doesNotMatch(assemblyJob, /^\s*(?:kubectl|helm|flux|talosctl|tailscale|ssh)\b/imu);
 });
 
 test("publication has no deployment, runtime-secret or broad authority surface", () => {

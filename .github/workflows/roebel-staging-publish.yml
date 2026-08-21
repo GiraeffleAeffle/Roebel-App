@@ -58,6 +58,8 @@ jobs:
           [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]
           actual="$(gh api "repos/$GITHUB_REPOSITORY/commits/$SOURCE_REVISION" --jq .sha)"
           test "$actual" = "$SOURCE_REVISION"
+          ancestry="$(gh api "repos/$GITHUB_REPOSITORY/compare/$SOURCE_REVISION...main" --jq .status)"
+          test "$ancestry" = identical || test "$ancestry" = ahead
 
   publish:
     name: Publish ${{ matrix.component }} by verified digest
@@ -367,7 +369,7 @@ jobs:
     permissions:
       actions: read
       contents: read
-      packages: read
+      packages: write
       attestations: read
     env:
       SOURCE_REVISION: ${{ github.event_name == 'workflow_dispatch' && inputs.source_revision || github.sha }}
@@ -520,12 +522,112 @@ jobs:
             ([.components[].sourceRevision] | all(. == $source))
           ' "$GITHUB_WORKSPACE/release-set/release-set.candidate.json" >/dev/null
 
+      - name: Set up pinned ORAS for the Release Set handoff
+        uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
+        with:
+          version: 1.3.0
+
+      - name: Authenticate to the existing Web package only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GH_TOKEN" | oras login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Publish the verified Release Set as an immutable OCI handoff
+        id: publish-release-set
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="release-set-$SOURCE_REVISION"
+          target="$WEB_IMAGE:$tag"
+          artifact_type="application/vnd.stadtstack.roebel.release-set.v1"
+          candidate="release-set/release-set.candidate.json"
+          candidate_digest="$(jq -er .candidatePayloadDigest "$candidate")"
+          [[ "$candidate_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+
+          state=ERROR
+          for attempt in 1 2 3; do
+            error_file="$RUNNER_TEMP/oras-release-set-resolve-$attempt.log"
+            if existing_digest="$(oras resolve "$target" 2>"$error_file")"; then
+              state=EXISTS
+              break
+            fi
+            if grep -Eqi '(not found|404|manifest unknown|name unknown|MANIFEST_UNKNOWN|NAME_UNKNOWN)' "$error_file"; then
+              state=ABSENT
+              break
+            fi
+            test "$attempt" -lt 3
+            sleep "$attempt"
+          done
+
+          if test "$state" = EXISTS; then
+            existing="$RUNNER_TEMP/existing-release-set"
+            mkdir "$existing"
+            oras pull "$target" --output "$existing"
+            test "$(find "$existing/release-set" -type f | wc -l | tr -d ' ')" = 8
+            test "$(find "$existing/release-set" -type l | wc -l | tr -d ' ')" = 0
+            diff -r "$existing/release-set" release-set
+          elif test "$state" = ABSENT; then
+            files=(
+              "release-set/release-set.candidate.json:application/vnd.stadtstack.roebel.release-set.v1+json"
+              "release-set/previous-head.json:application/json"
+              "release-set/evidence/public-mecky.component-evidence.json:application/json"
+              "release-set/evidence/roebel-web-staging.component-evidence.json:application/json"
+              "release-set/bundles/provenance/public-mecky/sha256-$(jq -er '.components[] | select(.component == \"public-mecky\") | .manifestDigest | sub(\"^sha256:\"; \"\")' "$candidate").jsonl:application/jsonl"
+              "release-set/bundles/provenance/roebel-web-staging/sha256-$(jq -er '.components[] | select(.component == \"roebel-web-staging\") | .manifestDigest | sub(\"^sha256:\"; \"\")' "$candidate").jsonl:application/jsonl"
+              "release-set/bundles/sbom/public-mecky/sha256-$(jq -er '.components[] | select(.component == \"public-mecky\") | .manifestDigest | sub(\"^sha256:\"; \"\")' "$candidate").jsonl:application/jsonl"
+              "release-set/bundles/sbom/roebel-web-staging/sha256-$(jq -er '.components[] | select(.component == \"roebel-web-staging\") | .manifestDigest | sub(\"^sha256:\"; \"\")' "$candidate").jsonl:application/jsonl"
+            )
+            test "${#files[@]}" = 8
+            for entry in "${files[@]}"; do
+              test -s "${entry%%:*}"
+            done
+            oras push "$target" \
+              --artifact-type "$artifact_type" \
+              --annotation "org.opencontainers.image.revision=$SOURCE_REVISION" \
+              --annotation "stadtstack.io/candidate-payload-digest=$candidate_digest" \
+              "${files[@]}"
+          else
+            printf 'unable to determine existing Release Set state for %s\n' "$target" >&2
+            exit 1
+          fi
+
+          artifact_digest="$(oras resolve "$target")"
+          [[ "$artifact_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          oras manifest fetch "$WEB_IMAGE@$artifact_digest" > "$RUNNER_TEMP/release-set-manifest.json"
+          jq -e \
+            --arg type "$artifact_type" \
+            --arg source "$SOURCE_REVISION" \
+            --arg candidate "$candidate_digest" \
+            '.artifactType == $type and .annotations["org.opencontainers.image.revision"] == $source and .annotations["stadtstack.io/candidate-payload-digest"] == $candidate' \
+            "$RUNNER_TEMP/release-set-manifest.json" >/dev/null
+          pulled="$RUNNER_TEMP/verified-release-set"
+          mkdir "$pulled"
+          oras pull "$WEB_IMAGE@$artifact_digest" --output "$pulled"
+          test "$(find "$pulled/release-set" -type f | wc -l | tr -d ' ')" = 8
+          test "$(find "$pulled/release-set" -type l | wc -l | tr -d ' ')" = 0
+          diff -r "$pulled/release-set" release-set
+          jq -n \
+            --arg schemaVersion roebel_staging_release_set_publication_v1 \
+            --arg sourceRevision "$SOURCE_REVISION" \
+            --arg image "$WEB_IMAGE" \
+            --arg tag "$tag" \
+            --arg artifactType "$artifact_type" \
+            --arg artifactDigest "$artifact_digest" \
+            --arg candidatePayloadDigest "$candidate_digest" \
+            '{schemaVersion:$schemaVersion,sourceRevision:$sourceRevision,image:$image,tag:$tag,artifactType:$artifactType,artifactDigest:$artifactDigest,candidatePayloadDigest:$candidatePayloadDigest,civicAuthority:"none",deploymentEffect:false}' \
+            > release-set/release-set.publication.json
+          printf 'artifact_digest=%s\n' "$artifact_digest" >> "$GITHUB_OUTPUT"
+
       - name: Upload the effect-free Release Set candidate
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: roebel-staging-release-set-${{ github.event_name == 'workflow_dispatch' && inputs.source_revision || github.sha }}
           path: |
             release-set/release-set.candidate.json
+            release-set/release-set.publication.json
             release-set/previous-head.json
             release-set/evidence/*.component-evidence.json
             release-set/bundles/**/*.jsonl

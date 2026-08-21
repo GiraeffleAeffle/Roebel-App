@@ -24,8 +24,12 @@ only those two same-run evidence artifacts. It revalidates their receipt and
 SBOM hashes, verifies the GitHub OIDC provenance and SPDX attestations against
 the protected workflow identity and exact source revision, reads the current
 public operations head once, and emits an effect-free Release Set candidate.
-This moves the repeatable evidence plumbing off the operator laptop without
-giving the publisher access to the operations repository or cluster.
+The job publishes that candidate and the exact verification bundles under the
+immutable `release-set-<source-sha>` tag in the existing Web GHCR package. An
+existing byte-identical handoff is reused; a conflicting tag is rejected. This
+makes the handoff anonymously readable by the public operations repository and
+moves the repeatable evidence plumbing off the operator laptop without giving
+the publisher access to the operations repository or cluster.
 
 ## Publication is not promotion
 
@@ -34,9 +38,10 @@ runtime-secret or application-secret input. It cannot deploy, change a Release
 Set head, update a reviewed render, activate Flux or exercise civic authority.
 It does not merge or deploy a pull request. A protected-main push merely
 publishes immutable, attested images for the exact merge commit and assembles a
-candidate against the observed head; no Release Set head or cluster object
-changes. A manual run likewise requires the maintainer to supply one exact
-same-repository commit.
+candidate against the observed head. Publishing the value-free candidate in
+the already-approved Web package does not advance the Release Set head or
+change a cluster object. A manual run likewise requires the maintainer to
+supply one exact same-repository commit.
 
 Promotion remains a separate protected module:
 
@@ -55,8 +60,12 @@ rollback and civic boundaries remain elsewhere.
 ## Activation and visibility
 
 Before the workflow can run, it must exist on protected `main` and use the
-`roebel-staging-publisher` GitHub environment. The job receives only the built-in `GITHUB_TOKEN` with
-`contents:read`, `packages:write`, `attestations:write` and `id-token:write`.
+`roebel-staging-publisher` GitHub environment. The image jobs receive only the
+built-in `GITHUB_TOKEN` with `contents:read`, `packages:write`,
+`attestations:write` and `id-token:write`. The assembly job has read-only
+source, artifact and attestation access plus `packages:write` solely for the
+value-free Release Set handoff in the existing Web package. It has no
+operations-repository or deployment credential.
 
 GitHub initially creates personal-account packages as private. After the first
 successful publication, the owner must make exactly these two packages public
