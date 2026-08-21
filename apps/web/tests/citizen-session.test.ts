@@ -7,6 +7,8 @@ import {
 import { createThirdwebCitizenSession } from "../src/lib/citizen-session/thirdweb-adapter";
 import {
   NOSTR_KEY_DERIVATION_MESSAGE,
+  buildNoteEvent,
+  getPublicKeyHex,
   verifyBindingEvent,
   verifyEvent,
 } from "@netizen-labs/nostr";
@@ -302,6 +304,63 @@ test("signs a participant's argument without exposing either citizen key", async
     argument.tags.some((tag) => tag[0] === "case"),
     false
   );
+});
+
+test("signs a topic proposal that still awaits separate human case admission", async () => {
+  const session = createCitizenSession({
+    appAccountId: "account-1",
+    credential: credential(),
+    memberId: null,
+  });
+  const topicId =
+    "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt";
+  const meckySecret = new Uint8Array(32).fill(55);
+  const meckyPubkey = getPublicKeyHex(meckySecret);
+  const sourcePost = await session.signPublicPost({
+    content: "Uns fehlt ein gemeinsamer Treffpunkt.",
+    createdAt: 50,
+  });
+  const discussion = await session.promotePublicPostToTopic({
+    sourcePost,
+    municipalityId: "roebel-mueritz",
+    topicId,
+    topicTitle: "Offener Treffpunkt",
+    agentPubkey: meckyPubkey,
+    content: "@Mecky, welche geprüften Optionen gibt es?",
+    createdAt: 51,
+  });
+  const answer = buildNoteEvent(meckySecret, "Geprüfte Antwort", {
+    createdAt: 52,
+    tags: [
+      ["e", discussion.id, "", "reply"],
+      ["p", discussion.pubkey],
+      ["mecky-receipt", `urn:stadtstack:mecky-answer:${"a".repeat(64)}`],
+      ["municipality", "roebel-mueritz"],
+      ["topic", topicId],
+      [
+        "evidence",
+        `sha256:${"b".repeat(64)}`,
+        "https://stadtstack.example/public/reviewed-source",
+      ],
+    ],
+  });
+
+  const signed = await session.signTopicSuggestion({
+    binding: { municipalityId: "roebel-mueritz", topicId },
+    sourceDiscussion: discussion,
+    sourceAnswer: answer,
+    agentPubkey: meckyPubkey,
+    title: "Offenen Treffpunkt prüfen",
+    summary: "Die öffentlich diskutierten Optionen sollen geprüft werden.",
+    createdAt: 53,
+  });
+
+  assert.equal(verifyEvent(signed.event), true);
+  assert.equal(signed.signerPubkey, discussion.pubkey);
+  assert.equal(signed.entryState, "awaiting_human_case_admission");
+  assert.equal(signed.submittedToCivicWorkflow, false);
+  assert.equal(signed.event.tags.some((tag) => tag[0] === "case"), false);
+  assert.equal("secretKey" in signed, false);
 });
 
 test("fails closed when the provider returns a malformed signature", async () => {

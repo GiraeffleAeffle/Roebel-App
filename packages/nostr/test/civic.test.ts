@@ -3,12 +3,14 @@ import { test } from "node:test";
 
 import {
   buildCivicArgumentEvent,
+  buildCitizenSignedTopicSuggestion,
   buildCitizenSignedSuggestion,
   buildCivicDiscussionEvent,
   buildCivicPromotionEvent,
   buildCivicTopicPromotionEvent,
   buildNoteEvent,
   getPublicKeyHex,
+  verifyCitizenSignedTopicSuggestion,
   verifyEvent,
 } from "../src/index";
 
@@ -142,6 +144,146 @@ test("another citizen signs a pro argument inside that topic without a CivicCase
     ["topic", "urn:stadtstack:topic:municipality:roebel-mueritz:treffpunkt"],
   ]);
   assert.equal(argument.tags.some((tag) => tag[0] === "case"), false);
+});
+
+test("the discussion author signs a topic proposal before any CivicCase exists", () => {
+  const topicId =
+    "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt";
+  const sourcePost = buildNoteEvent(
+    SECRET,
+    "Röbel braucht einen offenen Treffpunkt.",
+    { createdAt: 200 }
+  );
+  const discussion = buildCivicTopicPromotionEvent(SECRET, {
+    sourcePost,
+    municipalityId: "roebel-mueritz",
+    topicId,
+    topicTitle: "Offener Treffpunkt",
+    agentPubkey: MECKY,
+    content: "@Mecky Welche geprüften Optionen gibt es?",
+    createdAt: 201,
+  });
+  const answer = buildNoteEvent(MECKY_SECRET, "Geprüfte Antwort", {
+    createdAt: 202,
+    tags: [
+      ["e", discussion.id, "", "reply"],
+      ["p", discussion.pubkey],
+      ["mecky-receipt", RECEIPT],
+      ["municipality", "roebel-mueritz"],
+      ["topic", topicId],
+      [
+        "evidence",
+        `sha256:${"b".repeat(64)}`,
+        "https://stadtstack.example/public/reviewed-source",
+      ],
+    ],
+  });
+
+  const signed = buildCitizenSignedTopicSuggestion(SECRET, {
+    binding: { municipalityId: "roebel-mueritz", topicId },
+    sourceDiscussion: discussion,
+    sourceAnswer: answer,
+    agentPubkey: MECKY,
+    title: "Offenen Treffpunkt in Röbel prüfen",
+    summary:
+      "Die öffentlich diskutierten Optionen sollen durch die zuständigen Menschen geprüft werden.",
+    createdAt: 203,
+  });
+
+  assert.equal(verifyEvent(signed.event), true);
+  assert.equal(signed.signerPubkey, discussion.pubkey);
+  assert.equal(signed.draft.topicId, topicId);
+  assert.equal(signed.entryState, "awaiting_human_case_admission");
+  assert.equal(signed.authorityBinding, "none");
+  assert.equal(signed.submittedToCivicWorkflow, false);
+  assert.deepEqual(signed.event.tags, [
+    ["schema", "citizen_signed_topic_suggestion_v1"],
+    ["municipality", "roebel-mueritz"],
+    ["topic", topicId],
+    ["e", discussion.id, "", "root"],
+    ["mecky-receipt", RECEIPT],
+  ]);
+  assert.equal(signed.event.tags.some((tag) => tag[0] === "case"), false);
+  assert.equal(
+    signed.event.tags.some((tag) => tag[0] === "stadtstack-case"),
+    false
+  );
+  assert.deepEqual(
+    verifyCitizenSignedTopicSuggestion({
+      binding: { municipalityId: "roebel-mueritz", topicId },
+      sourceDiscussion: discussion,
+      sourceAnswer: answer,
+      agentPubkey: MECKY,
+      event: signed.event,
+    }),
+    signed
+  );
+});
+
+test("forged, cross-topic, or case-bearing answers cannot authorize a topic proposal", () => {
+  const topicId =
+    "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt";
+  const sourcePost = buildNoteEvent(SECRET, "Treffpunkt", { createdAt: 300 });
+  const discussion = buildCivicTopicPromotionEvent(SECRET, {
+    sourcePost,
+    municipalityId: "roebel-mueritz",
+    topicId,
+    topicTitle: "Offener Treffpunkt",
+    agentPubkey: MECKY,
+    content: "@Mecky Was ist dazu geprüft?",
+    createdAt: 301,
+  });
+  const answerTags = [
+    ["e", discussion.id, "", "reply"],
+    ["p", discussion.pubkey],
+    ["mecky-receipt", RECEIPT],
+    ["municipality", "roebel-mueritz"],
+    ["topic", topicId],
+    [
+      "evidence",
+      `sha256:${"c".repeat(64)}`,
+      "https://stadtstack.example/public/reviewed-source",
+    ],
+  ];
+  const base = {
+    binding: { municipalityId: "roebel-mueritz", topicId },
+    sourceDiscussion: discussion,
+    agentPubkey: MECKY,
+    title: "Treffpunkt prüfen",
+    summary: "Die Optionen sollen menschlich geprüft werden.",
+    createdAt: 303,
+  };
+
+  for (const answer of [
+    buildNoteEvent(new Uint8Array(32).fill(43), "Gefälscht", {
+      createdAt: 302,
+      tags: answerTags,
+    }),
+    buildNoteEvent(MECKY_SECRET, "Falsches Thema", {
+      createdAt: 302,
+      tags: answerTags.map((tag) =>
+        tag[0] === "topic"
+          ? [
+              "topic",
+              "urn:stadtstack:topic:municipality:roebel-mueritz:anderes-thema",
+            ]
+          : tag
+      ),
+    }),
+    buildNoteEvent(MECKY_SECRET, "Versteckter Fall", {
+      createdAt: 302,
+      tags: [...answerTags, ["case", "versteckter-fall"]],
+    }),
+  ]) {
+    assert.throws(
+      () =>
+        buildCitizenSignedTopicSuggestion(SECRET, {
+          ...base,
+          sourceAnswer: answer,
+        }),
+      /civic_topic_suggestion_answer_invalid/
+    );
+  }
 });
 
 test("a citizen publishes one signed, scope-bound civic discussion that explicitly mentions Mecky", () => {

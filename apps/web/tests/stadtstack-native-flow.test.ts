@@ -123,13 +123,18 @@ test("labels the civic handoff and keeps vote and treasury authority disabled", 
   assert.match(discussion, /keine Auszahlung/i);
 });
 
-test("does not invent a CivicCase or runnable proposal for a new topic", () => {
+test("lets the topic author sign a proposal without inventing a CivicCase", () => {
   assert.match(discussion, /thread\.topic\?\.title/);
   assert.match(discussion, /thread\.caseBinding/);
   assert.match(discussion, /thread\.sourceAppPostId/);
   assert.match(discussion, /Zum ursprünglichen Beitrag/);
   assert.match(discussion, /Noch kein CivicCase/);
-  assert.match(discussion, /Vorschlag ist der nächste menschliche Schritt/);
+  assert.match(discussion, /signTopicSuggestion/);
+  assert.match(discussion, /intent: "suggestion"/);
+  assert.match(discussion, /Vorschlag prüfen und signieren/);
+  assert.match(discussion, /Wartet auf menschliche Aufnahme/);
+  assert.match(discussion, /kein CivicCase automatisch angelegt/);
+  assert.match(discussion, /Menschliche Aufnahme als CivicCase/);
 });
 
 test("promotes the displayed signed discussion without publishing or polling a duplicate", () => {

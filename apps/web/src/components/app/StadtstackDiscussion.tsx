@@ -101,6 +101,8 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
   const [admittedPubkey, setAdmittedPubkey] = useState<string | null>(null);
   const [workflow, setWorkflow] = useState<WorkflowState>({});
   const [workflowBusy, setWorkflowBusy] = useState(false);
+  const [proposalTitle, setProposalTitle] = useState("");
+  const [proposalSummary, setProposalSummary] = useState("");
   const meckyPollAttempts = useRef(0);
 
   const reload = useCallback(async () => {
@@ -113,7 +115,15 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
       setThread(nextThread);
       setConfig(nextConfig);
       setPersona((current) => current ?? nextConfig.personas[0] ?? null);
-      if (nextThread.mecky) setWorkflow((current) => ({ ...current, answer: nextThread.mecky!.event }));
+      if (nextThread.mecky || nextThread.suggestion) {
+        setWorkflow((current) => ({
+          ...current,
+          ...(nextThread.mecky ? { answer: nextThread.mecky.event } : {}),
+          ...(nextThread.suggestion
+            ? { suggestion: nextThread.suggestion }
+            : {}),
+        }));
+      }
       return nextThread;
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Diskussion nicht erreichbar");
@@ -127,6 +137,18 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
     meckyPollAttempts.current = 0;
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    if (!thread?.topic || thread.caseBinding || thread.suggestion) return;
+    setProposalTitle((current) =>
+      current || `${thread.topic!.title} prüfen`
+    );
+    setProposalSummary(
+      (current) =>
+        current ||
+        "Die in der öffentlichen Diskussion genannten Optionen sollen durch die zuständigen Menschen geprüft und nachvollziehbar zurückgespielt werden."
+    );
+  }, [thread]);
 
   useEffect(() => {
     if (loading || !thread || thread.mecky || meckyPollAttempts.current >= MECKY_POLL_ATTEMPT_LIMIT) return;
@@ -157,24 +179,27 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
     citizenSession && thread?.topic && !thread.caseBinding,
   );
 
+  const ensureCitizenRelayAdmitted = async (): Promise<string> => {
+    if (!citizenSession) throw new Error("citizen_session_required");
+    if (admittedPubkey) return admittedPubkey;
+    const proof = await citizenSession.createAdmissionProof();
+    const admitted = await stagingPost<{
+      status: "admitted";
+      pubkey: string;
+    }>("/session/admit", proof);
+    if (admitted.pubkey !== proof.bindingEvent.pubkey) {
+      throw new Error("citizen_relay_admission_invalid");
+    }
+    setAdmittedPubkey(admitted.pubkey);
+    return admitted.pubkey;
+  };
+
   const publishClaim = async () => {
     if ((!citizenArgumentMode && !persona) || !replyTo || !claim.trim()) return;
     setSubmitting(true);
     try {
       if (citizenArgumentMode && citizenSession && thread?.rootEvent && thread.topic) {
-        let pubkey = admittedPubkey;
-        if (!pubkey) {
-          const proof = await citizenSession.createAdmissionProof();
-          const admitted = await stagingPost<{
-            status: "admitted";
-            pubkey: string;
-          }>("/session/admit", proof);
-          if (admitted.pubkey !== proof.bindingEvent.pubkey) {
-            throw new Error("citizen_argument_admission_invalid");
-          }
-          pubkey = admitted.pubkey;
-          setAdmittedPubkey(pubkey);
-        }
+        const pubkey = await ensureCitizenRelayAdmitted();
         const parentEvent = thread.events[replyTo.id];
         if (!parentEvent) throw new Error("citizen_argument_parent_missing");
         const signed = await citizenSession.signCivicArgument({
@@ -206,9 +231,55 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
   };
 
   const startProposal = async () => {
-    if (!proposalPersona || !thread?.mecky || !thread.rootEvent || !thread.caseBinding || !rootEvent) return;
+    if (!thread?.mecky || !thread.rootEvent || !rootEvent) return;
     setWorkflowBusy(true);
     try {
+      if (thread.topic && !thread.caseBinding) {
+        if (
+          !citizenSession ||
+          !config ||
+          !proposalTitle.trim() ||
+          !proposalSummary.trim()
+        ) {
+          throw new Error("citizen_topic_suggestion_not_ready");
+        }
+        const pubkey = await ensureCitizenRelayAdmitted();
+        const signed = await citizenSession.signTopicSuggestion({
+          binding: {
+            municipalityId: "roebel-mueritz",
+            topicId: thread.topic.id,
+          },
+          sourceDiscussion: thread.rootEvent,
+          sourceAnswer: thread.mecky.event,
+          agentPubkey: config.meckyPubkey,
+          title: proposalTitle.trim(),
+          summary: proposalSummary.trim(),
+          createdAt: Math.max(
+            Math.floor(Date.now() / 1_000),
+            thread.rootEvent.created_at + 1,
+            thread.mecky.event.created_at + 1
+          ),
+        });
+        if (signed.signerPubkey !== pubkey) {
+          throw new Error("citizen_topic_suggestion_signer_mismatch");
+        }
+        const published = await stagingPost<{
+          status: "signed";
+          suggestion: Record<string, unknown>;
+        }>("/signed-event", {
+          intent: "suggestion",
+          event: signed.event,
+        });
+        setWorkflow((current) => ({
+          ...current,
+          discussion: thread.rootEvent!,
+          answer: thread.mecky!.event,
+          suggestion: published.suggestion,
+        }));
+        await reload();
+        return;
+      }
+      if (!proposalPersona || !thread.caseBinding) return;
       const suggestion = await stagingPost<{ suggestion: Record<string, unknown> }>("/suggestion", {
         personaId: proposalPersona.id,
         discussion: thread.rootEvent,
@@ -224,6 +295,23 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
       setError(nextError instanceof Error ? nextError.message : "Vorschlagsfluss fehlgeschlagen");
     } finally { setWorkflowBusy(false); }
   };
+
+  const topicProposalMode = Boolean(thread?.topic && !thread.caseBinding);
+  const topicSuggestionSigned = Boolean(
+    topicProposalMode && (thread?.suggestion || workflow.suggestion)
+  );
+  const proposalDisabled = Boolean(
+    workflowBusy ||
+      !thread?.mecky ||
+      !thread.rootEvent ||
+      workflow.publicView ||
+      (topicProposalMode
+        ? !citizenSession ||
+          !proposalTitle.trim() ||
+          !proposalSummary.trim() ||
+          topicSuggestionSigned
+        : !thread?.caseBinding || !proposalPersona)
+  );
 
   if (loading) return <div className="flex min-h-60 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>;
   if (!thread || !graph || !rootEvent) return <div className="rounded-xl border border-rose-300 bg-rose-50 p-5 text-rose-900">{error ?? "Diskussion nicht gefunden"}</div>;
@@ -297,20 +385,47 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
         <ol className="mt-5 space-y-4">
           <WorkflowStep label="Öffentliche Diskussion" done={true} detail="Signierte Nostr-Ereignisse, Pro/Contra-Struktur und @Mecky-Erwähnung." />
           <WorkflowStep label="Geprüfte Mecky-Antwort" done={Boolean(workflow.answer || thread.mecky)} detail="Mecky darf Quellen erklären, aber den Vorschlag nicht selbst einreichen." />
-          <WorkflowStep label="Bürger-signierter Vorschlag" done={Boolean(workflow.suggestion)} detail="Die synthetische Testperson bestätigt Titel und Zusammenfassung." />
+          <WorkflowStep label="Bürger-signierter Vorschlag" done={Boolean(workflow.suggestion || thread.suggestion)} detail={topicProposalMode ? "Ein verbundenes Röbel-Konto bestätigt Titel und Zusammenfassung mit einer eigenen Nostr-Signatur." : "Die synthetische Testperson bestätigt Titel und Zusammenfassung."} />
+          <WorkflowStep label="Menschliche Aufnahme als CivicCase" done={Boolean(thread.caseBinding || workflow.admission)} detail="Eine getrennte, autorisierte Aufnahme legt den append-only Fall an; die Bürger-Signatur allein tut das nicht." />
           <WorkflowStep label="Verwaltungsfeedback und Citizen Brief" done={Boolean(workflow.completion)} detail="Acht getrennte Fachpakete werden geprüft und öffentlich verständlich zusammengeführt." />
           <WorkflowStep label="Beratendes Meinungsbild im Mitmachen-Bereich" done={Boolean(workflow.publicView)} detail="In Staging sichtbar und nachvollziehbar, aber nicht bindend." />
         </ol>
         {!thread.caseBinding && (
-          <div className="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-            <p className="font-semibold">Noch kein CivicCase</p>
-            <p className="mt-1 text-xs leading-5">
-              Ein bürger-signierter Vorschlag ist der nächste menschliche Schritt.
-              Erst seine ausdrückliche Aufnahme darf einen neuen Fall anlegen.
-            </p>
-          </div>
+          <>
+            <div className={`mt-5 rounded-lg border p-3 text-sm ${topicSuggestionSigned ? "border-emerald-300 bg-emerald-50 text-emerald-950" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
+              <p className="font-semibold">{topicSuggestionSigned ? "Vorschlag bürger-signiert" : "Noch kein CivicCase"}</p>
+              <p className="mt-1 text-xs leading-5">
+                {topicSuggestionSigned
+                  ? "Der Vorschlag wartet auf eine getrennte menschliche Aufnahme. Es wurde kein CivicCase automatisch angelegt."
+                  : "Ein bürger-signierter Vorschlag ist der nächste menschliche Schritt. Erst seine ausdrückliche Aufnahme darf einen neuen Fall anlegen."}
+              </p>
+            </div>
+            {!topicSuggestionSigned && (
+              <div className="mt-4 grid gap-3">
+                <label className="text-xs font-semibold">
+                  Titel des Vorschlags
+                  <input
+                    value={proposalTitle}
+                    onChange={(event) => setProposalTitle(event.target.value)}
+                    maxLength={240}
+                    className="mt-1 w-full rounded-lg border border-border bg-background p-3 text-sm font-normal"
+                  />
+                </label>
+                <label className="text-xs font-semibold">
+                  Zusammenfassung
+                  <textarea
+                    value={proposalSummary}
+                    onChange={(event) => setProposalSummary(event.target.value)}
+                    maxLength={2_000}
+                    rows={4}
+                    className="mt-1 w-full rounded-lg border border-border bg-background p-3 text-sm font-normal"
+                  />
+                </label>
+              </div>
+            )}
+          </>
         )}
-        <button type="button" onClick={startProposal} disabled={workflowBusy || !thread.mecky || !thread.rootEvent || !thread.caseBinding || !proposalPersona || Boolean(workflow.publicView)} className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50">{workflowBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> Ablauf wird ausgeführt…</> : workflow.publicView ? <><CheckCircle2 className="h-4 w-4" /> Staging-Ablauf abgeschlossen</> : !thread.caseBinding ? <><Landmark className="h-4 w-4" /> Vorschlag ist der nächste menschliche Schritt</> : <><Landmark className="h-4 w-4" /> Verbesserungsvorschlag starten</>}</button>
+        <button type="button" onClick={startProposal} disabled={proposalDisabled} className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50">{workflowBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> Vorschlag wird signiert…</> : workflow.publicView ? <><CheckCircle2 className="h-4 w-4" /> Staging-Ablauf abgeschlossen</> : topicSuggestionSigned ? <><CheckCircle2 className="h-4 w-4" /> Wartet auf menschliche Aufnahme</> : topicProposalMode && !citizenSession ? <><Landmark className="h-4 w-4" /> Anmelden, um Vorschlag zu signieren</> : topicProposalMode ? <><FileSignature className="h-4 w-4" /> Vorschlag prüfen und signieren</> : <><Landmark className="h-4 w-4" /> Verbesserungsvorschlag starten</>}</button>
         <div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="rounded-lg border border-border bg-muted/50 p-3"><div className="flex items-center gap-2 text-sm font-bold"><Vote className="h-4 w-4" /> Keine echte Abstimmung</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Das Staging-Ergebnis ist ein beratendes Meinungsbild ohne formale Rats- oder Governance-Wirkung.</p></div><div className="rounded-lg border border-border bg-muted/50 p-3"><div className="flex items-center gap-2 text-sm font-bold"><CircleDollarSign className="h-4 w-4" /> Stadtkasse getrennt</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Budgetbedarf kann als Verwaltungsprüfung erscheinen; keine Auszahlung und keine Treasury-Transaktion wird ausgelöst.</p></div></div>
       </section>
     </div>

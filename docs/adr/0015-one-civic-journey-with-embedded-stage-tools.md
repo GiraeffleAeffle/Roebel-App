@@ -33,6 +33,7 @@ Combining every capability into one large page would create the opposite problem
 8. Desktop presents a persistent stage timeline alongside the active work surface. Mobile presents the same stages through a compact progress header and stage navigation; it does not squeeze a desktop process map into one horizontal strip.
 9. Proposal, participation, treasury review, and execution remain visibly connected in the journey, while their permissions remain separate. Displaying a budget constraint never authorizes a treasury transaction; displaying an advisory signal never turns it into a formal vote.
 10. Mecky may classify, summarize, cite, and suggest the next human action. It may not promote a post, sign for a person, admit a civic case, approve administration work, open a binding vote, or spend funds.
+11. A proposal candidate is signed while the journey is still topic-bound. The next stage remains “awaiting human case admission”; signing never calls the admission, administration, participation, governance, or treasury adapters automatically.
 
 ## Consequences
 
@@ -41,4 +42,5 @@ Combining every capability into one large page would create the opposite problem
 - A civic topic can contain several source posts and discussions while proposals and cases remain explicitly derived records.
 - Specialized tools remain independently deployable and replaceable because the Röbel host owns the journey contract.
 - The host needs a versioned journey projection and stage-tool context; mini-apps need to stop treating a query-string topic slug as sufficient state.
+- Proposal signing and Civic Case admission are two independently attributable transitions, even when the interface presents them consecutively.
 - This ADR does not authorize automatic promotion, a formal municipal vote, a treasury payment, or production data migration.
