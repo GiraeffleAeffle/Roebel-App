@@ -113,6 +113,19 @@ test("same-run evidence is verified into an effect-free CAS-bound Release Set ca
   );
   assert.equal((assemblyJob.match(/gh attestation download /gu) ?? []).length, 2);
   assert.equal((assemblyJob.match(/gh attestation verify /gu) ?? []).length, 2);
+  assert.equal(
+    (
+      assemblyJob.match(
+        /mv -- "\$\{manifest_digest\}\.jsonl" "sha256-\$\{manifest_digest#sha256:\}\.jsonl"/gu,
+      ) ?? []
+    ).length,
+    2,
+  );
+  assert.match(
+    assemblyJob,
+    /bundle_name="sha256-\$\{manifest_digest#sha256:\}\.jsonl"/u,
+  );
+  assert.doesNotMatch(assemblyJob, /bundle_name="\$\{manifest_digest\}\.jsonl"/u);
   for (const predicate of ["https://slsa.dev/provenance/v1", "https://spdx.dev/Document/v2.3"]) {
     assert.match(assemblyJob, new RegExp(predicate.replaceAll("/", "\\/"), "u"));
   }
