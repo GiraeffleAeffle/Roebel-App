@@ -10,6 +10,11 @@ export { DEFAULT_BOUNDS, emptyHistory, recordReply, shouldAnswer } from "./bound
 export type { Bounds, Decision, Refusal, ReplyHistory } from "./bounds";
 export { DEFAULT_LOOKBACK_SECONDS, watchOnce } from "./watcher";
 export type { PassResult, WatcherDeps, WatcherReply } from "./watcher";
+export { createPublicMeckyReplyProjectionSink } from "./public-mecky-projection";
+export type {
+  PublicMeckyReplyProjectionSink,
+  PublicMeckyReplyProjectionSinkOptions,
+} from "./public-mecky-projection";
 export { announceAgentProfile } from "./profile";
 export type { AnnounceDeps } from "./profile";
 export {

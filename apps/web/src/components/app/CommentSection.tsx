@@ -60,6 +60,9 @@ function formatRelativeTime(dateStr: string): string {
 }
 
 function CommentItem({ comment }: { comment: PostComment }) {
+  if (comment.agent?.kind === "public_mecky") {
+    return <PublicMeckyCommentItem comment={comment} />;
+  }
   const shortAddress = `${comment.wallet_address.slice(0, 4)}...${comment.wallet_address.slice(-3)}`;
 
   return (
@@ -127,6 +130,55 @@ function linkifyMeckyText(text: string) {
     ) : (
       part
     )
+  );
+}
+
+function PublicMeckyCommentItem({ comment }: { comment: PostComment }) {
+  const agent = comment.agent!;
+  const hasEvidence = agent.evidenceRefs.length > 0;
+  return (
+    <div className="flex gap-2.5 py-2" data-public-mecky-reply={comment.id}>
+      <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+        <Bot className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900/50 dark:bg-amber-950/30">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-semibold text-foreground">Mecky</span>
+            <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+              {hasEvidence
+                ? "KI · geprüfte Quellen"
+                : "KI · öffentliche Antwort"}
+            </span>
+          </div>
+          <p className="mt-1 whitespace-pre-wrap break-words text-sm text-foreground">
+            {linkifyMeckyText(comment.content)}
+          </p>
+          {hasEvidence && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {agent.evidenceRefs.map((evidence, index) => (
+                <a
+                  key={evidence.digest}
+                  href={evidence.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                >
+                  Nachweis {index + 1} <ExternalLink className="h-3 w-3" />
+                </a>
+              ))}
+            </div>
+          )}
+          <p className="mt-2 text-[10px] leading-4 text-amber-800 dark:text-amber-200">
+            Beratende KI-Antwort · keine Verwaltungs- oder
+            Entscheidungsbefugnis
+          </p>
+        </div>
+        <span className="ml-3 text-xs text-muted-foreground">
+          {formatRelativeTime(comment.created_at)}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -270,6 +322,16 @@ export function CommentSection({
   const videoInputRef = useRef<HTMLInputElement>(null);
 
   const hasMedia = imageFiles.length > 0 || videoFile !== null;
+  const projectedReplyIds = new Set(
+    comments
+      .filter((comment) => comment.agent?.kind === "public_mecky")
+      .map((comment) => comment.id)
+  );
+  const transitionalReplies =
+    meckyConversation?.replies.filter(
+      (reply) => !projectedReplyIds.has(reply.id)
+    ) ?? [];
+  const visibleCommentCount = totalCount + transitionalReplies.length;
 
   const refreshMeckyConversation = useCallback(async () => {
     if (!stagingEnabled) return null;
@@ -520,15 +582,14 @@ export function CommentSection({
   return (
     <div className="border-t border-border">
       {/* Show all comments button */}
-      {totalCount + (meckyConversation?.replies.length ?? 0) > 0 &&
-        !isExpanded && (
+      {visibleCommentCount > 0 && !isExpanded && (
           <button
             onClick={loadComments}
             className="w-full px-4 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-left"
           >
-            {totalCount + (meckyConversation?.replies.length ?? 0) === 1
+            {visibleCommentCount === 1
               ? "1 Kommentar anzeigen"
-              : `Alle ${totalCount + (meckyConversation?.replies.length ?? 0)} Kommentare anzeigen`}
+              : `Alle ${visibleCommentCount} Kommentare anzeigen`}
           </button>
         )}
 
@@ -545,7 +606,7 @@ export function CommentSection({
             ))
           )}
           {!isLoading &&
-            meckyConversation?.replies.map((reply) => (
+            transitionalReplies.map((reply) => (
               <MeckyCommentItem key={reply.id} reply={reply} />
             ))}
           {!isLoading &&

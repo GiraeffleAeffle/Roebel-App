@@ -101,6 +101,12 @@ export interface PostComment {
   created_at: string;
   author_username: string | null;
   author_profile_picture_url: string | null;
+  agent?: {
+    kind: "public_mecky";
+    pubkey: string;
+    authorityBinding: "none";
+    evidenceRefs: Array<{ digest: string; url: string }>;
+  };
 }
 
 // ============================================

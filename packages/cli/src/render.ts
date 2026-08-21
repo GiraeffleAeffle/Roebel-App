@@ -709,6 +709,9 @@ export function renderComposeYml(m: NetizenManifest): string {
       const inferenceKey = w.inference.apiKey.slice(1);
       const optional = [
         w.displayName ? `      AGENT_DISPLAY_NAME: ${JSON.stringify(w.displayName)}` : "",
+        w.replyProjection
+          ? `      MECKY_REPLY_PROJECTION_URL: ${JSON.stringify(w.replyProjection.endpoint)}`
+          : "",
         w.perAuthorPerHour ? `      AGENT_PER_AUTHOR_PER_HOUR: "${w.perAuthorPerHour}"` : "",
         w.perDay ? `      AGENT_PER_DAY: "${w.perDay}"` : "",
       ].filter(Boolean);

@@ -13,6 +13,7 @@ import {
   toPublicMeckyWatcherReply,
 } from "./public-mecky";
 import { createNodeRelayClient } from "./node-relay-client";
+import { createPublicMeckyReplyProjectionSink } from "./public-mecky-projection";
 import { singleFlight } from "./single-flight";
 import { watchOnce } from "./watcher";
 
@@ -50,6 +51,10 @@ async function main(): Promise<void> {
   const inferenceApiKey = required("MECKY_INFERENCE_API_KEY");
   const intervalSeconds = Number(process.env.WATCH_INTERVAL_SECONDS ?? 20);
   const lookbackSeconds = Number(process.env.WATCH_LOOKBACK_SECONDS ?? 86_400);
+  const replyProjectionUrl = process.env.MECKY_REPLY_PROJECTION_URL?.trim();
+  const projectReply = replyProjectionUrl
+    ? createPublicMeckyReplyProjectionSink({ endpoint: replyProjectionUrl })
+    : undefined;
 
   const syntheticEvidenceMode = process.env.STADTSTACK_E2E_MODE === "synthetic-reviewed";
   const publicMecky = createPublicMecky({
@@ -87,6 +92,7 @@ async function main(): Promise<void> {
   console.log(`  npub ${agent.npub}`);
   console.log(`  reviewed evidence: ${syntheticEvidenceMode ? "synthetic checksum-bound snapshot" : publicEvidenceBaseUrl} (${municipalityId})`);
   console.log(`  inference: ${inferenceBaseUrl} (${inferenceModel})`);
+  console.log(`  app reply projection: ${replyProjectionUrl ?? "disabled"}`);
   console.log(`  bounds: ${bounds.perAuthorPerHour}/author/h, ${bounds.perDay}/day, enabled=${bounds.enabled}`);
 
   // Introduce ourselves before answering anything. kind 0 is replaceable, so this
@@ -115,6 +121,7 @@ async function main(): Promise<void> {
         lookbackSeconds,
         relayUrl: inputRelayUrl,
         replyRelayUrl: outputRelayUrl,
+        ...(projectReply ? { projectReply } : {}),
         makeClient: createNodeRelayClient,
         think: async (question, event) => {
           const answer = await publicMecky.answerMention(question);
@@ -146,9 +153,15 @@ async function main(): Promise<void> {
         },
         log: (m) => console.log(`[${new Date().toISOString()}] ${m}`),
       });
-      if (result.answered || Object.keys(result.refused).length) {
+      if (
+        result.answered ||
+        result.projected ||
+        result.projectionFailed ||
+        Object.keys(result.refused).length
+      ) {
         console.log(
           `[${new Date().toISOString()}] seen ${result.seen}, answered ${result.answered}` +
+            `, projected ${result.projected}, projection failures ${result.projectionFailed}` +
             (Object.keys(result.refused).length ? `, refused ${JSON.stringify(result.refused)}` : ""),
         );
       }

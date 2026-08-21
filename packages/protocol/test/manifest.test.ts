@@ -37,6 +37,10 @@ test("Public Mecky declares reviewed evidence and a referenced inference credent
   );
   assert.equal(watcher?.inference.model, "Qwen/Qwen3.6-35B-A3B-FP8");
   assert.equal(watcher?.inference.apiKey, "$HETZNER_INFERENCE_API_KEY");
+  assert.equal(
+    watcher?.replyProjection?.endpoint,
+    "https://wwbeqhkslxdxhktqzqti.supabase.co/functions/v1/project-public-mecky-reply",
+  );
   assert.equal(Object.hasOwn(watcher ?? {}, "stadtstackControl"), false);
 
   const inlineKey = structuredClone(roebel);
@@ -51,6 +55,11 @@ test("Public Mecky declares reviewed evidence and a referenced inference credent
     nostrIngestorToken: "$STADTSTACK_NOSTR_INGESTOR_TOKEN",
   };
   assert.equal(safeParseManifest(overPrivilegedWatcher).success, false);
+
+  const credentialBearingProjection = structuredClone(roebel);
+  credentialBearingProjection.agents.watcher.replyProjection.endpoint =
+    "https://writer:secret@example.invalid/project?token=secret";
+  assert.equal(safeParseManifest(credentialBearingProjection).success, false);
 
   const legacyUngroundedWatcher = structuredClone(roebel);
   legacyUngroundedWatcher.agents.watcher = {

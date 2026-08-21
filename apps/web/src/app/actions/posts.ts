@@ -21,6 +21,111 @@ import { isVerifiedCitizen } from "@/lib/server/verify-citizen"
 import { isOrgAccount } from "@/types/account"
 import { hasSupabase, recordClient } from "@/lib/record"
 import { listPosts, getThread, RecordUnavailableError, type RecordPost } from "@netizen-labs/record-client"
+import {
+  mergePublicMeckyThread,
+  publicMeckyReplyCounts,
+} from "@/lib/public-mecky-thread"
+
+const PUBLIC_MECKY_REPLIES_TABLE = "public_mecky_replies"
+const PUBLIC_MECKY_OPTIONAL_READ_TIMEOUT_MS = 1_500
+
+function projectionReadDiagnostic(error: unknown): string {
+  if (!error || typeof error !== "object") return "unknown"
+  const code = (error as { code?: unknown }).code
+  return typeof code === "string" && /^[A-Z0-9_]{1,32}$/i.test(code)
+    ? code
+    : "unknown"
+}
+
+async function optionalPublicMeckyRead<T>(
+  read: PromiseLike<T>
+): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let timedOut = false
+  try {
+    const result = await Promise.race([
+      Promise.resolve(read),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(
+          () => {
+            timedOut = true
+            resolve(null)
+          },
+          PUBLIC_MECKY_OPTIONAL_READ_TIMEOUT_MS
+        )
+      }),
+    ])
+    if (timedOut) console.warn("Public Mecky optional read failed", "timeout")
+    return result
+  } catch (error) {
+    console.warn(
+      "Public Mecky optional read failed",
+      projectionReadDiagnostic(error)
+    )
+    return null
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+async function loadPublicMeckyReplyCounts(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  postIds: string[]
+): Promise<Map<string, number>> {
+  if (postIds.length === 0) return new Map()
+  const result = await optionalPublicMeckyRead(
+    supabase
+      .from(PUBLIC_MECKY_REPLIES_TABLE)
+      .select("event_id,source_post_id,authority_binding")
+      .in("source_post_id", postIds)
+  )
+  if (!result) {
+    return new Map()
+  }
+  const { data, error } = result
+  if (error) {
+    // Projection is an optional public read model during staged adoption. Its
+    // absence must not erase the ordinary citizen feed.
+    console.warn(
+      "Public Mecky reply counts unavailable",
+      projectionReadDiagnostic(error)
+    )
+    return new Map()
+  }
+  return publicMeckyReplyCounts(data ?? [], new Set(postIds))
+}
+
+async function loadPublicMeckyReplyRows(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  postId: string,
+  maximum: number
+): Promise<unknown[]> {
+  if (maximum <= 0) return []
+  const result = await optionalPublicMeckyRead(
+    supabase
+      .from(PUBLIC_MECKY_REPLIES_TABLE)
+      .select(
+        "event_id,source_post_id,source_comment_id,agent_pubkey,content,evidence_refs,event_created_at,authority_binding"
+      )
+      .eq("source_post_id", postId)
+      .eq("authority_binding", "none")
+      .order("event_created_at", { ascending: true })
+      .order("event_id", { ascending: true })
+      .range(0, maximum - 1)
+  )
+  if (!result) {
+    return []
+  }
+  const { data, error } = result
+  if (error) {
+    console.warn(
+      "Public Mecky reply projection unavailable",
+      projectionReadDiagnostic(error)
+    )
+    return []
+  }
+  return data ?? []
+}
 
 // ============================================
 // Helper: build poll results for a set of posts
@@ -217,6 +322,10 @@ export async function getPostsForFeed(
 
     // Batch fetch post links
     const postIds = posts.map((p: Record<string, unknown>) => p.id as string)
+    const publicMeckyReplyCountsPromise = loadPublicMeckyReplyCounts(
+      supabase,
+      postIds
+    )
     const { data: allLinks } = await supabase
       .from("post_links")
       .select("*")
@@ -267,6 +376,7 @@ export async function getPostsForFeed(
 
     // Batch fetch polls
     const pollMap = await buildPollMap(supabase, postIds, viewerWallet)
+    const publicMeckyCounts = await publicMeckyReplyCountsPromise
 
     // Batch fetch account info for posts with account_id
     const accountIds = [...new Set(
@@ -328,7 +438,9 @@ export async function getPostsForFeed(
         category: ((row.category as string) || "generell") as PostCategory,
         status: row.status as Post["status"],
         likes_count: (row.likes_count as number) || 0,
-        comments_count: (row.comments_count as number) || 0,
+        comments_count:
+          ((row.comments_count as number) || 0) +
+          (publicMeckyCounts.get(row.id as string) ?? 0),
         created_at: row.created_at as string,
         updated_at: row.updated_at as string,
         post_type: ((row.post_type as string) || "user") as PostType,
@@ -393,6 +505,11 @@ export async function getPostById(
       .single()
 
     if (error || !post) return { success: false, error: "Beitrag nicht gefunden" }
+
+    const publicMeckyReplyCountsPromise = loadPublicMeckyReplyCounts(
+      supabase,
+      [postId]
+    )
 
     // Fetch author
     const { data: author } = await supabase
@@ -476,6 +593,8 @@ export async function getPostById(
       isReported = !!reportResult.data
     }
 
+    const publicMeckyCounts = await publicMeckyReplyCountsPromise
+
     return {
       success: true,
       data: {
@@ -488,7 +607,9 @@ export async function getPostById(
         category: ((post.category as string) || "generell") as PostCategory,
         status: post.status as Post["status"],
         likes_count: (post.likes_count as number) || 0,
-        comments_count: (post.comments_count as number) || 0,
+        comments_count:
+          ((post.comments_count as number) || 0) +
+          (publicMeckyCounts.get(postId) ?? 0),
         created_at: post.created_at as string,
         updated_at: post.updated_at as string,
         post_type: ((post.post_type as string) || "user") as PostType,
@@ -793,6 +914,14 @@ export async function getComments(
         created_at: c.created_at,
         author_username: c.author_name ?? "Unbekannt",
         author_profile_picture_url: c.author_avatar,
+        agent: c.is_agent
+          ? {
+              kind: "public_mecky" as const,
+              pubkey: c.author_pubkey,
+              authorityBinding: "none" as const,
+              evidenceRefs: [],
+            }
+          : undefined,
       }))
       return { success: true, data }
     } catch (error) {
@@ -804,21 +933,33 @@ export async function getComments(
   try {
     const supabase = await createClient()
 
+    const maximum = Math.max(0, offset) + Math.max(0, limit)
+    if (maximum === 0) return { success: true, data: [] }
+
+    const projectedRowsPromise = loadPublicMeckyReplyRows(
+      supabase,
+      postId,
+      maximum
+    )
+
     const { data: comments, error } = await supabase
       .from("post_comments")
       .select("*")
       .eq("post_id", postId)
       .eq("status", "published")
       .order("created_at", { ascending: true })
-      .range(offset, offset + limit - 1)
+      .range(0, maximum - 1)
 
     if (error) throw error
-    if (!comments || comments.length === 0) {
-      return { success: true, data: [] }
-    }
 
     // Batch fetch author info
-    const addresses = [...new Set(comments.map((c: Record<string, unknown>) => c.wallet_address as string))]
+    const addresses = [
+      ...new Set(
+        (comments ?? []).map(
+          (c: Record<string, unknown>) => c.wallet_address as string
+        )
+      ),
+    ]
     const authorMap = new Map<string, Record<string, unknown>>()
 
     if (addresses.length > 0) {
@@ -832,7 +973,7 @@ export async function getComments(
       }
     }
 
-    const result: PostComment[] = comments.map((row: Record<string, unknown>) => {
+    const humanComments: PostComment[] = (comments ?? []).map((row: Record<string, unknown>) => {
       const author = authorMap.get(row.wallet_address as string)
       return {
         id: row.id as string,
@@ -849,7 +990,17 @@ export async function getComments(
       }
     })
 
-    return { success: true, data: result }
+    const projectedRows = await projectedRowsPromise
+    return {
+      success: true,
+      data: mergePublicMeckyThread({
+        humanComments,
+        projectedRows,
+        postId,
+        limit: Math.max(0, limit),
+        offset: Math.max(0, offset),
+      }),
+    }
   } catch (error) {
     console.error("Error fetching comments:", error)
     return { success: false, error: "Fehler beim Laden der Kommentare" }

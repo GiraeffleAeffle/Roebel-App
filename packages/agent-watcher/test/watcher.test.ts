@@ -41,6 +41,77 @@ function harness(
 }
 
 describe("answering a mention", () => {
+  it("projects a source-bound signed reply without making projection part of answering authority", async () => {
+    const question = buildNoteEvent(CITIZEN, "@Mecky, was ist belegt?", {
+      createdAt: NOW - 5,
+      tags: [
+        ["p", MECKY.publicKey],
+        ["source-app-post", "735187dc-d737-4e6c-bdd9-fe0792fec498"],
+      ],
+    });
+    const h = harness([question]);
+    const projected: NostrEvent[] = [];
+    h.deps.projectReply = async (event) => {
+      projected.push(event);
+    };
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.answered, 1);
+    assert.equal(result.projected, 1);
+    assert.equal(result.projectionFailed, 0);
+    assert.equal(projected.length, 1);
+    assert.equal(projected[0]?.id, h.published[0]?.id);
+    assert.equal(h.deps.history.projected.has(projected[0]!.id), true);
+  });
+
+  it("keeps a relay reply valid when projection fails and retries it from relay history", async () => {
+    const request = buildNoteEvent(CITIZEN, "@Mecky, was ist belegt?", {
+      createdAt: NOW - 10,
+      tags: [
+        ["p", MECKY.publicKey],
+        ["source-app-post", "735187dc-d737-4e6c-bdd9-fe0792fec498"],
+      ],
+    });
+    const reply = buildAgentNoteEvent(MECKY, "Antwort mit Quellen.", {
+      createdAt: NOW - 5,
+      tags: [
+        ["e", request.id, "", "reply"],
+        ["p", request.pubkey],
+        ["source-app-post", "735187dc-d737-4e6c-bdd9-fe0792fec498"],
+      ],
+    });
+    const history = emptyHistory();
+    let projectionAttempts = 0;
+    const deps = {
+      agent: MECKY,
+      history,
+      relayUrl: "ws://citizen-relay",
+      replyRelayUrl: "ws://agent-relay",
+      now: () => NOW,
+      think: async () => null,
+      projectReply: async () => {
+        projectionAttempts += 1;
+        if (projectionAttempts === 1) throw new Error("projection unavailable");
+      },
+      makeClient: (url: string) => ({
+        query: async () => (url === "ws://agent-relay" ? [reply] : []),
+        publish: async () => ({ ok: true, message: "" }),
+        close: () => {},
+      }),
+    } satisfies WatcherDeps;
+
+    const first = await watchOnce(deps);
+    const second = await watchOnce(deps);
+
+    assert.equal(first.projectionFailed, 1);
+    assert.equal(first.projected, 0);
+    assert.equal(second.projectionFailed, 0);
+    assert.equal(second.projected, 1);
+    assert.equal(projectionAttempts, 2);
+    assert.equal(history.projected.has(reply.id), true);
+  });
+
   it("reads citizen mentions from one relay and restores/publishes Mecky replies on another", async () => {
     const question = buildNoteEvent(CITIZEN, "getrennte Relays", {
       createdAt: NOW - 5,
