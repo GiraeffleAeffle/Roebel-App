@@ -44,6 +44,8 @@ export type {
 } from "./public-mecky";
 export {
   createInMemoryPublicEvidenceCatalog,
+  createPublicEvidencePacket,
+  createPublicKnowledgeCatalog,
   parsePublicEvidence,
   publicEvidenceUrl,
   renderPromptEvidence,
@@ -51,6 +53,7 @@ export {
   toPromptPublicEvidence,
   DEFAULT_PUBLIC_EVIDENCE_LIMIT,
   DEFAULT_PUBLIC_EVIDENCE_MAX_PROMPT_BYTES,
+  PUBLIC_EVIDENCE_OMISSION_REASONS,
 } from "./public-evidence";
 export type {
   LocalNewsEvidence,
@@ -59,9 +62,15 @@ export type {
   PublicEvidence,
   PublicEvidenceAuthority,
   PublicEvidenceLifecycle,
+  PublicEvidenceOmission,
+  PublicEvidenceOmissionReason,
+  PublicEvidencePacket,
+  PublicEvidenceQuery,
   PublicEvidenceRetrievalOptions,
   PublicEvidenceReviewState,
+  PublicEvidenceSourceAdapter,
   PublicEvidenceSourceKind,
+  PublicKnowledgeCatalog,
   RatsinformationEvidence,
   RetrievedPublicEvidence,
   ReviewedCivicCaseEvidence,
