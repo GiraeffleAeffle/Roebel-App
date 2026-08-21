@@ -1,4 +1,5 @@
 import type { UserRecord, Account, EventRecord, BusinessDealRecord, BusinessRecord, MarketplaceListingRecord, NewsArticle, MovieRecord, RestaurantRecord, SpecialMenuRecord } from '../types';
+import type { CivicCaseBinding } from '@netizen-labs/nostr';
 
 // ─── Post Types ─────────────────────────────────────────────
 
@@ -194,6 +195,12 @@ export type CreatePostInput = {
   quoted_post_id?: string;
   sticker_reward_id?: string | null;
   stadtkasse_snapshot?: StadtkasseSnapshot | null;
+  /**
+   * Ephemeral publication metadata. It is never written into the Supabase row;
+   * it binds the parallel citizen-signed Nostr discussion to one Stadtstack
+   * Case and Public Mecky.
+   */
+  civicBinding?: CivicCaseBinding;
 };
 
 export type CreateCommentInput = {

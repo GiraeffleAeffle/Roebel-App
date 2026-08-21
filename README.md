@@ -197,7 +197,19 @@ Mecky, the town's AI assistant, has its own Nostr identity and answers when ment
 machine-authored event carries NIP-24 `bot: true` and an agent tag, because an unlabelled agent
 in a civic feed is indistinguishable from a resident — and that is the failure mode that erodes
 trust in the whole record. The watcher refuses to answer on explicit bounds: kill switch,
-already-answered, self, other agents, per-author rate limit, daily cap.
+already-answered, self, other agents, per-author rate limit, daily cap. Public civic replies are
+also evidence-gated: Mecky reads only checksum-bound, reviewed Stadtstack projections and
+publishes the public case link it used. Administration reviews the evidence boundary once;
+individual answers do not wait in an approval queue.
+
+For a reviewed municipal Case, the Mitmachen surface opens one explicit signed flow:
+the citizen asks `@Mecky` in the normal Röbel feed; the server-side watcher first records that
+signed Nostr discussion in Stadtstack, then answers from reviewed public evidence; the citizen
+may edit and sign a suggestion candidate; and only a separately authenticated human Case
+steward may admit that exact citizen/Mecky/discussion signature chain. The watcher has only the
+ingestor token and cannot admit, review, vote, or publish an official decision. Citizen Briefs,
+advisory participation, and reviewed outcomes return through the same public Stadtstack Case
+projection; they are not silently converted into the app's formal governance ballot.
 
 ### Portability, tested rather than promised
 

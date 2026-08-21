@@ -439,11 +439,53 @@ const Agents = z.object({
       /** Agent name slug — the identity is derived from (node secret, node id, this). */
       agent: z.string().regex(/^[a-z0-9-]+$/, "agent name must be a lowercase slug"),
       displayName: z.string().optional(),
-      /** Model for answers. The watcher's own default applies when omitted. */
-      model: z.string().optional(),
+      /** Exact reviewed public evidence origin; private packages never cross this seam. */
+      publicEvidence: z
+        .object({
+          baseUrl: z.string().url(),
+          municipalityId: z
+            .string()
+            .regex(/^[a-z0-9][a-z0-9-]{0,119}$/, "municipality id must be a lowercase slug"),
+          sourceCaseId: z
+            .string()
+            .regex(/^[a-z0-9][a-z0-9-]{0,119}$/, "source case id must be a lowercase slug"),
+          canonicalCaseId: z.string().regex(
+            /^urn:stadtstack:case:municipality:[a-z0-9][a-z0-9-]{0,119}:[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+            "expected a municipality-scoped Stadtstack UUIDv7 Case id",
+          ),
+        })
+        .strict()
+        .superRefine((evidence, context) => {
+          if (
+            evidence.canonicalCaseId.split(":")[4] !==
+            evidence.municipalityId
+          ) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["canonicalCaseId"],
+              message: "canonical case municipality must match public evidence municipality",
+            });
+          }
+        }),
+      /** Actor-bound, cluster-internal bridge for persisting signed discussions. */
+      stadtstackControl: z
+        .object({
+          baseUrl: z.string().url(),
+          nostrIngestorToken: secretRef,
+        })
+        .strict(),
+      /** Replaceable OpenAI-compatible inference provider. The key stays a reference. */
+      inference: z
+        .object({
+          baseUrl: z.string().url(),
+          apiKey: secretRef,
+          model: z.string().trim().min(1),
+        })
+        .strict(),
       perAuthorPerHour: z.number().int().positive().optional(),
       perDay: z.number().int().positive().optional(),
     })
+    .strict()
     .optional(),
 });
 

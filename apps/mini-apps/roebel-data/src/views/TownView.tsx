@@ -8,9 +8,10 @@ import { ChartCard, PageHeader, KpiCard, Pill, SkeletonGrid } from "../component
 import { ShieldCheck, Users, Check, Activity, ChevronRight } from "../components/icons";
 import CitizenGraphCanvas from "../components/graph/CitizenGraphCanvas";
 import { DOCUMENTARY_VIDEOS } from "../lib/documentary";
+import { withMiniAppBasePath } from "../lib/publicDemoMode";
 import { useEffect, useState } from "react";
-const inviteImg = "/assets/invite-citizen.png";
-const eventImg = "/assets/event-creation.png";
+const inviteImg = withMiniAppBasePath("/assets/invite-citizen.png");
+const eventImg = withMiniAppBasePath("/assets/event-creation.png");
 
 export default function TownView({
   connected,

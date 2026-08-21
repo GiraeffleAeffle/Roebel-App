@@ -9,6 +9,29 @@
 export { DEFAULT_BOUNDS, emptyHistory, recordReply, shouldAnswer } from "./bounds";
 export type { Bounds, Decision, Refusal, ReplyHistory } from "./bounds";
 export { watchOnce } from "./watcher";
-export type { PassResult, WatcherDeps } from "./watcher";
+export type { PassResult, WatcherDeps, WatcherReply } from "./watcher";
 export { announceAgentProfile } from "./profile";
 export type { AnnounceDeps } from "./profile";
+export {
+  createOpenAICompatiblePublicMeckyInference,
+  createPublicMecky,
+  createPublicMeckyRelayReply,
+  createStadtstackReviewedEvidenceReader,
+} from "./public-mecky";
+export type {
+  OpenAICompatiblePublicMeckyInferenceOptions,
+  PublicMecky,
+  PublicMeckyDependencies,
+  PublicMeckyInference,
+  PublicMeckyInferenceInput,
+  PublicMeckyRelayReply,
+  PublicMeckyResult,
+  ReviewedCivicEvidence,
+  StadtstackReviewedEvidenceReaderOptions,
+} from "./public-mecky";
+export { createStadtstackNostrIntakeClient } from "./stadtstack-control";
+export type {
+  StadtstackCommandReceipt,
+  StadtstackNostrIntakeClient,
+  StadtstackNostrIntakeClientOptions,
+} from "./stadtstack-control";

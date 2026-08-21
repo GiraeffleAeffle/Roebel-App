@@ -4,11 +4,13 @@ import { PDFDocument } from "pdf-lib";
 import type { Address } from "viem";
 import { Card, ChartCard, PageHeader } from "../components/ui";
 import { Ticket, Printer, Plus, Sparkles, Download } from "../components/icons";
-// Static assets live in /public — Next serves them at an absolute URL path.
-const posterPdfUrl = "/assets/event-poster.pdf";
-const posterPreview = "/assets/event-poster-preview.jpg";
 import { SUPABASE_URL, SUPABASE_ANON as ANON } from "../lib/supabase";
 import { track } from "../lib/analytics";
+import { withMiniAppBasePath } from "../lib/publicDemoMode";
+
+// Static assets live in /public and need the optional staging base path.
+const posterPdfUrl = withMiniAppBasePath("/assets/event-poster.pdf");
+const posterPreview = withMiniAppBasePath("/assets/event-poster-preview.jpg");
 
 // The Röbel app scans this and reads the event id from /e/<id>.
 const EVENT_BASE = "https://www.roebel.app/e/";

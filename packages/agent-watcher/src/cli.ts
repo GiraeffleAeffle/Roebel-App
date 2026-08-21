@@ -2,15 +2,24 @@
 import { deriveAgentIdentity } from "@netizen-labs/nostr";
 import { DEFAULT_BOUNDS, emptyHistory } from "./bounds";
 import { announceAgentProfile } from "./profile";
+import {
+  createOpenAICompatiblePublicMeckyInference,
+  createPublicMecky,
+  createPublicMeckyRelayReply,
+  createStadtstackReviewedEvidenceReader,
+} from "./public-mecky";
+import { createStadtstackNostrIntakeClient } from "./stadtstack-control";
+import { createNodeRelayClient } from "./node-relay-client";
 import { watchOnce } from "./watcher";
 
 /**
- * `netizen-agent-watcher` — runs beside the relay and answers mentions.
+ * `netizen-agent-watcher` — runs beside the relay and answers mentions from
+ * checksum-bound, publicly reviewed Stadtstack evidence.
  *
- * Deliberately stateless across restarts except for what it can re-derive: the
- * lookback window plus the relay's own record mean a restart re-reads recent
- * mentions rather than losing them, and the answered-set stops duplicates within
- * a run. A missed answer is recoverable; a double answer is not.
+ * Deliberately stateless across restarts except for what it can re-derive from
+ * the relay: each pass reads recent mentions plus its own published replies.
+ * Those reply events restore the answered-set and rate-limit history, so a
+ * restart neither loses a question nor answers it twice.
  */
 
 function required(name: string): string {
@@ -22,53 +31,37 @@ function required(name: string): string {
   return value;
 }
 
-/**
- * Ask Claude, with the one instruction that matters for a civic feed.
- *
- * An agent that confabulates municipal facts is worse than no agent, because it
- * does so wearing the town's identity. So: answer from what you know, say plainly
- * when you do not know, and never invent an official position.
- */
-async function think(apiKey: string, model: string, nodeName: string, question: string): Promise<string | null> {
-  const system =
-    `Du bist Mecky, der öffentliche KI-Begleiter von ${nodeName}. ` +
-    `Antworte kurz (höchstens 3 Sätze), auf Deutsch, freundlich und sachlich. ` +
-    `Wenn du etwas nicht sicher weißt, sage das ausdrücklich und erfinde nichts — ` +
-    `besonders keine Beschlüsse, Termine, Zahlen oder Zuständigkeiten der Verwaltung. ` +
-    `Du hast keine amtliche Autorität und triffst keine Entscheidungen.`;
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 400,
-      system,
-      messages: [{ role: "user", content: question }],
-    }),
-  });
-
-  if (!res.ok) {
-    console.error(`anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    return null;
-  }
-  const data = (await res.json()) as { content?: { type: string; text?: string }[] };
-  const text = data.content?.filter((c) => c.type === "text").map((c) => c.text ?? "").join("").trim();
-  return text || null;
-}
-
 async function main(): Promise<void> {
   const nodeId = required("NODE_ID");
   const nodeName = process.env.NODE_NAME ?? nodeId;
   const agentName = process.env.AGENT_NAME ?? "mecky";
   const relayUrl = required("RELAY_URL");
-  const apiKey = required("ANTHROPIC_API_KEY");
-  const model = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5";
+  const publicEvidenceBaseUrl = required("STADTSTACK_PUBLIC_BASE_URL");
+  const stadtstackControlBaseUrl = required("STADTSTACK_CONTROL_BASE_URL");
+  const stadtstackIngestorToken = required("STADTSTACK_NOSTR_INGESTOR_TOKEN");
+  const municipalityId = required("MECKY_MUNICIPALITY_ID");
+  const sourceCaseId = required("MECKY_SOURCE_CASE_ID");
+  const canonicalCaseId = required("MECKY_CANONICAL_CASE_ID");
+  const inferenceBaseUrl = required("MECKY_INFERENCE_BASE_URL");
+  const inferenceModel = required("MECKY_INFERENCE_MODEL");
+  const inferenceApiKey = required("MECKY_INFERENCE_API_KEY");
   const intervalSeconds = Number(process.env.WATCH_INTERVAL_SECONDS ?? 20);
+
+  const publicMecky = createPublicMecky({
+    readReviewedEvidence: createStadtstackReviewedEvidenceReader({
+      baseUrl: publicEvidenceBaseUrl,
+      municipalityId,
+    }),
+    infer: createOpenAICompatiblePublicMeckyInference({
+      baseUrl: inferenceBaseUrl,
+      apiKey: inferenceApiKey,
+      model: inferenceModel,
+    }),
+  });
+  const stadtstackIntake = createStadtstackNostrIntakeClient({
+    baseUrl: stadtstackControlBaseUrl,
+    actorToken: stadtstackIngestorToken,
+  });
 
   const agent = deriveAgentIdentity(required("NODE_AGENT_SECRET"), nodeId, agentName);
   const history = emptyHistory();
@@ -81,6 +74,8 @@ async function main(): Promise<void> {
 
   console.log(`agent "${agentName}" on "${nodeId}" watching ${relayUrl}`);
   console.log(`  npub ${agent.npub}`);
+  console.log(`  reviewed evidence: ${publicEvidenceBaseUrl} (${municipalityId})`);
+  console.log(`  inference: ${inferenceBaseUrl} (${inferenceModel})`);
   console.log(`  bounds: ${bounds.perAuthorPerHour}/author/h, ${bounds.perDay}/day, enabled=${bounds.enabled}`);
 
   // Introduce ourselves before answering anything. kind 0 is replaceable, so this
@@ -89,6 +84,7 @@ async function main(): Promise<void> {
   await announceAgentProfile({
     agent,
     relayUrl,
+    makeClient: createNodeRelayClient,
     metadata: {
       name: process.env.AGENT_DISPLAY_NAME ?? agentName[0].toUpperCase() + agentName.slice(1),
       about:
@@ -106,7 +102,31 @@ async function main(): Promise<void> {
         history,
         bounds,
         relayUrl,
-        think: (question) => think(apiKey, model, nodeName, question),
+        makeClient: createNodeRelayClient,
+        ingestCivicDiscussion: async (event) => {
+          await stadtstackIntake.ingestDiscussion(event, [relayUrl]);
+        },
+        think: async (question, event) => {
+          const answer = await publicMecky.answerMention(question);
+          if (answer.status === "answered") {
+            const civic = event.tags.some(
+              (tag) =>
+                tag[0] === "t" &&
+                tag[1] === "stadtstack-civic-discussion",
+            );
+            return civic
+              ? createPublicMeckyRelayReply({
+                  discussion: event,
+                  binding: { municipalityId, sourceCaseId, canonicalCaseId },
+                  result: answer,
+                })
+              : answer.content;
+          }
+          console.log(
+            `[${new Date().toISOString()}] declined public Mecky answer: ${answer.reason}`,
+          );
+          return null;
+        },
         log: (m) => console.log(`[${new Date().toISOString()}] ${m}`),
       });
       if (result.answered || Object.keys(result.refused).length) {

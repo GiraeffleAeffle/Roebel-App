@@ -15,9 +15,14 @@
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "@netizen-labs/nostr": "workspace:*" },
+  "dependencies": {
+    "@netizen-labs/nostr": "workspace:*",
+    "@roebel/stadtstack-federation-client": "workspace:*",
+    "ws": "8.20.1"
+  },
   "devDependencies": {
     "@types/node": "^22.7.4",
+    "@types/ws": "8.18.1",
     "esbuild": "^0.27.7",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"

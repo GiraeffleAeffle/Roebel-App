@@ -701,9 +701,20 @@ export function renderComposeYml(m: NetizenManifest): string {
     // --env-file and handed the agent the Supabase service key with it.
     if (hasNostr && m.agents?.watcher) {
       const w = m.agents.watcher;
+      if (!w.inference.apiKey.startsWith("$")) {
+        throw new Error(
+          "agents.watcher.inference.apiKey: the compose renderer needs a $ENV_VAR ref",
+        );
+      }
+      if (!w.stadtstackControl.nostrIngestorToken.startsWith("$")) {
+        throw new Error(
+          "agents.watcher.stadtstackControl.nostrIngestorToken: the compose renderer needs a $ENV_VAR ref",
+        );
+      }
+      const inferenceKey = w.inference.apiKey.slice(1);
+      const stadtstackIngestorKey = w.stadtstackControl.nostrIngestorToken.slice(1);
       const optional = [
         w.displayName ? `      AGENT_DISPLAY_NAME: ${JSON.stringify(w.displayName)}` : "",
-        w.model ? `      ANTHROPIC_MODEL: "${w.model}"` : "",
         w.perAuthorPerHour ? `      AGENT_PER_AUTHOR_PER_HOUR: "${w.perAuthorPerHour}"` : "",
         w.perDay ? `      AGENT_PER_DAY: "${w.perDay}"` : "",
       ].filter(Boolean);
@@ -719,7 +730,15 @@ export function renderComposeYml(m: NetizenManifest): string {
       NODE_NAME: ${JSON.stringify(m.name)}
       AGENT_NAME: "${w.agent}"
       RELAY_URL: "ws://strfry:7777"
-      ANTHROPIC_API_KEY: "\${ANTHROPIC_API_KEY}"
+      STADTSTACK_PUBLIC_BASE_URL: ${JSON.stringify(w.publicEvidence.baseUrl)}
+      STADTSTACK_CONTROL_BASE_URL: ${JSON.stringify(w.stadtstackControl.baseUrl)}
+      STADTSTACK_NOSTR_INGESTOR_TOKEN: "\${${stadtstackIngestorKey}}"
+      MECKY_MUNICIPALITY_ID: "${w.publicEvidence.municipalityId}"
+      MECKY_SOURCE_CASE_ID: "${w.publicEvidence.sourceCaseId}"
+      MECKY_CANONICAL_CASE_ID: "${w.publicEvidence.canonicalCaseId}"
+      MECKY_INFERENCE_BASE_URL: ${JSON.stringify(w.inference.baseUrl)}
+      MECKY_INFERENCE_MODEL: ${JSON.stringify(w.inference.model)}
+      MECKY_INFERENCE_API_KEY: "\${${inferenceKey}}"
       NODE_AGENT_SECRET: "\${NODE_AGENT_SECRET}"${optional.length ? "\n" + optional.join("\n") : ""}
     depends_on: [strfry]`,
       );

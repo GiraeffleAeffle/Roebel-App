@@ -12,14 +12,40 @@ import { BallotBox, Vault, Users, Lock, ChevronRight } from "../components/icons
 import { fmt } from "../lib/format";
 import { track } from "../lib/analytics";
 import ProposalDetailView from "./ProposalDetailView";
+import MunicipalDecisionCasesSection, {
+  MunicipalDemoTopicView,
+} from "./MunicipalDecisionCasesSection";
+import {
+  ROEBEL_MARIENFELDER_DEMO_TOPIC_BINDING,
+  type CivicTopicBindingV1,
+} from "../lib/municipalTopicBinding";
 
 const VOTE_COLORS = { for: "#00498B", against: "#94a3b8", abstain: "#cbd5e1" } as const;
 
-export default function GovernanceView({ initialProposalId = null }: { initialProposalId?: string | null }) {
+export default function GovernanceView({
+  initialProposalId = null,
+  initialCivicTopicBinding = null,
+  onOpenMunicipalCase,
+  onDiscussMunicipalCase,
+  publicDemoOnly = false,
+}: {
+  initialProposalId?: string | null;
+  initialCivicTopicBinding?: CivicTopicBindingV1 | null;
+  onOpenMunicipalCase: (url: string) => void;
+  onDiscussMunicipalCase?: (target: {
+    municipalityId: string;
+    sourceCaseId: string;
+    title: string;
+  }) => void;
+  /** A standalone read-only staging build: no treasury, proposals or wallet paths. */
+  publicDemoOnly?: boolean;
+}) {
   const [treasury, setTreasury] = useState<Treasury | null>(null);
   const [proposals, setProposals] = useState<Proposal[] | null>(null);
   const [signups, setSignups] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(initialProposalId);
+  const [selectedTopic, setSelectedTopic] =
+    useState<CivicTopicBindingV1 | null>(initialCivicTopicBinding);
   const [loading, setLoading] = useState(true);
   const deepLinked = useRef(false);
 
@@ -34,18 +60,20 @@ export default function GovernanceView({ initialProposalId = null }: { initialPr
     getMaciSignups().then(setSignups).catch(() => {});
   }, []);
   useEffect(() => {
+    if (publicDemoOnly) return;
     void load();
-  }, [load]);
+  }, [load, publicDemoOnly]);
 
   // A ?proposal=<id> deep-link opens straight onto the matching detail once loaded.
   useEffect(() => {
+    if (publicDemoOnly) return;
     if (deepLinked.current || !initialProposalId || !proposals) return;
     deepLinked.current = true;
     const hit = proposals.find(
       (p) => p.proposal_id === initialProposalId || p.transaction_hash === initialProposalId,
     );
     if (hit) setSelectedId(hit.proposal_id);
-  }, [initialProposalId, proposals]);
+  }, [initialProposalId, proposals, publicDemoOnly]);
 
   const selected = useMemo(
     () => proposals?.find((p) => p.proposal_id === selectedId) ?? null,
@@ -53,12 +81,36 @@ export default function GovernanceView({ initialProposalId = null }: { initialPr
   );
 
   const open = (p: Proposal) => {
+    if (publicDemoOnly) return;
+    setSelectedTopic(null);
     setSelectedId(p.proposal_id);
     track("proposal_open", { id: p.proposal_id, state: p.state });
   };
 
+  // This shortcut is intentionally before every treasury/proposal render. It
+  // is the whole public staging surface: one fixed, unbound, synthetic topic.
+  // The normal Mini App keeps its existing Governance behaviour whenever the
+  // explicit public-demo build switch is absent.
+  if (publicDemoOnly) {
+    return (
+      <MunicipalDemoTopicView
+        binding={ROEBEL_MARIENFELDER_DEMO_TOPIC_BINDING}
+        onBack={() => {}}
+        showBack={false}
+      />
+    );
+  }
+
   if (selected) {
     return <ProposalDetailView proposal={selected} onBack={() => setSelectedId(null)} />;
+  }
+  if (selectedTopic) {
+    return (
+      <MunicipalDemoTopicView
+        binding={selectedTopic}
+        onBack={() => setSelectedTopic(null)}
+      />
+    );
   }
 
   const active = (proposals ?? []).filter((p) => isActiveState(p.state));
@@ -114,6 +166,17 @@ export default function GovernanceView({ initialProposalId = null }: { initialPr
           icon={<Users className="h-5 w-5" />}
         />
       </div>
+
+      {/* Reviewed municipal cases are a separate information rail. They do not
+          become on-chain proposals and this mini app never writes back. */}
+      <MunicipalDecisionCasesSection
+        onOpenCase={onOpenMunicipalCase}
+        onDiscussCase={onDiscussMunicipalCase}
+        onOpenDemoTopic={(binding) => {
+          setSelectedId(null);
+          setSelectedTopic(binding);
+        }}
+      />
 
       {/* Proposals */}
       {!proposals ? (

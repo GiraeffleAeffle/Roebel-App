@@ -49,6 +49,82 @@ Outside a host, the SDK calls resolve to safe no-ops (no wallet connects, balanc
 `grantReward` degrades to "no reward") — the dashboards still render their live on-chain data.
 Inside the Röbel host the wallet, balance, rewards, and transaction signing all light up.
 
+## Stadtstack decision cases (read-only)
+
+The Governance tab has a visually separate **Kommunale Entscheidungsfälle**
+section. Configure its public provider origin with:
+
+```bash
+NEXT_PUBLIC_STADTSTACK_PUBLIC_BASE_URL=https://your-stadtstack.example
+NEXT_PUBLIC_STADTSTACK_CANONICAL_CASE_ID=urn:stadtstack:case:municipality:roebel-mueritz:<uuid-v7>
+```
+
+Leaving the value empty produces an explicit "not configured" state. The
+section uses `@roebel/stadtstack-federation-client` to accept only reviewed v1
+case-index, manifest and seven-stage snapshots, confine linked resources to the
+configured provider, verify the stable stage-map SHA-256 with Web Crypto, and
+fail closed on invalid, missing, withdrawn, oversized or timed-out reads. It
+never authenticates, writes, rewards, opens a wallet or calls Supabase.
+
+When the exact canonical Case ID is configured, each reviewed Case card also
+offers **Mit Mecky diskutieren**. The Mini App does not publish anything itself:
+it opens the host-owned `roebel://civic-discussion` composer with the reviewed
+municipality, source Case, canonical Case and title. The host validates the
+binding again before creating an ordinary visible feed post and its parallel
+citizen-signed Nostr record. Mecky's reply is evidence-bound but has no civic
+authority; a later citizen signature and human steward admission remain
+separate gates before Stadtstack treats anything as a suggestion.
+
+For a stakeholder build that must demonstrate the administration feedback loop
+before a real Röbel case has completed local review, opt in explicitly:
+
+```bash
+NEXT_PUBLIC_STADTSTACK_DEMO_SCENARIO=walkthrough
+```
+
+This adds one separate amber **Demo · kein amtlicher Stand** topic entry. Open
+it directly with:
+
+```text
+?stadtstackTopic=roebel-marienfelder-strasse-demo
+```
+
+The selector resolves to the local `civic_topic_binding_v1` identity
+`topic:roebel-mueritz:marienfelder-strasse`. Only inside that selected topic
+does the Mini App request the exact `civic_topic_context_v1`, department
+walkthrough and Activity Journal. Every response must retain the same
+municipality and case scope, and the topic context must state that no Röbel
+proposal, citizen vote or treasury snapshot is linked.
+
+The Activity Journal is an eight-event, metadata-only synthetic fixture
+reconstructed for the demo—not live municipal state. The Mini App requires the
+complete ordered segment, recomputes every event SHA-256 and the independently
+pinned segment-seal SHA-256, and fails closed on missing, additional, partial or
+tampered data. It renders only static allowlisted labels; conversation content,
+tool inputs, internal documents, credentials and raw artifact identifiers stay
+out of the citizen view.
+
+The selected walkthrough can also display a separate **Privater technischer
+Nachweis** card. It reads one public-safe historical receipt only after the
+topic context and receipt repeat the same unbound synthetic topic identity. The
+card is explicitly not a live administrative status or public Journal: it
+contains no events, Matrix/OpenProject content, MCP access, documents, voting
+data, treasury data, or civic effect. If either strict contract differs, the
+card and synthetic topic fail closed.
+
+`?proposal=<id-or-transaction-hash>` remains a distinct route. If a URL contains
+both selectors, the real proposal route wins and the synthetic topic is
+suppressed. Proposal title, category and tags are never used to infer a
+Stadtstack link. A proposal detail can show linked Stadtstack status only after
+an explicit, human-reviewed binding artifact exists; this proof of concept
+fabricates none.
+
+Only the confined `publicCaseUrl` can be opened through
+`sdk.actions.openUrl()`. Proof references and provider-supplied action URLs are
+not rendered. In this first slice a `410` hides the old content entirely; a
+checksummed public retraction-notice view is a named follow-up rather than an
+unverified fallback.
+
 ## Deploy (Vercel)
 
 Deployed as a standalone Next.js app; the host loads it by its `homeUrl`. The included
@@ -59,6 +135,33 @@ embed it in a WebView / iframe.
   **Next.js**.
 - Point the manifest's `homeUrl` / `iconUrl` at the deployed origin, then register the app in the
   `mini_apps` table (see the integration note below) so it appears **live** in the Expo store.
+
+## Isolated public Stadtstack preview (Talos)
+
+The normal Mini App keeps its Town, economy, wallet, reward and proposal
+surfaces. For a shareable stakeholder preview, make a separate build with all
+four public values below. The explicit `PUBLIC_DEMO_MODE` is required in
+addition to `walkthrough`; it renders only the synthetic, unbound Marienfelder
+Straße topic and does not read wallets, request Mini App permissions, fetch a
+treasury/proposal list, or expose any write action.
+
+```bash
+NEXT_PUBLIC_STADTSTACK_PUBLIC_BASE_URL=https://roebel-stadtstack.agentcart.eu \
+NEXT_PUBLIC_STADTSTACK_DEMO_SCENARIO=walkthrough \
+NEXT_PUBLIC_STADTSTACK_PUBLIC_DEMO_MODE=marienfelder \
+pnpm --filter @netizen/miniapp-roebel-data build
+
+# Build the runtime from a staged context that contains only
+# apps/mini-apps/roebel-data/{Dockerfile,nginx.preview.conf,out}.
+docker build --platform linux/amd64 \
+  -f apps/mini-apps/roebel-data/Dockerfile \
+  -t roebel-data-stadtstack-demo .
+```
+
+The image listens on port `8080`. The base path is optional; omit its build arg
+for a dedicated hostname. These are public configuration values, not secrets.
+The public demo is statically exported, non-indexed, and must remain separate
+from the normal Mini App/host deployment until its maintainer has reviewed it.
 
 ## Notes
 

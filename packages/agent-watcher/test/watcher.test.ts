@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildAgentNoteEvent, buildNoteEvent, deriveAgentIdentity, deriveNostrSecretKey, type NostrEvent } from "@netizen-labs/nostr";
-import { emptyHistory } from "../src/bounds";
-import { watchOnce } from "../src/watcher";
+import { buildAgentNoteEvent, buildCivicDiscussionEvent, buildNoteEvent, deriveAgentIdentity, deriveNostrSecretKey, type NostrEvent } from "@netizen-labs/nostr";
+import { DEFAULT_BOUNDS, emptyHistory } from "../src/bounds";
+import { watchOnce, type WatcherDeps } from "../src/watcher";
 
 const MECKY = deriveAgentIdentity("a-node-secret-with-plenty-of-entropy-0123456789", "roebel", "mecky");
 const CITIZEN = deriveNostrSecretKey("0x" + "9c".repeat(65));
 const NOW = 1_785_000_000;
 
-function harness(mentions: NostrEvent[], think: (q: string) => Promise<string | null> = async () => "Antwort") {
+function harness(
+  mentions: NostrEvent[],
+  think: (q: string) => Promise<string | null> = async () => "Antwort",
+  bounds = DEFAULT_BOUNDS,
+) {
   const published: NostrEvent[] = [];
   const filters: Record<string, unknown>[] = [];
   return {
@@ -17,12 +21,13 @@ function harness(mentions: NostrEvent[], think: (q: string) => Promise<string | 
     deps: {
       agent: MECKY,
       history: emptyHistory(),
+      bounds,
       relayUrl: "ws://relay",
       now: () => NOW,
       think,
       makeClient: () => ({
         query: async (f: unknown[]) => {
-          filters.push(f[0] as Record<string, unknown>);
+          filters.push(...(f as Record<string, unknown>[]));
           return mentions;
         },
         publish: async (e: NostrEvent) => {
@@ -31,11 +36,65 @@ function harness(mentions: NostrEvent[], think: (q: string) => Promise<string | 
         },
         close: () => {},
       }),
-    } as never,
+    } as WatcherDeps,
   };
 }
 
 describe("answering a mention", () => {
+  it("ingests a civic discussion into Stadtstack before Mecky answers it", async () => {
+    const question = buildCivicDiscussionEvent(CITIZEN, {
+      municipalityId: "roebel-mueritz",
+      sourceCaseId: "marienfelder-strasse",
+      canonicalCaseId:
+        "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
+      agentPubkey: MECKY.publicKey,
+      content: "@Mecky Kann hier eine sichere Querung geprüft werden?",
+      createdAt: NOW - 5,
+    });
+    const order: string[] = [];
+    const h = harness([question], async () => {
+      order.push("think");
+      return "Aus geprüften Quellen.";
+    });
+    h.deps.ingestCivicDiscussion = async (event: NostrEvent) => {
+      assert.equal(event.id, question.id);
+      order.push("intake");
+    };
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.answered, 1);
+    assert.deepEqual(order, ["intake", "think"]);
+  });
+
+  it("does not answer or consume a civic question when Stadtstack intake fails", async () => {
+    const question = buildCivicDiscussionEvent(CITIZEN, {
+      municipalityId: "roebel-mueritz",
+      sourceCaseId: "marienfelder-strasse",
+      canonicalCaseId:
+        "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
+      agentPubkey: MECKY.publicKey,
+      content: "@Mecky Bitte mit dem Case verbinden.",
+      createdAt: NOW - 5,
+    });
+    let thought = 0;
+    const h = harness([question], async () => {
+      thought += 1;
+      return "Nicht senden";
+    });
+    h.deps.ingestCivicDiscussion = async () => {
+      throw new Error("stadtstack unavailable");
+    };
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.answered, 0);
+    assert.equal(result.refused["stadtstack-intake-failed"], 1);
+    assert.equal(thought, 0);
+    assert.equal(h.published.length, 0);
+    assert.equal(h.deps.history.answered.has(question.id), false);
+  });
+
   it("asks the relay for events tagging the agent", async () => {
     const h = harness([]);
     await watchOnce(h.deps);
@@ -58,6 +117,35 @@ describe("answering a mention", () => {
     assert.ok(reply.tags.some((t) => t[0] === "netizen_agent"));
   });
 
+  it("keeps a deterministic civic receipt on the signed Mecky reply", async () => {
+    const question = buildCivicDiscussionEvent(CITIZEN, {
+      municipalityId: "roebel-mueritz",
+      sourceCaseId: "marienfelder-strasse",
+      canonicalCaseId:
+        "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
+      agentPubkey: MECKY.publicKey,
+      content: "@Mecky Kann hier eine sichere Querung geprüft werden?",
+      createdAt: NOW - 5,
+    });
+    const receiptId = `urn:stadtstack:mecky-answer:${"a".repeat(64)}`;
+    const h = harness([question], async () => ({
+      content: "Nur aus geprüften Quellen beantwortet.",
+      tags: [
+        ["mecky-receipt", receiptId],
+        ["municipality", "roebel-mueritz"],
+        ["case", "marienfelder-strasse"],
+      ],
+    }) as never);
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.answered, 1);
+    assert.equal(h.published[0]?.content, "Nur aus geprüften Quellen beantwortet.");
+    assert.ok(h.published[0]?.tags.some((tag) => tag[0] === "mecky-receipt" && tag[1] === receiptId));
+    assert.ok(h.published[0]?.tags.some((tag) => tag[0] === "municipality" && tag[1] === "roebel-mueritz"));
+    assert.ok(h.published[0]?.tags.some((tag) => tag[0] === "case" && tag[1] === "marienfelder-strasse"));
+  });
+
   it("answers a burst oldest-first, in the order asked", async () => {
     const first = buildNoteEvent(CITIZEN, "erste", { createdAt: NOW - 50 });
     const second = buildNoteEvent(CITIZEN, "zweite", { createdAt: NOW - 10 });
@@ -72,6 +160,97 @@ describe("answering a mention", () => {
     await watchOnce(h.deps);
     await watchOnce(h.deps);
     assert.equal(h.published.length, 1);
+  });
+
+  it("does not answer again after restart when its relay reply already exists", async () => {
+    const question = buildNoteEvent(CITIZEN, "nur einmal, auch nach Neustart", {
+      createdAt: NOW - 10,
+    });
+    const existingReply = buildAgentNoteEvent(MECKY, "Schon beantwortet.", {
+      createdAt: NOW - 5,
+      tags: [
+        ["e", question.id, "", "reply"],
+        ["p", question.pubkey],
+      ],
+    });
+    let thought = 0;
+    const h = harness([question, existingReply], async () => {
+      thought += 1;
+      return "Doppelte Antwort";
+    });
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.answered, 0);
+    assert.equal(thought, 0);
+    assert.equal(h.published.length, 0);
+    assert.deepEqual(h.filters[1].authors, [MECKY.publicKey]);
+  });
+
+  it("does not trust a forged relay reply as restart evidence", async () => {
+    const question = buildNoteEvent(CITIZEN, "bitte wirklich beantworten", {
+      createdAt: NOW - 10,
+    });
+    const signedReply = buildAgentNoteEvent(MECKY, "Gefälschte Historie.", {
+      createdAt: NOW - 5,
+      tags: [
+        ["e", question.id, "", "reply"],
+        ["p", question.pubkey],
+      ],
+    });
+    const forgedReply = { ...signedReply, sig: "00".repeat(64) };
+    const h = harness([question, forgedReply]);
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.answered, 1);
+    assert.equal(h.published.length, 1);
+  });
+
+  it("does not answer a mention with an invalid Nostr signature", async () => {
+    const signedQuestion = buildNoteEvent(CITIZEN, "nicht verifiziert", {
+      createdAt: NOW - 10,
+    });
+    const forgedQuestion = { ...signedQuestion, sig: "00".repeat(64) };
+    let thought = 0;
+    const h = harness([forgedQuestion], async () => {
+      thought += 1;
+      return "Nicht senden";
+    });
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.seen, 0);
+    assert.equal(result.answered, 0);
+    assert.equal(thought, 0);
+    assert.equal(h.published.length, 0);
+  });
+
+  it("restores the daily cap from its relay replies after restart", async () => {
+    const oldQuestion = buildNoteEvent(CITIZEN, "alte Frage", {
+      createdAt: NOW - 20,
+    });
+    const existingReply = buildAgentNoteEvent(MECKY, "Schon beantwortet.", {
+      createdAt: NOW - 15,
+      tags: [
+        ["e", oldQuestion.id, "", "reply"],
+        ["p", oldQuestion.pubkey],
+      ],
+    });
+    const newQuestion = buildNoteEvent(CITIZEN, "neue Frage", {
+      createdAt: NOW - 5,
+    });
+    const h = harness(
+      [newQuestion, existingReply],
+      async () => "Zu viel",
+      { ...DEFAULT_BOUNDS, perDay: 1 },
+    );
+
+    const result = await watchOnce(h.deps);
+
+    assert.equal(result.answered, 0);
+    assert.equal(result.refused["daily-cap"], 1);
+    assert.equal(h.published.length, 0);
   });
 
   it("skips another agent's post without spending a thought", async () => {

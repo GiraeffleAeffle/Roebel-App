@@ -1,5 +1,9 @@
 import {
   buildCalendarEvent,
+  buildCitizenSignedSuggestion,
+  buildCivicDiscussionEvent,
+  type CivicCaseBinding,
+  type CitizenSignedSuggestionV1,
   type NostrEvent,
   type ProfileMetadata,
   RelayClient,
@@ -353,6 +357,102 @@ export async function publishAgentMention(
   } catch {
     return { ok: false, message: 'Relay nicht erreichbar.' };
   }
+}
+
+/**
+ * Mirror an app-visible civic discussion as the exact citizen-signed event the
+ * Stadtstack intake adapter accepts. The Supabase post remains the local UI
+ * record; this event is the portable signature/provenance record.
+ */
+export async function publishCivicDiscussion(
+  postId: string,
+  content: string,
+  binding: CivicCaseBinding,
+  createdAtSec?: number,
+): Promise<PublicationStatus> {
+  return (
+    await publishCivicDiscussionDetailed(
+      postId,
+      content,
+      binding,
+      createdAtSec,
+    )
+  ).status;
+}
+
+export async function publishCivicDiscussionDetailed(
+  postId: string,
+  content: string,
+  binding: CivicCaseBinding,
+  createdAtSec?: number,
+): Promise<{ status: PublicationStatus; event: NostrEvent | null }> {
+  const identity = await loadStoredIdentity();
+  if (!identity) return { status: 'pending', event: null };
+  const agentPubkey = process.env.EXPO_PUBLIC_MECKY_NOSTR_PUBKEY?.trim().toLowerCase();
+  if (!agentPubkey) return { status: 'pending', event: null };
+  try {
+    const event = buildCivicDiscussionEvent(identity.secretKey, {
+      ...binding,
+      agentPubkey,
+      content,
+      ...(createdAtSec === undefined ? {} : { createdAt: createdAtSec }),
+    });
+    return {
+      status: await publish(event, 'civic_discussion', postId),
+      event,
+    };
+  } catch {
+    return { status: 'pending', event: null };
+  }
+}
+
+/**
+ * Let the same citizen turn a verified Public Mecky answer into a signed
+ * suggestion candidate. Publishing still does not admit it into Stadtstack;
+ * the result remains explicitly awaiting a human Case steward.
+ */
+export async function publishCitizenSignedSuggestion(input: {
+  binding: CivicCaseBinding;
+  sourceDiscussion: NostrEvent;
+  sourceAnswer: NostrEvent;
+  title: string;
+  summary: string;
+  createdAt?: number;
+}): Promise<{
+  status: PublicationStatus;
+  suggestion: CitizenSignedSuggestionV1 | null;
+}> {
+  const identity = await loadStoredIdentity();
+  if (!identity) return { status: 'pending', suggestion: null };
+  const agentPubkey = process.env.EXPO_PUBLIC_MECKY_NOSTR_PUBKEY?.trim().toLowerCase();
+  if (!agentPubkey) return { status: 'pending', suggestion: null };
+
+  const suggestion = buildCitizenSignedSuggestion(identity.secretKey, {
+    binding: input.binding,
+    sourceDiscussion: input.sourceDiscussion,
+    sourceAnswer: input.sourceAnswer,
+    agentPubkey,
+    title: input.title,
+    summary: input.summary,
+    createdAt: input.createdAt ?? Math.floor(Date.now() / 1_000),
+  });
+  const event: NostrEvent = {
+    id: suggestion.event.id,
+    pubkey: suggestion.event.pubkey,
+    created_at: suggestion.event.createdAt,
+    kind: suggestion.event.kind,
+    tags: suggestion.event.tags,
+    content: suggestion.event.content,
+    sig: suggestion.event.signature,
+  };
+  return {
+    status: await publish(
+      event,
+      'citizen_signed_suggestion',
+      suggestion.candidateId,
+    ),
+    suggestion,
+  };
 }
 
 /**
