@@ -16,9 +16,20 @@ const actionPins = new Map([
   ["actions/upload-artifact", "ea165f8d65b6e75b540449e92b4886f43607fa02"],
 ]);
 
-test("publisher is manual, main-only and protected by an environment", () => {
-  assert.match(workflow, /on:\n  workflow_dispatch:/u);
-  assert.doesNotMatch(workflow, /\n  (?:push|pull_request|schedule):/u);
+test("publisher follows protected relevant main pushes and retains exact-SHA recovery dispatch", () => {
+  assert.match(workflow, /on:\n  push:\n    branches: \[main\]/u);
+  assert.match(workflow, /  workflow_dispatch:/u);
+  assert.doesNotMatch(workflow, /\n  (?:pull_request|schedule):/u);
+  for (const relevantPath of [
+    "apps/web/**",
+    "packages/agent-watcher/**",
+    "packages/stadtstack-federation-client/**",
+    "Dockerfile.staging-web",
+    "pnpm-lock.yaml",
+  ]) {
+    assert.match(workflow, new RegExp(`- "${relevantPath.replaceAll("*", "\\*")}"`, "u"));
+  }
+  assert.match(workflow, /github\.event_name == 'workflow_dispatch' && inputs\.source_revision \|\| github\.sha/u);
   assert.match(workflow, /if: \$\{\{ github\.ref == 'refs\/heads\/main' \}\}/u);
   assert.match(workflow, /environment: roebel-staging-publisher/u);
   assert.match(workflow, /test "\$GITHUB_REF" = "refs\/heads\/main"/u);
@@ -94,5 +105,5 @@ test("publication has no deployment, runtime-secret or broad authority surface",
   assert.doesNotMatch(workflow, /^\s*(?:HETZNER|KUBECONFIG|TALOSCONFIG|MECKY_INFERENCE_API_KEY):/imu);
   assert.match(docs, /publication is not promotion/iu);
   assert.match(docs, /public visibility cannot\s+be reversed/iu);
-  assert.match(docs, /does not merge or deploy PR #8/iu);
+  assert.match(docs, /does not merge or deploy a pull request/iu);
 });

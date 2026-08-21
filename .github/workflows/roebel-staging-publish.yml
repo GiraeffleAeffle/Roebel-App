@@ -4,6 +4,21 @@ name: Röbel staging OCI publisher
 # builds, verifies, publishes and attests two secret-free staging images. It
 # never updates a Release Set head, Flux source, Kubernetes object or cluster.
 on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "packages/agent-watcher/**"
+      - "packages/nostr/**"
+      - "packages/protocol/**"
+      - "packages/stadtstack-federation-client/**"
+      - "Dockerfile.staging-web"
+      - ".dockerignore"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "turbo.json"
+      - "scripts/verify-staging-*-oci.mjs"
+      - ".github/workflows/roebel-staging-publish.yml"
   workflow_dispatch:
     inputs:
       source_revision:
@@ -14,7 +29,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: roebel-staging-publisher-${{ inputs.source_revision }}
+  group: roebel-staging-publisher-${{ github.event_name == 'workflow_dispatch' && inputs.source_revision || github.sha }}
   cancel-in-progress: false
 
 env:
@@ -36,7 +51,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SOURCE_REVISION: ${{ inputs.source_revision }}
+          SOURCE_REVISION: ${{ github.event_name == 'workflow_dispatch' && inputs.source_revision || github.sha }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = "refs/heads/main"
@@ -72,7 +87,7 @@ jobs:
             archive: public-mecky.oci.tar
             max_artifact_bytes: "134217728"
     env:
-      SOURCE_REVISION: ${{ inputs.source_revision }}
+      SOURCE_REVISION: ${{ github.event_name == 'workflow_dispatch' && inputs.source_revision || github.sha }}
       COMPONENT: ${{ matrix.component }}
       PACKAGE: ${{ matrix.package }}
       IMAGE: ${{ matrix.image }}
@@ -80,7 +95,7 @@ jobs:
       - name: Check out the exact source revision
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ inputs.source_revision }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_revision || github.sha }}
           path: source
           persist-credentials: false
 
@@ -335,7 +350,7 @@ jobs:
       - name: Upload verification evidence only
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ${{ matrix.component }}-publication-${{ inputs.source_revision }}
+          name: ${{ matrix.component }}-publication-${{ github.event_name == 'workflow_dispatch' && inputs.source_revision || github.sha }}
           path: |
             ${{ env.SOURCE_RECEIPT }}
             ${{ env.SBOM }}
