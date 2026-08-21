@@ -14,6 +14,14 @@ embedded runtime secrets with the source revision's verifier, and copies that
 exact manifest to GHCR. It then generates an SPDX-2.3 SBOM and attaches both an
 SBOM attestation and GitHub OIDC build provenance to the immutable digest.
 
+Each protected-main component build also imports and refreshes one
+component-scoped BuildKit cache in that component's GHCR package. Dependency
+manifests are copied before application source, so an ordinary source change
+can reuse the verified dependency-install layer and BuildKit intermediates.
+The mutable `buildcache-main` reference contains only public build inputs, is
+never a deployment input, carries no release authority, and cannot bypass the
+post-build OCI verifier. A missing cache always falls back to a clean build.
+
 Mutable `source-<sha>` tags are transport labels only. An existing identical
 tag is reused; a different digest is never overwritten. Talos, Release Sets
 and Flux may consume only `image@sha256:...` identities from the resulting
