@@ -39,10 +39,11 @@ WORKDIR /workspace
 RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
     corepack enable && corepack prepare pnpm@9.15.0 --activate
 
-COPY . .
+COPY --from=dependency-manifests . .
 RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
     --mount=type=bind,from=pnpm-store,source=.,target=/pnpm/store,ro \
     pnpm --filter @roebel/web... install --offline --frozen-lockfile --ignore-scripts
+COPY . .
 RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro pnpm --filter @roebel/web build
 
 FROM --platform=linux/amd64 docker.io/library/node@sha256:7c269ea419bfbaef1f5eed57e58016395bbe3036176411025a5093e39a948dcf

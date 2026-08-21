@@ -61,10 +61,13 @@ jobs:
         run: |
           set -euo pipefail
           pnpm dlx turbo@2.4.0 prune @roebel/web --docker --out-dir "$RUNNER_TEMP/pruned"
-          mkdir -p "$RUNNER_TEMP/context"
+          mkdir -p "$RUNNER_TEMP/context" "$RUNNER_TEMP/dependency-manifests"
           cp -a "$RUNNER_TEMP/pruned/full/." "$RUNNER_TEMP/context/"
           cp "$RUNNER_TEMP/pruned/pnpm-lock.yaml" "$RUNNER_TEMP/context/pnpm-lock.yaml"
           cp .npmrc "$RUNNER_TEMP/context/.npmrc"
+          cp -a "$RUNNER_TEMP/pruned/json/." "$RUNNER_TEMP/dependency-manifests/"
+          cp "$RUNNER_TEMP/pruned/pnpm-lock.yaml" "$RUNNER_TEMP/dependency-manifests/pnpm-lock.yaml"
+          cp .npmrc "$RUNNER_TEMP/dependency-manifests/.npmrc"
           context_bytes="$(du -sb "$RUNNER_TEMP/context" | cut -f1)"
           test "$context_bytes" -le "$MAX_CONTEXT_BYTES"
           printf 'context_bytes=%s\n' "$context_bytes"
@@ -101,6 +104,7 @@ jobs:
             --file Dockerfile.staging-web \
             --build-context "corepack-cache=$RUNNER_TEMP/corepack-cache" \
             --build-context "pnpm-store=$RUNNER_TEMP/pnpm-store" \
+            --build-context "dependency-manifests=$RUNNER_TEMP/dependency-manifests" \
             --build-arg "SOURCE_REVISION=$SOURCE_REVISION" \
             --build-arg "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" \
             --output "type=oci,dest=/tmp/roebel-web-staging.oci.tar,name=$import_name,annotation.io.containerd.image.name=$import_name,rewrite-timestamp=true" \

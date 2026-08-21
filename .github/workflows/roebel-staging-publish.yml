@@ -132,13 +132,19 @@ jobs:
         run: |
           set -euo pipefail
           pnpm dlx turbo@2.4.0 prune "$PACKAGE" --docker --out-dir "$RUNNER_TEMP/pruned"
-          mkdir -p "$RUNNER_TEMP/context"
+          mkdir -p "$RUNNER_TEMP/context" "$RUNNER_TEMP/dependency-manifests"
           cp -a "$RUNNER_TEMP/pruned/full/." "$RUNNER_TEMP/context/"
           cp "$RUNNER_TEMP/pruned/pnpm-lock.yaml" "$RUNNER_TEMP/context/pnpm-lock.yaml"
           cp .npmrc "$RUNNER_TEMP/context/.npmrc"
+          cp -a "$RUNNER_TEMP/pruned/json/." "$RUNNER_TEMP/dependency-manifests/"
+          cp "$RUNNER_TEMP/pruned/pnpm-lock.yaml" "$RUNNER_TEMP/dependency-manifests/pnpm-lock.yaml"
+          cp .npmrc "$RUNNER_TEMP/dependency-manifests/.npmrc"
           context_bytes="$(du -sb "$RUNNER_TEMP/context" | cut -f1)"
+          dependency_manifest_bytes="$(du -sb "$RUNNER_TEMP/dependency-manifests" | cut -f1)"
           test "$context_bytes" -le "$MAX_CONTEXT_BYTES"
+          test "$dependency_manifest_bytes" -le 2097152
           printf 'context_bytes=%s\n' "$context_bytes"
+          printf 'dependency_manifest_bytes=%s\n' "$dependency_manifest_bytes"
 
       - name: Prepare exact offline package inputs
         working-directory: source
@@ -160,6 +166,14 @@ jobs:
             network=host
           buildkitd-flags: --oci-worker-gc --oci-worker-gc-keepstorage 2147483648
 
+      - name: Authenticate BuildKit to the exact GHCR namespace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
       - name: Build exactly one linux/amd64 OCI archive
         working-directory: source
         shell: bash
@@ -179,6 +193,7 @@ jobs:
             *) exit 1 ;;
           esac
           import_name="$import_repository:source-$SOURCE_REVISION"
+          cache_ref="$IMAGE:buildcache-main"
           docker buildx build \
             --platform linux/amd64 \
             --provenance=false \
@@ -186,8 +201,11 @@ jobs:
             --file "$GITHUB_WORKSPACE/source/$DOCKERFILE" \
             --build-context "corepack-cache=$RUNNER_TEMP/corepack-cache" \
             --build-context "pnpm-store=$RUNNER_TEMP/pnpm-store" \
+            --build-context "dependency-manifests=$RUNNER_TEMP/dependency-manifests" \
             --build-arg "SOURCE_REVISION=$SOURCE_REVISION" \
             --build-arg "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" \
+            --cache-from "type=registry,ref=$cache_ref" \
+            --cache-to "type=registry,ref=$cache_ref,mode=max,oci-mediatypes=true,image-manifest=true" \
             --output "type=oci,dest=$ARCHIVE,name=$import_name,annotation.io.containerd.image.name=$import_name,rewrite-timestamp=true" \
             "$RUNNER_TEMP/context"
           artifact_bytes="$(stat -c %s "$ARCHIVE")"

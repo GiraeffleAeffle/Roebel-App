@@ -14,17 +14,11 @@ WORKDIR /workspace
 RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
     corepack enable && corepack prepare pnpm@9.15.0 --activate
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY packages/nostr/package.json ./packages/nostr/package.json
-COPY packages/stadtstack-federation-client/package.json ./packages/stadtstack-federation-client/package.json
-COPY packages/agent-watcher/package.json ./packages/agent-watcher/package.json
-
-COPY packages/nostr ./packages/nostr
-COPY packages/stadtstack-federation-client ./packages/stadtstack-federation-client
-COPY packages/agent-watcher ./packages/agent-watcher
+COPY --from=dependency-manifests . .
 RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
     --mount=type=bind,from=pnpm-store,source=.,target=/pnpm/store,ro \
     pnpm --filter @netizen-labs/agent-watcher... install --frozen-lockfile --offline --ignore-scripts
+COPY . .
 RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
     pnpm --filter @netizen-labs/agent-watcher build
 

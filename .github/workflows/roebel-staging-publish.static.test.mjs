@@ -4,6 +4,16 @@ import test from "node:test";
 
 const workflow = readFileSync(new URL("./roebel-staging-publish.yml", import.meta.url), "utf8");
 const docs = readFileSync(new URL("./ROEBEL_STAGING_PUBLISHER_CANDIDATE.md", import.meta.url), "utf8");
+const webDockerfile = readFileSync(new URL("../../Dockerfile.staging-web", import.meta.url), "utf8");
+const meckyDockerfile = readFileSync(
+  new URL("../../packages/agent-watcher/Dockerfile", import.meta.url),
+  "utf8",
+);
+const webCandidateWorkflow = readFileSync(new URL("./staging-web-oci.yml", import.meta.url), "utf8");
+const servicesCandidateWorkflow = readFileSync(
+  new URL("./staging-services-oci.yml", import.meta.url),
+  "utf8",
+);
 
 const actionPins = new Map([
   ["actions/checkout", "d23441a48e516b6c34aea4fa41551a30e30af803"],
@@ -71,6 +81,35 @@ test("publisher builds and publishes exactly the two secret-free staging compone
   assert.match(workflow, /refusing to overwrite/u);
   assert.match(workflow, /source-\$SOURCE_REVISION/u);
   assert.doesNotMatch(workflow, /(?:tags?:\s*(?:latest|main)|:latest\b)/u);
+});
+
+test("protected builds reuse only component-scoped public BuildKit caches", () => {
+  const login = workflow.indexOf("- name: Authenticate BuildKit to the exact GHCR namespace");
+  const build = workflow.indexOf("- name: Build exactly one linux/amd64 OCI archive");
+  assert.ok(login >= 0 && build > login, "registry auth must precede the cache-backed build");
+  assert.match(workflow, /cache_ref="\$IMAGE:buildcache-main"/u);
+  assert.match(workflow, /--cache-from "type=registry,ref=\$cache_ref"/u);
+  assert.match(
+    workflow,
+    /--cache-to "type=registry,ref=\$cache_ref,mode=max,oci-mediatypes=true,image-manifest=true"/u,
+  );
+  assert.match(workflow, /--build-context "dependency-manifests=\$RUNNER_TEMP\/dependency-manifests"/u);
+  assert.match(workflow, /cp -a "\$RUNNER_TEMP\/pruned\/json\/\." "\$RUNNER_TEMP\/dependency-manifests\/"/u);
+  assert.match(webDockerfile, /COPY --from=dependency-manifests \. \./u);
+  assert.match(
+    webDockerfile,
+    /COPY --from=dependency-manifests \. \.[\s\S]*?pnpm --filter @roebel\/web\.\.\. install[\s\S]*?COPY \. \./u,
+  );
+  assert.match(
+    meckyDockerfile,
+    /COPY --from=dependency-manifests \. \.[\s\S]*?pnpm --filter @netizen-labs\/agent-watcher\.\.\. install[\s\S]*?COPY \. \./u,
+  );
+  for (const candidateWorkflow of [webCandidateWorkflow, servicesCandidateWorkflow]) {
+    assert.match(candidateWorkflow, /cp -a "\$RUNNER_TEMP\/pruned\/json\/\." "\$RUNNER_TEMP\/dependency-manifests\/"/u);
+    assert.match(candidateWorkflow, /--build-context "dependency-manifests=\$RUNNER_TEMP\/dependency-manifests"/u);
+  }
+  assert.match(docs, /component-scoped BuildKit cache/iu);
+  assert.match(docs, /never a deployment input/iu);
 });
 
 test("all third-party actions are immutable and expected", () => {
