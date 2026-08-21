@@ -19,28 +19,38 @@ tag is reused; a different digest is never overwritten. Talos, Release Sets
 and Flux may consume only `image@sha256:...` identities from the resulting
 publication receipts.
 
+After both parallel publications finish, a read-only assembly job downloads
+only those two same-run evidence artifacts. It revalidates their receipt and
+SBOM hashes, verifies the GitHub OIDC provenance and SPDX attestations against
+the protected workflow identity and exact source revision, reads the current
+public operations head once, and emits an effect-free Release Set candidate.
+This moves the repeatable evidence plumbing off the operator laptop without
+giving the publisher access to the operations repository or cluster.
+
 ## Publication is not promotion
 
 The workflow deliberately has no Talos, Kubernetes, Hetzner, Flux, Tailscale,
 runtime-secret or application-secret input. It cannot deploy, change a Release
 Set head, update a reviewed render, activate Flux or exercise civic authority.
 It does not merge or deploy a pull request. A protected-main push merely
-publishes immutable, attested images for the exact merge commit; no Release Set
-or cluster object changes. A manual run likewise requires the maintainer to
-supply one exact same-repository commit.
+publishes immutable, attested images for the exact merge commit and assembles a
+candidate against the observed head; no Release Set head or cluster object
+changes. A manual run likewise requires the maintainer to supply one exact
+same-repository commit.
 
 Promotion remains a separate protected module:
 
-1. verify the publication receipt, GitHub OIDC identity and SPDX attestation;
-2. compare the current immutable Release Set head;
-3. admit a checksum-bound reviewed render with live UID/resourceVersion/image
+1. consume the already verified candidate and its immutable evidence bundle;
+2. atomically compare the expected and current Release Set head;
+3. admit a checksum-bound reviewed render with the required live adoption
    preconditions;
 4. atomically advance the head; and
 5. let namespace-scoped Flux reconcile only the admitted Deployments.
 
 This separation keeps the publisher deep and narrow: callers need to know only
-the source commit and receive verified immutable image evidence, while all
-deployment ordering, rollback and civic boundaries remain elsewhere.
+the source commit and receive verified immutable image evidence plus a
+CAS-bound candidate, while all promotion authority, deployment ordering,
+rollback and civic boundaries remain elsewhere.
 
 ## Activation and visibility
 

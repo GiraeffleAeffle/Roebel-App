@@ -13,8 +13,12 @@ const actionPins = new Map([
   ["oras-project/setup-oras", "22ce207df3b08e061f537244349aac6ae1d214f6"],
   ["anchore/sbom-action/download-syft", "e22c389904149dbc22b58101806040fa8d37a610"],
   ["actions/attest", "1e69f48acb82d1966a394da916b4c1698aa569d6"],
+  ["actions/download-artifact", "018cc2cf5baa6db3ef3c5f8a56943fffe632ef53"],
   ["actions/upload-artifact", "ea165f8d65b6e75b540449e92b4886f43607fa02"],
 ]);
+
+const assemblyJobStart = workflow.indexOf("\n  assemble-release-set:");
+const assemblyJob = assemblyJobStart >= 0 ? workflow.slice(assemblyJobStart) : "";
 
 test("publisher follows protected relevant main pushes and retains exact-SHA recovery dispatch", () => {
   assert.match(workflow, /on:\n  push:\n    branches: \[main\]/u);
@@ -94,6 +98,37 @@ test("publication produces SPDX and GitHub OIDC attestations for exact digests",
   assert.match(workflow, /deploymentEffect:false/u);
 });
 
+test("same-run evidence is verified into an effect-free CAS-bound Release Set candidate", () => {
+  assert.notEqual(assemblyJobStart, -1);
+  assert.match(assemblyJob, /needs: publish/u);
+  assert.match(assemblyJob, /permissions:\n      actions: read\n      contents: read\n      packages: read\n      attestations: read/u);
+  assert.doesNotMatch(assemblyJob, /(?:packages|attestations|contents): write/u);
+  assert.doesNotMatch(assemblyJob, /id-token: write/u);
+  assert.match(assemblyJob, /actions\/download-artifact@[0-9a-f]{40}/u);
+  assert.match(assemblyJob, /pattern: "\*-publication-/u);
+  assert.match(assemblyJob, /merge-multiple: true/u);
+  assert.match(
+    assemblyJob,
+    /OPERATIONS_HEAD_URL: https:\/\/raw\.githubusercontent\.com\/GiraeffleAeffle\/roebel-staging-operations\/main\/reviewed-render\/roebel-staging\/head\.json/u,
+  );
+  assert.equal((assemblyJob.match(/gh attestation download /gu) ?? []).length, 2);
+  assert.equal((assemblyJob.match(/gh attestation verify /gu) ?? []).length, 2);
+  for (const predicate of ["https://slsa.dev/provenance/v1", "https://spdx.dev/Document/v2.3"]) {
+    assert.match(assemblyJob, new RegExp(predicate.replaceAll("/", "\\/"), "u"));
+  }
+  assert.match(assemblyJob, /--cert-identity "\$SIGNER_IDENTITY"/u);
+  assert.match(assemblyJob, /--source-digest "\$SOURCE_REVISION"/u);
+  assert.match(assemblyJob, /--source-ref refs\/heads\/main/u);
+  assert.match(assemblyJob, /--deny-self-hosted-runners/u);
+  assert.match(assemblyJob, /verify_component roebel-web-staging "\$WEB_IMAGE"/u);
+  assert.match(assemblyJob, /verify_component public-mecky "\$MECKY_IMAGE"/u);
+  assert.match(assemblyJob, /scripts\/assemble-roebel-staging-release-set\.mjs/u);
+  assert.match(assemblyJob, /release-set\/release-set\.candidate\.json/u);
+  assert.match(assemblyJob, /roebel-staging-release-set-/u);
+  assert.match(assemblyJob, /test "\$\(jq -er \.deploymentEffect "\$publication_receipt"\)" = false/u);
+  assert.doesNotMatch(assemblyJob, /^\s*(?:kubectl|helm|flux|talosctl|tailscale|ssh|oras cp)\b/imu);
+});
+
 test("publication has no deployment, runtime-secret or broad authority surface", () => {
   assert.match(workflow, /^permissions: \{\}$/mu);
   assert.match(workflow, /packages: write/u);
@@ -104,6 +139,7 @@ test("publication has no deployment, runtime-secret or broad authority surface",
   assert.doesNotMatch(workflow, /^\s*(?:kubectl|helm|flux|talosctl|tailscale|ssh)\b/imu);
   assert.doesNotMatch(workflow, /^\s*(?:HETZNER|KUBECONFIG|TALOSCONFIG|MECKY_INFERENCE_API_KEY):/imu);
   assert.match(docs, /publication is not promotion/iu);
+  assert.match(docs, /effect-free Release Set candidate/iu);
   assert.match(docs, /public visibility cannot\s+be reversed/iu);
   assert.match(docs, /does not merge or deploy a pull request/iu);
 });
