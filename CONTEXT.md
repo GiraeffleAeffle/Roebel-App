@@ -16,7 +16,7 @@ This glossary fixes the terms used by the Röbel app and Stadtstack integration.
 | **Argument tree** | The parent/child projection of the signed argument graph. | A second source of truth. |
 | **Sunburst** | A radial projection of the same argument tree. Area represents structure, not support or vote weight. | Poll results. |
 | **Mecky answer** | Machine-labelled assistance produced from checksum-bound reviewed evidence. | Administrative feedback, legal advice, or an official position. |
-| **Improvement proposal candidate** | A citizen-signed suggestion derived from a discussion and Mecky answer, awaiting human admission. | A submitted governance proposal. |
+| **Improvement proposal candidate** | A citizen-signed, topic-bound suggestion linking the exact discussion and reviewed Mecky receipt while still awaiting human Civic Case admission. | A Civic Case, submitted governance proposal, or administrative decision. |
 | **Civic case** | The admitted, append-only Stadtstack workflow record. | The public discussion alone. |
 | **Administrative feedback** | Human-reviewed department packages attached to the civic case. | Mecky output. |
 | **Citizen Brief** | The public, source-bound explanation of reviewed options and constraints. | A press release or binding decision. |

@@ -2,6 +2,7 @@ import {
   NOSTR_KEY_DERIVATION_MESSAGE,
   buildBindingEvent,
   buildCivicArgumentEvent,
+  buildCitizenSignedTopicSuggestion,
   buildCivicPromotionEvent,
   buildCivicTopicPromotionEvent,
   buildNoteEvent,
@@ -9,6 +10,8 @@ import {
   type CivicPromotionInput,
   type CivicArgumentInput,
   type CivicTopicPromotionInput,
+  type CitizenSignedTopicSuggestionInput,
+  type CitizenSignedTopicSuggestionV1,
   type NostrEvent,
 } from "@netizen-labs/nostr";
 
@@ -78,6 +81,9 @@ export interface CitizenSession {
     input: CivicTopicPromotionInput
   ): Promise<NostrEvent>;
   signCivicArgument(input: CivicArgumentInput): Promise<NostrEvent>;
+  signTopicSuggestion(
+    input: CitizenSignedTopicSuggestionInput
+  ): Promise<CitizenSignedTopicSuggestionV1>;
   dispose(): void;
 }
 
@@ -313,6 +319,13 @@ export function createCitizenSession(
       ensureActive();
       const signer = await identity();
       return buildCivicArgumentEvent(signer.secretKey, input);
+    },
+    async signTopicSuggestion(
+      input: CitizenSignedTopicSuggestionInput
+    ): Promise<CitizenSignedTopicSuggestionV1> {
+      ensureActive();
+      const signer = await identity();
+      return buildCitizenSignedTopicSuggestion(signer.secretKey, input);
     },
     dispose(): void {
       if (disposed) return;

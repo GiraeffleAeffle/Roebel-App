@@ -77,13 +77,17 @@ export type { Filter, PublishResult, RelayOptions } from "./relay";
 
 export {
   buildCivicArgumentEvent,
+  buildCitizenSignedTopicSuggestion,
   buildCitizenSignedSuggestion,
   buildCivicDiscussionEvent,
   buildCivicPromotionEvent,
   buildCivicTopicPromotionEvent,
+  verifyCitizenSignedTopicSuggestion,
 } from "./civic";
 export type {
   CivicArgumentInput,
+  CitizenSignedTopicSuggestionInput,
+  CitizenSignedTopicSuggestionV1,
   CitizenSignedSuggestionInput,
   CitizenSignedSuggestionV1,
   CivicCaseBinding,
@@ -91,5 +95,7 @@ export type {
   CivicPromotionInput,
   CivicTopicBinding,
   CivicTopicPromotionInput,
+  PublicMeckyTopicSuggestionDraftV1,
   PublicMeckySuggestionDraftV1,
+  VerifyCitizenSignedTopicSuggestionInput,
 } from "./civic";

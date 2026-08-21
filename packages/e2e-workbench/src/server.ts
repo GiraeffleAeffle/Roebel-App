@@ -14,8 +14,10 @@ import {
   getPublicKeyHex,
   isAgentEvent,
   RelayClient,
+  verifyCitizenSignedTopicSuggestion,
   verifyBindingEvent,
   verifyEvent,
+  type CitizenSignedTopicSuggestionV1,
   type CitizenSignedSuggestionV1,
   type NostrEvent,
 } from "@netizen-labs/nostr";
@@ -1038,8 +1040,69 @@ export async function startWorkbench(
           : null;
         const meckyReply =
           meckyEvents
-            .filter(verifyEvent)
+            .filter(
+              (entry) =>
+                verifyEvent(entry) &&
+                entry.pubkey === config.meckyPubkey &&
+                entry.tags.some(
+                  (tag) =>
+                    tag[0] === "e" &&
+                    tag[1] === rootId &&
+                    tag[3] === "reply"
+                )
+            )
             .sort((a, b) => b.created_at - a.created_at)[0] ?? null;
+        const topic = rootEvent ? topicFor(rootEvent) : null;
+        const suggestion =
+          rootEvent && topic && caseBindingFor(rootEvent) === null
+            ? citizenEvents
+                .filter(verifyEvent)
+                .filter(
+                  (candidate) =>
+                    tagValue(candidate, "schema") ===
+                      "citizen_signed_topic_suggestion_v1" &&
+                    candidate.tags.some(
+                      (tag) =>
+                        tag[0] === "e" &&
+                        tag[1] === rootEvent.id &&
+                        tag[3] === "root"
+                    )
+                )
+                .sort(
+                  (a, b) =>
+                    b.created_at - a.created_at || b.id.localeCompare(a.id)
+                )
+                .flatMap((candidate) => {
+                  const receiptId = tagValue(candidate, "mecky-receipt");
+                  const sourceAnswer = meckyEvents
+                    .filter(
+                      (answer) =>
+                        verifyEvent(answer) &&
+                        answer.pubkey === config.meckyPubkey
+                    )
+                    .find(
+                      (answer) =>
+                        tagValue(answer, "mecky-receipt") === receiptId
+                    );
+                  if (!sourceAnswer) return [];
+                  try {
+                    return [
+                      verifyCitizenSignedTopicSuggestion({
+                        binding: {
+                          municipalityId: "roebel-mueritz",
+                          topicId: topic.id,
+                        },
+                        sourceDiscussion: rootEvent,
+                        sourceAnswer,
+                        agentPubkey: config.meckyPubkey,
+                        event: candidate,
+                      }),
+                    ];
+                  } catch {
+                    return [];
+                  }
+                })[0] ?? null
+            : null;
         return json(response, 200, {
           schemaVersion: "roebel_staging_argument_thread_v1",
           arguments: argumentsList.sort(
@@ -1056,7 +1119,7 @@ export async function startWorkbench(
           ),
           rootEvent,
           sourceAppPostId: sourceEvent ? sourceAppPostIdFor(sourceEvent) : null,
-          topic: rootEvent ? topicFor(rootEvent) : null,
+          topic,
           caseBinding: rootEvent ? caseBindingFor(rootEvent) : null,
           mecky: meckyReply
             ? {
@@ -1067,6 +1130,7 @@ export async function startWorkbench(
                   .map((tag) => ({ digest: tag[1], url: tag[2] })),
               }
             : null,
+          suggestion,
           authorityBinding: "none",
         });
       }
@@ -1160,18 +1224,21 @@ export async function startWorkbench(
           (body.intent !== "post" &&
             body.intent !== "promotion" &&
             body.intent !== "argument" &&
-            body.intent !== "conversation")
+            body.intent !== "conversation" &&
+            body.intent !== "suggestion")
         )
           throw new Error("signed_event_invalid");
         const signed = event(body.event);
+        const maxSignedContent = body.intent === "suggestion" ? 4_000 : 2_000;
         if (
           signed.kind !== 1 ||
           signed.content !== signed.content.trim() ||
           signed.content.length < 1 ||
-          signed.content.length > 2_000
+          signed.content.length > maxSignedContent
         ) {
           throw new Error("signed_event_invalid");
         }
+        let signedSuggestion: CitizenSignedTopicSuggestionV1 | null = null;
         if (body.intent === "post") {
           const sourceAppPostTags = signed.tags.filter(
             (tag) => tag[0] === "source-app-post"
@@ -1253,6 +1320,68 @@ export async function startWorkbench(
             signed.created_at <= sourcePost.created_at
           )
             throw new Error("signed_promotion_source_invalid");
+        } else if (body.intent === "suggestion") {
+          const rootId = signed.tags.find(
+            (tag) => tag[0] === "e" && tag[3] === "root"
+          )?.[1];
+          const receiptId = tagValue(signed, "mecky-receipt");
+          const relatedCitizenEvents =
+            rootId && HEX64.test(rootId)
+              ? (
+                  await citizenRelay.query([
+                    { ids: [rootId, signed.id], kinds: [1], limit: 2 },
+                  ])
+                ).filter(verifyEvent)
+              : [];
+          const sourceDiscussion = relatedCitizenEvents.find(
+            (candidate) => candidate.id === rootId
+          );
+          const topic = sourceDiscussion ? topicFor(sourceDiscussion) : null;
+          const sourceAnswers =
+            rootId && receiptId
+              ? (
+                  await agentRelay.query([
+                    {
+                      kinds: [1],
+                      authors: [config.meckyPubkey],
+                      "#e": [rootId],
+                      limit: 20,
+                    },
+                  ])
+                ).filter(verifyEvent)
+              : [];
+          const sourceAnswer = sourceAnswers.find(
+            (candidate) => tagValue(candidate, "mecky-receipt") === receiptId
+          );
+          if (
+            !sourceDiscussion ||
+            !sourceAnswer ||
+            !topic ||
+            caseBindingFor(sourceDiscussion) !== null
+          ) {
+            throw new Error("signed_suggestion_sources_invalid");
+          }
+          signedSuggestion = verifyCitizenSignedTopicSuggestion({
+            binding: {
+              municipalityId: "roebel-mueritz",
+              topicId: topic.id,
+            },
+            sourceDiscussion,
+            sourceAnswer,
+            agentPubkey: config.meckyPubkey,
+            event: signed,
+          });
+          const prior = relatedCitizenEvents.find(
+            (candidate) => candidate.id === signed.id
+          );
+          if (prior) {
+            return json(response, 200, {
+              status: "signed",
+              event: prior,
+              suggestion: signedSuggestion,
+              authorityBinding: "none",
+            });
+          }
         } else {
           const rootId = tagValue(signed, "argument-root");
           const parentId =
@@ -1308,8 +1437,16 @@ export async function startWorkbench(
         if (!published.ok)
           throw new Error(`citizen_relay_${published.message}`);
         return json(response, 200, {
-          status: body.intent === "promotion" ? "promoted" : "published",
+          status:
+            body.intent === "promotion"
+              ? "promoted"
+              : body.intent === "suggestion"
+                ? "signed"
+                : "published",
           event: signed,
+          ...(signedSuggestion === null
+            ? {}
+            : { suggestion: signedSuggestion }),
           authorityBinding: "none",
         });
       }

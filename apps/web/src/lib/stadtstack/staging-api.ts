@@ -1,4 +1,5 @@
 import type { StagingArgument } from "./discussion-tree";
+import type { CitizenSignedTopicSuggestionV1 } from "@netizen-labs/nostr";
 
 export const STADTSTACK_STAGING_API = "/stadtstack-test/api" as const;
 
@@ -71,6 +72,7 @@ export type StagingThreadResponse = {
     author: { name: "Mecky"; kind: "mecky"; pubkey: string };
     evidenceRefs: { digest: string; url: string }[];
   };
+  suggestion: CitizenSignedTopicSuggestionV1 | null;
   authorityBinding: "none";
 };
 

@@ -89,8 +89,55 @@ export type CitizenSignedSuggestionInput = {
   createdAt: number;
 };
 
+export type PublicMeckyTopicSuggestionDraftV1 = {
+  schemaVersion: "public_mecky_topic_suggestion_draft_v1";
+  draftId: string;
+  sourceAnswerReceiptId: string;
+  sourceDiscussionId: string;
+  sourceDiscussionRef: string;
+  municipalityId: string;
+  topicId: string;
+  citizenPubkey: string;
+  title: string;
+  summary: string;
+  entryState: "citizen_signature_required";
+  authorityBinding: "none";
+  submittedToCivicWorkflow: false;
+};
+
+export type CitizenSignedTopicSuggestionV1 = {
+  schemaVersion: "citizen_signed_topic_suggestion_v1";
+  candidateId: string;
+  signerPubkey: string;
+  draft: PublicMeckyTopicSuggestionDraftV1;
+  event: NostrEvent;
+  verification: { kind: "nostr_nip01"; verified: true };
+  entryState: "awaiting_human_case_admission";
+  authorityBinding: "none";
+  submittedToCivicWorkflow: false;
+};
+
+export type CitizenSignedTopicSuggestionInput = {
+  binding: CivicTopicBinding;
+  sourceDiscussion: NostrEvent;
+  sourceAnswer: NostrEvent;
+  agentPubkey: string;
+  title: string;
+  summary: string;
+  createdAt: number;
+};
+
+export type VerifyCitizenSignedTopicSuggestionInput = Omit<
+  CitizenSignedTopicSuggestionInput,
+  "title" | "summary" | "createdAt"
+> & {
+  event: NostrEvent;
+};
+
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const PUBKEY = /^[0-9a-f]{64}$/;
+const TOPIC_ID =
+  /^urn:stadtstack:topic:municipality:([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?):([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)$/;
 const UUID_V7 =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -105,6 +152,17 @@ function validateBinding(input: CivicCaseBinding): void {
     !UUID_V7.test(parts[5] ?? "")
   ) {
     throw new Error("civic_case_binding_invalid");
+  }
+}
+
+function validateTopicBinding(input: CivicTopicBinding): void {
+  const match = TOPIC_ID.exec(input.topicId);
+  if (
+    !SLUG.test(input.municipalityId) ||
+    !match ||
+    match[1] !== input.municipalityId
+  ) {
+    throw new Error("civic_topic_binding_invalid");
   }
 }
 
@@ -129,6 +187,166 @@ function singleTag(event: NostrEvent, name: string): string | null {
     .filter((tag) => tag[0] === name && typeof tag[1] === "string")
     .map((tag) => tag[1]!);
   return values.length === 1 ? values[0]! : null;
+}
+
+function exactRecord(
+  value: unknown,
+  keys: readonly string[]
+): value is Record<string, unknown> {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype
+  ) {
+    return false;
+  }
+  const actual = Reflect.ownKeys(value);
+  return (
+    actual.length === keys.length &&
+    actual.every((key) => typeof key === "string" && keys.includes(key))
+  );
+}
+
+function validSuggestionEvidence(event: NostrEvent): boolean {
+  const evidence = event.tags.filter((tag) => tag[0] === "evidence");
+  if (
+    evidence.length < 1 ||
+    evidence.length > 3 ||
+    new Set(evidence.map((tag) => tag[1])).size !== evidence.length
+  ) {
+    return false;
+  }
+  return evidence.every((tag) => {
+    if (tag.length !== 3 || !/^sha256:[0-9a-f]{64}$/.test(tag[1] ?? "")) {
+      return false;
+    }
+    try {
+      const url = new URL(tag[2]!);
+      return url.protocol === "https:" && !url.username && !url.password;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function normalizedSuggestionContent(input: {
+  title: string;
+  summary: string;
+}): { title: string; summary: string } {
+  const title = input.title.trim();
+  const summary = input.summary.trim();
+  if (
+    !title ||
+    title.length > 240 ||
+    !summary ||
+    summary.length > 2_000 ||
+    /[\u0000-\u001f\u007f]/.test(title) ||
+    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(summary)
+  ) {
+    throw new Error("civic_suggestion_content_invalid");
+  }
+  return { title, summary };
+}
+
+function validateTopicSuggestionSources(
+  input: Pick<
+    CitizenSignedTopicSuggestionInput,
+    "binding" | "sourceDiscussion" | "sourceAnswer" | "agentPubkey"
+  >,
+  citizenPubkey: string
+): string {
+  validateTopicBinding(input.binding);
+  if (
+    !PUBKEY.test(citizenPubkey) ||
+    !verifyEvent(input.sourceDiscussion) ||
+    input.sourceDiscussion.kind !== 1 ||
+    input.sourceDiscussion.pubkey !== citizenPubkey ||
+    singleTag(input.sourceDiscussion, "t") !==
+      "stadtstack-civic-discussion" ||
+    singleTag(input.sourceDiscussion, "municipality") !==
+      input.binding.municipalityId ||
+    singleTag(input.sourceDiscussion, "topic") !== input.binding.topicId ||
+    singleTag(input.sourceDiscussion, "stance") !== "root" ||
+    singleTag(input.sourceDiscussion, "argument-root") !== "self" ||
+    singleTag(input.sourceDiscussion, "case") !== null ||
+    singleTag(input.sourceDiscussion, "stadtstack-case") !== null
+  ) {
+    throw new Error("civic_topic_suggestion_discussion_invalid");
+  }
+
+  const receiptId = singleTag(input.sourceAnswer, "mecky-receipt");
+  const replyParents = input.sourceAnswer.tags.filter(
+    (tag) =>
+      tag[0] === "e" &&
+      tag[1] === input.sourceDiscussion.id &&
+      tag[3] === "reply"
+  );
+  if (
+    !PUBKEY.test(input.agentPubkey) ||
+    !verifyEvent(input.sourceAnswer) ||
+    input.sourceAnswer.kind !== 1 ||
+    input.sourceAnswer.pubkey !== input.agentPubkey ||
+    input.sourceAnswer.created_at < input.sourceDiscussion.created_at ||
+    replyParents.length !== 1 ||
+    singleTag(input.sourceAnswer, "p") !== citizenPubkey ||
+    singleTag(input.sourceAnswer, "municipality") !==
+      input.binding.municipalityId ||
+    singleTag(input.sourceAnswer, "topic") !== input.binding.topicId ||
+    singleTag(input.sourceAnswer, "case") !== null ||
+    singleTag(input.sourceAnswer, "stadtstack-case") !== null ||
+    !receiptId ||
+    !/^urn:stadtstack:mecky-answer:[0-9a-f]{64}$/.test(receiptId) ||
+    !validSuggestionEvidence(input.sourceAnswer)
+  ) {
+    throw new Error("civic_topic_suggestion_answer_invalid");
+  }
+  return receiptId;
+}
+
+function topicSuggestionDraft(input: {
+  binding: CivicTopicBinding;
+  citizenPubkey: string;
+  receiptId: string;
+  sourceDiscussionId: string;
+  title: string;
+  summary: string;
+}): PublicMeckyTopicSuggestionDraftV1 {
+  const draftCore = {
+    sourceAnswerReceiptId: input.receiptId,
+    sourceDiscussionId: input.sourceDiscussionId,
+    sourceDiscussionRef: `nostr://event/${input.sourceDiscussionId}`,
+    municipalityId: input.binding.municipalityId,
+    topicId: input.binding.topicId,
+    citizenPubkey: input.citizenPubkey,
+    title: input.title,
+    summary: input.summary,
+  };
+  return {
+    schemaVersion: "public_mecky_topic_suggestion_draft_v1",
+    draftId: `urn:stadtstack:topic-suggestion-draft:${digest(draftCore).slice("sha256:".length)}`,
+    ...draftCore,
+    entryState: "citizen_signature_required",
+    authorityBinding: "none",
+    submittedToCivicWorkflow: false,
+  };
+}
+
+function topicSuggestionCandidate(
+  event: NostrEvent,
+  draft: PublicMeckyTopicSuggestionDraftV1
+): CitizenSignedTopicSuggestionV1 {
+  return {
+    schemaVersion: "citizen_signed_topic_suggestion_v1",
+    candidateId: `urn:stadtstack:signed-topic-suggestion:${event.id}`,
+    signerPubkey: event.pubkey,
+    draft,
+    event,
+    verification: { kind: "nostr_nip01", verified: true },
+    entryState: "awaiting_human_case_admission",
+    authorityBinding: "none",
+    submittedToCivicWorkflow: false,
+  };
 }
 
 export function buildCivicDiscussionEvent(
@@ -488,4 +706,134 @@ export function buildCitizenSignedSuggestion(
     authorityBinding: "none",
     submittedToCivicWorkflow: false,
   };
+}
+
+/**
+ * Sign a proposal candidate while the journey is still topic-bound.
+ *
+ * A CivicCase deliberately does not exist here. The event can be admitted by
+ * a later human-owned transition, but this function cannot create or submit
+ * that case on the citizen's behalf.
+ */
+export function buildCitizenSignedTopicSuggestion(
+  secretKey: Uint8Array,
+  input: CitizenSignedTopicSuggestionInput
+): CitizenSignedTopicSuggestionV1 {
+  const citizenPubkey = getPublicKeyHex(secretKey);
+  const receiptId = validateTopicSuggestionSources(input, citizenPubkey);
+  const { title, summary } = normalizedSuggestionContent(input);
+  if (
+    !Number.isSafeInteger(input.createdAt) ||
+    input.createdAt <= input.sourceDiscussion.created_at ||
+    input.createdAt <= input.sourceAnswer.created_at
+  ) {
+    throw new Error("civic_suggestion_timestamp_invalid");
+  }
+  const draft = topicSuggestionDraft({
+    binding: input.binding,
+    citizenPubkey,
+    receiptId,
+    sourceDiscussionId: input.sourceDiscussion.id,
+    title,
+    summary,
+  });
+  const event = buildNoteEvent(secretKey, JSON.stringify(draft), {
+    createdAt: input.createdAt,
+    tags: [
+      ["schema", "citizen_signed_topic_suggestion_v1"],
+      ["municipality", draft.municipalityId],
+      ["topic", draft.topicId],
+      ["e", draft.sourceDiscussionId, "", "root"],
+      ["mecky-receipt", draft.sourceAnswerReceiptId],
+    ],
+  });
+  return topicSuggestionCandidate(event, draft);
+}
+
+/**
+ * Independently verify a signed topic proposal at the publication seam.
+ *
+ * Callers supply the already verified source discussion and Mecky answer. The
+ * result is reconstructed from those sources, so untrusted JSON inside the
+ * candidate cannot add authority, a different topic, or a hidden CivicCase.
+ */
+export function verifyCitizenSignedTopicSuggestion(
+  input: VerifyCitizenSignedTopicSuggestionInput
+): CitizenSignedTopicSuggestionV1 {
+  if (
+    !verifyEvent(input.event) ||
+    input.event.kind !== 1 ||
+    input.event.pubkey !== input.sourceDiscussion.pubkey
+  ) {
+    throw new Error("civic_topic_suggestion_event_invalid");
+  }
+  const receiptId = validateTopicSuggestionSources(
+    input,
+    input.event.pubkey
+  );
+  if (
+    input.event.created_at <= input.sourceDiscussion.created_at ||
+    input.event.created_at <= input.sourceAnswer.created_at
+  ) {
+    throw new Error("civic_suggestion_timestamp_invalid");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(input.event.content) as unknown;
+  } catch {
+    throw new Error("civic_topic_suggestion_draft_invalid");
+  }
+  const keys = [
+    "schemaVersion",
+    "draftId",
+    "sourceAnswerReceiptId",
+    "sourceDiscussionId",
+    "sourceDiscussionRef",
+    "municipalityId",
+    "topicId",
+    "citizenPubkey",
+    "title",
+    "summary",
+    "entryState",
+    "authorityBinding",
+    "submittedToCivicWorkflow",
+  ] as const;
+  if (
+    !exactRecord(parsed, keys) ||
+    parsed.schemaVersion !== "public_mecky_topic_suggestion_draft_v1" ||
+    typeof parsed.title !== "string" ||
+    typeof parsed.summary !== "string" ||
+    parsed.entryState !== "citizen_signature_required" ||
+    parsed.authorityBinding !== "none" ||
+    parsed.submittedToCivicWorkflow !== false
+  ) {
+    throw new Error("civic_topic_suggestion_draft_invalid");
+  }
+  const { title, summary } = normalizedSuggestionContent({
+    title: parsed.title,
+    summary: parsed.summary,
+  });
+  const expectedDraft = topicSuggestionDraft({
+    binding: input.binding,
+    citizenPubkey: input.event.pubkey,
+    receiptId,
+    sourceDiscussionId: input.sourceDiscussion.id,
+    title,
+    summary,
+  });
+  const expectedTags = [
+    ["schema", "citizen_signed_topic_suggestion_v1"],
+    ["municipality", expectedDraft.municipalityId],
+    ["topic", expectedDraft.topicId],
+    ["e", expectedDraft.sourceDiscussionId, "", "root"],
+    ["mecky-receipt", expectedDraft.sourceAnswerReceiptId],
+  ];
+  if (
+    canonical(parsed) !== canonical(expectedDraft) ||
+    canonical(input.event.tags) !== canonical(expectedTags)
+  ) {
+    throw new Error("civic_topic_suggestion_draft_invalid");
+  }
+  return topicSuggestionCandidate(input.event, expectedDraft);
 }

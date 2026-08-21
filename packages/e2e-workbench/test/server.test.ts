@@ -8,6 +8,7 @@ import {
   buildCivicDiscussionEvent,
   buildCivicPromotionEvent,
   buildCivicTopicPromotionEvent,
+  buildCitizenSignedTopicSuggestion,
   buildCitizenSignedSuggestion,
   buildNoteEvent,
   deriveAgentIdentity,
@@ -539,6 +540,178 @@ describe("Röbel E2E workbench boundary", () => {
         ),
         true
       );
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("publishes and projects a citizen-signed topic proposal without admitting a CivicCase", async () => {
+    const config = parseWorkbenchConfig(environment());
+    const citizenEvents: Array<Record<string, unknown>> = [];
+    const agentEvents: Array<Record<string, unknown>> = [];
+    const relay = (events: Array<Record<string, unknown>>) => ({
+      query: async (filters: Array<Record<string, unknown>>) =>
+        events.filter((entry) => {
+          const filter = filters[0] ?? {};
+          if (
+            Array.isArray(filter.ids) &&
+            !filter.ids.includes(entry.id as string)
+          ) {
+            return false;
+          }
+          if (
+            Array.isArray(filter.authors) &&
+            !filter.authors.includes(entry.pubkey as string)
+          ) {
+            return false;
+          }
+          if (
+            Array.isArray(filter.kinds) &&
+            !filter.kinds.includes(entry.kind as number)
+          ) {
+            return false;
+          }
+          const expectedParents = filter["#e"];
+          if (
+            Array.isArray(expectedParents) &&
+            !(entry.tags as string[][]).some(
+              (tag) =>
+                tag[0] === "e" && expectedParents.includes(tag[1])
+            )
+          ) {
+            return false;
+          }
+          return true;
+        }),
+      publish: async (entry: Record<string, unknown>) => {
+        if (!events.some((candidate) => candidate.id === entry.id)) {
+          events.push(entry);
+        }
+        return { ok: true, message: "stored" };
+      },
+      close: () => {},
+    });
+    let controlCalls = 0;
+    const running = await startWorkbench(config, {
+      citizenRelay: relay(citizenEvents) as never,
+      agentRelay: relay(agentEvents) as never,
+      fetch: async () => {
+        controlCalls += 1;
+        throw new Error("control_must_not_be_called");
+      },
+    });
+    try {
+      const origin = `http://127.0.0.1:${running.port}/stadtstack-test`;
+      const citizenSecret = Uint8Array.from(
+        Buffer.from("11".repeat(32), "hex")
+      );
+      const meckySecret = Uint8Array.from(
+        Buffer.from("33".repeat(32), "hex")
+      );
+      const topicId =
+        "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt";
+      const sourcePost = buildNoteEvent(citizenSecret, "Treffpunkt gesucht", {
+        createdAt: 601,
+      });
+      const discussion = buildCivicTopicPromotionEvent(citizenSecret, {
+        sourcePost,
+        municipalityId: "roebel-mueritz",
+        topicId,
+        topicTitle: "Offener Treffpunkt",
+        agentPubkey: config.meckyPubkey,
+        content: "@Mecky Welche geprüften Optionen gibt es?",
+        createdAt: 602,
+      });
+      citizenEvents.push(
+        sourcePost as unknown as Record<string, unknown>,
+        discussion as unknown as Record<string, unknown>
+      );
+      const answer = buildNoteEvent(meckySecret, "Geprüfte Antwort", {
+        createdAt: 603,
+        tags: [
+          ["e", discussion.id, "", "reply"],
+          ["p", discussion.pubkey],
+          [
+            "mecky-receipt",
+            `urn:stadtstack:mecky-answer:${"d".repeat(64)}`,
+          ],
+          ["municipality", "roebel-mueritz"],
+          ["topic", topicId],
+          [
+            "evidence",
+            `sha256:${"e".repeat(64)}`,
+            "https://stadtstack.example/public/reviewed-source",
+          ],
+        ],
+      });
+      const signed = buildCitizenSignedTopicSuggestion(citizenSecret, {
+        binding: { municipalityId: "roebel-mueritz", topicId },
+        sourceDiscussion: discussion,
+        sourceAnswer: answer,
+        agentPubkey: config.meckyPubkey,
+        title: "Offenen Treffpunkt prüfen",
+        summary: "Die öffentlich diskutierten Optionen sollen geprüft werden.",
+        createdAt: 604,
+      });
+
+      const beforeEvidence = await fetch(`${origin}/api/signed-event`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stadtstack-e2e": "1",
+        },
+        body: JSON.stringify({ intent: "suggestion", event: signed.event }),
+      });
+      assert.equal(beforeEvidence.status, 422);
+      agentEvents.push(answer as unknown as Record<string, unknown>);
+
+      const published = await fetch(`${origin}/api/signed-event`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stadtstack-e2e": "1",
+        },
+        body: JSON.stringify({ intent: "suggestion", event: signed.event }),
+      });
+      const payload = (await published.json()) as {
+        status: string;
+        suggestion: { candidateId: string; entryState: string };
+      };
+      assert.equal(published.status, 200);
+      assert.equal(payload.status, "signed");
+      assert.equal(payload.suggestion.candidateId, signed.candidateId);
+      assert.equal(
+        payload.suggestion.entryState,
+        "awaiting_human_case_admission"
+      );
+
+      const duplicate = await fetch(`${origin}/api/signed-event`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stadtstack-e2e": "1",
+        },
+        body: JSON.stringify({ intent: "suggestion", event: signed.event }),
+      });
+      assert.equal(duplicate.status, 200);
+      assert.equal(
+        citizenEvents.filter((entry) => entry.id === signed.event.id).length,
+        1
+      );
+
+      const thread = (await fetch(
+        `${origin}/api/thread?root=${discussion.id}`
+      ).then((response) => response.json())) as {
+        caseBinding: unknown;
+        suggestion: null | {
+          candidateId: string;
+          submittedToCivicWorkflow: boolean;
+        };
+      };
+      assert.equal(thread.caseBinding, null);
+      assert.equal(thread.suggestion?.candidateId, signed.candidateId);
+      assert.equal(thread.suggestion?.submittedToCivicWorkflow, false);
+      assert.equal(controlCalls, 0);
     } finally {
       await running.close();
     }
