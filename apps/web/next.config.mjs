@@ -17,6 +17,13 @@ const WEBPACK_PARALLELISM = resolveWebpackParallelism(
   process.env.ROEBEL_WEBPACK_PARALLELISM,
 );
 
+// The Talos staging image builds on GitHub's 4-core / 16 GiB public runner.
+// Unlike the smaller Vercel build, it has enough memory to run Next's server
+// compilation and output tracing concurrently. Keep this staging-only until a
+// measured build proves the worker is compatible with our custom webpack
+// fallbacks and externals.
+const STAGING_BUILD_WORKERS = process.env.ROEBEL_STANDALONE_IMAGE === "1";
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // The public/Vercel build keeps its existing output mode. Talos' immutable
@@ -32,7 +39,12 @@ const nextConfig = {
   // (commit ac1c425, right at the webpack compile). This trades a bit of build
   // time for materially lower webpack memory — the documented next step after
   // the 4096MB heap cap (see package.json build script).
-  experimental: { webpackMemoryOptimizations: true },
+  experimental: {
+    webpackMemoryOptimizations: true,
+    webpackBuildWorker: STAGING_BUILD_WORKERS,
+    parallelServerCompiles: STAGING_BUILD_WORKERS,
+    parallelServerBuildTraces: STAGING_BUILD_WORKERS,
+  },
   // The Netizen packages ship untranspiled TS source (main: src/index.ts), so
   // they must be transpiled by the app that consumes them.
   // @netizen-labs/workspace happens to be transpiled today even without being
