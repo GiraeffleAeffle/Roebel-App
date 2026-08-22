@@ -21,3 +21,5 @@ Admission state and source authority are separate fields. Corrections, withdrawa
 ## Consequences
 
 Ordinary conversation becomes useful before civic promotion, while the UI can truthfully distinguish "Anna reported" from "the newspaper reported", "the paper states" and "the reviewed case says". Adding a new source requires a reviewed projection adapter and correction tests rather than a prompt change. Missing reviewed sources yield an explicit limitation instead of model-memory prose.
+
+ADR 0017 defines the checksum-bound GET-only projection used to admit reviewed local news and Ratsinformationssystem records without reviewing every generated answer.

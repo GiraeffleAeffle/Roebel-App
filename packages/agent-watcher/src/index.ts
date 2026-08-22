@@ -78,6 +78,20 @@ export type {
   RetrievedPublicEvidence,
   ReviewedCivicCaseEvidence,
 } from "./public-evidence";
+export {
+  createReviewedPublicKnowledgeSourceAdapter,
+  ReviewedPublicKnowledgeError,
+  sealReviewedPublicKnowledgeProjection,
+  REVIEWED_PUBLIC_KNOWLEDGE_SOURCE_KINDS,
+} from "./reviewed-public-knowledge";
+export type {
+  ReviewedPublicKnowledgeAdapterOptions,
+  ReviewedPublicKnowledgeErrorCode,
+  ReviewedPublicKnowledgeProjection,
+  ReviewedPublicKnowledgeProjectionDraft,
+  ReviewedPublicKnowledgeRecord,
+  ReviewedPublicKnowledgeSourceKind,
+} from "./reviewed-public-knowledge";
 export { createStadtstackNostrIntakeClient } from "./stadtstack-control";
 export type {
   StadtstackCommandReceipt,
