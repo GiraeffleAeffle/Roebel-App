@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
   CircleDollarSign,
@@ -13,11 +13,8 @@ import {
   ShieldCheck,
   Users,
 } from "lucide-react";
-import { stagingPost } from "@/lib/stadtstack/staging-api";
-import {
-  toStadtstackAdvisoryCase,
-  type StadtstackAdvisoryCase,
-} from "@/lib/stadtstack/advisory-participation";
+import { loadStadtstackAdvisoryCase } from "@/lib/stadtstack/staging-api";
+import type { StadtstackAdvisoryCase } from "@/lib/stadtstack/advisory-participation";
 
 function OptionBar({
   label,
@@ -50,30 +47,44 @@ function OptionBar({
   );
 }
 
-export function StadtstackAdvisoryParticipation() {
+export function StadtstackAdvisoryParticipation({
+  caseId,
+  topicId,
+}: {
+  caseId?: string | null;
+  topicId?: string | null;
+}) {
   const [advisoryCase, setAdvisoryCase] =
     useState<StadtstackAdvisoryCase | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const requestId = useRef(0);
 
   useEffect(() => {
-    let active = true;
-    void stagingPost<unknown>("/view", { profile: "public" })
+    if (caseId === undefined) return;
+    const currentRequestId = ++requestId.current;
+    setAdvisoryCase(null);
+    setError(null);
+    if (!caseId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    void loadStadtstackAdvisoryCase(caseId)
       .then((value) => {
-        const projected = toStadtstackAdvisoryCase(value);
-        if (active) setAdvisoryCase(projected);
+        if (requestId.current === currentRequestId) setAdvisoryCase(value);
       })
       .catch(() => {
-        if (active)
+        if (requestId.current === currentRequestId)
           setError("Der geprüfte Citizen Brief ist noch nicht verfügbar.");
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (requestId.current === currentRequestId) setLoading(false);
       });
     return () => {
-      active = false;
+      if (requestId.current === currentRequestId) requestId.current += 1;
     };
-  }, []);
+  }, [caseId]);
 
   return (
     <section
@@ -90,11 +101,25 @@ export function StadtstackAdvisoryParticipation() {
         <p className="mt-1 text-sm leading-6 text-emerald-100">
           Getrennt von formaler Governance, Ratsentscheidung und Stadtkasse.
         </p>
+        {topicId && (
+          <Link
+            href={`/app/themen/${encodeURIComponent(topicId)}`}
+            className="mt-3 inline-flex items-center text-sm font-bold text-emerald-100 hover:text-white hover:underline"
+          >
+            Zurück zum Bürger-Thema
+          </Link>
+        )}
       </header>
 
-      {loading ? (
+      {caseId === undefined || loading ? (
         <div className="flex min-h-40 items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" /> Geprüften Fall laden…
+        </div>
+      ) : !caseId ? (
+        <div className="p-6 text-sm leading-6 text-muted-foreground">
+          Öffne Mitmachen aus einem Bürger-Thema mit aktuellem Citizen Brief. So
+          bleibt der öffentliche Fall exakt gebunden und wird nicht als
+          losgelöster Vorschlag angezeigt.
         </div>
       ) : error || !advisoryCase ? (
         <div className="p-6 text-sm text-muted-foreground">
@@ -170,6 +195,32 @@ export function StadtstackAdvisoryParticipation() {
                 Diskussion öffnen
               </Link>
             </div>
+          </div>
+
+          <div className="rounded-xl border border-sky-200 bg-sky-50 p-4">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-sky-950">
+              <CircleDollarSign className="h-4 w-4" /> Geprüfter Budgetkontext
+            </div>
+            <p className="mt-2 text-sm leading-6 text-sky-950">
+              {advisoryCase.budgetContext.publicSummary}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-sky-900">
+              <span>
+                Arbeitspaket{" "}
+                {advisoryCase.budgetContext.packageBinding.packageId}
+              </span>
+              <span>
+                {advisoryCase.budgetContext.publicCitations.length} öffentliche
+                Quellenangabe
+                {advisoryCase.budgetContext.publicCitations.length === 1
+                  ? ""
+                  : "n"}
+              </span>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-sky-900">
+              Das ist die öffentlich geprüfte Finanzantwort zu diesem Fall,
+              keine Mittelzusage und kein Kassenauftrag.
+            </p>
           </div>
 
           {advisoryCase.participationState === "brief_ready" ? (

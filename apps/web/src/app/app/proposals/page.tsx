@@ -20,6 +20,14 @@ export default function ProposalsPage() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [stadtstackCaseId, setStadtstackCaseId] = useState<string | null | undefined>(undefined);
+  const [stadtstackTopicId, setStadtstackTopicId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const search = new URLSearchParams(window.location.search);
+    setStadtstackCaseId(search.get("case"));
+    setStadtstackTopicId(search.get("topic"));
+  }, []);
 
   // Fetch proposals from Supabase
   useEffect(() => {
@@ -60,7 +68,9 @@ export default function ProposalsPage() {
             </div>
           </div>
 
-          {stadtstackStagingLab && <StadtstackAdvisoryParticipation />}
+          {stadtstackStagingLab && (
+            <StadtstackAdvisoryParticipation caseId={stadtstackCaseId} topicId={stadtstackTopicId} />
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
             <Link

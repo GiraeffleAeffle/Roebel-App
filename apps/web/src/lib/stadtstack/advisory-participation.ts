@@ -20,6 +20,17 @@ type StadtstackAdvisoryBase = {
   sourceDiscussionId: string;
   reviewedDepartmentCount: number;
   briefChecksum: string;
+  budgetContext: {
+    departmentLabel: "Finanzen";
+    publicSummary: string;
+    publicCitations: string[];
+    reviewedAt: string;
+    packageBinding: {
+      packageId: string;
+      packageChecksum: string;
+      artifactChecksum: string;
+    };
+  };
   authorityBinding: "none";
   effects: typeof EFFECTS;
 };
@@ -130,6 +141,20 @@ export function toStadtstackAdvisoryCase(
     fail();
   }
 
+  const finance = administration.departments.find(
+    (department) => department.id === "finance"
+  );
+  if (
+    !finance ||
+    finance.state !== "reviewed" ||
+    finance.label !== "Finanzen" ||
+    !finance.publicSummary ||
+    !finance.reviewedAt ||
+    !finance.packageBinding
+  ) {
+    fail();
+  }
+
   const base: StadtstackAdvisoryBase = {
     caseId: administration.caseBinding.caseId,
     caseVersion: administration.caseBinding.caseVersion,
@@ -138,6 +163,13 @@ export function toStadtstackAdvisoryCase(
     sourceDiscussionId,
     reviewedDepartmentCount: administration.acceptedCount,
     briefChecksum: administration.currentBrief.briefChecksum,
+    budgetContext: {
+      departmentLabel: "Finanzen",
+      publicSummary: finance.publicSummary,
+      publicCitations: [...finance.publicCitations],
+      reviewedAt: finance.reviewedAt,
+      packageBinding: { ...finance.packageBinding },
+    },
     authorityBinding: "none",
     effects: { ...EFFECTS },
   };

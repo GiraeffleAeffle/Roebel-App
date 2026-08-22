@@ -1,5 +1,7 @@
+import Link from "next/link";
 import {
   CheckCircle2,
+  ChevronRight,
   CircleDollarSign,
   Clock3,
   FileCheck2,
@@ -15,6 +17,7 @@ type Props = {
   loading: boolean;
   error: string | null;
   onRefresh: () => void;
+  participationHref?: string | null;
 };
 
 const STATUS_COPY = {
@@ -51,6 +54,7 @@ export function StadtstackAdministrationProgress({
   loading,
   error,
   onRefresh,
+  participationHref,
 }: Props) {
   const status = progress ? STATUS_COPY[progress.status] : null;
 
@@ -180,6 +184,15 @@ export function StadtstackAdministrationProgress({
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
                 {progress.currentBrief.summary}
               </p>
+              {participationHref && (
+                <Link
+                  href={participationHref}
+                  className="mt-3 inline-flex min-h-10 items-center gap-1 rounded-full bg-emerald-700 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-800"
+                >
+                  Im Mitmachen-Bereich ansehen
+                  <ChevronRight className="h-4 w-4" />
+                </Link>
+              )}
             </div>
           )}
 
