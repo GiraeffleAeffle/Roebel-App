@@ -23,7 +23,7 @@ branch's preceding compilation cache, but GitHub scopes anything it writes to
 that pull request, so it cannot poison protected `main`. The build itself runs
 once in the exact pinned Node image with networking disabled, a read-only
 offline pnpm store, no Linux capabilities and no-new-privileges. The retained
-Next cache is limited to 1 GiB and is never copied into the runtime image.
+Next cache is limited to 2 GiB and is never copied into the runtime image.
 
 After the standalone build, a separate runtime context receives only traced
 production dependencies, server output, static assets, public files and the

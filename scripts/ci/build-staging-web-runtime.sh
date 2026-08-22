@@ -18,7 +18,7 @@ pnpm_store="${PNPM_STORE:-}"
 corepack_cache="${COREPACK_CACHE:-}"
 runtime_context="${RUNTIME_CONTEXT:-}"
 source_revision="${SOURCE_REVISION:-}"
-max_next_cache_bytes="${MAX_NEXT_CACHE_BYTES:-1073741824}"
+max_next_cache_bytes="${MAX_NEXT_CACHE_BYTES:-2147483648}"
 max_runtime_context_bytes="${MAX_RUNTIME_CONTEXT_BYTES:-805306368}"
 
 for path in "$source_context" "$pnpm_store" "$corepack_cache"; do
@@ -89,7 +89,7 @@ done
 
 next_cache_bytes="$(du -sb "$next_cache" | cut -f1)"
 [[ "$next_cache_bytes" =~ ^[0-9]+$ ]] || fail 'Next cache measurement differs'
-(( next_cache_bytes <= max_next_cache_bytes )) || fail 'Next cache exceeds its retained budget'
+(( next_cache_bytes <= max_next_cache_bytes )) || fail "Next cache exceeds its retained budget ($next_cache_bytes > $max_next_cache_bytes bytes)"
 
 mkdir -p "$runtime_context/apps/web/.next" "$runtime_context/apps/web"
 cp -a "$standalone/." "$runtime_context/"

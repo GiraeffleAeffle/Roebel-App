@@ -43,7 +43,7 @@ test("PR Web builds reuse a bounded Next cache and package runtime output only",
   assert.match(web, /node scripts\/ci\/staging-web-cache-family\.mjs/u);
   assert.match(web, /actions\/cache@0057852bfaa89a56745cba8c7296529d2fc39830/u);
   assert.match(web, /context\/apps\/web\/\.next\/cache/u);
-  assert.match(web, /MAX_NEXT_CACHE_BYTES: "1073741824"/u);
+  assert.match(web, /MAX_NEXT_CACHE_BYTES: "2147483648"/u);
   assert.match(web, /MAX_RUNTIME_CONTEXT_BYTES: "805306368"/u);
   assert.match(web, /run: scripts\/ci\/build-staging-web-runtime\.sh/u);
   assert.match(web, /--file Dockerfile\.staging-web-runtime/u);
