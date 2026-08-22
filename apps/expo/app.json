@@ -70,16 +70,7 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      [
-        "expo-router",
-        {
-          "asyncRoutes": {
-            "android": false,
-            "ios": false,
-            "default": "development"
-          }
-        }
-      ],
+      "expo-router",
       [
         "expo-build-properties",
         {
@@ -103,9 +94,6 @@
       ],
       "expo-web-browser"
     ],
-    "experiments": {
-      "typedRoutes": true
-    },
     "extra": {
       "eas": {
         "projectId": "cb460582-e228-4a96-8235-92eb13006239"
