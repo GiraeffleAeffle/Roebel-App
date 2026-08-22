@@ -6,7 +6,10 @@ import { spawnSync } from "node:child_process";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { affectedStagingComponents } from "./affected-staging-components.mjs";
+import {
+  affectedStagingComponents,
+  STAGING_SERVICE_BUILD_MATRIX,
+} from "./affected-staging-components.mjs";
 
 const CLI = fileURLToPath(new URL("./affected-staging-components.mjs", import.meta.url));
 
@@ -33,12 +36,20 @@ describe("staging component change detection", () => {
   });
 
   it("keeps an agent-watcher change away from the Web and unrelated services", () => {
+    const result = affectedStagingComponents(["packages/agent-watcher/src/cli.ts"]);
     assert.deepEqual(selection(["packages/agent-watcher/src/cli.ts"]), {
       web: false,
       public_mecky: true,
       e2e_workbench: false,
       staging_relay: false,
       any_service: true,
+    });
+    assert.deepEqual(result.service_build_matrix, {
+      include: [{
+        component: "public-mecky",
+        package: "@netizen-labs/agent-watcher",
+        dockerfile: "packages/agent-watcher/Dockerfile",
+      }],
     });
   });
 
@@ -62,6 +73,27 @@ describe("staging component change detection", () => {
     });
   });
 
+  it("maps shared service workflow and verifier changes to all services but not Web", () => {
+    for (const path of [
+      ".github/workflows/staging-services-oci.yml",
+      "scripts/verify-staging-service-oci.mjs",
+      "scripts/verify-staging-service-oci.test.mjs",
+    ]) {
+      const result = affectedStagingComponents([path]);
+      assert.deepEqual(selection([path]), {
+        web: false,
+        public_mecky: true,
+        e2e_workbench: true,
+        staging_relay: true,
+        any_service: true,
+      });
+      assert.deepEqual(
+        result.service_build_matrix.include,
+        STAGING_SERVICE_BUILD_MATRIX.map(({ key: _key, ...entry }) => entry),
+      );
+    }
+  });
+
   it("fails closed for dependency and detector changes", () => {
     for (const path of ["pnpm-lock.yaml", "scripts/ci/affected-staging-components.mjs", "__all__"]) {
       assert.deepEqual(selection([path]), {
@@ -80,7 +112,7 @@ describe("staging component change detection", () => {
     }
   });
 
-  it("emits only closed booleans to the GitHub output boundary", () => {
+  it("emits closed booleans and a repository-owned service matrix to GitHub output", () => {
     const directory = mkdtempSync(join(tmpdir(), "roebel-affected-components-"));
     const output = join(directory, "github-output");
     try {
@@ -96,6 +128,7 @@ describe("staging component change detection", () => {
         "e2e_workbench=false",
         "staging_relay=false",
         "any_service=true",
+        'service_build_matrix={"include":[{"component":"public-mecky","package":"@netizen-labs/agent-watcher","dockerfile":"packages/agent-watcher/Dockerfile"}]}',
         "",
       ].join("\n"));
       assert.notEqual(

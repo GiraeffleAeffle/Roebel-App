@@ -8,6 +8,27 @@ export const STAGING_COMPONENTS = [
   "staging_relay",
 ];
 
+export const STAGING_SERVICE_BUILD_MATRIX = Object.freeze([
+  Object.freeze({
+    key: "public_mecky",
+    component: "public-mecky",
+    package: "@netizen-labs/agent-watcher",
+    dockerfile: "packages/agent-watcher/Dockerfile",
+  }),
+  Object.freeze({
+    key: "e2e_workbench",
+    component: "roebel-e2e-workbench",
+    package: "@roebel/e2e-workbench",
+    dockerfile: "packages/e2e-workbench/Dockerfile",
+  }),
+  Object.freeze({
+    key: "staging_relay",
+    component: "roebel-staging-relay",
+    package: "@roebel/staging-relay",
+    dockerfile: "packages/staging-relay/Dockerfile",
+  }),
+]);
+
 const ALL_COMPONENT_PATHS = new Set([
   ".npmrc",
   "package.json",
@@ -54,6 +75,16 @@ const EXACT_PATHS = {
   staging_relay: new Set([]),
 };
 
+for (const component of ["public_mecky", "e2e_workbench", "staging_relay"]) {
+  for (const path of [
+    ".github/workflows/staging-services-oci.yml",
+    "scripts/verify-staging-service-oci.mjs",
+    "scripts/verify-staging-service-oci.test.mjs",
+  ]) {
+    EXACT_PATHS[component].add(path);
+  }
+}
+
 function cleanPaths(paths) {
   if (!Array.isArray(paths)) throw new Error("Changed paths must be an array.");
   return [...new Set(paths.map((value) => {
@@ -91,9 +122,15 @@ export function affectedStagingComponents(paths) {
       PREFIXES[component].some((prefix) => path.startsWith(prefix))
     ),
   ]));
+  const serviceBuildMatrix = Object.freeze({
+    include: Object.freeze(STAGING_SERVICE_BUILD_MATRIX
+      .filter(({ key }) => affected[key])
+      .map(({ key: _key, ...entry }) => Object.freeze(entry))),
+  });
   return Object.freeze({
     ...affected,
     any_service: affected.public_mecky || affected.e2e_workbench || affected.staging_relay,
+    service_build_matrix: serviceBuildMatrix,
     changed_paths: Object.freeze(changedPaths),
   });
 }
@@ -115,6 +152,7 @@ function runCli() {
       `e2e_workbench=${result.e2e_workbench}`,
       `staging_relay=${result.staging_relay}`,
       `any_service=${result.any_service}`,
+      `service_build_matrix=${JSON.stringify(result.service_build_matrix)}`,
       "",
     ].join("\n"), "utf8");
     return;

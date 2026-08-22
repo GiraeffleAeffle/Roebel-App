@@ -9,14 +9,18 @@ on:
       - "packages/agent-watcher/**"
       - "packages/e2e-workbench/**"
       - "packages/nostr/**"
+      - "packages/relay-sync/**"
       - "packages/staging-relay/**"
       - "packages/stadtstack-federation-client/**"
+      - "patches/**"
+      - "scripts/ci/**"
       - "scripts/verify-staging-service-oci.mjs"
       - "scripts/verify-staging-service-oci.test.mjs"
       - ".npmrc"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
+      - "turbo.json"
 
 permissions:
   contents: read
@@ -26,23 +30,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect affected staging services
+    runs-on: ubuntu-latest
+    outputs:
+      any_service: ${{ steps.affected.outputs.any_service }}
+      service_build_matrix: ${{ steps.affected.outputs.service_build_matrix }}
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect affected service boundaries
+        id: affected
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BASE_SHA" =~ ^0+$ ]] || ! git cat-file -e "$BASE_SHA^{commit}"; then
+            printf '__all__\n' > "$RUNNER_TEMP/changed-paths.txt"
+          else
+            git diff --name-only "$BASE_SHA" "$HEAD_SHA" > "$RUNNER_TEMP/changed-paths.txt"
+          fi
+          node scripts/ci/affected-staging-components.mjs --github-output < "$RUNNER_TEMP/changed-paths.txt"
+
   build:
     name: Build ${{ matrix.component }} private OCI artifact
+    needs: changes
+    if: ${{ needs.changes.outputs.any_service == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - component: public-mecky
-            package: "@netizen-labs/agent-watcher"
-            dockerfile: packages/agent-watcher/Dockerfile
-          - component: roebel-e2e-workbench
-            package: "@roebel/e2e-workbench"
-            dockerfile: packages/e2e-workbench/Dockerfile
-          - component: roebel-staging-relay
-            package: "@roebel/staging-relay"
-            dockerfile: packages/staging-relay/Dockerfile
+      matrix: ${{ fromJSON(needs.changes.outputs.service_build_matrix) }}
     env:
       SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
       MAX_CONTEXT_BYTES: "31457280"
