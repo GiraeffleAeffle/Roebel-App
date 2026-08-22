@@ -253,17 +253,17 @@ function ThemedLayout() {
           {/* Pseudo-tab routes reachable from components/BottomNavigation.tsx — no tab
               navigator exists, so these switches must stay instant cuts instead of
               sliding sideways like a real push. */}
-          <TransitionStack.Screen name="index" options={{ animation: 'none' }} />
-          <TransitionStack.Screen name="explore" options={{ animation: 'none' }} />
-          <TransitionStack.Screen name="profile" options={{ animation: 'none' }} />
-          <TransitionStack.Screen name="events" options={{ animation: 'none' }} />
-          <TransitionStack.Screen name="calendar" options={{ animation: 'none' }} />
-          <TransitionStack.Screen name="governance" options={{ animation: 'none' }} />
-          <TransitionStack.Screen name="tours/index" options={{ animation: 'none' }} />
-          <TransitionStack.Screen name="transit/index" options={{ animation: 'none' }} />
-          <TransitionStack.Screen name="blog/index" options={{ animation: 'none' }} />
-          <TransitionStack.Screen name="wildlife/index" options={{ animation: 'none' }} />
-          <TransitionStack.Screen name="news/index" options={{ animation: 'none' }} />
+          <TransitionStack.Screen name="index" options={noTransition()} />
+          <TransitionStack.Screen name="explore" options={noTransition()} />
+          <TransitionStack.Screen name="profile" options={noTransition()} />
+          <TransitionStack.Screen name="events" options={noTransition()} />
+          <TransitionStack.Screen name="calendar" options={noTransition()} />
+          <TransitionStack.Screen name="governance" options={noTransition()} />
+          <TransitionStack.Screen name="tours/index" options={noTransition()} />
+          <TransitionStack.Screen name="transit/index" options={noTransition()} />
+          <TransitionStack.Screen name="blog/index" options={noTransition()} />
+          <TransitionStack.Screen name="wildlife/index" options={noTransition()} />
+          <TransitionStack.Screen name="news/index" options={noTransition()} />
           <TransitionStack.Screen
             name="welcome"
             options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }}
