@@ -41,6 +41,23 @@ export type StagingFeedResponse = {
   authorityBinding: "none";
 };
 
+/** Read only non-synthetic topic activity for projection into the normal feed. */
+export async function loadPublicCivicTopicActivity(): Promise<
+  StagingTopicPost[]
+> {
+  const feed = await stagingGet<StagingFeedResponse>("/feed?profile=public");
+  if (
+    feed.schemaVersion !== "roebel_staging_mixed_feed_v1" ||
+    feed.authorityBinding !== "none" ||
+    !Array.isArray(feed.posts)
+  )
+    throw new StagingUnavailableError();
+  return feed.posts.filter(
+    (entry): entry is StagingTopicPost =>
+      entry.entryType === "topic" && entry.synthetic === false
+  );
+}
+
 /** Resolve legacy staging mirrors without pretending they are Supabase rows. */
 export function findStagingPostMirror(
   posts: readonly StagingFeedPost[],
@@ -49,8 +66,7 @@ export function findStagingPostMirror(
   return (
     posts.find(
       (post): post is StagingOrdinaryPost =>
-        post.entryType === "post" &&
-        post.sourceAppPostId === sourceAppPostId
+        post.entryType === "post" && post.sourceAppPostId === sourceAppPostId
     ) ?? null
   );
 }
@@ -136,10 +152,7 @@ export class StagingUnavailableError extends Error {
   }
 }
 
-async function stagingRequest<T>(
-  path: string,
-  init: RequestInit
-): Promise<T> {
+async function stagingRequest<T>(path: string, init: RequestInit): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
@@ -169,7 +182,8 @@ async function stagingRequest<T>(
     }
 
     const payload = value as { error?: string } & T;
-    if (!response.ok) throw new Error(payload.error ?? `HTTP ${response.status}`);
+    if (!response.ok)
+      throw new Error(payload.error ?? `HTTP ${response.status}`);
     return payload;
   } finally {
     clearTimeout(timeout);

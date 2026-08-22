@@ -6,6 +6,10 @@ const feed = readFileSync(
   new URL("../src/components/app/StadtstackStagingFeed.tsx", import.meta.url),
   "utf8"
 );
+const civicTopicCard = readFileSync(
+  new URL("../src/components/app/CivicTopicActivityCard.tsx", import.meta.url),
+  "utf8"
+);
 const discussion = readFileSync(
   new URL("../src/components/app/StadtstackDiscussion.tsx", import.meta.url),
   "utf8"
@@ -55,15 +59,17 @@ test("keeps the civic workflow native to ordinary Röbel posts and discussion ro
   assert.match(discussion, /@Mecky/);
 });
 
-test("keeps synthetic fixtures out of the normal timeline", () => {
+test("keeps synthetic fixtures out while projecting public topic activity into the normal timeline", () => {
   assert.doesNotMatch(appPage, /Staging-Testspur im normalen Feed/);
   assert.doesNotMatch(appPage, /<StadtstackStagingFeed/);
+  assert.match(appPage, /loadPublicCivicTopicActivity/);
+  assert.match(appPage, /<CivicTopicActivityCard/);
   assert.doesNotMatch(feed, /Diskussion → Mecky → Verbesserungsvorschlag/);
   assert.match(feed, /Staging-Testspur im normalen Feed/);
-  assert.match(feed, /Bürger-Thema/);
-  assert.match(feed, /signierte Aktivitäten/);
-  assert.match(feed, /Mecky hat signiert\s+geantwortet/);
-  assert.match(feed, /Antwort ausstehend/);
+  assert.match(civicTopicCard, /Bürger-Thema/);
+  assert.match(civicTopicCard, /signierte Aktivitäten/);
+  assert.match(civicTopicCard, /Mecky hat signiert\s+geantwortet/);
+  assert.match(civicTopicCard, /Antwort ausstehend/);
   assert.match(appPage, /fetchFeed\(\)\.catch/);
   assert.match(appPage, /setLoading\(false\)/);
 });
@@ -141,7 +147,10 @@ test("shows reviewed administration progress inside the same Civic Journey", () 
   assert.match(discussion, /administrationProgress\.acceptedCount/);
   assert.match(discussion, /<StadtstackAdministrationProgress/);
   assert.match(administrationProgress, /Öffentliche Verwaltungssicht/);
-  assert.match(administrationProgress, /Noch keine öffentlich geprüfte Antwort/);
+  assert.match(
+    administrationProgress,
+    /Noch keine öffentlich geprüfte Antwort/
+  );
   assert.match(administrationProgress, /Bereit für den Case Steward/);
   assert.match(administrationProgress, /Keine Entscheidungswirkung/);
   assert.match(administrationProgress, /Keine Treasury-Wirkung/);

@@ -10,6 +10,7 @@ import { PostComposer } from "@/components/app/PostComposer";
 import { FeedFilters } from "@/components/app/FeedFilters";
 import { FeedCard } from "@/components/app/FeedCard";
 import { PostCard } from "@/components/app/PostCard";
+import { CivicTopicActivityCard } from "@/components/app/CivicTopicActivityCard";
 import { FeedExperienceCard } from "@/components/app/FeedExperienceCard";
 import { HorizontalRow } from "@/components/app/HorizontalRow";
 import { AlertCard } from "@/components/app/AlertCard";
@@ -38,6 +39,11 @@ import type { ListingWithSeller } from "@/types/marketplace";
 import type { Business } from "@/types/business";
 import type { PostWithEngagement } from "@/types/post";
 import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
+import {
+  loadPublicCivicTopicActivity,
+  type StagingTopicPost,
+} from "@/lib/stadtstack/staging-api";
+import { projectPublicCivicFeed } from "@/lib/stadtstack/civic-topic-feed";
 import { settleHomeFeedAncillary } from "@/lib/home-feed-loading";
 
 interface FeedItem {
@@ -57,7 +63,6 @@ interface FeedItem {
   isBoosted?: boolean;
   mediaUrls?: string[];
 }
-
 interface Restaurant {
   id: string;
   name: string;
@@ -109,12 +114,14 @@ interface NewsArticle {
 type FeedEntry = {
   feedItem?: FeedItem;
   postItem?: PostWithEngagement;
+  topicItem?: StagingTopicPost;
   rowType?: "marketplace" | "businesses" | "restaurants" | "movies" | "news" | "brett";
 };
 
 function buildFeedWithRows(
   feedItems: FeedItem[],
   posts: PostWithEngagement[],
+  topicActivity: StagingTopicPost[],
   listings: ListingWithSeller[],
   businesses: Business[],
   restaurants: Restaurant[],
@@ -125,10 +132,16 @@ function buildFeedWithRows(
 ): FeedEntry[] {
   const entries: FeedEntry[] = [];
   const insertRows = activeFilter === "all";
+  const civicBackbone = projectPublicCivicFeed(posts, topicActivity);
 
-  // If posts-only filter, return just posts
+  // Topic activity is part of the social feed, but never replaces its source
+  // post. Synthetic lab activity has already been excluded by the projector.
   if (activeFilter === "posts") {
-    return posts.map((p) => ({ postItem: p }));
+    return civicBackbone.map((entry) =>
+      entry.kind === "post"
+        ? { postItem: entry.post }
+        : { topicItem: entry.topic }
+    );
   }
 
   // For event/news/ads-only filters, return just those feed items sorted by date desc
@@ -139,7 +152,8 @@ function buildFeedWithRows(
     return sorted.map((item) => ({ feedItem: item }));
   }
 
-  // "all" and "latest" filters: build a mixed feed with posts as backbone
+  // "all" and "latest" use ordinary posts and public topic activity as one
+  // deterministic social backbone.
   const now = new Date();
 
   // Separate upcoming events from other feed items (news, past events, ads)
@@ -151,14 +165,17 @@ function buildFeedWithRows(
     .filter((item) => !(item.type === "event" && new Date(item.date) >= now))
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // newest first
 
-  // Posts are already sorted newest-first from the API
-  // Build the mixed feed: posts as backbone, events/other sprinkled in
   const mixed: FeedEntry[] = [];
   let eventIdx = 0;
   let otherIdx = 0;
 
-  for (let i = 0; i < posts.length; i++) {
-    mixed.push({ postItem: posts[i] });
+  for (let i = 0; i < civicBackbone.length; i++) {
+    const item = civicBackbone[i]!;
+    mixed.push(
+      item.kind === "post"
+        ? { postItem: item.post }
+        : { topicItem: item.topic }
+    );
 
     // After every 3 posts, insert an upcoming event (if available)
     if ((i + 1) % 3 === 0 && eventIdx < upcomingEvents.length) {
@@ -185,8 +202,8 @@ function buildFeedWithRows(
     otherIdx++;
   }
 
-  // If no posts exist, just use feed items sorted by date
-  if (posts.length === 0) {
+  // If no social backbone exists, just use feed items sorted by date.
+  if (civicBackbone.length === 0) {
     const sorted = [...feedItems].sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
@@ -242,6 +259,7 @@ export default function AppHomePage() {
   const [activeCategory, setActiveCategory] = useState("all");
   const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
   const [posts, setPosts] = useState<PostWithEngagement[]>([]);
+  const [topicActivity, setTopicActivity] = useState<StagingTopicPost[]>([]);
   const [listings, setListings] = useState<ListingWithSeller[]>([]);
   const [boardListings, setBoardListings] = useState<ListingWithSeller[]>([]);
   const [businesses, setBusinesses] = useState<Business[]>([]);
@@ -343,6 +361,16 @@ export default function AppHomePage() {
           setPosts([]);
           setLoading(false);
         });
+    }
+
+    // Public signed topic activity is additive and best-effort. It must not
+    // delay ordinary posts or pull synthetic lab fixtures into the timeline.
+    if (showPosts && categoryFilter === undefined) {
+      void loadPublicCivicTopicActivity()
+        .then(setTopicActivity)
+        .catch(() => setTopicActivity([]));
+    } else {
+      setTopicActivity([]);
     }
 
     async function fetchFeed() {
@@ -669,6 +697,7 @@ export default function AppHomePage() {
   const feedWithRows = buildFeedWithRows(
     feedItems,
     posts,
+    topicActivity,
     listings,
     businesses,
     restaurants,
@@ -797,6 +826,15 @@ export default function AppHomePage() {
             </div>
           )}
           {feedWithRows.map((item, index) => {
+            if (item.topicItem) {
+              return (
+                <CivicTopicActivityCard
+                  key={`topic-${item.topicItem.topicId}`}
+                  topic={item.topicItem}
+                />
+              );
+            }
+
             if (item.rowType === "marketplace" && listings.length > 0) {
               return (
                 <HorizontalRow

@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed for staging.
+Accepted for staging.
 
 ## Context
 
