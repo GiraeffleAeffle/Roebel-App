@@ -2,6 +2,26 @@
 
 This is the navigation page for the discussion-to-outcome work. It records where the durable language, decisions, implementation specification, code, and operations live so a future slice extends the same journey instead of creating another parallel demo.
 
+## Testability checkpoint at 2026-08-22
+
+The complete journey is **not yet accepted end to end in Talos staging**. The
+code candidates and authority boundaries are substantially ahead of the live
+deployment:
+
+| Boundary | Current fact | Gate to the first whole-flow browser test |
+| --- | --- | --- |
+| Reviewed source | Protected `main` is `7dc0bc0766f6c2e6bf6949ea05afb89fb0de40df`; the protected publisher builds immutable Web and Public Mecky artifacts plus one Release Set. | Promote that exact Release Set through the reviewed operations repository. |
+| Talos delivery | The Flux package, zero-effect preflight, rollback and namespace contracts pass; Flux is absent live. | Merge the one-time value-free operations bootstrap, install controller-only Flux, then adopt source, Web and Public Mecky as separate transitions. |
+| Existing Web | Three legacy replicas are healthy, but the normal feed is empty and the supplied old post detail does not complete. | Deploy the current digest and pass public semantic QA for feed, post detail and civic navigation. |
+| Thirdweb staging login | Runtime substitution works, but the configured client ID is literally `disabled-for-readonly-presentation`, so Thirdweb correctly returns `KEY_NOT_FOUND`. | Supply a valid browser-public client ID, allow `roebel-web.staging.agentcart.eu` in Thirdweb, roll the Web pods and prove signup. No Thirdweb secret key belongs in Git or the public ConfigMap. |
+| Public Mecky | The live legacy pod references the isolated inference-key Secret and reviewed-evidence ConfigMap. | Adopt the current citation-backed digest and prove one same-thread, signed, evidence-bound reply. |
+| Sovereign identity | The provider-neutral `CitizenSession`, structural Safe adapter, dual-control proof envelope and effect-free three-proof verifier exist. | WebAuthn creation/recovery, real Safe deployment/control, Pimlico execution, authenticated route, durable multi-replica challenges, stable member/credential persistence and opt-in deployed E2E are still required. |
+
+The first integrated acceptance therefore uses the existing Thirdweb adapter;
+the passkey-owned Safe is a subsequent opt-in coexistence test, not a claimed
+prerequisite that silently delays the civic journey. The live execution
+checklist is [Stadtstack issue #25](https://github.com/GiraeffleAeffle/stadtstack/issues/25).
+
 ## Product position
 
 The Röbel app is a general local social app first. A post about an event, a business, a personal observation, or local news remains a normal post. When a person identifies a shared problem or wants a structured public process, they explicitly promote that signed post into a civic topic or discussion.
@@ -78,6 +98,11 @@ binding locally, and only then asks the relay's authenticated internal admission
 endpoint to persist that public key. Synthetic personas remain a labelled test
 fixture and are not used as a surrogate for a connected account.
 
+This statement describes the Thirdweb-backed adapter and proof contract. It
+does not mean that a passkey has been enrolled, a Safe has been deployed or
+controlled, or a Pimlico bundler/paymaster has executed a user operation in
+Röbel staging. Those are explicit Slice 7 effects and remain pending.
+
 The existing `accounts` table remains the authored actor. New stable member and credential mappings are introduced beside it; existing wallet-keyed tables remain compatibility projections during migration. This avoids duplicating a person when a Safe address differs from the Thirdweb smart-account address.
 
 The detailed account-replacement and sovereign-root investigations remain in:
@@ -121,3 +146,24 @@ The synthetic staging tracer is deliberately not counted as completing Slice 1
 or 2. The real-account code path now exists, but completion still requires one
 connected tester to exercise it against the deployed Gnosis verifier, durable
 relay admission store, watcher, and normal Röbel feed.
+
+## Execution order to the first accepted journey
+
+1. Replace the disabled Thirdweb placeholder with a valid staging client ID
+   and prove one connected staging account.
+2. Bootstrap the protected operations workflow and namespace-scoped Flux,
+   adopt the exact current Web and Public Mecky digests, and retain the previous
+   Release Set for compare-and-swap rollback.
+3. Publish one ordinary signed Nostr post in the normal feed. Keep other
+   timeline content ordinary.
+4. Explicitly promote that source post into a canonical topic/discussion,
+   exercise the pro/contra tree and sunburst, and tag Mecky in the same thread.
+5. Require Mecky's signed answer to cite admitted public evidence and preserve
+   uncertainty and no-authority boundaries.
+6. Sign a proposal candidate as the citizen; admit a Civic Case through a
+   separate human action; return one checksum-bound administration/openDesk
+   package; render the Citizen Brief, advisory Mitmachen and finance context in
+   the same journey.
+7. Only after that tracer passes, add the passkey-owned Safe + Pimlico adapter
+   as an opt-in coexistence path and prove that the same member, app account and
+   npub are preserved without duplicating history.
