@@ -465,6 +465,7 @@ test("a declared watcher becomes a rendered service, not a hand-started containe
         displayName: "Mecky",
         publicEvidence: {
           baseUrl: "https://roebel-stadtstack.agentcart.eu",
+          reviewedSourceKinds: ["local_news", "ratsinformation"],
           municipalityId: "roebel-mueritz",
           sourceCaseId: "marienfelder-strasse",
           canonicalCaseId:
@@ -501,6 +502,10 @@ test("a declared watcher becomes a rendered service, not a hand-started containe
   assert.doesNotMatch(watcherBlock, /STADTSTACK_CONTROL_BASE_URL/);
   assert.doesNotMatch(watcherBlock, /STADTSTACK_NOSTR_INGESTOR_TOKEN/);
   assert.match(watcherBlock, /MECKY_MUNICIPALITY_ID: "roebel-mueritz"/);
+  assert.match(
+    watcherBlock,
+    /MECKY_REVIEWED_SOURCE_KINDS: "local_news,ratsinformation"/,
+  );
   assert.match(
     watcherBlock,
     /MECKY_PUBLIC_INDEX_BASE_URL: "https:\/\/index\.roebel\.app"/,

@@ -24,4 +24,16 @@ An outage or invalid snapshot for one endpoint yields a source omission and cann
 
 ## Consequences
 
-Röbel now owns a stable consumption contract without claiming that a reviewed producer endpoint or reviewed corpus is already deployed. Stadtstack can implement source collection, human review, correction and publication independently of the Mecky runtime. Provider-specific ALLRIS or news ingestion remains behind that publication boundary. Production activation requires at least one real reviewed record, correction tests and a deployed projection endpoint; raw or pending records continue to yield no factual answer.
+Röbel now owns a stable consumption contract and composes only the explicitly
+declared reviewed source kinds into the same bounded catalog as reviewed Civic
+Cases and the directly mentioning signed post. Stadtstack implements the
+checksum-bound preparation and exact GET-only reference transport independently
+of the Mecky runtime. The source kinds remain disabled in a node manifest until
+their reviewed endpoints are actually deployed, so shipping this code cannot
+turn a missing source into an endless production dependency.
+
+This still does not claim that a reviewed Röbel corpus or public producer
+endpoint is deployed. Provider-specific ALLRIS or news ingestion remains behind
+the publication boundary. Production activation requires at least one real
+reviewed record, correction tests and a deployed projection endpoint; raw or
+pending records continue to yield no factual answer.

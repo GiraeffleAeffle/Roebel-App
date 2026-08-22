@@ -23,6 +23,30 @@ export const REVIEWED_PUBLIC_KNOWLEDGE_SOURCE_KINDS = [
 export type ReviewedPublicKnowledgeSourceKind =
   (typeof REVIEWED_PUBLIC_KNOWLEDGE_SOURCE_KINDS)[number];
 
+/** Parse the closed, canonical manifest-to-runtime source declaration. */
+export function parseReviewedPublicKnowledgeSourceKinds(
+  value: string | undefined,
+): readonly ReviewedPublicKnowledgeSourceKind[] {
+  if (value === undefined || value === "") return Object.freeze([]);
+  if (value !== value.trim()) {
+    throw new Error("Reviewed public knowledge source declaration is invalid.");
+  }
+  const parsed = value.split(",");
+  const indexes = parsed.map((kind) =>
+    REVIEWED_PUBLIC_KNOWLEDGE_SOURCE_KINDS.indexOf(
+      kind as ReviewedPublicKnowledgeSourceKind,
+    )
+  );
+  if (
+    parsed.length < 1 || parsed.length > REVIEWED_PUBLIC_KNOWLEDGE_SOURCE_KINDS.length ||
+    new Set(parsed).size !== parsed.length || indexes.some((index) => index < 0) ||
+    indexes.some((index, position) => position > 0 && index <= indexes[position - 1]!)
+  ) {
+    throw new Error("Reviewed public knowledge source declaration is invalid.");
+  }
+  return Object.freeze(parsed as ReviewedPublicKnowledgeSourceKind[]);
+}
+
 export type ReviewedPublicKnowledgeRecord =
   | LocalNewsEvidence
   | RatsinformationEvidence;

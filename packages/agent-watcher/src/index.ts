@@ -80,6 +80,7 @@ export type {
 } from "./public-evidence";
 export {
   createReviewedPublicKnowledgeSourceAdapter,
+  parseReviewedPublicKnowledgeSourceKinds,
   ReviewedPublicKnowledgeError,
   sealReviewedPublicKnowledgeProjection,
   REVIEWED_PUBLIC_KNOWLEDGE_SOURCE_KINDS,

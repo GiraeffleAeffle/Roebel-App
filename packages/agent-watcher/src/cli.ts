@@ -3,6 +3,7 @@ import { deriveAgentIdentity } from "@netizen-labs/nostr";
 import { DEFAULT_BOUNDS, emptyHistory } from "./bounds";
 import { createDirectMentionEvidence } from "./conversation-evidence";
 import type { PublicEvidence } from "./public-evidence";
+import { parseReviewedPublicKnowledgeSourceKinds } from "./reviewed-public-knowledge";
 import { resolvePublicMeckyEvidenceMode } from "./evidence-mode";
 import { announceAgentProfile } from "./profile";
 import {
@@ -56,12 +57,18 @@ async function main(): Promise<void> {
   const lookbackSeconds = Number(process.env.WATCH_LOOKBACK_SECONDS ?? 86_400);
   const replyProjectionUrl = process.env.MECKY_REPLY_PROJECTION_URL?.trim();
   const publicIndexBaseUrl = process.env.MECKY_PUBLIC_INDEX_BASE_URL?.trim();
+  const enabledReviewedSourceKinds = parseReviewedPublicKnowledgeSourceKinds(
+    process.env.MECKY_REVIEWED_SOURCE_KINDS,
+  );
   const projectReply = replyProjectionUrl
     ? createPublicMeckyReplyProjectionSink({ endpoint: replyProjectionUrl })
     : undefined;
 
   const evidenceMode = resolvePublicMeckyEvidenceMode(process.env);
   const syntheticEvidenceMode = evidenceMode.kind === "synthetic_reviewed";
+  if (syntheticEvidenceMode && enabledReviewedSourceKinds.length > 0) {
+    throw new Error("Synthetic reviewed evidence cannot enable public source projections.");
+  }
   if (evidenceMode.ignoredLegacySyntheticRequest) {
     console.warn(
       "ignoring legacy STADTSTACK_E2E_MODE without the explicit E2E synthetic-evidence capability",
@@ -79,6 +86,7 @@ async function main(): Promise<void> {
           retrieveEvidence: createStadtstackPublicEvidenceRetriever({
             baseUrl: publicEvidenceBaseUrl,
             municipalityId,
+            reviewedSourceKinds: enabledReviewedSourceKinds,
           }),
         }),
     infer: createPiPublicMeckyInference({
@@ -102,6 +110,7 @@ async function main(): Promise<void> {
   console.log(`  npub ${agent.npub}`);
   console.log(`  public evidence: ${syntheticEvidenceMode ? "synthetic checksum-bound snapshot" : publicEvidenceBaseUrl} (${municipalityId})`);
   console.log(`  conversation evidence: ${!syntheticEvidenceMode && publicIndexBaseUrl ? publicIndexBaseUrl : "disabled"}`);
+  console.log(`  reviewed source projections: ${enabledReviewedSourceKinds.length > 0 ? enabledReviewedSourceKinds.join(",") : "disabled"}`);
   console.log(`  inference: ${inferenceBaseUrl} (${inferenceModel})`);
   console.log(`  app reply projection: ${replyProjectionUrl ?? "disabled"}`);
   console.log(`  bounds: ${bounds.perAuthorPerHour}/author/h, ${bounds.perDay}/day, enabled=${bounds.enabled}`);

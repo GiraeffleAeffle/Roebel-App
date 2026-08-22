@@ -443,6 +443,17 @@ const Agents = z.object({
       publicEvidence: z
         .object({
           baseUrl: z.string().url(),
+          /** Reviewed source projections enabled only after their exact endpoints are deployed. */
+          reviewedSourceKinds: z
+            .array(z.enum(["local_news", "ratsinformation"]))
+            .min(1)
+            .max(2)
+            .refine((kinds) => new Set(kinds).size === kinds.length, "reviewed source kinds must be unique")
+            .refine(
+              (kinds) => kinds.join(",") === [...kinds].sort().join(","),
+              "reviewed source kinds must use canonical order",
+            )
+            .optional(),
           municipalityId: z
             .string()
             .regex(/^[a-z0-9][a-z0-9-]{0,119}$/, "municipality id must be a lowercase slug"),
