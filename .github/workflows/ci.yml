@@ -6,12 +6,17 @@ on:
   pull_request:
     branches: [main]
 
+permissions: {}
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  ci:
+  quality:
+    name: Quality and non-Web builds
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,12 +39,33 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Build
+      - name: Build non-Web packages
+        # The reusable Web OCI job below performs the one authoritative Next
+        # build for this revision. Keep every other package build in CI.
+        run: pnpm exec turbo build --filter='!@roebel/web'
+
+  web-oci:
+    name: Verified Web build
+    permissions:
+      contents: read
+    uses: ./.github/workflows/staging-web-oci.yml
+    with:
+      source_revision: ${{ github.event.pull_request.head.sha || github.sha }}
+
+  ci:
+    name: ci
+    if: ${{ always() }}
+    needs:
+      - quality
+      - web-oci
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require quality and the verified Web build
         env:
-          # Next imports external-service route modules while collecting page
-          # data. These non-secret placeholders only validate that the build
-          # can be produced; CI does not publish or deploy its output.
-          NEXT_PUBLIC_SUPABASE_URL: https://ci.invalid
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-build-placeholder
-          STRIPE_SECRET_KEY: sk_test_ci-build-placeholder
-        run: pnpm build
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          WEB_OCI_RESULT: ${{ needs.web-oci.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$QUALITY_RESULT" = success
+          test "$WEB_OCI_RESULT" = success
