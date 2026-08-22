@@ -17,6 +17,11 @@ const WEBPACK_PARALLELISM = resolveWebpackParallelism(
   process.env.ROEBEL_WEBPACK_PARALLELISM,
 );
 
+const STAGING_OPTIMIZED_PACKAGE_IMPORTS =
+  process.env.ROEBEL_STANDALONE_IMAGE === "1"
+    ? ["thirdweb", "thirdweb/react"]
+    : undefined;
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // The public/Vercel build keeps its existing output mode. Talos' immutable
@@ -32,7 +37,10 @@ const nextConfig = {
   // (commit ac1c425, right at the webpack compile). This trades a bit of build
   // time for materially lower webpack memory — the documented next step after
   // the 4096MB heap cap (see package.json build script).
-  experimental: { webpackMemoryOptimizations: true },
+  experimental: {
+    webpackMemoryOptimizations: true,
+    optimizePackageImports: STAGING_OPTIMIZED_PACKAGE_IMPORTS,
+  },
   // The Netizen packages ship untranspiled TS source (main: src/index.ts), so
   // they must be transpiled by the app that consumes them.
   // @netizen-labs/workspace happens to be transpiled today even without being
