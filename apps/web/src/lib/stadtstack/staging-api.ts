@@ -36,6 +36,12 @@ export type StagingTopicPost = StagingFeedBase & {
     replyCount: number;
     meckyMentioned: boolean;
     meckyAnswered: boolean;
+    suggestionSigned: boolean;
+    caseBinding: {
+      municipalityId: string;
+      sourceCaseId: string;
+      canonicalCaseId: string;
+    } | null;
     synthetic: boolean;
   }>;
   sourcePostIds: string[];

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { projectPublicCivicTopicDetail } from "../src/lib/stadtstack/civic-topic-detail";
+import {
+  projectPublicCivicTopicDetail,
+  projectPublicCivicTopicJourney,
+} from "../src/lib/stadtstack/civic-topic-detail";
 import type {
   StagingFeedResponse,
   StagingOrdinaryPost,
@@ -53,6 +56,8 @@ function topic(overrides: Partial<StagingTopicPost> = {}): StagingTopicPost {
         replyCount: 1,
         meckyMentioned: true,
         meckyAnswered: true,
+        suggestionSigned: true,
+        caseBinding: null,
         synthetic: false,
       },
       {
@@ -63,6 +68,8 @@ function topic(overrides: Partial<StagingTopicPost> = {}): StagingTopicPost {
         replyCount: 2,
         meckyMentioned: false,
         meckyAnswered: false,
+        suggestionSigned: false,
+        caseBinding: null,
         synthetic: false,
       },
     ],
@@ -100,6 +107,12 @@ test("projects one canonical topic with attributable posts and discussions", () 
     ["app-post-a"]
   );
   assert.deepEqual(detail.unresolvedSourcePostIds, ["missing-source"]);
+  const journey = projectPublicCivicTopicJourney(detail);
+  assert.equal(journey?.currentStageId, "case");
+  assert.equal(
+    journey?.stages.find((stage) => stage.id === "proposal")?.state,
+    "complete"
+  );
 });
 
 test("fails closed for another municipality, synthetic topics, or authority drift", () => {

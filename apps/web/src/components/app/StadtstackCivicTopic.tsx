@@ -15,12 +15,14 @@ import {
 } from "lucide-react";
 import {
   projectPublicCivicTopicDetail,
+  projectPublicCivicTopicJourney,
   type PublicCivicTopicDetail,
 } from "@/lib/stadtstack/civic-topic-detail";
 import {
   stagingGet,
   type StagingFeedResponse,
 } from "@/lib/stadtstack/staging-api";
+import { CivicJourneyRail } from "./CivicJourneyRail";
 
 function date(value: string): string {
   return new Date(value).toLocaleString("de-DE", {
@@ -83,6 +85,7 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
   }
 
   const { topic, sourcePosts, unresolvedSourcePostIds } = detail;
+  const journey = projectPublicCivicTopicJourney(detail);
   return (
     <div className="space-y-5">
       <Link
@@ -110,6 +113,8 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
           <span>zuletzt aktiv {date(topic.lastActivityAt)}</span>
         </div>
       </header>
+
+      {journey && <CivicJourneyRail journey={journey} />}
 
       <section className="rounded-xl border border-border bg-card p-4">
         <div className="flex items-start gap-3">
@@ -209,6 +214,16 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
                   <Bot className="h-4 w-4" /> Mecky-Antwort ausstehend
                 </span>
               ) : null}
+              {discussion.suggestionSigned && (
+                <span className="inline-flex items-center gap-1 text-violet-700">
+                  <FileText className="h-4 w-4" /> Vorschlag signiert
+                </span>
+              )}
+              {discussion.caseBinding && (
+                <span className="inline-flex items-center gap-1 text-sky-700">
+                  <ShieldCheck className="h-4 w-4" /> CivicCase aufgenommen
+                </span>
+              )}
               <span className="ml-auto inline-flex items-center gap-1 text-primary">
                 Diskussion öffnen <ChevronRight className="h-4 w-4" />
               </span>

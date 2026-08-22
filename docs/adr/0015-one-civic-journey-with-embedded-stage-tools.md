@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted for staging design; authority-bearing stages remain gated.
+Accepted for staging; the shared public journey shell is implemented through
+topic, discussion, Mecky, proposal and case projections. Authority-bearing
+transitions remain gated.
 
 ## Context
 
@@ -45,6 +47,9 @@ Combining every capability into one large page would create the opposite problem
 - Specialized tools remain independently deployable and replaceable because the Röbel host owns the journey contract.
 - The host needs a versioned journey projection and stage-tool context; mini-apps need to stop treating a query-string topic slug as sufficient state.
 - Proposal signing and Civic Case admission are two independently attributable transitions, even when the interface presents them consecutively.
+- The topic hub and each discussion now use the same pure stage projection and
+  responsive journey rail. Missing receipts stay visible gaps; later records do
+  not fabricate earlier transitions.
 - Administration progress can stay in the same journey without copying private openDesk work queues or creating a second case state.
 - People can see that a reviewed brief is ready for participation without mistaking readiness for an open poll or completed signal.
 - This ADR does not authorize automatic promotion, a formal municipal vote, a treasury payment, or production data migration.
