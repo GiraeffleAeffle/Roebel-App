@@ -10,6 +10,14 @@ const civicTopicCard = readFileSync(
   new URL("../src/components/app/CivicTopicActivityCard.tsx", import.meta.url),
   "utf8"
 );
+const civicTopic = readFileSync(
+  new URL("../src/components/app/StadtstackCivicTopic.tsx", import.meta.url),
+  "utf8"
+);
+const civicTopicPage = readFileSync(
+  new URL("../src/app/app/themen/[topicId]/page.tsx", import.meta.url),
+  "utf8"
+);
 const discussion = readFileSync(
   new URL("../src/components/app/StadtstackDiscussion.tsx", import.meta.url),
   "utf8"
@@ -70,6 +78,13 @@ test("keeps synthetic fixtures out while projecting public topic activity into t
   assert.match(civicTopicCard, /signierte Aktivitäten/);
   assert.match(civicTopicCard, /Mecky hat signiert\s+geantwortet/);
   assert.match(civicTopicCard, /Antwort ausstehend/);
+  assert.match(civicTopicCard, /\/app\/themen\//);
+  assert.match(civicTopicPage, /<StadtstackCivicTopic/);
+  assert.match(civicTopic, /Aus dem normalen Feed/);
+  assert.match(civicTopic, /Strukturierte Diskussionen/);
+  assert.match(civicTopic, /Beiträge bleiben Beiträge/);
+  assert.match(civicTopic, /\/app\/diskussion\//);
+  assert.match(civicTopic, /\/app\/posts\//);
   assert.match(appPage, /fetchFeed\(\)\.catch/);
   assert.match(appPage, /setLoading\(false\)/);
 });

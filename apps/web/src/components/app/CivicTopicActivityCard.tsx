@@ -18,9 +18,12 @@ function shortTime(value: string): string {
 }
 
 export function CivicTopicActivityCard({ topic }: { topic: StagingTopicPost }) {
+  const href = topic.synthetic
+    ? `/app/diskussion/${topic.id}`
+    : `/app/themen/${encodeURIComponent(topic.topicId)}`;
   return (
     <Link
-      href={`/app/diskussion/${topic.id}`}
+      href={href}
       className="block rounded-xl border border-primary/25 bg-card p-4 shadow-sm transition hover:border-primary/50 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     >
       <div className="flex items-start gap-3">
@@ -85,7 +88,8 @@ export function CivicTopicActivityCard({ topic }: { topic: StagingTopicPost }) {
               </span>
             ) : null}
             <span className="ml-auto inline-flex items-center gap-1 text-primary">
-              Diskussion öffnen <ChevronRight className="h-4 w-4" />
+              {topic.synthetic ? "Diskussion öffnen" : "Thema öffnen"}{" "}
+              <ChevronRight className="h-4 w-4" />
             </span>
           </div>
         </div>
