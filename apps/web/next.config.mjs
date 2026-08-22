@@ -17,12 +17,19 @@ const WEBPACK_PARALLELISM = resolveWebpackParallelism(
   process.env.ROEBEL_WEBPACK_PARALLELISM,
 );
 
+export function resolveStagingBuildWorkers(value) {
+  return value === "1";
+}
+
 // The Talos staging image builds on GitHub's 4-core / 16 GiB public runner.
 // Unlike the smaller Vercel build, it has enough memory to run Next's server
-// compilation and output tracing concurrently. Keep this staging-only until a
-// measured build proves the worker is compatible with our custom webpack
-// fallbacks and externals.
-const STAGING_BUILD_WORKERS = process.env.ROEBEL_STANDALONE_IMAGE === "1";
+// compilation and output tracing concurrently. No-publish run 32569355209
+// proved compatibility with our custom fallbacks and externals and reduced the
+// exact Next build from 363.5s to 279.8s. Keep the smaller Vercel build on its
+// existing memory-constrained path.
+const STAGING_BUILD_WORKERS = resolveStagingBuildWorkers(
+  process.env.ROEBEL_STANDALONE_IMAGE,
+);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

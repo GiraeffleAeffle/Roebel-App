@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { resolveWebpackParallelism } from "../next.config.mjs";
+import {
+  resolveStagingBuildWorkers,
+  resolveWebpackParallelism,
+} from "../next.config.mjs";
 
 test("keeps the default build serial for constrained environments", () => {
   assert.equal(resolveWebpackParallelism(undefined), 1);
@@ -18,4 +21,10 @@ test("rejects unreviewed webpack parallelism values", () => {
       () => resolveWebpackParallelism(value),
       /roebel_webpack_parallelism_invalid/,
     );
+});
+
+test("enables Next build workers only for the standalone staging image", () => {
+  assert.equal(resolveStagingBuildWorkers("1"), true);
+  for (const value of [undefined, "", "0", "true", " 1"])
+    assert.equal(resolveStagingBuildWorkers(value), false);
 });
