@@ -19,7 +19,7 @@ const id = (digit: string) => `sha256:${digit.repeat(64)}` as const;
 const COMMON = {
   municipalityId: "roebel-mueritz",
   publishedAt: "2026-08-19T10:00:00.000Z",
-  reviewState: "reviewed" as const,
+  admissionState: "admitted" as const,
   lifecycle: "current" as const,
 };
 
@@ -34,6 +34,7 @@ const nostr = (overrides: Partial<NostrPostEvidence> = {}): NostrPostEvidence =>
   authorPubkey: "f".repeat(64),
   eventUrl: "https://index.roebel.app/events/event-1",
   signatureValid: true,
+  retrievalConsent: "direct_mention",
   ...overrides,
 });
 
@@ -46,6 +47,7 @@ const news = (overrides: Partial<LocalNewsEvidence> = {}): LocalNewsEvidence => 
   summary: "Die Lokalredaktion berichtet über den Verkehr an der Querung.",
   publisher: "Röbel Kurier",
   articleUrl: "https://news.example/kreuzung",
+  reviewedAt: "2026-08-19T11:00:00.000Z",
   ...overrides,
 });
 
@@ -59,6 +61,7 @@ const ris = (overrides: Partial<RatsinformationEvidence> = {}): RatsinformationE
   body: "Beschlussvorlage mit Prüfauftrag für die Verwaltung.",
   recordId: "RIS-42",
   recordUrl: "https://ris.example/vorlage/42",
+  reviewedAt: "2026-08-19T11:00:00.000Z",
   ...overrides,
 });
 
@@ -96,10 +99,10 @@ describe("public evidence retrieval", () => {
     assert.equal(results.filter((entry) => entry.evidence.sourceKind === "local_news").length, 1);
   });
 
-  it("excludes unreviewed, stale, superseded, and unsigned records", () => {
+  it("excludes non-admitted, stale, superseded, and unsigned records", () => {
     const results = retrievePublicEvidence([
       nostr({ signatureValid: false }),
-      news({ reviewState: "unreviewed" }),
+      news({ admissionState: "pending_review" }),
       ris({ lifecycle: "stale" }),
       civic({ lifecycle: "superseded" }),
     ], "Marienfelder Straße");

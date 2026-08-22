@@ -17,6 +17,8 @@ export type {
 } from "./public-mecky-projection";
 export { announceAgentProfile } from "./profile";
 export type { AnnounceDeps } from "./profile";
+export { createDirectMentionEvidence } from "./conversation-evidence";
+export type { DirectMentionEvidenceOptions } from "./conversation-evidence";
 export {
   createOpenAICompatiblePublicMeckyInference,
   createPiPublicMeckyInference,
@@ -36,6 +38,7 @@ export type {
   PublicMeckyDependencies,
   PublicMeckyInference,
   PublicMeckyInferenceInput,
+  PublicMeckyMention,
   PublicMeckyRelayReply,
   PublicMeckyResult,
   ReviewedCivicEvidence,
@@ -60,6 +63,7 @@ export type {
   NostrPostEvidence,
   PromptPublicEvidence,
   PublicEvidence,
+  PublicEvidenceAdmissionState,
   PublicEvidenceAuthority,
   PublicEvidenceLifecycle,
   PublicEvidenceOmission,
@@ -67,7 +71,6 @@ export type {
   PublicEvidencePacket,
   PublicEvidenceQuery,
   PublicEvidenceRetrievalOptions,
-  PublicEvidenceReviewState,
   PublicEvidenceSourceAdapter,
   PublicEvidenceSourceKind,
   PublicKnowledgeCatalog,

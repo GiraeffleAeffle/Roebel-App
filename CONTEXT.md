@@ -15,7 +15,7 @@ This glossary fixes the terms used by the Röbel app and Stadtstack integration.
 | **Argument** | A signed kind-1 reply carrying one `pro` or `con` stance and references to both the discussion root and its parent argument. | A counted ballot. |
 | **Argument tree** | The parent/child projection of the signed argument graph. | A second source of truth. |
 | **Sunburst** | A radial projection of the same argument tree. Area represents structure, not support or vote weight. | Poll results. |
-| **Mecky answer** | Machine-labelled assistance produced from checksum-bound reviewed evidence. | Administrative feedback, legal advice, or an official position. |
+| **Mecky answer** | Machine-labelled assistance produced from admitted public evidence with explicit source authority and citations. | Administrative feedback, legal advice, or an official position. |
 | **Improvement proposal candidate** | A citizen-signed, topic-bound suggestion linking the exact discussion and reviewed Mecky receipt while still awaiting human Civic Case admission. | A Civic Case, submitted governance proposal, or administrative decision. |
 | **Civic case** | The admitted, append-only Stadtstack workflow record. | The public discussion alone. |
 | **Administrative feedback** | Human-reviewed department packages attached to the civic case. | Mecky output. |
@@ -33,6 +33,9 @@ This glossary fixes the terms used by the Röbel app and Stadtstack integration.
 | **Identity binding** | The private, mutually proved association between one member identity and one Nostr public key, with credential-specific proofs retained for audit. | A public directory of residents and wallets. |
 | **Stage tool** | A narrowly scoped mini-app or external adapter used inside one journey stage, such as an argument visualization, budget explorer, or administration handoff. | The canonical journey, a second source of truth, or an independent authority lane. |
 | **Reviewed evidence** | A source URL or document version with content checksum, retrieval time, visibility, provenance, and human review state. | A model-generated claim. |
+| **Source admission** | The source-specific decision that a public item may enter one Mecky retrieval query. Admission verifies eligibility, consent, review and correction requirements; it does not make every source statement true. | Source authority or civic approval. |
+| **Source authority** | The fixed claim treatment attached to an admitted source: attributed community statement, editorial report, official record, or reviewed civic evidence. | Search rank, popularity, or formal decision authority. |
+| **Public evidence packet** | A municipality- and query-scoped selection of admitted sources, exact evidence identifiers, authority labels, citations and omission counts. | A source of truth, hidden model memory, or a permission to act. |
 | **Synthetic evidence capability** | A staging-only, two-factor runtime capability that requires both the exact synthetic mode and an explicit E2E permission. | A production default or a capability granted by a leftover legacy environment variable. |
 | **Administrative work package** | The idempotently exported, human-owned task created in openDesk only after proposal admission. | A raw feed post, Mecky answer, or automatic municipal decision. |
 | **Staging dataset release** | A named projection selecting the currently demonstrated synthetic events while retaining older signed events as archived activity. | Deleting or rewriting the Nostr event log. |

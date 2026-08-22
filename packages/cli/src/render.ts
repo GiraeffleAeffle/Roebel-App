@@ -709,6 +709,9 @@ export function renderComposeYml(m: NetizenManifest): string {
       const inferenceKey = w.inference.apiKey.slice(1);
       const optional = [
         w.displayName ? `      AGENT_DISPLAY_NAME: ${JSON.stringify(w.displayName)}` : "",
+        m.services.indexer?.publicRead
+          ? `      MECKY_PUBLIC_INDEX_BASE_URL: ${JSON.stringify(m.services.indexer.publicRead)}`
+          : "",
         w.replyProjection
           ? `      MECKY_REPLY_PROJECTION_URL: ${JSON.stringify(w.replyProjection.endpoint)}`
           : "",
