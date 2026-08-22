@@ -1,31 +1,24 @@
 name: Röbel staging web OCI
 
 on:
+  workflow_call:
+    inputs:
+      source_revision:
+        description: Exact source revision to build and verify
+        required: true
+        type: string
   workflow_dispatch:
-  pull_request:
-    branches: [main]
-    paths:
-      - ".github/workflows/staging-web-oci.yml"
-      - "Dockerfile.staging-web"
-      - "Dockerfile.staging-web.dockerignore"
-      - "apps/web/**"
-      - "packages/miniapp-sdk/**"
-      - "packages/nostr/**"
-      - "packages/protocol/**"
-      - "packages/publisher/**"
-      - "packages/record-client/**"
-      - "packages/workspace/**"
-      - "scripts/verify-staging-web-oci.mjs"
-      - ".npmrc"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
+    inputs:
+      source_revision:
+        description: Exact source revision; defaults to the dispatched revision
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: staging-web-oci-${{ github.event.pull_request.number || github.ref }}
+  group: staging-web-oci-${{ inputs.source_revision || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -34,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+      SOURCE_REVISION: ${{ inputs.source_revision || github.sha }}
       MAX_CONTEXT_BYTES: "41943040"
       MAX_STORE_BYTES: "4294967296"
       MAX_ARTIFACT_BYTES: "167772160"
@@ -44,6 +37,13 @@ jobs:
         with:
           ref: ${{ env.SOURCE_REVISION }}
           persist-credentials: false
+
+      - name: Verify the exact source revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_REVISION"
 
       - name: Set up Node
         uses: actions/setup-node@v4

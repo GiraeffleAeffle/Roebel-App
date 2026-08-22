@@ -93,9 +93,9 @@ test("sends only the web app and its exact workspace graph to the staging builde
 });
 
 test("builds one bounded private OCI artifact remotely without publishing it", () => {
+  assert.match(workflow, /workflow_call:/);
   assert.match(workflow, /workflow_dispatch:/);
-  assert.match(workflow, /pull_request:/);
-  assert.match(workflow, /branches:\s*\[main\]/);
+  assert.doesNotMatch(workflow, /pull_request:/);
   assert.match(workflow, /permissions:\s*\n\s*contents: read/);
   assert.doesNotMatch(
     workflow,
