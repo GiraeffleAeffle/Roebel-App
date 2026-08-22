@@ -14,24 +14,40 @@ embedded runtime secrets with the source revision's verifier, and copies that
 exact manifest to GHCR. It then generates an SPDX-2.3 SBOM and attaches both an
 SBOM attestation and GitHub OIDC build provenance to the immutable digest.
 
-Each protected-main component build also imports and refreshes one
-component-scoped BuildKit cache in that component's GHCR package. Dependency
-manifests are copied before application source, so an ordinary source change
-can reuse the verified dependency-install layer and BuildKit intermediates.
-The Web cache uses `mode=max` because its measured 2.01 GB pnpm graph otherwise
-forces a roughly 53-second platform install for every source-only release; the
-small Public Mecky cache remains `mode=min`. Only the protected-main publisher
-writes either mutable cache reference. Each `buildcache-main` reference contains
-only public build inputs, is never a deployment input, carries no release
-authority, and cannot bypass the post-build OCI verifier. A missing cache always
-falls back to a clean build.
+The Web runtime-only packaging path builds once in the exact pinned Node image
+with networking disabled, a read-only offline pnpm store, no Linux capabilities
+and no-new-privileges. The measured warm-cache run took 6m22s versus 6m05s
+cold, so the ineffective 168 MiB compressed / 2.50-2.91 GiB uncompressed cache
+is not restored or retained. A staging-only Turbopack trial was also rejected:
+it compiled in 4.7 minutes, slower than Webpack's 3.2 minutes, and then failed
+page-data collection for an existing newsletter route. Any compiler cache
+produced inside the job is disposable and never copied into the runtime image.
 
-Dependency fetching is isolated from the source build context. `pnpm fetch`
-writes its virtual store into a runner-only fetch directory; neither the
-source context nor the dependency-manifest context may contain `node_modules`.
-This prevents runner-generated executable shims or package side effects from
-overwriting the clean, platform-specific install inside the linux/amd64 image
-builder.
+An exact dependency-cache trial was rejected as well. Its cold job took 7m02s,
+57 seconds slower than the 6m05s runtime-only baseline, including 33 seconds to
+persist the materialization. The measured warm-cache run then failed closed
+during the frozen offline install: the restored `node_modules` graph was not a
+self-contained pnpm store, the mounted store was empty and read-only, and pnpm
+correctly refused when it needed `/pnpm/store/v3`. The publisher therefore fetches a fresh,
+lockfile-bound offline store on every run and limits the resulting dependency
+installation to 4 GiB. Neither that installation nor a compiler cache is copied
+into the runtime image.
+
+After the standalone build, a separate runtime context receives only traced
+production dependencies, server output, static assets, public files and the
+reviewed runtime-config entrypoint. A tiny runtime-only Dockerfile packages that
+context. This removes the measured 149-second `mode=max` BuildKit cache export
+and prevents the 2.01 GB pnpm graph from becoming image-cache output. Public
+Mecky remains on its small component-scoped `mode=min` registry BuildKit cache.
+That mutable `buildcache-main` reference contains only public build inputs, is
+never a deployment input, carries no release authority, and cannot bypass the
+post-build OCI verifier. That cache may be absent; a clean build remains the
+fail-safe path.
+
+`pnpm fetch` writes its virtual store into a runner-only fetch directory and the
+source context always starts without `node_modules`. The dependency-manifest
+context never contains `node_modules`, and runner-generated fetch shims never
+overwrite the builder's platform-specific install.
 
 Mutable `source-<sha>` tags are transport labels only. An existing identical
 tag is reused; a different digest is never overwritten. Talos, Release Sets

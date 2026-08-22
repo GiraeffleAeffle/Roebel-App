@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:1.7
+
+# The expensive Next build runs once in the pinned, network-isolated builder
+# container from scripts/ci/build-staging-web-runtime.sh. This Dockerfile only
+# packages that verified standalone output, so exporting an image never exports
+# the 2 GiB dependency graph or the build cache.
+FROM --platform=linux/amd64 docker.io/library/node@sha256:7c269ea419bfbaef1f5eed57e58016395bbe3036176411025a5093e39a948dcf
+
+ARG SOURCE_REVISION
+ARG SOURCE_DATE_EPOCH
+RUN test "${#SOURCE_REVISION}" -eq 40 \
+    && case "${SOURCE_REVISION}" in *[!0-9a-f]*) exit 1;; esac \
+    && test -n "${SOURCE_DATE_EPOCH}" \
+    && case "${SOURCE_DATE_EPOCH}" in *[!0-9]*) exit 1;; esac
+
+LABEL org.opencontainers.image.source="https://github.com/GiraeffleAeffle/Roebel-App" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      stadtstack.io/component="roebel-web-staging" \
+      stadtstack.io/environment="staging-synthetic-workflow" \
+      stadtstack.io/civic-authority="none"
+
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=8080 \
+    HOSTNAME=0.0.0.0 \
+    NEXT_PUBLIC_STADTSTACK_STAGING_LAB=1 \
+    ROEBEL_PUBLIC_DEPLOYMENT_PROFILE=talos_staging_synthetic_workflow \
+    ROEBEL_PUBLIC_BASE_URL=https://roebel-web.staging.agentcart.eu \
+    ROEBEL_PUBLIC_SITE_URL=https://roebel-web.staging.agentcart.eu \
+    ROEBEL_PUBLIC_SUPABASE_URL=https://runtime-config-required.invalid \
+    ROEBEL_PUBLIC_SUPABASE_ANON_KEY=__ROEBEL_RUNTIME_SUPABASE_ANON_KEY__ \
+    ROEBEL_PUBLIC_THIRDWEB_CLIENT_ID=__ROEBEL_RUNTIME_THIRDWEB_CLIENT_ID__ \
+    ROEBEL_PUBLIC_GNOSIS_BUNDLER_URL=/__roebel_runtime_gnosis_bundler_url__ \
+    ROEBEL_PUBLIC_STADTSTACK_BASE_URL=https://stadtstack-runtime-config-required.invalid
+
+WORKDIR /app
+COPY --chown=65532:65532 . .
+USER 65532:65532
+EXPOSE 8080
+ENTRYPOINT ["node"]
+CMD ["apps/web/runtime-entrypoint.mjs"]

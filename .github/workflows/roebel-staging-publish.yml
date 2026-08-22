@@ -13,10 +13,12 @@ on:
       - "packages/protocol/**"
       - "packages/stadtstack-federation-client/**"
       - "Dockerfile.staging-web"
+      - "Dockerfile.staging-web-runtime"
       - ".dockerignore"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "turbo.json"
+      - "scripts/ci/build-staging-web-runtime.sh"
       - "scripts/verify-staging-*-oci.mjs"
       - ".github/workflows/roebel-staging-publish.yml"
   workflow_dispatch:
@@ -37,6 +39,8 @@ env:
   MECKY_IMAGE: ghcr.io/giraeffleaeffle/public-mecky
   MAX_CONTEXT_BYTES: "41943040"
   MAX_STORE_BYTES: "4294967296"
+  MAX_DEPENDENCY_INSTALL_BYTES: "4294967296"
+  MAX_RUNTIME_CONTEXT_BYTES: "805306368"
 
 jobs:
   guard:
@@ -78,14 +82,10 @@ jobs:
         include:
           - component: roebel-web-staging
             package: "@roebel/web"
-            dockerfile: Dockerfile.staging-web
+            dockerfile: Dockerfile.staging-web-runtime
             image: ghcr.io/giraeffleaeffle/roebel-web-staging
             archive: roebel-web-staging.oci.tar
             max_artifact_bytes: "167772160"
-            # The Web dependency graph is 2.01 GB and its platform-specific
-            # install takes about 53 seconds. Protected main is the only writer
-            # to this cache, so retain intermediate dependency layers there.
-            cache_mode: max
           - component: public-mecky
             package: "@netizen-labs/agent-watcher"
             dockerfile: packages/agent-watcher/Dockerfile
@@ -98,7 +98,6 @@ jobs:
       COMPONENT: ${{ matrix.component }}
       PACKAGE: ${{ matrix.package }}
       IMAGE: ${{ matrix.image }}
-      CACHE_MODE: ${{ matrix.cache_mode }}
     steps:
       - name: Check out the exact source revision
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -168,6 +167,17 @@ jobs:
           test "$store_bytes" -le "$MAX_STORE_BYTES"
           printf 'store_bytes=%s\n' "$store_bytes"
 
+      - name: Build the standalone Web runtime once
+        if: ${{ matrix.component == 'roebel-web-staging' }}
+        working-directory: source
+        shell: bash
+        env:
+          SOURCE_CONTEXT: ${{ runner.temp }}/context
+          PNPM_STORE: ${{ runner.temp }}/pnpm-store
+          COREPACK_CACHE: ${{ runner.temp }}/corepack-cache
+          RUNTIME_CONTEXT: ${{ runner.temp }}/web-runtime-context
+        run: scripts/ci/build-staging-web-runtime.sh
+
       - name: Set up isolated Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
         with:
@@ -184,7 +194,8 @@ jobs:
           set -euo pipefail
           printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
 
-      - name: Build exactly one linux/amd64 OCI archive
+      - name: Package exactly one Web runtime-only linux/amd64 OCI archive
+        if: ${{ matrix.component == 'roebel-web-staging' }}
         working-directory: source
         shell: bash
         env:
@@ -193,16 +204,31 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$SOURCE_REVISION")"
-          case "$COMPONENT" in
-            roebel-web-staging)
-              import_repository="stadtstack.local/roebel-web-preview/roebel-web-staging"
-              ;;
-            public-mecky)
-              import_repository="stadtstack.local/roebel-staging-lab/public-mecky"
-              ;;
-            *) exit 1 ;;
-          esac
-          import_name="$import_repository:source-$SOURCE_REVISION"
+          import_name="stadtstack.local/roebel-web-preview/roebel-web-staging:source-$SOURCE_REVISION"
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            --sbom=false \
+            --file "$GITHUB_WORKSPACE/source/$DOCKERFILE" \
+            --build-arg "SOURCE_REVISION=$SOURCE_REVISION" \
+            --build-arg "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" \
+            --output "type=oci,dest=$ARCHIVE,name=$import_name,annotation.io.containerd.image.name=$import_name,rewrite-timestamp=true" \
+            "$RUNNER_TEMP/web-runtime-context"
+          artifact_bytes="$(stat -c %s "$ARCHIVE")"
+          test "$artifact_bytes" -le "$MAX_ARTIFACT_BYTES"
+          printf 'artifact_bytes=%s\n' "$artifact_bytes"
+
+      - name: Build exactly one Public Mecky linux/amd64 OCI archive
+        if: ${{ matrix.component == 'public-mecky' }}
+        working-directory: source
+        shell: bash
+        env:
+          DOCKERFILE: ${{ matrix.dockerfile }}
+          MAX_ARTIFACT_BYTES: ${{ matrix.max_artifact_bytes }}
+        run: |
+          set -euo pipefail
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$SOURCE_REVISION")"
+          import_name="stadtstack.local/roebel-staging-lab/public-mecky:source-$SOURCE_REVISION"
           cache_ref="$IMAGE:buildcache-main"
           docker buildx build \
             --platform linux/amd64 \
@@ -215,7 +241,7 @@ jobs:
             --build-arg "SOURCE_REVISION=$SOURCE_REVISION" \
             --build-arg "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" \
             --cache-from "type=registry,ref=$cache_ref" \
-            --cache-to "type=registry,ref=$cache_ref,mode=$CACHE_MODE,oci-mediatypes=true,image-manifest=true" \
+            --cache-to "type=registry,ref=$cache_ref,mode=min,oci-mediatypes=true,image-manifest=true" \
             --output "type=oci,dest=$ARCHIVE,name=$import_name,annotation.io.containerd.image.name=$import_name,rewrite-timestamp=true" \
             "$RUNNER_TEMP/context"
           artifact_bytes="$(stat -c %s "$ARCHIVE")"
