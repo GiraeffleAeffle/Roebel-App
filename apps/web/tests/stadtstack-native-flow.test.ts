@@ -174,6 +174,10 @@ test("shows the reviewed Citizen Brief in Mitmachen without merging it into form
   assert.match(proposalsPage, /StadtstackAdvisoryParticipation/);
   assert.match(proposalsPage, /Formale Governance · technisch und rechtlich/);
   assert.match(advisoryParticipation, /Beratendes Mitmachen · Staging/);
+  assert.match(advisoryParticipation, /Beteiligung vorbereitet/);
+  assert.match(advisoryParticipation, /Noch nicht geöffnet/);
+  assert.match(advisoryParticipation, /keine Stimmen, kein Ergebnis/);
+  assert.match(advisoryParticipation, /participationState === "brief_ready"/);
   assert.match(
     advisoryParticipation,
     /stagingPost<unknown>\("\/view", \{ profile: "public" \}\)/
