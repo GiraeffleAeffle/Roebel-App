@@ -16,6 +16,10 @@ import {
   publicMeckyDiscussionBindingFor,
   toPublicMeckyWatcherReply,
 } from "./public-mecky";
+import {
+  createPublicMeckyHttpServer,
+  listenPublicMeckyHttpServer,
+} from "./public-mecky-http";
 import { createNodeRelayClient } from "./node-relay-client";
 import { createPublicMeckyReplyProjectionSink } from "./public-mecky-projection";
 import { singleFlight } from "./single-flight";
@@ -131,6 +135,25 @@ async function main(): Promise<void> {
     },
     log: (m) => console.log(`  ${m}`),
   });
+
+  const chatPortRaw = process.env.MECKY_CHAT_PORT?.trim();
+  if (chatPortRaw) {
+    const chatPort = Number(chatPortRaw);
+    const chatHost = process.env.MECKY_CHAT_BIND_HOST?.trim() || "127.0.0.1";
+    const perMinute = Number(process.env.MECKY_CHAT_PER_MINUTE?.trim() || "10");
+    const perDay = Number(process.env.MECKY_CHAT_PER_DAY?.trim() || "100");
+    const chatServer = createPublicMeckyHttpServer({
+      publicMecky,
+      municipalityId,
+      bounds: { perMinute, perDay },
+    });
+    await listenPublicMeckyHttpServer({
+      server: chatServer,
+      host: chatHost,
+      port: chatPort,
+    });
+    console.log(`  bounded chat: http://${chatHost}:${chatPort}/v1/answer`);
+  }
 
   const pass = async () => {
     try {

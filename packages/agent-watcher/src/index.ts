@@ -29,6 +29,13 @@ export {
   createStadtstackReviewedEvidenceReader,
   publicMeckyDiscussionBindingFor,
 } from "./public-mecky";
+export {
+  DEFAULT_PUBLIC_MECKY_CHAT_BOUNDS,
+  createPublicMeckyHttpHandler,
+  createPublicMeckyHttpServer,
+  listenPublicMeckyHttpServer,
+} from "./public-mecky-http";
+export type { PublicMeckyChatBounds } from "./public-mecky-http";
 export type {
   OpenAICompatiblePublicMeckyInferenceOptions,
   PiPublicMeckyInferenceOptions,

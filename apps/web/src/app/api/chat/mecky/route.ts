@@ -1,53 +1,49 @@
-import { streamText } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
+import { NextResponse } from "next/server";
 
-const MODE_PROMPTS: Record<string, string> = {
-  tourist: `Du bist Mecky, der freundliche Stadtführer von Röbel an der Müritz.
-Hilf Touristen, Röbel zu entdecken. Empfehle Restaurants, Events, Sehenswürdigkeiten.
-Erkläre die Geschichte der Stadt. Sei begeistert von der Müritz-Region.
-Antworte immer auf Deutsch. Sei kurz und hilfreich.`,
+import {
+  parsePublicMeckyChatQuestion,
+  requestPublicMeckyChat,
+} from "@/lib/public-mecky-chat";
 
-  citizen: `Du bist Mecky, der Bürgerassistent von Röbel an der Müritz.
-Hilf Bürgern mit Governance, Marketplace, Community-Fragen.
-Erkläre Abstimmungen, hilf beim Erstellen von Beiträgen, informiere über lokale Neuigkeiten.
-Antworte immer auf Deutsch. Sei kurz und hilfreich.`,
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-  org: `Du bist Mecky, der Business-Berater von Röbel an der Müritz.
-Hilf Gewerben mit Deals, Analytics, Röbel Card Partner-Programm.
-Gib Marketing-Tipps für lokale Geschäfte. Erkläre wie die Röbel App für Unternehmen funktioniert.
-Antworte immer auf Deutsch. Sei kurz und hilfreich.`,
-};
-
-const BASE_PROMPT = `Du bist "Mecky", das Maskottchen der Röbel/Müritz Community-App.
-Du bist ein kleiner schwarzer Bulle mit einer goldenen Krone.
-Du lebst in Röbel an der Müritz in Mecklenburg-Vorpommern.
-
-PERSÖNLICHKEIT:
-- Freundlich, warmherzig und nordisch-locker
-- Gelegentlich Plattdeutsch: "Moin!", "Dat is ja klasse!", "Jo, dat geiht!"
-- Stolz auf die Müritz-Region und Röbel
-- Kurz und knackig
-- Informativ mit einem Augenzwinkern
-
-WISSEN:
-- Röbel hat ~5.000 Einwohner, ~50.000 Sommertouristen
-- Die Müritz ist Deutschlands größter Binnensee
-- Sehenswürdigkeiten: St.-Marien-Kirche, Nikolaikirche, Hafen, Marktplatz, Windmühle
-- Müritz-Nationalpark grenzt an
-- Die Röbel App bietet Events, Marktplatz, Governance (DAO), Nachrichten, Karte`;
+const TIMEOUT_MS = 35_000;
 
 export async function POST(request: Request) {
-  const { messages, mode = "tourist" } = await request.json();
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "request_invalid" }, { status: 400 });
+  }
 
-  const modePrompt = MODE_PROMPTS[mode] || MODE_PROMPTS.tourist;
-  const systemPrompt = `${BASE_PROMPT}\n\n${modePrompt}`;
+  let question: string;
+  try {
+    question = parsePublicMeckyChatQuestion(body);
+  } catch {
+    return NextResponse.json({ error: "request_invalid" }, { status: 400 });
+  }
 
-  const result = streamText({
-    model: anthropic("claude-haiku-4-5-20251001"),
-    system: systemPrompt,
-    messages,
-    maxOutputTokens: 1024,
-  });
+  const baseUrl = process.env.PUBLIC_MECKY_CHAT_URL;
+  if (!baseUrl) {
+    return NextResponse.json({ error: "service_unavailable" }, { status: 503 });
+  }
 
-  return result.toUIMessageStreamResponse();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const result = await requestPublicMeckyChat({
+      baseUrl,
+      question,
+      signal: controller.signal,
+    });
+    return NextResponse.json(result, {
+      headers: { "cache-control": "no-store" },
+    });
+  } catch {
+    return NextResponse.json({ error: "service_unavailable" }, { status: 503 });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
