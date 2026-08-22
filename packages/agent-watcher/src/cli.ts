@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { deriveAgentIdentity } from "@netizen-labs/nostr";
 import { DEFAULT_BOUNDS, emptyHistory } from "./bounds";
+import { resolvePublicMeckyEvidenceMode } from "./evidence-mode";
 import { announceAgentProfile } from "./profile";
 import {
   createPiPublicMeckyInference,
@@ -56,7 +57,13 @@ async function main(): Promise<void> {
     ? createPublicMeckyReplyProjectionSink({ endpoint: replyProjectionUrl })
     : undefined;
 
-  const syntheticEvidenceMode = process.env.STADTSTACK_E2E_MODE === "synthetic-reviewed";
+  const evidenceMode = resolvePublicMeckyEvidenceMode(process.env);
+  const syntheticEvidenceMode = evidenceMode.kind === "synthetic_reviewed";
+  if (evidenceMode.ignoredLegacySyntheticRequest) {
+    console.warn(
+      "ignoring legacy STADTSTACK_E2E_MODE without the explicit E2E synthetic-evidence capability",
+    );
+  }
   const publicMecky = createPublicMecky({
     ...(syntheticEvidenceMode
       ? {

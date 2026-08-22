@@ -36,6 +36,13 @@ Relays and clients may verify every signature independently. The application may
 
 Staging visibly labels the environment and every synthetic fixture; a connected tester remains a real signed account in a non-production lane and is never relabelled as synthetic. Mecky cannot admit a case, approve a department package, cast a vote, or spend funds. The Mitmachen result is advisory. Any formal governance ballot or treasury action requires a distinct ADR, owner, ruleset, and live authorization.
 
+Synthetic reviewed evidence is a two-factor test capability. The legacy
+`STADTSTACK_E2E_MODE=synthetic-reviewed` value alone never selects it; an
+isolated E2E workload must also set
+`STADTSTACK_E2E_SYNTHETIC_EVIDENCE_ALLOWED=true`. Without both exact values,
+Public Mecky uses the reviewed public retrieval projection and keeps the same
+no-authority boundary.
+
 ## Consequences
 
 - The flow is testable in the actual Röbel navigation and responsive shell.
