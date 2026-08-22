@@ -31,6 +31,7 @@ jobs:
       MAX_CONTEXT_BYTES: "41943040"
       MAX_STORE_BYTES: "4294967296"
       MAX_ARTIFACT_BYTES: "167772160"
+      BUILDKIT_CACHE_SCOPE: roebel-web-pr-${{ github.event.pull_request.number || github.run_id }}
     steps:
       - name: Check out the exact source revision
         uses: actions/checkout@v4
@@ -111,6 +112,8 @@ jobs:
             --build-context "dependency-manifests=$RUNNER_TEMP/dependency-manifests" \
             --build-arg "SOURCE_REVISION=$SOURCE_REVISION" \
             --build-arg "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" \
+            --cache-from "type=gha,scope=$BUILDKIT_CACHE_SCOPE" \
+            --cache-to "type=gha,scope=$BUILDKIT_CACHE_SCOPE,mode=max,ignore-error=true" \
             --output "type=oci,dest=/tmp/roebel-web-staging.oci.tar,name=$import_name,annotation.io.containerd.image.name=$import_name,rewrite-timestamp=true" \
             "$RUNNER_TEMP/context"
           artifact_bytes="$(stat -c %s /tmp/roebel-web-staging.oci.tar)"
