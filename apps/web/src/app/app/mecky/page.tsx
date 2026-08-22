@@ -1,120 +1,175 @@
 "use client";
 
-import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type UIMessage } from "ai";
-import { useState, useRef, useEffect, useMemo } from "react";
-import { useAppMode } from "@/lib/context/AppModeContext";
+import { useEffect, useRef, useState } from "react";
+import { Bot, ExternalLink, Send, ShieldCheck, User } from "lucide-react";
+
 import { useAccount } from "@/lib/context/AccountContext";
+import type { AppMode } from "@/lib/context/AppModeContext";
+import {
+  PUBLIC_MECKY_CHAT_REQUEST_SCHEMA,
+  parsePublicMeckyChatResponse,
+  type PublicMeckyEvidenceRef,
+} from "@/lib/public-mecky-chat";
 import { useUserProfile } from "@/hooks/useUserProfile";
 import { isOrgAccount } from "@/types/account";
-import { Send, Bot, User, Sparkles, RefreshCw } from "lucide-react";
-import type { AppMode } from "@/lib/context/AppModeContext";
 
 const MODE_GREETINGS: Record<AppMode, string> = {
-  tourist: "Moin! 👋 Ich bin Mecky, eine künstliche Intelligenz und dein Stadtführer für Röbel. Frag mich nach Restaurants, Events, Sehenswürdigkeiten oder was du sonst wissen möchtest!",
-  citizen: "Moin! 👋 Ich bin Mecky, eine künstliche Intelligenz und dein Bürgerassistent. Frag mich zu Abstimmungen, Community-Themen oder was gerade in Röbel los ist!",
-  org: "Moin! 👋 Ich bin Mecky, eine künstliche Intelligenz und dein Business-Berater. Frag mich zum Röbel Card Partnerprogramm, Marketing-Tipps oder wie du dein Gewerbe in der App am besten präsentierst!",
+  tourist:
+    "Moin! 👋 Ich bin Mecky. Ich antworte aus geprüften öffentlichen Röbel-Quellen und sage offen, wenn dazu noch nichts Belastbares vorliegt.",
+  citizen:
+    "Moin! 👋 Ich bin Mecky, dein KI-Bürgerassistent. Ich ordne geprüfte Beiträge, lokale Nachrichten, Ratsunterlagen und Civic Cases ein – ohne selbst zu entscheiden.",
+  org:
+    "Moin! 👋 Ich bin Mecky. Ich helfe bei lokalen Fragen aus geprüften öffentlichen Quellen; geschäftliche oder amtliche Entscheidungen treffe ich nicht.",
 };
 
 const QUICK_PROMPTS: Record<AppMode, string[]> = {
   tourist: [
-    "Was kann ich heute in Röbel machen?",
-    "Welche Restaurants empfiehlst du?",
-    "Erzähl mir über die Müritz",
-    "Gibt es heute Events?",
+    "Welche geprüften Informationen gibt es zur Marienfelder Straße?",
+    "Welche aktuellen Röbel-Themen sind öffentlich dokumentiert?",
+    "Was ist bei den Quellen noch unklar?",
   ],
   citizen: [
-    "Welche Abstimmungen sind aktiv?",
-    "Wie funktioniert die Röbel Card?",
-    "Was gibt's Neues im Marktplatz?",
-    "Wie kann ich mich verifizieren?",
+    "Was ist der geprüfte Stand zur Marienfelder Straße?",
+    "Gibt es offizielle Unterlagen zu einem offenen Treffpunkt in Röbel?",
+    "Welche Themen warten noch auf Verwaltungsfeedback?",
   ],
   org: [
-    "Wie werde ich Röbel Card Partner?",
-    "Tipps für mehr Reichweite",
-    "Wie erstelle ich ein Angebot?",
-    "Was bringt die Stempelkarte?",
+    "Welche geprüften Stadt-Themen betreffen lokale Gewerbe?",
+    "Welche offiziellen Quellen liegen zu aktuellen Vorhaben vor?",
+    "Wo fehlen noch belastbare Informationen?",
   ],
 };
 
+type ChatMessage = Readonly<{
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  evidenceRefs?: readonly PublicMeckyEvidenceRef[];
+}>;
+
+function refusalText(reason: string, retryable: boolean): string {
+  if (reason === "insufficient_evidence") {
+    return "Dazu liegen mir noch keine passenden, geprüften öffentlichen Quellen vor.";
+  }
+  return retryable
+    ? "Die geprüften Quellen oder das KI-Modell sind gerade nicht erreichbar. Bitte versuche es gleich noch einmal."
+    : "Diese Frage kann ich innerhalb meiner geprüften Quellen nicht beantworten.";
+}
+
+function messageId(): string {
+  return globalThis.crypto?.randomUUID?.() ??
+    `mecky-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 export default function MeckyPage() {
-  const { activeMode } = useAppMode();
   const { activeAccount } = useAccount();
   const { user } = useUserProfile();
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  // Derive effective mode from account type for Mecky context
   const effectiveMode: AppMode = activeAccount && isOrgAccount(activeAccount)
     ? "org"
     : (user?.tier === "citizen" || user?.is_verified_citizen)
       ? "citizen"
       : "tourist";
-
   const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      id: "greeting-tourist",
+      role: "assistant",
+      text: MODE_GREETINGS.tourist,
+    },
+  ]);
 
-  const transport = useMemo(
-    () => new DefaultChatTransport({ api: "/api/chat/mecky", body: { mode: effectiveMode } }),
-    [effectiveMode]
-  );
+  useEffect(() => {
+    setMessages([{
+      id: `greeting-${effectiveMode}`,
+      role: "assistant",
+      text: MODE_GREETINGS[effectiveMode],
+    }]);
+  }, [effectiveMode]);
 
-  const { messages, sendMessage, status } = useChat({
-    transport,
-    messages: [
-      {
-        id: "greeting",
-        role: "assistant",
-        parts: [{ type: "text" as const, text: MODE_GREETINGS[effectiveMode] }],
-      },
-    ] as UIMessage[],
-  });
-
-  const isLoading = status !== "ready";
-
-  // Auto-scroll to bottom
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, isLoading]);
 
-  const handleQuickPrompt = (prompt: string) => {
-    sendMessage({ text: prompt });
+  const sendQuestion = async (question: string) => {
+    const trimmed = question.trim();
+    if (!trimmed || isLoading) return;
+    setMessages((current) => [
+      ...current,
+      { id: messageId(), role: "user", text: trimmed },
+    ]);
+    setInput("");
+    setIsLoading(true);
+    try {
+      const response = await fetch("/api/chat/mecky", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          schemaVersion: PUBLIC_MECKY_CHAT_REQUEST_SCHEMA,
+          question: trimmed,
+        }),
+      });
+      if (!response.ok) throw new Error("public_mecky_chat_unavailable");
+      const result = parsePublicMeckyChatResponse(await response.json());
+      setMessages((current) => [
+        ...current,
+        result.status === "answered"
+          ? {
+              id: messageId(),
+              role: "assistant",
+              text: result.content,
+              evidenceRefs: result.evidenceRefs,
+            }
+          : {
+              id: messageId(),
+              role: "assistant",
+              text: refusalText(result.reason, result.retryable),
+            },
+      ]);
+    } catch {
+      setMessages((current) => [
+        ...current,
+        {
+          id: messageId(),
+          role: "assistant",
+          text: "Mecky oder die geprüften Quellen sind gerade nicht erreichbar. Bitte versuche es gleich noch einmal.",
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
-    sendMessage({ text: input });
-    setInput("");
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    void sendQuestion(input);
   };
 
   return (
-    <div className="max-w-2xl mx-auto flex flex-col h-[calc(100vh-8rem)]">
-      {/* Header */}
-      <div className="flex items-center gap-3 pb-4 border-b border-border">
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
+    <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-2xl flex-col">
+      <div className="flex items-center gap-3 border-b border-border pb-4">
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500">
           <Bot className="h-5 w-5 text-white" />
         </div>
         <div>
           <h1 className="text-lg font-semibold text-foreground">Mecky</h1>
-          {/* AI Act Art. 50(1): permanently visible KI disclosure in the chat itself */}
-          <p className="text-xs text-muted-foreground">
-            {effectiveMode === "tourist" ? "Dein Stadtführer" :
-             effectiveMode === "citizen" ? "Dein Bürgerassistent" :
-             "Dein Business-Berater"}
-            {" · KI-Assistent"}
+          <p className="flex items-center gap-1 text-xs text-muted-foreground">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            KI-Assistent · geprüfte öffentliche Quellen · keine amtliche Auskunft
           </p>
         </div>
       </div>
 
-      {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto py-4 space-y-4">
+      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto py-4">
         {messages.map((message) => (
           <div
             key={message.id}
             className={`flex gap-3 ${message.role === "user" ? "flex-row-reverse" : ""}`}
           >
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+            <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${
               message.role === "user"
                 ? "bg-primary"
                 : "bg-gradient-to-br from-amber-400 to-orange-500"
@@ -127,67 +182,84 @@ export default function MeckyPage() {
             </div>
             <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm ${
               message.role === "user"
-                ? "bg-primary text-primary-foreground rounded-tr-sm"
-                : "bg-card border border-border text-foreground rounded-tl-sm"
+                ? "rounded-tr-sm bg-primary text-primary-foreground"
+                : "rounded-tl-sm border border-border bg-card text-foreground"
             }`}>
-              <p className="whitespace-pre-wrap">
-                {message.parts
-                  .filter((part) => part.type === "text")
-                  .map((part) => part.text)
-                  .join("")}
-              </p>
+              <p className="whitespace-pre-wrap">{message.text}</p>
+              {message.evidenceRefs?.length ? (
+                <div className="mt-3 border-t border-border pt-2">
+                  <p className="mb-1 text-xs font-semibold text-muted-foreground">
+                    Verwendete Quellen
+                  </p>
+                  <ul className="space-y-1">
+                    {message.evidenceRefs.map((evidence) => (
+                      <li key={evidence.evidenceId}>
+                        <a
+                          href={evidence.publicCaseUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-2 hover:underline"
+                        >
+                          {evidence.title}
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
           </div>
         ))}
 
-        {isLoading && (
+        {isLoading ? (
           <div className="flex gap-3">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center flex-shrink-0">
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500">
               <Bot className="h-4 w-4 text-white" />
             </div>
-            <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3">
+            <div className="rounded-2xl rounded-tl-sm border border-border bg-card px-4 py-3">
               <div className="flex gap-1">
-                <span className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" />
-                <span className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce [animation-delay:0.15s]" />
-                <span className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce [animation-delay:0.3s]" />
+                <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/40" />
+                <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/40 [animation-delay:0.15s]" />
+                <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/40 [animation-delay:0.3s]" />
               </div>
             </div>
           </div>
-        )}
+        ) : null}
 
-        {/* Quick prompts — only show when few messages */}
-        {messages.length <= 1 && (
+        {messages.length === 1 ? (
           <div className="flex flex-wrap gap-2">
             {QUICK_PROMPTS[effectiveMode].map((prompt) => (
               <button
                 key={prompt}
-                onClick={() => handleQuickPrompt(prompt)}
-                className="px-3 py-1.5 bg-muted hover:bg-accent text-sm text-foreground rounded-full border border-border transition-colors"
+                type="button"
+                onClick={() => void sendQuestion(prompt)}
+                className="rounded-full border border-border bg-muted px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-accent"
               >
                 {prompt}
               </button>
             ))}
           </div>
-        )}
+        ) : null}
       </div>
 
-      {/* Input */}
       <form
         id="mecky-form"
         onSubmit={handleSubmit}
-        className="flex gap-2 pt-4 border-t border-border"
+        className="flex gap-2 border-t border-border pt-4"
       >
         <input
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Frag Mecky..."
-          className="flex-1 px-4 py-2.5 bg-card border border-border rounded-full text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          onChange={(event) => setInput(event.target.value)}
+          placeholder="Frag Mecky aus geprüften Quellen..."
+          className="flex-1 rounded-full border border-border bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           disabled={isLoading}
         />
         <button
           type="submit"
+          aria-label="Frage senden"
           disabled={isLoading || !input.trim()}
-          className="p-2.5 bg-primary hover:bg-primary/90 disabled:bg-muted text-primary-foreground disabled:text-muted-foreground rounded-full transition-colors"
+          className="rounded-full bg-primary p-2.5 text-primary-foreground transition-colors hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground"
         >
           <Send className="h-4 w-4" />
         </button>
