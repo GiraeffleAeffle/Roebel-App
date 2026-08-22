@@ -94,3 +94,39 @@ multi-replica atomic challenge store, a reviewed database transaction for the
 stable member/credential mapping, explicit recovery, and deployed opt-in E2E.
 Until those gates pass, no credential link exists and Thirdweb remains the only
 provider selected by the app shell.
+
+## Implementation slices from the current code
+
+The existing seam is intentionally deeper than either provider. The app-facing
+module remains `CitizenSession`; WebAuthn ceremony details, Safe account
+construction and Pimlico transport must not leak into feed, discussion,
+proposal or governance callers. The Stadtstack prototype is a reference for
+those mechanics, not a module to copy wholesale: its current passkey account
+file also owns residency, governance, recovery and local-development concerns.
+
+The opt-in coexistence path is split into four separately reviewable effects:
+
+1. **Authenticated no-effect verification.** Add challenge and verification
+   HTTP routes bound to the current authenticated Thirdweb subject. Replace the
+   in-memory challenge store with an atomic multi-replica store. A successful
+   request still returns only `verified_no_effect`; it must not write an
+   identity link or deploy a Safe.
+2. **Stable-member persistence.** In one reviewed transaction, bind the current
+   credential and candidate Safe credential to one private stable member and
+   preserve the existing `accounts.id`, Nostr public key and Thirdweb
+   credential. Unique constraints must reject one credential being attached to
+   two members. No address-bound right moves in this transaction.
+3. **Passkey-owned Safe adapter.** Implement three private modules behind
+   `CitizenSession`: a WebAuthn credential provider, a deterministic Safe
+   account controller and a bounded user-operation transport. Pimlico keys stay
+   behind the existing same-origin bundler route; the browser receives neither
+   a provider secret nor general transaction authority.
+4. **Recovery and staging coexistence.** Prove create, sign, recover, revoke and
+   rollback on a second device; then run one Thirdweb session and one passkey
+   Safe session through the same ordinary-post and civic-promotion contract.
+   The test fails if it creates a second app account, changes the Nostr identity
+   or implies that CitizenNFT, Circles, MACI, XMTP, balances or roles migrated.
+
+Only slice 1 may begin before the first complete Thirdweb-backed civic journey
+has passed staging. Slices 2–4 remain opt-in migration work and cannot become a
+signup prerequisite.

@@ -58,6 +58,7 @@ Stages are connected through identifiers and receipts, not collapsed into one re
 | [ADR 0015](adr/0015-one-civic-journey-with-embedded-stage-tools.md)                  | accepted for staging        | Make Röbel own the journey while mini-apps remain scoped, replaceable stage tools.               |
 | [ADR 0016](adr/0016-review-gated-public-knowledge-and-attributed-community-context.md) | accepted for staging      | Separate source admission from authority across conversation, news, RIS, and reviewed cases.     |
 | [ADR 0017](adr/0017-reviewed-public-knowledge-projection.md)                           | accepted for staging      | Consume explicitly enabled reviewed news/RIS projections through checksum-bound GET-only adapters. |
+| [ADR 0018](adr/0018-separate-public-journey-and-operator-console-build-boundaries.md)  | proposed                  | Separate the public journey from privileged operator routes so authority and builds scale independently. |
 
 Canonical terms live in [`CONTEXT.md`](../CONTEXT.md). The integrated staging contract lives in [`2026-08-13-real-staging-topic-identity-and-administration-flow.md`](superpowers/specs/2026-08-13-real-staging-topic-identity-and-administration-flow.md).
 
@@ -112,6 +113,28 @@ The detailed account-replacement and sovereign-root investigations remain in:
 
 ADR 0014 narrows their first implementation move: introduce the session seam and coexistence model before choosing an irreversible address/asset migration.
 
+The current passkey/Safe code in Röbel is therefore an interface and
+verification scaffold, not an installed wallet implementation. ADR 0014 now
+divides the opt-in work into authenticated no-effect verification,
+stable-member persistence, a real WebAuthn/Safe/Pimlico adapter, and explicit
+recovery/coexistence E2E. Copying the Stadtstack passkey account file wholesale
+is rejected because it mixes those provider mechanics with unrelated civic and
+local-development concerns.
+
+## Delivery performance seam
+
+The current public image compiles 226 Next pages, including 111 `admin` or
+`dashboard` pages. A measured two-to-four webpack-parallelism change saved only
+five seconds across the exact Next build, while the experimental Turbopack
+candidate failed page-data collection. [ADR 0018](adr/0018-separate-public-journey-and-operator-console-build-boundaries.md)
+therefore records the proposed durable boundary: keep one repository and one
+domain model, but extract the privileged operator console into its own
+least-privilege deployable after the first complete civic tracer passes.
+
+This proposal does not delay namespace-scoped Flux. The existing Web and Mecky
+digests remain the first adoption targets; compiler-worker experiments are
+accepted only when an isolated no-publish run demonstrates a material gain.
+
 ## Repository and operational ownership
 
 | Concern                                                | Source of truth                                                        |
@@ -137,7 +160,7 @@ No public application repository receives cluster-admin credentials or secret va
 | 4. Proposal and admission            | A human signs a proposal candidate; a separate human action admits one idempotent civic case                                                       | topic-bound signing plus one shared topic/discussion journey rail implemented; deployed browser E2E and separate human admission remain                                                            |
 | 5. Administration round trip         | One exact openDesk package returns reviewed feedback to the same journey                                                                           | public-read candidate now binds reviewed package IDs and checksums to the exact case on its discussion and canonical topic; a real openDesk return receipt and deployed browser E2E remain pending |
 | 6. Brief, participation, and finance | Citizen Brief, advisory Mitmachen, and treasury review are visible together without implying authority                                             | exact case-bound Mitmachen reader and reviewed finance context implemented; participation input/result and deployed browser proof remain                                                           |
-| 7. Identity coexistence              | A Thirdweb tester and a passkey/Safe tester use the same `CitizenSession` contract; one dual-proof link preserves an existing app account and npub | provider-neutral Safe adapter, short-lived dual-control proof, atomic challenge interface, and three-proof server verifier implemented without effects; authenticated route, durable multi-replica store, stable-member persistence, passkey recovery, and deployed opt-in E2E remain |
+| 7. Identity coexistence              | A Thirdweb tester and a passkey/Safe tester use the same `CitizenSession` contract; one dual-proof link preserves an existing app account and npub | provider-neutral structural Safe adapter, short-lived dual-control proof, atomic challenge interface, and three-proof server verifier implemented without effects; ADR 0014 slices authenticated routing, durable storage, stable-member persistence, the real WebAuthn/Safe/Pimlico adapter, recovery and deployed opt-in E2E |
 | 8. Formal authority                  | A separately accepted governance/treasury contract enables real effects                                                                            | explicitly deferred                                                                                                                                                                                |
 
 Each slice must be idempotent, restartable, responsive on desktop/mobile, source-attributable, and deployable by immutable digest through the namespace-scoped GitOps path. A later slice cannot redefine identifiers or silently duplicate records created by an earlier slice.
