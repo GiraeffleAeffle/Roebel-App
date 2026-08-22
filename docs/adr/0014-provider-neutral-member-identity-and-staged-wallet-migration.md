@@ -74,10 +74,23 @@ The resulting receipt explicitly preserves the member, app account, Nostr
 identity, address-bound rights, and Thirdweb credential and remains
 `awaiting_server_verification` with `authorityBinding: none`.
 
-This does **not** yet create or recover a passkey, deploy a Safe, call Pimlico,
-write a member/credential mapping, consume a challenge, or migrate a user. The
-next server-side slice must verify both ERC-1271/EIP-6492 signatures, consume the
-nonce atomically, persist the reviewed stable-member mapping, and prove that
-the existing client-held Nostr key can be recovered without putting its
-secret-equivalent derivation material in the database. Until those gates pass,
-the Thirdweb adapter remains the only provider selected by the app shell.
+The client envelope itself does **not** create or recover a passkey, deploy a
+Safe, call Pimlico, verify either wallet signature, write a member/credential
+mapping, or migrate a user. It can only remain
+`awaiting_server_verification`.
+
+The server verification boundary is now implemented behind two injected deep
+interfaces: an atomic challenge store and a Gnosis credential-control verifier.
+It issues a short-lived challenge only from a trusted authenticated subject,
+consumes the exact challenge before remote verification, and independently
+checks the current wallet↔Nostr admission signature, the current credential's
+link signature, and the candidate Safe's link signature. Its only output is a
+closed `verified_no_effect` receipt with `persistence: not_written`; failure
+burns the nonce and replay is rejected.
+
+That module is not yet an HTTP route and its in-memory store is test-only. A
+production slice still needs an authenticated app/OIDC session binding, a
+multi-replica atomic challenge store, a reviewed database transaction for the
+stable member/credential mapping, explicit recovery, and deployed opt-in E2E.
+Until those gates pass, no credential link exists and Thirdweb remains the only
+provider selected by the app shell.
