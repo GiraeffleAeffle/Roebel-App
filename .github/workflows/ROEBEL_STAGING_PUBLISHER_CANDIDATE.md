@@ -18,9 +18,13 @@ Each protected-main component build also imports and refreshes one
 component-scoped BuildKit cache in that component's GHCR package. Dependency
 manifests are copied before application source, so an ordinary source change
 can reuse the verified dependency-install layer and BuildKit intermediates.
-The mutable `buildcache-main` reference contains only public build inputs, is
-never a deployment input, carries no release authority, and cannot bypass the
-post-build OCI verifier. A missing cache always falls back to a clean build.
+The Web cache uses `mode=max` because its measured 2.01 GB pnpm graph otherwise
+forces a roughly 53-second platform install for every source-only release; the
+small Public Mecky cache remains `mode=min`. Only the protected-main publisher
+writes either mutable cache reference. Each `buildcache-main` reference contains
+only public build inputs, is never a deployment input, carries no release
+authority, and cannot bypass the post-build OCI verifier. A missing cache always
+falls back to a clean build.
 
 Dependency fetching is isolated from the source build context. `pnpm fetch`
 writes its virtual store into a runner-only fetch directory; neither the
