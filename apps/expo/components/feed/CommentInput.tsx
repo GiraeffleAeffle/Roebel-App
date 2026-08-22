@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '@/context/ThemeContext';
+import GlassSurface from '@/components/GlassSurface';
 import StickerEmojiPicker from '@/components/pickers/StickerEmojiPicker';
 import { uploadMediaFile } from '@/lib/upload-media';
 import type { LootboxReward } from '@/lib/supabase-rewards';
@@ -20,40 +21,44 @@ const INPUT_MAX_HEIGHT = 100;
 type Props = {
   onSubmit: (content: string, stickerRewardId: string | null, imageUrl: string | null) => Promise<void>;
   isSubmitting: boolean;
-  initialValue?: string;
+  /** Controlled draft text — lives in the screen so the expand modal can share it. */
+  value: string;
+  onChangeText: (text: string) => void;
   onCancel?: () => void;
   onFocusChange?: (focused: boolean) => void;
   walletAddress?: string;
   /** When set, the input is composing a reply to this person (shows a chip). */
   replyingToName?: string | null;
   onCancelReply?: () => void;
+  /** Avatar of the active profile, shown at the left of the pill. */
+  avatarUrl?: string | null;
+  avatarFallbackInitial?: string;
+  /** Opens the full-screen composer, carrying the current draft along. */
+  onExpand?: () => void;
 };
 
 export default function CommentInput({
   onSubmit,
   isSubmitting,
-  initialValue,
+  value,
+  onChangeText,
   onCancel,
   onFocusChange,
   walletAddress,
   replyingToName,
   onCancelReply,
+  avatarUrl,
+  avatarFallbackInitial,
+  onExpand,
 }: Props) {
   const { colors } = useTheme();
   const inputRef = useRef<TextInput>(null);
-  const [text, setText] = useState(initialValue || '');
   const [showPicker, setShowPicker] = useState(false);
   const [pendingSticker, setPendingSticker] = useState<LootboxReward | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isFocused, setIsFocused] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [contentHeight, setContentHeight] = useState(0);
-
-  useEffect(() => {
-    if (initialValue !== undefined) {
-      setText(initialValue);
-    }
-  }, [initialValue]);
 
   // Focus the field when a reply is started.
   useEffect(() => {
@@ -65,14 +70,14 @@ export default function CommentInput({
   const inputHeight = Math.min(Math.max(INPUT_MIN_HEIGHT, contentHeight), INPUT_MAX_HEIGHT);
 
   const canSubmit =
-    (text.trim().length > 0 || !!pendingSticker || !!imageUrl) && !isSubmitting && !isUploading;
+    (value.trim().length > 0 || !!pendingSticker || !!imageUrl) && !isSubmitting && !isUploading;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
-    const content = text.trim();
+    const content = value.trim();
     const stickerId = pendingSticker?.id ?? null;
     const submittedImage = imageUrl;
-    setText('');
+    onChangeText('');
     setContentHeight(0);
     setPendingSticker(null);
     setImageUrl(null);
@@ -112,19 +117,20 @@ export default function CommentInput({
   };
 
   const isEditMode = !!onCancel;
-  const showImageIcon = (isFocused || !!imageUrl) && !isEditMode && !!walletAddress;
+  const engaged = isFocused || value.length > 0 || !!pendingSticker || !!imageUrl;
+  const showImageIcon = (engaged || !!imageUrl) && !isEditMode && !!walletAddress;
   const placeholder = isEditMode
     ? 'Kommentar bearbeiten...'
     : replyingToName
       ? `Antwort an ${replyingToName}...`
-      : 'Kommentar schreiben...';
+      : 'Antwort schreiben...';
 
   return (
     <View>
       {showPicker && (
         <StickerEmojiPicker
           onPickEmoji={(emoji) => {
-            setText((prev) => prev + emoji);
+            onChangeText(value + emoji);
             setShowPicker(false);
           }}
           onPickSticker={(reward) => {
@@ -164,30 +170,35 @@ export default function CommentInput({
           </Pressable>
         </View>
       )}
-      <View style={styles.container}>
-        {isEditMode && (
-          <Pressable onPress={onCancel} style={styles.cancelButton} hitSlop={8}>
-            <Ionicons name="close" size={20} color={colors.textTertiary} />
-          </Pressable>
-        )}
-        {!isEditMode && (
-          <Pressable
-            onPress={() => setShowPicker((p) => !p)}
-            style={styles.emojiButton}
-            accessibilityLabel="Emoji oder Sticker öffnen"
-            hitSlop={6}
-          >
-            <EmojiIcon width={22} height={22} color={colors.textSecondary} />
-          </Pressable>
-        )}
-        <View style={[styles.inputWrap, { backgroundColor: colors.surfaceSecondary }]}>
+
+      {/* Floating fully-rounded pill. Glass background, hairline border,
+          content scrolls beneath it in the screen. */}
+      <View style={[styles.pill, { borderColor: colors.border }]}>
+        <GlassSurface />
+        <View style={styles.pillRow}>
+          {isEditMode ? (
+            <Pressable onPress={onCancel} style={styles.cancelButton} hitSlop={8}>
+              <Ionicons name="close" size={20} color={colors.textTertiary} />
+            </Pressable>
+          ) : (
+            <View style={[styles.avatar, { backgroundColor: colors.surfaceSecondary }]}>
+              {avatarUrl ? (
+                <Image source={{ uri: avatarUrl }} style={styles.avatarImg} contentFit="cover" />
+              ) : (
+                <Text style={[styles.avatarInitial, { color: colors.textSecondary }]}>
+                  {avatarFallbackInitial ?? '?'}
+                </Text>
+              )}
+            </View>
+          )}
+
           <TextInput
             ref={inputRef}
             style={[styles.input, { color: colors.textPrimary, height: inputHeight }]}
             placeholder={placeholder}
             placeholderTextColor={colors.textTertiary}
-            value={text}
-            onChangeText={setText}
+            value={value}
+            onChangeText={onChangeText}
             onFocus={handleFocus}
             onBlur={handleBlur}
             onContentSizeChange={(e) => setContentHeight(e.nativeEvent.contentSize.height)}
@@ -196,78 +207,119 @@ export default function CommentInput({
             scrollEnabled
             autoFocus={isEditMode}
           />
+
+          {!isEditMode && (
+            <Pressable
+              onPress={() => setShowPicker((p) => !p)}
+              style={styles.iconButton}
+              accessibilityLabel="Emoji oder Sticker öffnen"
+              hitSlop={6}
+            >
+              <EmojiIcon width={21} height={21} color={colors.textSecondary} />
+            </Pressable>
+          )}
           {showImageIcon && (
             <Pressable
               onPress={handlePickImage}
-              style={styles.imageButton}
+              style={styles.iconButton}
               hitSlop={6}
               accessibilityLabel="Bild anhängen"
             >
               {isUploading ? (
                 <ActivityIndicator size="small" color={colors.textSecondary} />
               ) : (
-                <ImageIcon width={22} height={22} color={colors.textSecondary} />
+                <ImageIcon width={21} height={21} color={colors.textSecondary} />
               )}
             </Pressable>
           )}
-        </View>
-        <Pressable
-          onPress={handleSubmit}
-          disabled={!canSubmit}
-          style={[styles.sendButton, { backgroundColor: canSubmit ? colors.primary : colors.disabled }]}
-        >
-          {isSubmitting ? (
-            <ActivityIndicator size="small" color={colors.onPrimary} />
+
+          {engaged || isEditMode ? (
+            <Pressable
+              onPress={handleSubmit}
+              disabled={!canSubmit}
+              style={[
+                styles.sendButton,
+                { backgroundColor: canSubmit ? colors.primary : colors.disabled },
+              ]}
+              accessibilityLabel="Antwort senden"
+            >
+              {isSubmitting ? (
+                <ActivityIndicator size="small" color={colors.onPrimary} />
+              ) : (
+                <SendIcon
+                  width={16}
+                  height={16}
+                  color={canSubmit ? colors.onPrimary : colors.disabledText}
+                />
+              )}
+            </Pressable>
           ) : (
-            <SendIcon width={18} height={18} color={canSubmit ? colors.onPrimary : colors.disabledText} />
+            onExpand && (
+              <Pressable
+                onPress={onExpand}
+                style={styles.iconButton}
+                hitSlop={6}
+                accessibilityLabel="Kommentar im Vollbild schreiben"
+              >
+                <Ionicons name="expand-outline" size={20} color={colors.textSecondary} />
+              </Pressable>
+            )
           )}
-        </Pressable>
+        </View>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  pill: {
+    borderRadius: 26,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  pillRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minHeight: 52,
   },
-  emojiButton: {
-    width: 36,
-    height: 36,
+  avatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: 3,
   },
-  inputWrap: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    minHeight: 38,
-    maxHeight: 120,
+  avatarImg: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 15,
+  },
+  avatarInitial: {
+    fontSize: 13,
+    fontFamily: 'Inter-SemiBold',
   },
   input: {
     flex: 1,
     paddingTop: 8,
     paddingBottom: 8,
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: 'Inter-Regular',
   },
-  imageButton: {
-    width: 32,
-    height: 32,
+  iconButton: {
+    width: 34,
+    height: 36,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 4,
   },
   cancelButton: {
+    width: 30,
+    height: 36,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingRight: 4,
-    paddingBottom: 8,
   },
   sendButton: {
     width: 36,

@@ -18,7 +18,7 @@ import type {
 import BottomNavigation, { BOTTOM_NAV_HEIGHT } from '@/components/BottomNavigation';
 import ExploreSearchBar from '@/components/ExploreSearchBar';
 import ExploreCategoryChips from '@/components/ExploreCategoryChips';
-import SwipeableCardStack from '@/components/SwipeableCardStack';
+import DeckCardSwiper from '@/components/DeckCardSwiper';
 import ThisWeekEventsHorizontal from '@/components/ThisWeekEventsHorizontal';
 import AllEventsHorizontal from '@/components/AllEventsHorizontal';
 import NewsSection from '@/components/NewsSection';
@@ -238,11 +238,11 @@ export default function ExploreScreen() {
         {popularQuery.isPending ? (
           <HeroCardSkeleton />
         ) : (
-          <SwipeableCardStack
+          <DeckCardSwiper
             events={futurePopularEvents}
             showPagination
             loop
-            containerStyle={{ paddingTop: 8, paddingBottom: 16, marginBottom: 0 }}
+            containerStyle={{ paddingTop: 40, paddingBottom: 16, marginBottom: 0 }}
           />
         )}
 

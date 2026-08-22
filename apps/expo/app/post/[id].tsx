@@ -61,8 +61,10 @@ import QuotedPostPreview from '@/components/feed/QuotedPostPreview';
 import RepostDrawer from '@/components/feed/RepostDrawer';
 import { resolveYouTubeUrl, removeYouTubeUrls } from '@/lib/utils/youtube';
 import CommentInput from '@/components/feed/CommentInput';
+import CommentComposerModal from '@/components/feed/CommentComposerModal';
 import CommentScrim from '@/components/feed/CommentScrim';
-import FeedPostSkeleton from '@/components/feed/FeedPostSkeleton';
+import FeedPostSkeleton, { CommentSkeleton } from '@/components/feed/FeedPostSkeleton';
+import { useActiveProfileImage } from '@/hooks/useActiveProfileImage';
 import PostOptionsDrawer from '@/components/feed/PostOptionsDrawer';
 import PostComposer from '@/components/feed/PostComposer';
 import ReportDrawer from '@/components/feed/ReportDrawer';
@@ -103,6 +105,12 @@ export default function PostDetailScreen() {
   const [commentFocused, setCommentFocused] = useState(false);
   const [likers, setLikers] = useState<PostLiker[]>([]);
   const [repostDrawerVisible, setRepostDrawerVisible] = useState(false);
+  // Comment drafts live at screen level so the floating bar and the
+  // full-screen composer modal share the same text.
+  const [commentDraft, setCommentDraft] = useState('');
+  const [editDraft, setEditDraft] = useState('');
+  const [composerVisible, setComposerVisible] = useState(false);
+  const activeProfileImage = useActiveProfileImage();
 
   const {
     isLiked,
@@ -435,6 +443,7 @@ export default function PostDetailScreen() {
 
   const handleEditComment = (comment: PostCommentRecord) => {
     setReplyingTo(null);
+    setEditDraft(comment.content);
     setEditingComment(comment);
   };
 
@@ -528,7 +537,9 @@ export default function PostDetailScreen() {
           <View style={styles.backButton} />
         </View>
         <FeedPostSkeleton />
-        <FeedPostSkeleton />
+        <CommentSkeleton />
+        <CommentSkeleton />
+        <CommentSkeleton />
       </SafeAreaView>
     );
   }
@@ -549,6 +560,12 @@ export default function PostDetailScreen() {
   }
 
   const mediaUrls = post.media_urls?.filter(Boolean) || [];
+  // Display name of the post author (never a wallet) — the default
+  // "Antwort an …" target in the full-screen composer.
+  const postAuthorIsOrg = post.author?.account?.account_type === 'organisation';
+  const postAuthorRaw = (postAuthorIsOrg ? post.author?.account?.name : post.author?.username) || '';
+  const postAuthorName =
+    postAuthorRaw && !/^0x[a-fA-F0-9]{40}$/.test(postAuthorRaw) ? postAuthorRaw : null;
   const firstLink = post.links && post.links.length > 0 ? post.links[0] : null;
   const youtubeUrl = resolveYouTubeUrl(post.content, post.links?.map((l) => l.url));
   const displayContent = youtubeUrl ? removeYouTubeUrls(post.content) : post.content;
@@ -735,6 +752,7 @@ export default function PostDetailScreen() {
                   <Text style={[styles.noCommentsText, { color: colors.textTertiary }]}>
                     Noch keine Kommentare. Sei der Erste!
                   </Text>
+                  <View style={styles.bottomPadding} />
                 </View>
               ) : (
                 <View style={styles.bottomPadding} />
@@ -744,14 +762,16 @@ export default function PostDetailScreen() {
           <CommentScrim visible={commentFocused} />
         </View>
 
-        {/* Comment input */}
+        {/* Floating comment bar — overlaps the list bottom so comments
+            scroll beneath the glass pill. */}
         {walletAddress ? (
-          <View style={styles.inputContainer}>
+          <View style={styles.inputContainer} pointerEvents="box-none">
             {editingComment ? (
               <CommentInput
                 onSubmit={handleSubmitEditComment}
                 isSubmitting={false}
-                initialValue={editingComment.content}
+                value={editDraft}
+                onChangeText={setEditDraft}
                 onCancel={() => setEditingComment(null)}
                 onFocusChange={setCommentFocused}
                 walletAddress={walletAddress}
@@ -760,10 +780,15 @@ export default function PostDetailScreen() {
               <CommentInput
                 onSubmit={replyingTo ? handleSubmitReply : handleSubmitComment}
                 isSubmitting={isSubmittingComment}
+                value={commentDraft}
+                onChangeText={setCommentDraft}
                 onFocusChange={setCommentFocused}
                 walletAddress={walletAddress}
                 replyingToName={replyingTo ? commentDisplayName(replyingTo) : null}
                 onCancelReply={() => setReplyingTo(null)}
+                avatarUrl={activeProfileImage.url}
+                avatarFallbackInitial={activeProfileImage.fallbackInitial}
+                onExpand={() => setComposerVisible(true)}
               />
             )}
           </View>
@@ -804,6 +829,19 @@ export default function PostDetailScreen() {
         isReposted={isReposted(post.id)}
         onRepost={handleConfirmRepost}
         onQuote={handleQuote}
+      />
+
+      <CommentComposerModal
+        visible={composerVisible}
+        onClose={() => setComposerVisible(false)}
+        onSubmit={replyingTo ? handleSubmitReply : handleSubmitComment}
+        isSubmitting={isSubmittingComment}
+        value={commentDraft}
+        onChangeText={setCommentDraft}
+        replyingToName={replyingTo ? commentDisplayName(replyingTo) : postAuthorName}
+        avatarUrl={activeProfileImage.url}
+        avatarFallbackInitial={activeProfileImage.fallbackInitial}
+        walletAddress={walletAddress}
       />
 
       <ConfirmationDrawer
@@ -937,11 +975,16 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   bottomPadding: {
-    height: 20,
+    height: 96,
   },
   inputContainer: {
+    // Pulls the bar up over the list's tail so comments scroll beneath
+    // the floating pill; box-none lets touches in the side gutters
+    // fall through to the list.
+    marginTop: -72,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingBottom: 8,
+    zIndex: 5,
   },
   loginPrompt: {
     paddingVertical: 14,

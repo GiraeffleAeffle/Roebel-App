@@ -21,6 +21,8 @@ const ICON_SIZE = 24;
 type Props = {
   activeTab: TabKey;
   onTabPress: (tab: TabKey) => void;
+  /** Skip the solid fill — for hosts that paint their own (glass) surface. */
+  transparent?: boolean;
 };
 
 const TABS: { key: TabKey; stroke: any; filled: any; label: string }[] = [
@@ -29,7 +31,7 @@ const TABS: { key: TabKey; stroke: any; filled: any; label: string }[] = [
   { key: 'profile', stroke: UserStroke, filled: UserFilled, label: 'Profil' },
 ];
 
-export default function BottomNavigation({ activeTab, onTabPress }: Props) {
+export default function BottomNavigation({ activeTab, onTabPress, transparent = false }: Props) {
   const { colors } = useTheme();
   const { visible: exploreDotVisible, dismiss: dismissExploreDot } = useExploreDot();
 
@@ -44,7 +46,9 @@ export default function BottomNavigation({ activeTab, onTabPress }: Props) {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View
+      style={[styles.container, !transparent && { backgroundColor: colors.background }]}
+    >
       <View style={styles.tabsContainer}>
         {TABS.map((tab) => {
           const isActive = activeTab === tab.key;

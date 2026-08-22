@@ -429,12 +429,27 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
     return [hero, ...visible];
   }, [items, showProposalHero]);
 
-  // Direction-aware chrome visibility: hide on scroll down, reveal on scroll up.
-  // Always force visible at the top / on overscroll. Only triggers a new timing
-  // animation when the target state actually flips, so scroll frames don't spawn
-  // overlapping animations.
+  // X-style parallax chrome: the header physically tracks the scroll instead
+  // of flipping between shown/hidden. Collapsing runs at PARALLAX_RATE (< 1)
+  // so the feed body visibly overtakes and slides above the retreating
+  // header; revealing runs at full finger speed so chrome comes back
+  // instantly on scroll-up. When the gesture ends mid-way the header snaps
+  // to the nearest edge so it never parks half-visible.
+  const PARALLAX_RATE = 0.55;
   const prevScrollY = useSharedValue(0);
-  const collapsed = useSharedValue(false);
+  // Guards the reset-at-top timing so bounce frames don't restart it.
+  const resettingAtTop = useSharedValue(false);
+
+  const snapToNearestEdge = () => {
+    'worklet';
+    if (!headerTranslateY || headerHeight <= 0) return;
+    const v = headerTranslateY.value;
+    if (v > -headerHeight && v < 0) {
+      headerTranslateY.value = withTiming(v < -headerHeight / 2 ? -headerHeight : 0, {
+        duration: 180,
+      });
+    }
+  };
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (e) => {
@@ -444,22 +459,32 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
       prevScrollY.value = y;
 
       if (y <= 0) {
-        if (collapsed.value) {
-          collapsed.value = false;
-          headerTranslateY.value = withTiming(0, { duration: 180 });
+        // At the top / overscroll: chrome always fully visible.
+        if (headerTranslateY.value !== 0 && !resettingAtTop.value) {
+          resettingAtTop.value = true;
+          headerTranslateY.value = withTiming(0, { duration: 160 });
         }
         return;
       }
+      resettingAtTop.value = false;
 
-      if (Math.abs(dy) < 2) return;
-
-      if (dy > 0 && !collapsed.value) {
-        collapsed.value = true;
-        headerTranslateY.value = withTiming(-headerHeight, { duration: 180 });
-      } else if (dy < 0 && collapsed.value) {
-        collapsed.value = false;
-        headerTranslateY.value = withTiming(0, { duration: 180 });
+      if (dy > 0) {
+        // Never collapse further than the content above the fold allows —
+        // prevents the header vanishing on a tiny first scroll.
+        const limit = Math.min(headerHeight, y);
+        headerTranslateY.value = Math.max(
+          -limit,
+          headerTranslateY.value - dy * PARALLAX_RATE,
+        );
+      } else if (dy < 0) {
+        headerTranslateY.value = Math.min(0, headerTranslateY.value - dy);
       }
+    },
+    onEndDrag: () => {
+      snapToNearestEdge();
+    },
+    onMomentumEnd: () => {
+      snapToNearestEdge();
     },
   });
 

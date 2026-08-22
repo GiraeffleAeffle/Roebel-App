@@ -32,6 +32,7 @@ import { deletePost, pinPost, DuplicateReportError } from '@/lib/supabase-posts'
 import { isPostPinned, pinErrorMessage } from '@/lib/utils/pin';
 import type { FeedType, PostRecord } from '@/lib/types/feed';
 import BottomNavigation, { BOTTOM_NAV_HEIGHT } from '@/components/BottomNavigation';
+import GlassSurface from '@/components/GlassSurface';
 import FeedTabBar from './FeedTabBar';
 import FeedList, { type FeedListHandle } from './FeedList';
 import PostComposer from './PostComposer';
@@ -243,6 +244,10 @@ export default function FeedHome() {
 
   const [activeTab, setActiveTab] = useState<FeedType>('main');
   const [navTab, setNavTab] = useState<'home' | 'explore' | 'map' | 'profile'>('home');
+  // While a finger is on the horizontal story rail, the pager's own
+  // horizontal gesture is disabled so a story swipe can never fall through
+  // and flip the feed tab instead.
+  const [storyRailActive, setStoryRailActive] = useState(false);
   const [reportDrawerVisible, setReportDrawerVisible] = useState(false);
   const [reportingPostId, setReportingPostId] = useState<string | null>(null);
   const [optionsDrawerVisible, setOptionsDrawerVisible] = useState(false);
@@ -494,10 +499,11 @@ export default function FeedHome() {
       style={[
         styles.headerWrapper,
         styles.headerFloating,
-        { backgroundColor: colors.background, paddingTop: insets.top },
+        { paddingTop: insets.top },
         headerAnimatedStyle,
       ]}
     >
+      <GlassSurface />
       <View style={styles.header}>
         <HeaderWeather
           fallbackSource={isDark ? HANDWRITTEN_DARK : HANDWRITTEN_LIGHT}
@@ -569,13 +575,9 @@ export default function FeedHome() {
           AFTER the header below so it paints above it and the status
           bar zone stays a constant colors.background regardless of
           scroll position. */}
-      <View
-        pointerEvents="none"
-        style={[
-          styles.bottomSafeBand,
-          { height: insets.bottom, backgroundColor: colors.background },
-        ]}
-      />
+      <View pointerEvents="none" style={[styles.bottomSafeBand, { height: insets.bottom }]}>
+        <GlassSurface />
+      </View>
       {/* The Pager is ALWAYS rendered (even for non-citizens, where it's
           locked to the 'main' page via scrollEnabled={false}). Keeping the
           structure stable means the 'main' FeedList + its HomeStoryBar header
@@ -589,7 +591,7 @@ export default function FeedHome() {
         scrollProgress={scrollProgress}
         onPageSelected={handlePageSelected}
         pageWidth={screenWidth}
-        scrollEnabled={canAccessCityTabs}
+        scrollEnabled={canAccessCityTabs && !storyRailActive}
       >
         <View key="main" style={[styles.page, { width: screenWidth }]} collapsable={false}>
           <FeedList
@@ -599,7 +601,7 @@ export default function FeedHome() {
             walletAddress={walletAddress}
             onCompose={handleCompose}
             onMore={handleMore}
-            listHeader={<HomeStoryBar />}
+            listHeader={<HomeStoryBar onRailTouchActive={setStoryRailActive} />}
             showProposalHero={canSeeProposals}
             active={screenFocused && effectiveTab === 'main'}
             {...feedListProps}
@@ -638,16 +640,12 @@ export default function FeedHome() {
 
       {appHeader}
 
-      {/* Status-bar strip painted on top of everything so the zone above
-          the header content always shows colors.background, even mid-
-          scroll while the header is translating away. */}
-      <View
-        pointerEvents="none"
-        style={[
-          styles.topSafeBand,
-          { height: insets.top, backgroundColor: colors.background },
-        ]}
-      />
+      {/* Status-bar strip painted on top of everything: glass instead of a
+          solid fill, so mid-scroll the feed body visibly slides beneath the
+          clock while staying legible. */}
+      <View pointerEvents="none" style={[styles.topSafeBand, { height: insets.top }]}>
+        <GlassSurface />
+      </View>
 
       {walletAddress && (
         <FeedFAB onPress={handleCompose} visibilityScale={fabVisibilityScale} />
@@ -708,11 +706,12 @@ export default function FeedHome() {
       <Animated.View
         style={[
           styles.bottomFloating,
-          { backgroundColor: colors.background, paddingBottom: insets.bottom },
+          { paddingBottom: insets.bottom },
           bottomNavAnimatedStyle,
         ]}
       >
-        <BottomNavigation activeTab={navTab} onTabPress={handleNavTabPress} />
+        <GlassSurface />
+        <BottomNavigation activeTab={navTab} onTabPress={handleNavTabPress} transparent />
       </Animated.View>
     </SafeAreaView>
   );
