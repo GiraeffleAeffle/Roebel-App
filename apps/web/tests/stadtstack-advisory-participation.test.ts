@@ -165,6 +165,17 @@ test("projects a current Citizen Brief before participation has opened", () => {
   assert.equal(result.sourceDiscussionId, DISCUSSION_ID);
   assert.equal(result.reviewedDepartmentCount, 8);
   assert.equal(result.briefChecksum, sha(400));
+  assert.deepEqual(result.budgetContext, {
+    departmentLabel: "Finanzen",
+    publicSummary: "Reviewed finance response.",
+    publicCitations: ["https://stadt.example/review/finance"],
+    reviewedAt: "2026-08-22T08:00:00.000Z",
+    packageBinding: {
+      packageId: "package-finance",
+      packageChecksum: sha(13),
+      artifactChecksum: sha(103),
+    },
+  });
   assert.equal(result.authorityBinding, "none");
   assert.deepEqual(result.effects, {
     formalVote: false,

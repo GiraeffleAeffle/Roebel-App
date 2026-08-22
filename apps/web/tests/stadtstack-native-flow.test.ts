@@ -198,20 +198,29 @@ test("promotes the displayed signed discussion without publishing or polling a d
 
 test("shows the reviewed Citizen Brief in Mitmachen without merging it into formal governance", () => {
   assert.match(proposalsPage, /StadtstackAdvisoryParticipation/);
+  assert.match(
+    proposalsPage,
+    /new URLSearchParams\(window\.location\.search\)/
+  );
+  assert.match(proposalsPage, /caseId=\{stadtstackCaseId\}/);
+  assert.match(proposalsPage, /topicId=\{stadtstackTopicId\}/);
   assert.match(proposalsPage, /Formale Governance · technisch und rechtlich/);
   assert.match(advisoryParticipation, /Beratendes Mitmachen · Staging/);
+  assert.match(advisoryParticipation, /loadStadtstackAdvisoryCase/);
+  assert.match(advisoryParticipation, /caseId/);
+  assert.match(advisoryParticipation, /Zurück zum Bürger-Thema/);
   assert.match(advisoryParticipation, /Beteiligung vorbereitet/);
   assert.match(advisoryParticipation, /Noch nicht geöffnet/);
   assert.match(advisoryParticipation, /keine Stimmen, kein Ergebnis/);
   assert.match(advisoryParticipation, /participationState === "brief_ready"/);
-  assert.match(
-    advisoryParticipation,
-    /stagingPost<unknown>\("\/view", \{ profile: "public" \}\)/
-  );
+  assert.doesNotMatch(advisoryParticipation, /stagingPost/);
+  assert.match(advisoryParticipation, /Geprüfter Budgetkontext/);
   assert.match(advisoryParticipation, /Keine formale Abstimmung/);
   assert.match(advisoryParticipation, /Keine Treasury-Wirkung/);
   assert.doesNotMatch(
     advisoryParticipation,
     /castVote|createProposal|executeProposal/
   );
+  assert.match(civicTopic, /participationHref/);
+  assert.match(administrationProgress, /Im Mitmachen-Bereich ansehen/);
 });

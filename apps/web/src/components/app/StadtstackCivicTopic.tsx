@@ -183,6 +183,9 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
           loading={administrationLoading}
           error={administrationError}
           onRefresh={refreshAdministration}
+          participationHref={`/app/proposals?case=${encodeURIComponent(
+            detail.caseBinding.canonicalCaseId
+          )}&topic=${encodeURIComponent(topicId)}`}
         />
       )}
 

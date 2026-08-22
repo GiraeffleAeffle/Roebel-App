@@ -4,6 +4,10 @@ import {
   toStadtstackAdministrationProgress,
   type StadtstackAdministrationProgress,
 } from "./administration-progress";
+import {
+  toStadtstackAdvisoryCase,
+  type StadtstackAdvisoryCase,
+} from "./advisory-participation";
 
 export const STADTSTACK_STAGING_API = "/stadtstack-test/api" as const;
 
@@ -219,6 +223,15 @@ export async function stagingGet<T>(path: string): Promise<T> {
 const ROEBEL_CIVIC_CASE_ID =
   /^urn:stadtstack:case:municipality:roebel-mueritz:[0-9a-z][0-9a-z-]{0,127}$/;
 
+async function loadStadtstackPublicCaseProjection(
+  caseId: string
+): Promise<unknown> {
+  if (!ROEBEL_CIVIC_CASE_ID.test(caseId)) throw new StagingUnavailableError();
+  return stagingGet<unknown>(
+    `/administration?case=${encodeURIComponent(caseId)}`
+  );
+}
+
 /**
  * Read one already-public, already-reviewed administration projection. The
  * browser never invokes the case-steward command surface and never infers
@@ -227,16 +240,32 @@ const ROEBEL_CIVIC_CASE_ID =
 export async function loadStadtstackAdministrationProgress(
   caseId: string
 ): Promise<StadtstackAdministrationProgress> {
-  if (!ROEBEL_CIVIC_CASE_ID.test(caseId)) throw new StagingUnavailableError();
   try {
-    const value = await stagingGet<unknown>(
-      `/administration?case=${encodeURIComponent(caseId)}`
-    );
+    const value = await loadStadtstackPublicCaseProjection(caseId);
     const progress = toStadtstackAdministrationProgress(value);
     if (progress.caseBinding.caseId !== caseId) {
       throw new StagingUnavailableError();
     }
     return progress;
+  } catch (error) {
+    if (error instanceof StagingUnavailableError) throw error;
+    throw new StagingUnavailableError();
+  }
+}
+
+/**
+ * Read the same exact public case projection as the administration stage and
+ * derive only its current Citizen Brief, reviewed budget context, and
+ * checksum-bound advisory result. No detached public profile is accepted.
+ */
+export async function loadStadtstackAdvisoryCase(
+  caseId: string
+): Promise<StadtstackAdvisoryCase> {
+  try {
+    const value = await loadStadtstackPublicCaseProjection(caseId);
+    const advisoryCase = toStadtstackAdvisoryCase(value);
+    if (advisoryCase.caseId !== caseId) throw new StagingUnavailableError();
+    return advisoryCase;
   } catch (error) {
     if (error instanceof StagingUnavailableError) throw error;
     throw new StagingUnavailableError();

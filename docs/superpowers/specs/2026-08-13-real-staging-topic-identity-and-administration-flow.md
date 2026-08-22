@@ -123,6 +123,8 @@ Only an admitted civic case creates administrative work. The export uses an outb
 
 openDesk returns human-reviewed packages. Stadtstack converts those packages into a source-bound Citizen Brief, and the Röbel app projects the brief back onto the same civic topic. The Mitmachen view remains advisory until an independently accepted governance rule activates a ballot. Treasury review can state funding constraints; it cannot move funds.
 
+The primary Mitmachen route is opened from that topic with the exact canonical CivicCase ID. It reuses the case-bound GET-only projection instead of a detached public-profile read. The reviewed finance response is visible beside the Citizen Brief as attributable budget context; it does not expose or authorize a treasury operation.
+
 The public application reads only the exact canonical case projection through a GET-only boundary. It preserves each publicly reviewed package ID, package checksum, artifact checksum, and review date, and renders that state on the canonical topic as well as the discussion. A case mismatch, conflicting topic binding, private field, or unreviewed package fails closed. This projection is visibility and provenance only; it is not an openDesk command, case transition, formal decision, or publication authority.
 
 ## Staging topic set
