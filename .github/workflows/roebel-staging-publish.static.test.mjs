@@ -144,7 +144,15 @@ test("protected builds reuse only component-scoped public BuildKit caches", () =
   }
   assert.match(
     webCandidateWorkflow,
-    /BUILDKIT_CACHE_SCOPE: roebel-web-pr-\$\{\{ github\.event\.pull_request\.number \|\| github\.run_id \}\}/u,
+    /BUILDKIT_BASE_CACHE_SCOPE: roebel-web-main/u,
+  );
+  assert.match(
+    webCandidateWorkflow,
+    /BUILDKIT_CACHE_SCOPE: \$\{\{ github\.event_name == 'pull_request'[\s\S]*?github\.ref == 'refs\/heads\/main'[\s\S]*?roebel-web-run-/u,
+  );
+  assert.match(
+    webCandidateWorkflow,
+    /--cache-from "type=gha,scope=\$BUILDKIT_BASE_CACHE_SCOPE"/u,
   );
   assert.match(
     webCandidateWorkflow,
