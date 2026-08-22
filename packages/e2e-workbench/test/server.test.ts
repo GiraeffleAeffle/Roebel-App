@@ -745,6 +745,23 @@ describe("Röbel E2E workbench boundary", () => {
       assert.equal(thread.caseBinding, null);
       assert.equal(thread.suggestion?.candidateId, signed.candidateId);
       assert.equal(thread.suggestion?.submittedToCivicWorkflow, false);
+      const feed = (await fetch(`${origin}/api/feed`).then(
+        (response) => response.json()
+      )) as {
+        posts: Array<{
+          entryType: string;
+          discussions?: Array<{
+            id: string;
+            suggestionSigned: boolean;
+            caseBinding: unknown;
+          }>;
+        }>;
+      };
+      const projected = feed.posts
+        .flatMap((entry) => entry.discussions ?? [])
+        .find((entry) => entry.id === discussion.id);
+      assert.equal(projected?.suggestionSigned, true);
+      assert.equal(projected?.caseBinding, null);
       assert.equal(controlCalls, 0);
     } finally {
       await running.close();

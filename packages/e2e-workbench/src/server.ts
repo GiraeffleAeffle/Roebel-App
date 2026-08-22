@@ -412,6 +412,62 @@ function caseBindingFor(event: NostrEvent): {
     : null;
 }
 
+function verifiedTopicSuggestionFor(
+  config: WorkbenchConfig,
+  citizenEvents: readonly NostrEvent[],
+  agentEvents: readonly NostrEvent[],
+  rootEvent: NostrEvent
+): CitizenSignedTopicSuggestionV1 | null {
+  const topic = topicFor(rootEvent);
+  if (!topic || caseBindingFor(rootEvent) !== null) return null;
+  return (
+    citizenEvents
+      .filter(verifyEvent)
+      .filter(
+        (candidate) =>
+          tagValue(candidate, "schema") ===
+            "citizen_signed_topic_suggestion_v1" &&
+          candidate.tags.some(
+            (tag) =>
+              tag[0] === "e" &&
+              tag[1] === rootEvent.id &&
+              tag[3] === "root"
+          )
+      )
+      .sort(
+        (a, b) => b.created_at - a.created_at || b.id.localeCompare(a.id)
+      )
+      .flatMap((candidate) => {
+        const receiptId = tagValue(candidate, "mecky-receipt");
+        const sourceAnswer = agentEvents
+          .filter(
+            (answer) =>
+              verifyEvent(answer) && answer.pubkey === config.meckyPubkey
+          )
+          .find(
+            (answer) => tagValue(answer, "mecky-receipt") === receiptId
+          );
+        if (!sourceAnswer) return [];
+        try {
+          return [
+            verifyCitizenSignedTopicSuggestion({
+              binding: {
+                municipalityId: "roebel-mueritz",
+                topicId: topic.id,
+              },
+              sourceDiscussion: rootEvent,
+              sourceAnswer,
+              agentPubkey: config.meckyPubkey,
+              event: candidate,
+            }),
+          ];
+        } catch {
+          return [];
+        }
+      })[0] ?? null
+  );
+}
+
 function authorFor(config: WorkbenchConfig, event: NostrEvent): PublicAuthor {
   const citizen = config.personas.find(
     (candidate) => candidate.publicKey === event.pubkey
@@ -833,6 +889,12 @@ export async function startWorkbench(
             if (!source) return [];
             const topic = topicFor(source);
             if (!topic) return [];
+            const suggestion = verifiedTopicSuggestionFor(
+              config,
+              visibleEvents,
+              agentEvents,
+              source
+            );
             return [
               {
                 id: entry.id,
@@ -857,6 +919,8 @@ export async function startWorkbench(
                         tag[3] === "reply"
                     )
                 ),
+                suggestionSigned: suggestion !== null,
+                caseBinding: caseBindingFor(source),
                 topicId: topic.id,
                 topicTitle: topic.title,
                 synthetic: isSyntheticCitizen(config, entry.author.pubkey),
@@ -922,6 +986,8 @@ export async function startWorkbench(
                   replyCount,
                   meckyMentioned,
                   meckyAnswered,
+                  suggestionSigned,
+                  caseBinding,
                   synthetic,
                 }) => ({
                   id,
@@ -931,6 +997,8 @@ export async function startWorkbench(
                   replyCount,
                   meckyMentioned,
                   meckyAnswered,
+                  suggestionSigned,
+                  caseBinding,
                   synthetic,
                 })
               ),
@@ -1090,56 +1158,14 @@ export async function startWorkbench(
             )
             .sort((a, b) => b.created_at - a.created_at)[0] ?? null;
         const topic = rootEvent ? topicFor(rootEvent) : null;
-        const suggestion =
-          rootEvent && topic && caseBindingFor(rootEvent) === null
-            ? (citizenEvents
-                .filter(verifyEvent)
-                .filter(
-                  (candidate) =>
-                    tagValue(candidate, "schema") ===
-                      "citizen_signed_topic_suggestion_v1" &&
-                    candidate.tags.some(
-                      (tag) =>
-                        tag[0] === "e" &&
-                        tag[1] === rootEvent.id &&
-                        tag[3] === "root"
-                    )
-                )
-                .sort(
-                  (a, b) =>
-                    b.created_at - a.created_at || b.id.localeCompare(a.id)
-                )
-                .flatMap((candidate) => {
-                  const receiptId = tagValue(candidate, "mecky-receipt");
-                  const sourceAnswer = meckyEvents
-                    .filter(
-                      (answer) =>
-                        verifyEvent(answer) &&
-                        answer.pubkey === config.meckyPubkey
-                    )
-                    .find(
-                      (answer) =>
-                        tagValue(answer, "mecky-receipt") === receiptId
-                    );
-                  if (!sourceAnswer) return [];
-                  try {
-                    return [
-                      verifyCitizenSignedTopicSuggestion({
-                        binding: {
-                          municipalityId: "roebel-mueritz",
-                          topicId: topic.id,
-                        },
-                        sourceDiscussion: rootEvent,
-                        sourceAnswer,
-                        agentPubkey: config.meckyPubkey,
-                        event: candidate,
-                      }),
-                    ];
-                  } catch {
-                    return [];
-                  }
-                })[0] ?? null)
-            : null;
+        const suggestion = rootEvent
+          ? verifiedTopicSuggestionFor(
+              config,
+              citizenEvents,
+              meckyEvents,
+              rootEvent
+            )
+          : null;
         return json(response, 200, {
           schemaVersion: "roebel_staging_argument_thread_v1",
           arguments: argumentsList.sort(

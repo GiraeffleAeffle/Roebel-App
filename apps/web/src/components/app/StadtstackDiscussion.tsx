@@ -34,8 +34,10 @@ import {
   toStadtstackAdministrationProgress,
   type StadtstackAdministrationProgress as AdministrationProgress,
 } from "@/lib/stadtstack/administration-progress";
+import { projectCivicJourney } from "@/lib/stadtstack/civic-journey";
 import { useCitizenSession } from "@/lib/citizen-session/CitizenSessionContext";
 import { StadtstackAdministrationProgress } from "./StadtstackAdministrationProgress";
+import { CivicJourneyRail } from "./CivicJourneyRail";
 
 type WorkflowState = {
   discussion?: Record<string, unknown>;
@@ -371,6 +373,33 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
           topicSuggestionSigned
         : !thread?.caseBinding || !proposalPersona)
   );
+  const journey = useMemo(() => {
+    if (!thread?.topic) return null;
+    const admitted = Boolean(thread.caseBinding || workflow.admission);
+    const administrationStatus =
+      administrationProgress?.status === "citizen_brief_current"
+        ? "brief_current"
+        : administrationProgress
+          ? "in_review"
+          : "not_available";
+    return projectCivicJourney({
+      sourcePostCount: thread.sourceAppPostId ? 1 : 0,
+      discussionCount: 1,
+      meckyMentioned: Boolean(
+        thread.rootEvent?.tags.some(
+          (tag) => tag[0] === "p" && tag[1] === config?.meckyPubkey
+        )
+      ),
+      meckyAnswered: Boolean(thread.mecky || workflow.answer),
+      proposalSigned: Boolean(thread.suggestion || workflow.suggestion),
+      caseAdmitted: admitted,
+      administrationStatus,
+      participationStatus:
+        administrationStatus === "brief_current"
+          ? "brief_ready"
+          : "not_available",
+    });
+  }, [administrationProgress, config?.meckyPubkey, thread, workflow]);
 
   if (loading) return <div className="flex min-h-60 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>;
   if (!thread || !graph || !rootEvent) return <div className="rounded-xl border border-rose-300 bg-rose-50 p-5 text-rose-900">{error ?? "Diskussion nicht gefunden"}</div>;
@@ -394,6 +423,8 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
           )}
         </div>
       </header>
+
+      {journey && <CivicJourneyRail journey={journey} />}
 
       {error && <div role="alert" className="flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900"><ShieldAlert className="h-4 w-4" /> {error}</div>}
 

@@ -3,6 +3,7 @@ import type {
   StagingOrdinaryPost,
   StagingTopicPost,
 } from "./staging-api";
+import { projectCivicJourney, type CivicJourney } from "./civic-journey";
 
 const ROEBEL_TOPIC_ID =
   /^urn:stadtstack:topic:municipality:roebel-mueritz:[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -12,6 +13,20 @@ export type PublicCivicTopicDetail = Readonly<{
   sourcePosts: readonly StagingOrdinaryPost[];
   unresolvedSourcePostIds: readonly string[];
 }>;
+
+export function projectPublicCivicTopicJourney(
+  detail: PublicCivicTopicDetail
+): CivicJourney | null {
+  const discussions = detail.topic.discussions;
+  return projectCivicJourney({
+    sourcePostCount: detail.topic.sourcePostIds.length,
+    discussionCount: discussions.length,
+    meckyMentioned: discussions.some((entry) => entry.meckyMentioned),
+    meckyAnswered: discussions.some((entry) => entry.meckyAnswered),
+    proposalSigned: discussions.some((entry) => entry.suggestionSigned),
+    caseAdmitted: discussions.some((entry) => entry.caseBinding !== null),
+  });
+}
 
 function timestamp(value: string): number | null {
   const parsed = Date.parse(value);

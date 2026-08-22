@@ -32,6 +32,8 @@ function topic(
         replyCount: input.replyCount ?? 0,
         meckyMentioned: input.meckyMentioned ?? false,
         meckyAnswered: input.meckyAnswered ?? false,
+        suggestionSigned: false,
+        caseBinding: null,
         synthetic: input.synthetic ?? false,
       },
     ],
