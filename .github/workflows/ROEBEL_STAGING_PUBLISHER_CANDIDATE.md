@@ -14,14 +14,23 @@ embedded runtime secrets with the source revision's verifier, and copies that
 exact manifest to GHCR. It then generates an SPDX-2.3 SBOM and attaches both an
 SBOM attestation and GitHub OIDC build provenance to the immutable digest.
 
-The Web build uses a staging-only Turbopack adapter while the upstream/Vercel
-build remains on its reviewed Webpack path. The adapter runs once in the exact
-pinned Node image with networking disabled, a read-only offline pnpm store, no
-Linux capabilities and no-new-privileges. The measured warm-cache run for the
-preceding Webpack experiment took 6m22s versus 6m05s cold, so the ineffective
-168 MiB compressed / 2.50-2.91 GiB uncompressed cache is not restored or
-retained. Any compiler cache produced inside the job is disposable and never
-copied into the runtime image.
+The Web runtime-only packaging path builds once in the exact pinned Node image
+with networking disabled, a read-only offline pnpm store, no Linux capabilities
+and no-new-privileges. The measured warm-cache run took 6m22s versus 6m05s
+cold, so the ineffective 168 MiB compressed / 2.50-2.91 GiB uncompressed cache
+is not restored or retained. A staging-only Turbopack trial was also rejected:
+it compiled in 4.7 minutes, slower than Webpack's 3.2 minutes, and then failed
+page-data collection for an existing newsletter route. Any compiler cache
+produced inside the job is disposable and never copied into the runtime image.
+
+The remaining repeated install is handled by a separate dependency
+materialization cache. Its exact key binds the pinned Node image, pnpm version,
+pruned lockfile, workspace configuration, every pruned package manifest and all
+patches. The network-disabled builder still runs a frozen offline install on
+every use; a missing or inconsistent package fails closed. Pull requests cannot
+write the protected default branch's cache scope, the uncompressed install is
+limited to 4 GiB, and neither the dependency materialization nor a compiler
+cache is copied into the runtime image.
 
 After the standalone build, a separate runtime context receives only traced
 production dependencies, server output, static assets, public files and the
@@ -34,12 +43,13 @@ never a deployment input, carries no release authority, and cannot bypass the
 post-build OCI verifier. Either cache may be absent; a clean build remains the
 fail-safe path.
 
-Dependency fetching is isolated from the source build context. `pnpm fetch`
-writes its virtual store into a runner-only fetch directory; neither the
-source context nor the dependency-manifest context may contain `node_modules`.
-This prevents runner-generated executable shims or package side effects from
-overwriting the clean, platform-specific install inside the linux/amd64 image
-builder.
+On a dependency-cache miss, `pnpm fetch` writes its virtual store into a
+runner-only fetch directory and the source context starts without
+`node_modules`. On an exact-key hit, the source context may receive only the
+previous pinned linux/amd64 dependency materialization; the frozen offline
+install verifies it before compilation. The dependency-manifest context never
+contains `node_modules`, and runner-generated fetch shims never overwrite the
+builder's platform-specific install.
 
 Mutable `source-<sha>` tags are transport labels only. An existing identical
 tag is reused; a different digest is never overwritten. Talos, Release Sets

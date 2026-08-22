@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 
-# Build the Röbel Web standalone output once with the staging-only Turbopack
-# adapter in a pinned, offline container, then assemble the only context the
-# runtime image is allowed to receive.
+# Build the Röbel Web standalone output once in a pinned, offline container,
+# then assemble the only context the runtime image is allowed to receive.
 
 set -euo pipefail
 umask 077
@@ -19,6 +18,7 @@ pnpm_store="${PNPM_STORE:-}"
 corepack_cache="${COREPACK_CACHE:-}"
 runtime_context="${RUNTIME_CONTEXT:-}"
 source_revision="${SOURCE_REVISION:-}"
+max_dependency_install_bytes="${MAX_DEPENDENCY_INSTALL_BYTES:-4294967296}"
 max_runtime_context_bytes="${MAX_RUNTIME_CONTEXT_BYTES:-805306368}"
 
 for path in "$source_context" "$pnpm_store" "$corepack_cache"; do
@@ -26,10 +26,13 @@ for path in "$source_context" "$pnpm_store" "$corepack_cache"; do
 done
 [[ "$runtime_context" == /* && ! -e "$runtime_context" && ! -L "$runtime_context" ]] || fail 'runtime context must be an absent absolute path'
 [[ "$source_revision" =~ ^[0-9a-f]{40}$ ]] || fail 'source revision differs'
+[[ "$max_dependency_install_bytes" =~ ^[1-9][0-9]*$ ]] || fail 'dependency-install budget differs'
 [[ "$max_runtime_context_bytes" =~ ^[1-9][0-9]*$ ]] || fail 'runtime context budget differs'
 [[ -f "$source_context/pnpm-lock.yaml" && ! -L "$source_context/pnpm-lock.yaml" ]] || fail 'pruned lockfile differs'
 [[ -f "$source_context/apps/web/package.json" && ! -L "$source_context/apps/web/package.json" ]] || fail 'Web package manifest differs'
-[[ ! -e "$source_context/node_modules" ]] || fail 'source context already contains a root install'
+if [[ -e "$source_context/node_modules" ]]; then
+  [[ -d "$source_context/node_modules/.pnpm" && ! -L "$source_context/node_modules" ]] || fail 'restored dependency materialization differs'
+fi
 
 docker run --rm \
   --platform linux/amd64 \
@@ -43,9 +46,9 @@ docker run --rm \
   --workdir /workspace \
   --env HOME=/tmp \
   --env COREPACK_HOME=/corepack \
-  --env NODE_OPTIONS=--max-old-space-size=4096 \
   --env NEXT_TELEMETRY_DISABLED=1 \
   --env ROEBEL_STANDALONE_IMAGE=1 \
+  --env ROEBEL_WEBPACK_PARALLELISM=2 \
   --env NEXT_PUBLIC_STADTSTACK_STAGING_LAB=1 \
   --env ROEBEL_PUBLIC_DEPLOYMENT_PROFILE=talos_staging_synthetic_workflow \
   --env ROEBEL_PUBLIC_BASE_URL=https://roebel-web.staging.agentcart.eu \
@@ -70,8 +73,14 @@ docker run --rm \
   "$node_image" \
   sh -ceu '
     corepack pnpm --store-dir /pnpm/store --filter @roebel/web... install --offline --frozen-lockfile --ignore-scripts
-    corepack pnpm --filter @roebel/web exec next build --turbopack
+    corepack pnpm --filter @roebel/web build
   '
+
+dependency_install="$source_context/node_modules"
+[[ -d "$dependency_install/.pnpm" && ! -L "$dependency_install" ]] || fail 'dependency materialization differs'
+dependency_install_bytes="$(du -sb "$dependency_install" | cut -f1)"
+[[ "$dependency_install_bytes" =~ ^[0-9]+$ ]] || fail 'dependency-install measurement differs'
+(( dependency_install_bytes <= max_dependency_install_bytes )) || fail 'dependency materialization exceeds its retained budget'
 
 standalone="$source_context/apps/web/.next/standalone"
 static="$source_context/apps/web/.next/static"
@@ -100,6 +109,7 @@ runtime_context_bytes="$(du -sb "$runtime_context" | cut -f1)"
 
 printf '%s\n' \
   'staging_web_runtime_build=PASS' \
-  'bundler=turbopack' \
+  'bundler=webpack' \
   "source_revision=$source_revision" \
+  "dependency_install_bytes=$dependency_install_bytes" \
   "runtime_context_bytes=$runtime_context_bytes"

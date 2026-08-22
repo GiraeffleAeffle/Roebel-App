@@ -25,6 +25,7 @@ const servicesCandidateWorkflow = readFileSync(
 const actionPins = new Map([
   ["actions/checkout", "d23441a48e516b6c34aea4fa41551a30e30af803"],
   ["actions/setup-node", "49933ea5288caeca8642d1e84afbd3f7d6820020"],
+  ["actions/cache", "0057852bfaa89a56745cba8c7296529d2fc39830"],
   ["pnpm/action-setup", "b906affcce14559ad1aafd4ab0e942779e9f58b1"],
   ["docker/setup-buildx-action", "37fe631027851001ddb9b187196cc803df7f5f0e"],
   ["oras-project/setup-oras", "22ce207df3b08e061f537244349aac6ae1d214f6"],
@@ -48,6 +49,7 @@ test("publisher follows protected relevant main pushes and retains exact-SHA rec
     "Dockerfile.staging-web",
     "Dockerfile.staging-web-runtime",
     "scripts/ci/build-staging-web-runtime.sh",
+    "scripts/ci/staging-web-dependency-family.mjs",
     "pnpm-lock.yaml",
   ]) {
     assert.match(workflow, new RegExp(`- "${relevantPath.replaceAll("*", "\\*")}"`, "u"));
@@ -71,7 +73,7 @@ test("runner-local paths are bound only after the runner exists", () => {
     assert.match(workflow, new RegExp(`printf '${variable}=`, "u"));
   }
   assert.match(workflow, /\} >> "\$GITHUB_ENV"/u);
-  assert.doesNotMatch(workflow, /actions\/cache@|staging-web-cache-family|MAX_NEXT_CACHE_BYTES/u);
+  assert.doesNotMatch(workflow, /staging-web-cache-family|MAX_NEXT_CACHE_BYTES|context\/apps\/web\/\.next\/cache/u);
 });
 
 test("publisher builds and publishes exactly the two secret-free staging components", () => {
@@ -94,8 +96,12 @@ test("publisher builds and publishes exactly the two secret-free staging compone
   assert.doesNotMatch(workflow, /(?:tags?:\s*(?:latest|main)|:latest\b)/u);
 });
 
-test("Web uses the staging Turbopack adapter once and packages a runtime-only image", () => {
-  assert.doesNotMatch(workflow, /actions\/cache@|staging-web-cache-family|MAX_NEXT_CACHE_BYTES/u);
+test("Web builds once and packages a runtime-only image", () => {
+  assert.doesNotMatch(workflow, /staging-web-cache-family|MAX_NEXT_CACHE_BYTES|context\/apps\/web\/\.next\/cache/u);
+  assert.match(workflow, /node scripts\/ci\/staging-web-dependency-family\.mjs/u);
+  assert.match(workflow, /path: \$\{\{ runner\.temp \}\}\/context\/node_modules/u);
+  assert.match(workflow, /roebel-web-dependencies-/u);
+  assert.match(workflow, /DEPENDENCY_CACHE_HIT/u);
   assert.match(workflow, /run: scripts\/ci\/build-staging-web-runtime\.sh/u);
   assert.match(workflow, /RUNTIME_CONTEXT: \$\{\{ runner\.temp \}\}\/web-runtime-context/u);
   assert.match(workflow, /--file "\$GITHUB_WORKSPACE\/source\/\$DOCKERFILE"[\s\S]*?"\$RUNNER_TEMP\/web-runtime-context"/u);
@@ -106,8 +112,9 @@ test("Web uses the staging Turbopack adapter once and packages a runtime-only im
   assert.match(webBuildScript, /--cap-drop ALL/u);
   assert.match(webBuildScript, /--security-opt no-new-privileges/u);
   assert.match(webBuildScript, /corepack pnpm --store-dir \/pnpm\/store --filter @roebel\/web\.\.\. install --offline/u);
-  assert.match(webBuildScript, /corepack pnpm --filter @roebel\/web exec next build --turbopack/u);
-  assert.match(webBuildScript, /bundler=turbopack/u);
+  assert.match(webBuildScript, /corepack pnpm --filter @roebel\/web build/u);
+  assert.match(webBuildScript, /bundler=webpack/u);
+  assert.match(webBuildScript, /dependency_install_bytes <= max_dependency_install_bytes/u);
   assert.match(webBuildScript, /runtime_context_bytes <= max_runtime_context_bytes/u);
   assert.match(webBuildScript, /! -e "\$runtime_context\/apps\/web\/\.next\/cache"/u);
 
@@ -144,8 +151,10 @@ test("offline dependency inputs remain isolated and Public Mecky keeps a minimal
   assert.match(servicesCandidateWorkflow, /--build-context "dependency-manifests=\$RUNNER_TEMP\/dependency-manifests"/u);
   assert.match(servicesCandidateWorkflow, /pnpm --dir "\$RUNNER_TEMP\/test-context" --store-dir "\$RUNNER_TEMP\/pnpm-store" --offline install/u);
   assert.doesNotMatch(servicesCandidateWorkflow, /pnpm --dir "\$RUNNER_TEMP\/context" --store-dir "\$RUNNER_TEMP\/pnpm-store" --offline install/u);
-  assert.match(docs, /staging-only Turbopack adapter/iu);
+  assert.match(docs, /runtime-only packaging path/iu);
+  assert.match(docs, /dependency\s+materialization cache/iu);
   assert.match(docs, /measured warm-cache run/iu);
+  assert.match(docs, /Turbopack trial/iu);
   assert.match(docs, /never a deployment input/iu);
 });
 

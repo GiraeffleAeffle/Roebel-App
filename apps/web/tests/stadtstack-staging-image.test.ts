@@ -25,7 +25,7 @@ test("emits the standalone server only for the explicit Talos staging image", ()
     /process\.env\.ROEBEL_STANDALONE_IMAGE === "1" \? "standalone" : undefined/
   );
   assert.match(buildScript, /--env ROEBEL_STANDALONE_IMAGE=1/);
-  assert.match(buildScript, /exec next build --turbopack/);
+  assert.match(buildScript, /--env ROEBEL_WEBPACK_PARALLELISM=2/);
   assert.match(buildScript, /\.next\/standalone/);
   assert.match(buildScript, /inject-public-runtime-config\.mjs/);
   assert.match(runtimeDockerfile, /CMD \["apps\/web\/runtime-entrypoint\.mjs"\]/);
@@ -48,7 +48,7 @@ test("installs only the Röbel web dependency graph from the frozen offline stor
   );
   assert.match(
     buildScript,
-    /corepack pnpm --filter @roebel\/web exec next build --turbopack/
+    /corepack pnpm --filter @roebel\/web build/
   );
   assert.match(buildScript, /--network none/);
   assert.match(buildScript, /--user "\$\(id -u\):\$\(id -g\)"/);
@@ -73,7 +73,9 @@ test("builds one bounded private OCI artifact remotely without publishing it", (
   );
   assert.match(workflow, /turbo@2\.4\.0 prune @roebel\/web --docker/);
   assert.match(workflow, /pnpm fetch --store-dir/);
-  assert.doesNotMatch(workflow, /actions\/cache@|staging-web-cache-family/);
+  assert.doesNotMatch(workflow, /staging-web-cache-family|\.next\/cache/);
+  assert.match(workflow, /staging-web-dependency-family\.mjs/);
+  assert.match(workflow, /context\/node_modules/);
   assert.match(workflow, /Dockerfile\.staging-web-runtime/);
   assert.doesNotMatch(workflow, /pnpm fetch --(?:dev|prod)/);
   assert.match(
