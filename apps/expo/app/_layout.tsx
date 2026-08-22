@@ -241,7 +241,7 @@ function ThemedLayout() {
       <RewardsTaskTriggers />
       <ReferralDeepLinkHandler />
       <View style={[styles.gradientContainer, { backgroundColor: colors.background }]}>
-        <TransitionStack screenOptions={{ headerShown: false, animation: 'none' }}>
+        <TransitionStack screenOptions={{ headerShown: false }}>
           <TransitionStack.Screen
             name="submit"
             options={{ headerShown: true, title: 'Veranstaltung einreichen', animation: 'none' }}
@@ -250,6 +250,20 @@ function ThemedLayout() {
           <TransitionStack.Screen name="games/mecky-portal" options={noTransition()} />
           <TransitionStack.Screen name="games/speedrun" options={noTransition()} />
           <TransitionStack.Screen name="games/fortune-cards" options={noTransition()} />
+          {/* Pseudo-tab routes reachable from components/BottomNavigation.tsx — no tab
+              navigator exists, so these switches must stay instant cuts instead of
+              sliding sideways like a real push. */}
+          <TransitionStack.Screen name="index" options={{ animation: 'none' }} />
+          <TransitionStack.Screen name="explore" options={{ animation: 'none' }} />
+          <TransitionStack.Screen name="profile" options={{ animation: 'none' }} />
+          <TransitionStack.Screen name="events" options={{ animation: 'none' }} />
+          <TransitionStack.Screen name="calendar" options={{ animation: 'none' }} />
+          <TransitionStack.Screen name="governance" options={{ animation: 'none' }} />
+          <TransitionStack.Screen name="tours/index" options={{ animation: 'none' }} />
+          <TransitionStack.Screen name="transit/index" options={{ animation: 'none' }} />
+          <TransitionStack.Screen name="blog/index" options={{ animation: 'none' }} />
+          <TransitionStack.Screen name="wildlife/index" options={{ animation: 'none' }} />
+          <TransitionStack.Screen name="news/index" options={{ animation: 'none' }} />
           <TransitionStack.Screen
             name="welcome"
             options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }}

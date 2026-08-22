@@ -48,7 +48,7 @@ export default function CreateDealLayout() {
   return (
     <CreateDealWizardProvider>
       <WizardHeader />
-      <TransitionStack screenOptions={{ headerShown: false, animation: 'none' }}>
+      <TransitionStack screenOptions={{ headerShown: false }}>
         <TransitionStack.Screen name="index" />
         <TransitionStack.Screen name="type" />
         <TransitionStack.Screen name="details" />
