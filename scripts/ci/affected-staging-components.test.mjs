@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -8,10 +8,27 @@ import { fileURLToPath } from "node:url";
 
 import {
   affectedStagingComponents,
+  QUALITY_WORKSPACES,
   STAGING_SERVICE_BUILD_MATRIX,
 } from "./affected-staging-components.mjs";
 
 const CLI = fileURLToPath(new URL("./affected-staging-components.mjs", import.meta.url));
+const ROOT = fileURLToPath(new URL("../../", import.meta.url));
+
+function actualWorkspaceRoots(directory = ROOT, prefix = "") {
+  const roots = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name === ".git" || entry.name === "node_modules") continue;
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const absolute = join(directory, entry.name);
+    if (relative !== "apps" && relative !== "packages" && relative !== "contracts" && !prefix) {
+      continue;
+    }
+    if (existsSync(join(absolute, "package.json"))) roots.push(relative);
+    roots.push(...actualWorkspaceRoots(absolute, relative));
+  }
+  return roots;
+}
 
 const selection = (paths) => {
   const result = affectedStagingComponents(paths);
@@ -25,7 +42,22 @@ const selection = (paths) => {
 };
 
 describe("staging component change detection", () => {
+  it("binds every declared quality workspace to its actual package name", () => {
+    assert.equal(new Set(QUALITY_WORKSPACES.map(({ root }) => root)).size, QUALITY_WORKSPACES.length);
+    assert.equal(new Set(QUALITY_WORKSPACES.map(({ name }) => name)).size, QUALITY_WORKSPACES.length);
+    for (const { root, name } of QUALITY_WORKSPACES) {
+      const manifest = join(ROOT, root, "package.json");
+      assert.equal(existsSync(manifest), true, `${root} is missing`);
+      assert.equal(JSON.parse(readFileSync(manifest, "utf8")).name, name);
+    }
+    assert.deepEqual(
+      QUALITY_WORKSPACES.map(({ root }) => root).sort(),
+      actualWorkspaceRoots().sort(),
+    );
+  });
+
   it("does not rebuild images for documentation-only changes", () => {
+    const result = affectedStagingComponents(["docs/adr/0016-example.md"]);
     assert.deepEqual(selection(["docs/adr/0016-example.md"]), {
       web: false,
       public_mecky: false,
@@ -33,6 +65,9 @@ describe("staging component change detection", () => {
       staging_relay: false,
       any_service: false,
     });
+    assert.equal(result.quality_required, false);
+    assert.equal(result.quality_full, false);
+    assert.deepEqual(result.quality_packages, []);
   });
 
   it("keeps an agent-watcher change away from the Web and unrelated services", () => {
@@ -51,6 +86,31 @@ describe("staging component change detection", () => {
         dockerfile: "packages/agent-watcher/Dockerfile",
       }],
     });
+    assert.equal(result.quality_required, true);
+    assert.equal(result.quality_full, false);
+    assert.equal(result.quality_web_tests, false);
+    assert.deepEqual(result.quality_packages, ["@netizen-labs/agent-watcher"]);
+  });
+
+  it("selects changed workspaces without widening to the whole monorepo", () => {
+    const result = affectedStagingComponents([
+      "packages/protocol/src/manifest.ts",
+      "packages/cli/src/render.ts",
+    ]);
+    assert.equal(result.quality_required, true);
+    assert.equal(result.quality_full, false);
+    assert.equal(result.quality_web_tests, false);
+    assert.deepEqual(result.quality_packages, [
+      "@netizen-labs/cli",
+      "@netizen-labs/protocol",
+    ]);
+  });
+
+  it("keeps shared Web tests while leaving the Web build to its OCI job", () => {
+    const result = affectedStagingComponents(["packages/nostr/src/events.ts"]);
+    assert.equal(result.quality_full, false);
+    assert.equal(result.quality_web_tests, true);
+    assert.deepEqual(result.quality_packages, ["@netizen-labs/nostr"]);
   });
 
   it("maps shared Nostr changes to every actual consumer", () => {
@@ -96,6 +156,7 @@ describe("staging component change detection", () => {
 
   it("fails closed for dependency and detector changes", () => {
     for (const path of ["pnpm-lock.yaml", "scripts/ci/affected-staging-components.mjs", "__all__"]) {
+      const result = affectedStagingComponents([path]);
       assert.deepEqual(selection([path]), {
         web: true,
         public_mecky: true,
@@ -103,7 +164,22 @@ describe("staging component change detection", () => {
         staging_relay: true,
         any_service: true,
       });
+      assert.equal(result.quality_required, true);
+      assert.equal(result.quality_full, true);
+      assert.deepEqual(result.quality_packages, []);
     }
+    const mixed = affectedStagingComponents([
+      "pnpm-lock.yaml",
+      "packages/agent-watcher/src/cli.ts",
+    ]);
+    assert.equal(mixed.quality_full, true);
+    assert.deepEqual(mixed.quality_packages, []);
+  });
+
+  it("fails closed to full quality for an unknown repository surface", () => {
+    const result = affectedStagingComponents(["future/new-surface.ts"]);
+    assert.equal(result.quality_required, true);
+    assert.equal(result.quality_full, true);
   });
 
   it("rejects ambiguous or escaping paths", () => {
@@ -129,6 +205,10 @@ describe("staging component change detection", () => {
         "staging_relay=false",
         "any_service=true",
         'service_build_matrix={"include":[{"component":"public-mecky","package":"@netizen-labs/agent-watcher","dockerfile":"packages/agent-watcher/Dockerfile"}]}',
+        "quality_required=true",
+        "quality_full=false",
+        "quality_web_tests=false",
+        'quality_packages=["@netizen-labs/agent-watcher"]',
         "",
       ].join("\n"));
       assert.notEqual(
