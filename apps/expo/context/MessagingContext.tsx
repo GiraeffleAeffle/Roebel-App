@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAccount } from '@/context/AccountContext';
 import { useXmtp } from '@/context/XmtpContext';
@@ -389,16 +389,19 @@ export function MessagingProvider({ children }: { children: React.ReactNode }) {
     };
   }, [xmtp, subscribeMessages, loadConversations]);
 
+  const value = useMemo<MessagingContextValue>(
+    () => ({
+      conversations,
+      unreadCount: baseUnread + xmtpUnread,
+      isLoading,
+      refreshConversations,
+      markConversationRead: handleMarkRead,
+    }),
+    [conversations, baseUnread, xmtpUnread, isLoading, refreshConversations, handleMarkRead]
+  );
+
   return (
-    <MessagingContext.Provider
-      value={{
-        conversations,
-        unreadCount: baseUnread + xmtpUnread,
-        isLoading,
-        refreshConversations,
-        markConversationRead: handleMarkRead,
-      }}
-    >
+    <MessagingContext.Provider value={value}>
       {children}
     </MessagingContext.Provider>
   );

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Entwicklermodus: schaltet in den Einstellungen die Mini-App-Vorschau frei
@@ -30,7 +30,7 @@ export function DeveloperModeProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const toggleDeveloperMode = async () => {
+  const toggleDeveloperMode = useCallback(async () => {
     try {
       const newValue = !isDeveloperMode;
       await AsyncStorage.setItem(DEVELOPER_MODE_KEY, String(newValue));
@@ -38,10 +38,15 @@ export function DeveloperModeProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('Error toggling developer mode state:', error);
     }
-  };
+  }, [isDeveloperMode]);
+
+  const value = useMemo<DeveloperModeContextType>(
+    () => ({ isDeveloperMode, toggleDeveloperMode }),
+    [isDeveloperMode, toggleDeveloperMode]
+  );
 
   return (
-    <DeveloperModeContext.Provider value={{ isDeveloperMode, toggleDeveloperMode }}>
+    <DeveloperModeContext.Provider value={value}>
       {children}
     </DeveloperModeContext.Provider>
   );

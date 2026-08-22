@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type GovernanceTestContextType = {
@@ -29,7 +29,7 @@ export function GovernanceTestProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const toggleGovernanceTesting = async () => {
+  const toggleGovernanceTesting = useCallback(async () => {
     try {
       const newValue = !isGovernanceTestEnabled;
       await AsyncStorage.setItem(GOVERNANCE_TEST_KEY, String(newValue));
@@ -37,10 +37,15 @@ export function GovernanceTestProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('Error toggling governance test state:', error);
     }
-  };
+  }, [isGovernanceTestEnabled]);
+
+  const value = useMemo<GovernanceTestContextType>(
+    () => ({ isGovernanceTestEnabled, toggleGovernanceTesting }),
+    [isGovernanceTestEnabled, toggleGovernanceTesting]
+  );
 
   return (
-    <GovernanceTestContext.Provider value={{ isGovernanceTestEnabled, toggleGovernanceTesting }}>
+    <GovernanceTestContext.Provider value={value}>
       {children}
     </GovernanceTestContext.Provider>
   );
