@@ -8,8 +8,8 @@ const web = readFileSync(new URL("./staging-web-oci.yml", import.meta.url), "utf
 test("the required ci result joins quality with one verified Web build", () => {
   assert.match(ci, /\n  changes:\n    name: Detect affected staging components/u);
   assert.match(ci, /node scripts\/ci\/affected-staging-components\.mjs --github-output/u);
-  assert.match(ci, /\n  quality:\n    name: Quality and non-Web builds/u);
-  assert.match(ci, /pnpm exec turbo build --filter='!@roebel\/web'/u);
+  assert.match(ci, /\n  quality:\n    name: Affected quality and non-Web builds/u);
+  assert.match(ci, /node scripts\/ci\/run-affected-quality\.mjs/u);
   assert.doesNotMatch(ci, /run: pnpm build/u);
   assert.match(
     ci,
