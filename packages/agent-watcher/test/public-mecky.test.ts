@@ -13,8 +13,14 @@ import {
   createStadtstackReviewedEvidenceReader,
   toPublicMeckyWatcherReply,
 } from "../src/public-mecky";
+import { createPublicEvidencePacket, type NostrPostEvidence } from "../src/public-evidence";
 
 const EVIDENCE_ID = `sha256:${"a".repeat(64)}`;
+const mention = (question: string) => ({
+  municipalityId: "roebel-mueritz",
+  question,
+  now: "2026-08-21T12:00:00.000Z",
+});
 
 it("adds evidence tags to an ordinary Mecky reply without civic authority", () => {
   const reply = createPublicMeckyEvidenceReply({
@@ -72,7 +78,7 @@ it("binds a civic Mecky reply to the signed discussion, Case and reviewed eviden
     result: {
       status: "answered",
       content:
-        "KI-Zusammenfassung: Eine Prüfung ist möglich.\n\nGeprüfte Quelle: Marienfelder Straße – https://stadtstack.example/case",
+        "KI-Zusammenfassung: Eine Prüfung ist möglich.\n\nQuellenbelege: Marienfelder Straße – https://stadtstack.example/case",
       evidenceRefs: [
         {
           evidenceId: EVIDENCE_ID,
@@ -156,14 +162,14 @@ describe("Public Mecky", () => {
       },
     });
 
-    const result = await mecky.answerMention(
+    const result = await mecky.answerMention(mention(
       "Kann ich über die Marienfelder Straße schon abstimmen?"
-    );
+    ));
 
     assert.deepEqual(result, {
       status: "answered",
       content:
-        "KI-Zusammenfassung: Noch nicht. Der geprüfte Stand nennt die Verwaltungsprüfung; eine Abstimmung ist noch nicht eröffnet.\n\nGeprüfte Quelle: Marienfelder Straße – https://stadtstack.example/kommunen/roebel-mueritz/entscheidungen/marienfelder-strasse",
+        "KI-Zusammenfassung: Noch nicht. Der geprüfte Stand nennt die Verwaltungsprüfung; eine Abstimmung ist noch nicht eröffnet.\n\nQuellenbelege: Marienfelder Straße – https://stadtstack.example/kommunen/roebel-mueritz/entscheidungen/marienfelder-strasse",
       evidenceRefs: [
         {
           evidenceId: EVIDENCE_ID,
@@ -175,7 +181,85 @@ describe("Public Mecky", () => {
     });
   });
 
-  it("refuses before inference when no reviewed public evidence exists", async () => {
+  it("answers from an explicitly admitted conversation statement without upgrading its authority", async () => {
+    const question = "Anna berichtet von einer unübersichtlichen Querung an der Marienfelder Straße.";
+    const conversationEvidence: NostrPostEvidence = {
+      evidenceId: `sha256:${"b".repeat(64)}`,
+      municipalityId: "roebel-mueritz",
+      sourceKind: "nostr_post",
+      authority: "community_statement",
+      title: "Öffentlicher Röbel-Beitrag",
+      summary: question,
+      publishedAt: "2026-08-21T11:55:00.000Z",
+      admissionState: "admitted",
+      lifecycle: "current",
+      eventId: "b".repeat(64),
+      authorPubkey: "c".repeat(64),
+      eventUrl: `https://index.roebel.app/events?ids=${"b".repeat(64)}`,
+      signatureValid: true,
+      retrievalConsent: "direct_mention",
+    };
+    const mecky = createPublicMecky({
+      retrieveEvidence: async (query, suppliedConversation) => {
+        assert.deepEqual(suppliedConversation, [conversationEvidence]);
+        return createPublicEvidencePacket(suppliedConversation, query);
+      },
+      infer: async ({ evidence }) => {
+        assert.equal(evidence.length, 1);
+        assert.ok("authority" in evidence[0]!);
+        assert.equal(evidence[0].authority, "community_statement");
+        return {
+          answer: "Anna beschreibt die Querung als unübersichtlich; das ist ein persönlicher Hinweis, kein amtlicher Befund.",
+          evidenceIds: [conversationEvidence.evidenceId],
+        };
+      },
+    });
+
+    const result = await mecky.answerMention({
+      ...mention(question),
+      conversationEvidence: [conversationEvidence],
+    });
+
+    assert.equal(result.status, "answered");
+    if (result.status !== "answered") return;
+    assert.match(result.content, /persönlicher Hinweis, kein amtlicher Befund/u);
+    assert.deepEqual(result.evidenceRefs, [{
+      evidenceId: conversationEvidence.evidenceId,
+      title: "Öffentlicher Röbel-Beitrag",
+      publicCaseUrl: conversationEvidence.eventUrl,
+    }]);
+  });
+
+  it("rejects conversation evidence that is not bound to the exact mention", async () => {
+    const question = "@Mecky Was ist an diesem Hinweis belegt?";
+    const evidence: NostrPostEvidence = {
+      evidenceId: `sha256:${"c".repeat(64)}`,
+      municipalityId: "other-town",
+      sourceKind: "nostr_post",
+      authority: "community_statement",
+      title: "Öffentlicher Beitrag",
+      summary: question,
+      publishedAt: "2026-08-21T11:55:00.000Z",
+      admissionState: "admitted",
+      lifecycle: "current",
+      eventId: "c".repeat(64),
+      authorPubkey: "d".repeat(64),
+      eventUrl: `https://index.roebel.app/events?ids=${"c".repeat(64)}`,
+      signatureValid: true,
+      retrievalConsent: "direct_mention",
+    };
+    const mecky = createPublicMecky({
+      retrieveEvidence: async (query) => createPublicEvidencePacket([], query),
+      infer: async () => ({ answer: "Nicht erreichbar", evidenceIds: [evidence.evidenceId] }),
+    });
+
+    await assert.rejects(
+      mecky.answerMention({ ...mention(question), conversationEvidence: [evidence] }),
+      /Invalid Public Mecky mention/u,
+    );
+  });
+
+  it("refuses before inference when no admitted public evidence exists", async () => {
     let inferenceCalls = 0;
     const mecky = createPublicMecky({
       readReviewedEvidence: async () => [],
@@ -185,15 +269,15 @@ describe("Public Mecky", () => {
       },
     });
 
-    const result = await mecky.answerMention(
+    const result = await mecky.answerMention(mention(
       "Was hat die Verwaltung beschlossen?"
-    );
+    ));
 
     assert.deepEqual(result, {
       status: "refused",
-      reason: "no_reviewed_evidence",
+      reason: "insufficient_evidence",
       retryable: false,
-      diagnosticCode: "no_reviewed_evidence",
+      diagnosticCode: "no_admitted_public_evidence",
     });
     assert.equal(inferenceCalls, 0);
   });
@@ -287,14 +371,49 @@ describe("Public Mecky", () => {
       } as never),
     });
 
-    const selected = await retrieve("Was ist zur Querung der Marienfelder Straße belegt?");
+    const selected = await retrieve(mention("Was ist zur Querung der Marienfelder Straße belegt?"));
     assert.equal(selected.passages.length, 1);
     assert.equal(selected.passages[0]!.prompt.evidenceId, EVIDENCE_ID);
     assert.equal(Object.hasOwn(selected.passages[0]!.prompt, "caseUrl"), false);
     assert.deepEqual(
-      (await retrieve("Wann öffnet das Schwimmbad?")).passages,
+      (await retrieve(mention("Wann öffnet das Schwimmbad?"))).passages,
       [],
     );
+  });
+
+  it("keeps admitted conversation evidence when the reviewed Civic Case source is unavailable", async () => {
+    const question = "@Mecky Die Querung an der Marienfelder Straße wirkt unübersichtlich.";
+    const evidence: NostrPostEvidence = {
+      evidenceId: `sha256:${"d".repeat(64)}`,
+      municipalityId: "roebel-mueritz",
+      sourceKind: "nostr_post",
+      authority: "community_statement",
+      title: "Öffentlicher Röbel-Beitrag",
+      summary: question,
+      publishedAt: "2026-08-21T11:55:00.000Z",
+      admissionState: "admitted",
+      lifecycle: "current",
+      eventId: "d".repeat(64),
+      authorPubkey: "e".repeat(64),
+      eventUrl: `https://index.roebel.app/events?ids=${"d".repeat(64)}`,
+      signatureValid: true,
+      retrievalConsent: "direct_mention",
+    };
+    const retrieve = createStadtstackPublicEvidenceRetriever({
+      baseUrl: "https://stadtstack.example",
+      municipalityId: "roebel-mueritz",
+      loadReviewedCases: async () => {
+        throw new Error("temporarily unavailable");
+      },
+    });
+
+    const packet = await retrieve(mention(question), [evidence]);
+    assert.deepEqual(packet.passages.map((entry) => entry.evidence.evidenceId), [evidence.evidenceId]);
+    assert.deepEqual(packet.omissions, [{
+      sourceKind: "reviewed_civic_case",
+      reason: "source_unavailable",
+      count: 1,
+    }]);
   });
 
   it("distinguishes an unavailable reviewed source from a truthful empty result", async () => {
@@ -314,7 +433,7 @@ describe("Public Mecky", () => {
       },
     });
 
-    assert.deepEqual(await mecky.answerMention("Was ist der Stand?"), {
+    assert.deepEqual(await mecky.answerMention(mention("Was ist der Stand?")), {
       status: "refused",
       reason: "evidence_unavailable",
       retryable: true,
@@ -599,7 +718,7 @@ describe("Public Mecky", () => {
       },
     });
 
-    assert.deepEqual(await mecky.answerMention("Was ist der Stand?"), {
+    assert.deepEqual(await mecky.answerMention(mention("Was ist der Stand?")), {
       status: "refused",
       reason: "inference_unavailable",
       retryable: true,
@@ -619,7 +738,7 @@ describe("Public Mecky", () => {
       },
     });
 
-    assert.deepEqual(await mecky.answerMention("Was ist der Stand?"), {
+    assert.deepEqual(await mecky.answerMention(mention("Was ist der Stand?")), {
       status: "refused",
       reason: "evidence_unavailable",
       retryable: true,
@@ -649,7 +768,7 @@ describe("Public Mecky", () => {
       }),
     });
 
-    assert.deepEqual(await mecky.answerMention("Ist das beschlossen?"), {
+    assert.deepEqual(await mecky.answerMention(mention("Ist das beschlossen?")), {
       status: "refused",
       reason: "unverified_evidence_reference",
       retryable: false,

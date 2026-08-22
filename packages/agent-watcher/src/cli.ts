@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { deriveAgentIdentity } from "@netizen-labs/nostr";
 import { DEFAULT_BOUNDS, emptyHistory } from "./bounds";
+import { createDirectMentionEvidence } from "./conversation-evidence";
+import type { PublicEvidence } from "./public-evidence";
 import { resolvePublicMeckyEvidenceMode } from "./evidence-mode";
 import { announceAgentProfile } from "./profile";
 import {
@@ -20,7 +22,7 @@ import { watchOnce } from "./watcher";
 
 /**
  * `netizen-agent-watcher` — runs beside the relay and answers mentions from
- * checksum-bound, publicly reviewed Stadtstack evidence.
+ * checksum-bound, source-specifically admitted public evidence.
  *
  * Deliberately stateless across restarts except for what it can re-derive from
  * the relay: each pass reads recent mentions plus its own published replies.
@@ -53,6 +55,7 @@ async function main(): Promise<void> {
   const intervalSeconds = Number(process.env.WATCH_INTERVAL_SECONDS ?? 20);
   const lookbackSeconds = Number(process.env.WATCH_LOOKBACK_SECONDS ?? 86_400);
   const replyProjectionUrl = process.env.MECKY_REPLY_PROJECTION_URL?.trim();
+  const publicIndexBaseUrl = process.env.MECKY_PUBLIC_INDEX_BASE_URL?.trim();
   const projectReply = replyProjectionUrl
     ? createPublicMeckyReplyProjectionSink({ endpoint: replyProjectionUrl })
     : undefined;
@@ -97,7 +100,8 @@ async function main(): Promise<void> {
   console.log(`agent "${agentName}" on "${nodeId}" watching ${inputRelayUrl}`);
   console.log(`  replies: ${outputRelayUrl}`);
   console.log(`  npub ${agent.npub}`);
-  console.log(`  reviewed evidence: ${syntheticEvidenceMode ? "synthetic checksum-bound snapshot" : publicEvidenceBaseUrl} (${municipalityId})`);
+  console.log(`  public evidence: ${syntheticEvidenceMode ? "synthetic checksum-bound snapshot" : publicEvidenceBaseUrl} (${municipalityId})`);
+  console.log(`  conversation evidence: ${!syntheticEvidenceMode && publicIndexBaseUrl ? publicIndexBaseUrl : "disabled"}`);
   console.log(`  inference: ${inferenceBaseUrl} (${inferenceModel})`);
   console.log(`  app reply projection: ${replyProjectionUrl ?? "disabled"}`);
   console.log(`  bounds: ${bounds.perAuthorPerHour}/author/h, ${bounds.perDay}/day, enabled=${bounds.enabled}`);
@@ -131,7 +135,26 @@ async function main(): Promise<void> {
         ...(projectReply ? { projectReply } : {}),
         makeClient: createNodeRelayClient,
         think: async (question, event) => {
-          const answer = await publicMecky.answerMention(question);
+          let conversationEvidence: PublicEvidence[] = [];
+          if (!syntheticEvidenceMode && publicIndexBaseUrl) {
+            try {
+              conversationEvidence = [createDirectMentionEvidence(event, {
+                municipalityId,
+                agentPubkey: agent.publicKey,
+                publicIndexBaseUrl,
+              })];
+            } catch (error) {
+              console.warn(
+                `[${new Date().toISOString()}] direct mention was not admitted as conversation evidence: ${(error as Error).message}`,
+              );
+            }
+          }
+          const answer = await publicMecky.answerMention({
+            municipalityId,
+            question: question.trim(),
+            now: new Date().toISOString(),
+            conversationEvidence,
+          });
           if (answer.status === "answered") {
             const civic = event.tags.some(
               (tag) =>

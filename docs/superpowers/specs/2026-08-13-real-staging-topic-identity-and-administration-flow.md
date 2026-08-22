@@ -106,14 +106,15 @@ Pimlico supplies bundler/paymaster infrastructure; it is not the member identity
 
 ## Evidence and Mecky policy
 
-Mecky answers from the reviewed Stadtstack evidence projection, not directly from arbitrary web search results. Each evidence item must carry:
+Mecky answers from one admitted public evidence packet, not directly from arbitrary web search results. Admission is separate from source authority: a signature-valid, source-bound post that directly mentions Mecky may enter only as an attributed community statement, while documentary sources still require review. Each evidence item must carry:
 
 - source URL or document identifier;
 - source and retrieval timestamps;
 - content checksum and parser version;
 - municipality and topic binding;
 - licence/visibility classification;
-- review status and reviewer receipt.
+- its source-specific admission basis, authority and correction state;
+- a reviewer receipt whenever human review is the admission basis.
 
 Local news and council-information-system connectors are read-only ingestion sources. Their content enters a quarantine/review stage before Mecky can cite it. A model response records the exact evidence identifiers used. Missing reviewed evidence yields an honest “not verified yet” answer.
 

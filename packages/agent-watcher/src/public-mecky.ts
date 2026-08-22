@@ -15,11 +15,13 @@ import {
 } from "@roebel/stadtstack-federation-client";
 import {
   createPublicEvidencePacket,
+  parsePublicEvidence,
   publicEvidenceUrl,
   type PromptPublicEvidence,
   type PublicEvidence,
   type PublicEvidenceOmission,
   type PublicEvidencePacket,
+  type PublicEvidenceQuery,
 } from "./public-evidence";
 import type { PublicMeckyAnsweredResult } from "./public-mecky-receipt";
 
@@ -64,9 +66,17 @@ export interface PublicMeckyInference {
 export interface PublicMeckyDependencies {
   readReviewedEvidence?: () => Promise<readonly ReviewedCivicEvidence[]>;
   retrieveEvidence?: (
-    question: string,
+    query: PublicEvidenceQuery,
+    conversationEvidence: readonly PublicEvidence[],
   ) => Promise<PublicEvidencePacket>;
   infer: (input: PublicMeckyInferenceInput) => Promise<PublicMeckyInference>;
+}
+
+export interface PublicMeckyMention {
+  readonly municipalityId: string;
+  readonly question: string;
+  readonly now: string;
+  readonly conversationEvidence?: readonly PublicEvidence[];
 }
 
 export type PublicMeckyResult =
@@ -79,7 +89,7 @@ export type PublicMeckyResult =
     };
 
 export interface PublicMecky {
-  answerMention(question: string): Promise<PublicMeckyResult>;
+  answerMention(mention: PublicMeckyMention): Promise<PublicMeckyResult>;
 }
 
 export interface OpenAICompatiblePublicMeckyInferenceOptions {
@@ -361,8 +371,9 @@ export function createOpenAICompatiblePublicMeckyInference(
 /**
  * Run Public Mecky through Pi's maintained agent lifecycle while preserving
  * the existing narrow inference interface. The first release deliberately
- * supplies no tools or persistent transcript: reviewed evidence is complete
- * in the prepared prompt and every mention is one bounded, attributable turn.
+ * supplies no tools or persistent transcript: the admitted evidence packet is
+ * complete in the prepared prompt and every mention is one bounded,
+ * attributable turn.
  */
 export function createPiPublicMeckyInference(
   options: PiPublicMeckyInferenceOptions
@@ -590,43 +601,88 @@ export function createStadtstackReviewedEvidenceReader(
  */
 export function createStadtstackPublicEvidenceRetriever(
   options: StadtstackPublicEvidenceRetrieverOptions,
-): (question: string) => Promise<PublicEvidencePacket> {
+): (
+  query: PublicEvidenceQuery,
+  conversationEvidence?: readonly PublicEvidence[],
+) => Promise<PublicEvidencePacket> {
   const load = options.loadReviewedCases ?? loadReviewedCivicCases;
-  return async (question) => {
-    const result = await load({
-      baseUrl: options.baseUrl,
-      municipalityId: options.municipalityId,
-      allowClusterInternalHttp: true,
-    });
-    if (result.municipality.id !== options.municipalityId) {
+  return async (query, conversationEvidence = []) => {
+    if (query.municipalityId !== options.municipalityId) {
       throw new Error("Stadtstack public evidence municipality mismatch.");
     }
-    const entries: PublicEvidence[] = result.cases.map((entry) => ({
-      evidenceId: entry.manifest.stageMap.contentSha256 as `sha256:${string}`,
-      municipalityId: options.municipalityId,
-      sourceKind: "reviewed_civic_case",
-      authority: "reviewed_civic_evidence",
-      title: entry.summary.title,
-      summary: [
-        entry.summary.publicSummary,
-        `Stand: ${entry.stageMap.current.label}.`,
-        entry.stageMap.current.nextAction
-          ? `Nächster Schritt: ${entry.stageMap.current.nextAction}`
-          : null,
-      ].filter(Boolean).join(" "),
-      publishedAt: entry.summary.updatedAt,
-      reviewState: "reviewed",
-      lifecycle: "current",
-      caseId: entry.summary.decisionCaseSlug,
-      caseUrl: entry.summary.publicCaseUrl,
-      reviewedAt: entry.summary.updatedAt,
-    }));
-    return createPublicEvidencePacket(entries, {
-      municipalityId: options.municipalityId,
-      question,
-      now: result.generatedAt,
-    });
+    try {
+      const result = await load({
+        baseUrl: options.baseUrl,
+        municipalityId: options.municipalityId,
+        allowClusterInternalHttp: true,
+      });
+      if (result.municipality.id !== options.municipalityId) {
+        throw new Error("Stadtstack public evidence municipality mismatch.");
+      }
+      const entries: PublicEvidence[] = result.cases.map((entry) => ({
+        evidenceId: entry.manifest.stageMap.contentSha256 as `sha256:${string}`,
+        municipalityId: options.municipalityId,
+        sourceKind: "reviewed_civic_case",
+        authority: "reviewed_civic_evidence",
+        title: entry.summary.title,
+        summary: [
+          entry.summary.publicSummary,
+          `Stand: ${entry.stageMap.current.label}.`,
+          entry.stageMap.current.nextAction
+            ? `Nächster Schritt: ${entry.stageMap.current.nextAction}`
+            : null,
+        ].filter(Boolean).join(" "),
+        publishedAt: entry.summary.updatedAt,
+        admissionState: "admitted",
+        lifecycle: "current",
+        caseId: entry.summary.decisionCaseSlug,
+        caseUrl: entry.summary.publicCaseUrl,
+        reviewedAt: entry.summary.updatedAt,
+      }));
+      return createPublicEvidencePacket([...entries, ...conversationEvidence], query);
+    } catch {
+      return createPublicEvidencePacket(conversationEvidence, query, [{
+        sourceKind: "reviewed_civic_case",
+        reason: "source_unavailable",
+        count: 1,
+      }]);
+    }
   };
+}
+
+function validateMention(mention: PublicMeckyMention): void {
+  if (
+    !mention ||
+    typeof mention !== "object" ||
+    Array.isArray(mention) ||
+    Object.keys(mention).some((key) =>
+      !["municipalityId", "question", "now", "conversationEvidence"].includes(key)
+    ) ||
+    !/^[a-z0-9][a-z0-9-]{0,79}$/u.test(mention.municipalityId) ||
+    !mention.question.trim() ||
+    mention.question !== mention.question.trim() ||
+    Buffer.byteLength(mention.question, "utf8") > 2_000 ||
+    !Number.isFinite(Date.parse(mention.now)) ||
+    new Date(Date.parse(mention.now)).toISOString() !== mention.now ||
+    (mention.conversationEvidence !== undefined &&
+      (!Array.isArray(mention.conversationEvidence) || mention.conversationEvidence.length > 1))
+  ) {
+    throw new Error("Invalid Public Mecky mention.");
+  }
+  try {
+    for (const value of mention.conversationEvidence ?? []) {
+      const evidence = parsePublicEvidence(value);
+      if (
+        evidence.sourceKind !== "nostr_post" ||
+        evidence.municipalityId !== mention.municipalityId ||
+        evidence.summary !== mention.question
+      ) {
+        throw new Error("Invalid conversation evidence binding.");
+      }
+    }
+  } catch {
+    throw new Error("Invalid Public Mecky mention.");
+  }
 }
 
 export function createPublicMecky(
@@ -640,7 +696,8 @@ export function createPublicMecky(
     throw new Error("Public Mecky requires exactly one evidence reader.");
   }
   return {
-    async answerMention(question) {
+    async answerMention(mention) {
+      validateMention(mention);
       let evidence: readonly {
         evidenceId: string;
         title: string;
@@ -650,7 +707,11 @@ export function createPublicMecky(
       let omissions: readonly PublicEvidenceOmission[] = [];
       try {
         if (dependencies.retrieveEvidence) {
-          const packet = await dependencies.retrieveEvidence(question);
+          const packet = await dependencies.retrieveEvidence({
+            municipalityId: mention.municipalityId,
+            question: mention.question,
+            now: mention.now,
+          }, mention.conversationEvidence ?? []);
           evidence = packet.passages.map((entry) => ({
             evidenceId: entry.evidence.evidenceId,
             title: entry.evidence.title,
@@ -686,15 +747,15 @@ export function createPublicMecky(
         }
         return {
           status: "refused",
-          reason: "no_reviewed_evidence",
+          reason: "insufficient_evidence",
           retryable: false,
-          diagnosticCode: "no_reviewed_evidence",
+          diagnosticCode: "no_admitted_public_evidence",
         };
       }
       let inference: PublicMeckyInference;
       try {
         inference = await dependencies.infer({
-          question,
+          question: mention.question,
           evidence: evidence.map((entry) => entry.prompt),
           omissions,
         });
@@ -737,7 +798,7 @@ export function createPublicMecky(
       );
       return {
         status: "answered",
-        content: `KI-Zusammenfassung: ${inference.answer}\n\nGeprüfte Quelle: ${sourceLines.join(
+        content: `KI-Zusammenfassung: ${inference.answer}\n\nQuellenbelege: ${sourceLines.join(
           "; "
         )}`,
         evidenceRefs,

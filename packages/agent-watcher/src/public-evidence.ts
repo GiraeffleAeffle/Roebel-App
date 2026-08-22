@@ -4,8 +4,9 @@ import { createHash } from "node:crypto";
  * A deliberately small, offline retrieval seam for public Mecky answers.
  *
  * This module does not fetch, crawl, or decide what is true. Callers admit
- * source records into the catalog; retrieval only selects already-reviewed,
- * current records and projects the minimum text the inference provider needs.
+ * source records into the catalog; retrieval selects source-specifically
+ * admitted, current records and projects the minimum text the inference
+ * provider needs without flattening their authority.
  */
 
 export const PUBLIC_EVIDENCE_SOURCE_KINDS = [
@@ -25,7 +26,7 @@ export const PUBLIC_EVIDENCE_AUTHORITIES = [
 ] as const;
 
 export type PublicEvidenceAuthority = (typeof PUBLIC_EVIDENCE_AUTHORITIES)[number];
-export type PublicEvidenceReviewState = "reviewed" | "unreviewed";
+export type PublicEvidenceAdmissionState = "admitted" | "pending_review";
 export type PublicEvidenceLifecycle = "current" | "stale" | "superseded" | "withdrawn";
 
 interface PublicEvidenceCommon {
@@ -34,7 +35,8 @@ interface PublicEvidenceCommon {
   readonly title: string;
   readonly summary: string;
   readonly publishedAt: string;
-  readonly reviewState: PublicEvidenceReviewState;
+  /** Public retrieval eligibility, not a claim that every source statement is true. */
+  readonly admissionState: PublicEvidenceAdmissionState;
   readonly lifecycle: PublicEvidenceLifecycle;
 }
 
@@ -45,6 +47,7 @@ export interface NostrPostEvidence extends PublicEvidenceCommon {
   readonly authorPubkey: string;
   readonly eventUrl: string;
   readonly signatureValid: boolean;
+  readonly retrievalConsent: "direct_mention";
 }
 
 export interface LocalNewsEvidence extends PublicEvidenceCommon {
@@ -52,6 +55,7 @@ export interface LocalNewsEvidence extends PublicEvidenceCommon {
   readonly authority: "editorial_report";
   readonly publisher: string;
   readonly articleUrl: string;
+  readonly reviewedAt: string;
 }
 
 export interface RatsinformationEvidence extends PublicEvidenceCommon {
@@ -60,6 +64,7 @@ export interface RatsinformationEvidence extends PublicEvidenceCommon {
   readonly body: string;
   readonly recordId: string;
   readonly recordUrl: string;
+  readonly reviewedAt: string;
 }
 
 export interface ReviewedCivicCaseEvidence extends PublicEvidenceCommon {
@@ -99,7 +104,7 @@ export interface PublicEvidenceRetrievalOptions {
 
 export const PUBLIC_EVIDENCE_OMISSION_REASONS = [
   "municipality_mismatch",
-  "unreviewed",
+  "not_admitted",
   "stale",
   "superseded",
   "withdrawn",
@@ -213,7 +218,7 @@ function commonIsValid(record: Record<string, unknown>): boolean {
     isNonEmptyString(record.title) &&
     isNonEmptyString(record.summary) &&
     isIsoDate(record.publishedAt) &&
-    (record.reviewState === "reviewed" || record.reviewState === "unreviewed") &&
+    (record.admissionState === "admitted" || record.admissionState === "pending_review") &&
     (record.lifecycle === "current" || record.lifecycle === "stale" || record.lifecycle === "superseded" || record.lifecycle === "withdrawn");
 }
 
@@ -225,27 +230,29 @@ export function parsePublicEvidence(value: unknown): PublicEvidence {
   if (!isPlainRecord(value) || !commonIsValid(value) || typeof value.sourceKind !== "string") {
     throw new Error("Invalid public evidence.");
   }
-  const common = ["evidenceId", "municipalityId", "sourceKind", "authority", "title", "summary", "publishedAt", "reviewState", "lifecycle"];
+  const common = ["evidenceId", "municipalityId", "sourceKind", "authority", "title", "summary", "publishedAt", "admissionState", "lifecycle"];
   switch (value.sourceKind) {
     case "nostr_post":
-      if (!exactKeys(value, [...common, "eventId", "authorPubkey", "eventUrl", "signatureValid"]) ||
+      if (!exactKeys(value, [...common, "eventId", "authorPubkey", "eventUrl", "signatureValid", "retrievalConsent"]) ||
         value.authority !== "community_statement" ||
         typeof value.eventId !== "string" || !/^[0-9a-f]{64}$/.test(value.eventId) ||
         typeof value.authorPubkey !== "string" || !/^[0-9a-f]{64}$/.test(value.authorPubkey) ||
-        !isPublicHttpsUrl(value.eventUrl) || typeof value.signatureValid !== "boolean") {
+        !isPublicHttpsUrl(value.eventUrl) || typeof value.signatureValid !== "boolean" ||
+        value.retrievalConsent !== "direct_mention") {
         throw new Error("Invalid nostr post evidence.");
       }
       return value as unknown as NostrPostEvidence;
     case "local_news":
-      if (!exactKeys(value, [...common, "publisher", "articleUrl"]) ||
-        value.authority !== "editorial_report" || !isNonEmptyString(value.publisher) || !isPublicHttpsUrl(value.articleUrl)) {
+      if (!exactKeys(value, [...common, "publisher", "articleUrl", "reviewedAt"]) ||
+        value.authority !== "editorial_report" || !isNonEmptyString(value.publisher) ||
+        !isPublicHttpsUrl(value.articleUrl) || !isIsoDate(value.reviewedAt)) {
         throw new Error("Invalid local news evidence.");
       }
       return value as unknown as LocalNewsEvidence;
     case "ratsinformation":
-      if (!exactKeys(value, [...common, "body", "recordId", "recordUrl"]) ||
+      if (!exactKeys(value, [...common, "body", "recordId", "recordUrl", "reviewedAt"]) ||
         value.authority !== "official_record" || !isNonEmptyString(value.body) ||
-        !isNonEmptyString(value.recordId) || !isPublicHttpsUrl(value.recordUrl)) {
+        !isNonEmptyString(value.recordId) || !isPublicHttpsUrl(value.recordUrl) || !isIsoDate(value.reviewedAt)) {
         throw new Error("Invalid Ratsinformationssystem evidence.");
       }
       return value as unknown as RatsinformationEvidence;
@@ -393,8 +400,8 @@ function selectPublicEvidence(
       omit(entry, "municipality_mismatch");
       continue;
     }
-    if (entry.reviewState !== "reviewed") {
-      omit(entry, "unreviewed");
+    if (entry.admissionState !== "admitted") {
+      omit(entry, "not_admitted");
       continue;
     }
     if (entry.lifecycle !== "current") {
@@ -528,7 +535,7 @@ export function createPublicEvidencePacket(
   return { ...packetWithoutId, packetId: packetIdFor(packetWithoutId, validated.question) };
 }
 
-/** Compose reviewed source projections. An adapter failure omits that source; it never admits partial invalid data. */
+/** Compose admitted source projections. An adapter failure omits that source; it never admits partial invalid data. */
 export function createPublicKnowledgeCatalog(
   adapters: readonly PublicEvidenceSourceAdapter[],
 ): PublicKnowledgeCatalog {
