@@ -22,7 +22,7 @@ Combining every capability into one large page would create the opposite problem
    - leave the post standalone.
 3. The original signed post is retained as a source. Promotion creates new identifiers and provenance links; it does not edit the post into another record.
 4. Röbel owns one **civic journey** shell for the complete public lifecycle. It keeps a stable topic header and exposes source posts, discussions, Mecky answers, proposal candidates, civic cases, administrative packages, Citizen Briefs, participation, decisions, budget constraints, execution, and outcomes as attributable stages.
-5. The journey is one navigational and provenance line, not one mutable aggregate. Each stage retains its own owner, schema, authority, version, and transition gate.
+5. The journey is one navigational and provenance line, not one mutable aggregate. Each stage retains its own owner, schema, authority, version, and transition gate. After Civic Case admission, Stadtstack's derived case stage map remains the canonical stage state; Röbel only projects it into the journey.
 6. Mini-apps and external systems are **stage tools** behind narrow interfaces:
    - tree and sunburst views project the signed discussion graph;
    - the Röbel Data mini-app may render governance or budget exploration;
@@ -34,6 +34,7 @@ Combining every capability into one large page would create the opposite problem
 9. Proposal, participation, treasury review, and execution remain visibly connected in the journey, while their permissions remain separate. Displaying a budget constraint never authorizes a treasury transaction; displaying an advisory signal never turns it into a formal vote.
 10. Mecky may classify, summarize, cite, and suggest the next human action. It may not promote a post, sign for a person, admit a civic case, approve administration work, open a binding vote, or spend funds.
 11. A proposal candidate is signed while the journey is still topic-bound. The next stage remains “awaiting human case admission”; signing never calls the admission, administration, participation, governance, or treasury adapters automatically.
+12. Röbel renders **public administration progress** only from Stadtstack's redacted public case projection. It may show accepted, current department responses and a current Citizen Brief. A department absent from that projection is labelled only as “not publicly reviewed”; Röbel must not infer whether private work is missing, pending, rejected, corrected, or retracted.
 
 ## Consequences
 
@@ -43,4 +44,5 @@ Combining every capability into one large page would create the opposite problem
 - Specialized tools remain independently deployable and replaceable because the Röbel host owns the journey contract.
 - The host needs a versioned journey projection and stage-tool context; mini-apps need to stop treating a query-string topic slug as sufficient state.
 - Proposal signing and Civic Case admission are two independently attributable transitions, even when the interface presents them consecutively.
+- Administration progress can stay in the same journey without copying private openDesk work queues or creating a second case state.
 - This ADR does not authorize automatic promotion, a formal municipal vote, a treasury payment, or production data migration.

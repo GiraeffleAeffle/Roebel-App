@@ -19,6 +19,7 @@ This glossary fixes the terms used by the Röbel app and Stadtstack integration.
 | **Improvement proposal candidate** | A citizen-signed, topic-bound suggestion linking the exact discussion and reviewed Mecky receipt while still awaiting human Civic Case admission. | A Civic Case, submitted governance proposal, or administrative decision. |
 | **Civic case** | The admitted, append-only Stadtstack workflow record. | The public discussion alone. |
 | **Administrative feedback** | Human-reviewed department packages attached to the civic case. | Mecky output. |
+| **Public administration progress** | The redacted journey view of accepted, current department responses and any current Citizen Brief. An absent response means only that no publicly reviewed answer is available. | A private work queue, a rejected response, or an inferred review status. |
 | **Citizen Brief** | The public, source-bound explanation of reviewed options and constraints. | A press release or binding decision. |
 | **Mitmachen opinion signal** | A separate advisory participation round over reviewed options. | A formal municipal vote or binding on-chain governance action. |
 | **Governance ballot** | A future explicitly authorized binding vote with frozen rules and authority. | The staging opinion signal. |
