@@ -14,6 +14,10 @@ import {
   toPublicMeckyWatcherReply,
 } from "../src/public-mecky";
 import { createPublicEvidencePacket, type NostrPostEvidence } from "../src/public-evidence";
+import {
+  sealReviewedPublicKnowledgeProjection,
+  type ReviewedPublicKnowledgeSourceKind,
+} from "../src/reviewed-public-knowledge";
 
 const EVIDENCE_ID = `sha256:${"a".repeat(64)}`;
 const mention = (question: string) => ({
@@ -379,6 +383,146 @@ describe("Public Mecky", () => {
       (await retrieve(mention("Wann öffnet das Schwimmbad?"))).passages,
       [],
     );
+  });
+
+  it("composes explicitly enabled reviewed news and council projections into ordinary answers", async () => {
+    const requested: string[] = [];
+    const projection = (sourceKind: ReviewedPublicKnowledgeSourceKind) =>
+      sealReviewedPublicKnowledgeProjection({
+        schemaVersion: "reviewed_public_knowledge_projection_v1",
+        municipalityId: "roebel-mueritz",
+        sourceKind,
+        generatedAt: "2026-08-21T11:59:00.000Z",
+        records: sourceKind === "local_news"
+          ? [{
+              evidenceId: `sha256:${"b".repeat(64)}`,
+              municipalityId: "roebel-mueritz",
+              sourceKind: "local_news",
+              authority: "editorial_report",
+              title: "Röbel Kurier: Querung der Marienfelder Straße",
+              summary: "Der Röbel Kurier berichtet über Vorschläge für eine sichere Querung.",
+              publishedAt: "2026-08-20T08:00:00.000Z",
+              admissionState: "admitted",
+              lifecycle: "current",
+              publisher: "Röbel Kurier",
+              articleUrl: "https://news.example/roebel/marienfelder-strasse",
+              reviewedAt: "2026-08-21T10:00:00.000Z",
+            }]
+          : [{
+              evidenceId: `sha256:${"c".repeat(64)}`,
+              municipalityId: "roebel-mueritz",
+              sourceKind: "ratsinformation",
+              authority: "official_record",
+              title: "Ausschussvorlage zur Marienfelder Straße",
+              summary: "Die Vorlage dokumentiert einen Prüfauftrag zur Querung.",
+              publishedAt: "2026-08-19T08:00:00.000Z",
+              admissionState: "admitted",
+              lifecycle: "current",
+              body: "Beratungsgegenstand ist die Prüfung einer sicheren Querung.",
+              recordId: "RIS-2026-42",
+              recordUrl: "https://ris.example/roebel/vorlagen/2026-42",
+              reviewedAt: "2026-08-21T10:00:00.000Z",
+            }],
+      });
+    const retrieve = createStadtstackPublicEvidenceRetriever({
+      baseUrl: "https://stadtstack.example",
+      municipalityId: "roebel-mueritz",
+      reviewedSourceKinds: ["local_news", "ratsinformation"],
+      loadReviewedCases: async () => ({
+        municipality: { id: "roebel-mueritz" },
+        cases: [],
+      } as never),
+      reviewedSourceFetch: async (input, init) => {
+        requested.push(String(input));
+        assert.equal(init?.method, "GET");
+        assert.equal(init?.credentials, "omit");
+        const sourceKind = String(input).endsWith("/local-news")
+          ? "local_news"
+          : "ratsinformation";
+        return Response.json(projection(sourceKind));
+      },
+    });
+
+    const packet = await retrieve(mention(
+      "Was berichten Kurier und Ausschuss über die Querung der Marienfelder Straße?",
+    ));
+    assert.deepEqual(requested.sort(), [
+      "https://stadtstack.example/api/federation/v1/municipalities/roebel-mueritz/public-knowledge/local-news",
+      "https://stadtstack.example/api/federation/v1/municipalities/roebel-mueritz/public-knowledge/ratsinformation",
+    ]);
+    assert.deepEqual(
+      packet.passages.map(({ evidence }) => [evidence.sourceKind, evidence.authority]).sort(),
+      [
+        ["local_news", "editorial_report"],
+        ["ratsinformation", "official_record"],
+      ],
+    );
+    assert.deepEqual(packet.omissions, []);
+  });
+
+  it("rejects duplicate, unknown, or non-canonical reviewed source declarations", () => {
+    const options = {
+      baseUrl: "https://stadtstack.example",
+      municipalityId: "roebel-mueritz",
+      loadReviewedCases: async () => ({
+        municipality: { id: "roebel-mueritz" },
+        cases: [],
+      } as never),
+    };
+    for (const reviewedSourceKinds of [
+      ["local_news", "local_news"],
+      ["ratsinformation", "local_news"],
+      ["raw_news"],
+    ]) {
+      assert.throws(() => createStadtstackPublicEvidenceRetriever({
+        ...options,
+        reviewedSourceKinds: reviewedSourceKinds as never,
+      }));
+    }
+  });
+
+  it("keeps a valid reviewed source when the other enabled source is unavailable", async () => {
+    const newsProjection = sealReviewedPublicKnowledgeProjection({
+      schemaVersion: "reviewed_public_knowledge_projection_v1",
+      municipalityId: "roebel-mueritz",
+      sourceKind: "local_news",
+      generatedAt: "2026-08-21T11:59:00.000Z",
+      records: [{
+        evidenceId: `sha256:${"b".repeat(64)}`,
+        municipalityId: "roebel-mueritz",
+        sourceKind: "local_news",
+        authority: "editorial_report",
+        title: "Röbel Kurier: Querung",
+        summary: "Der Röbel Kurier berichtet über die Querung an der Marienfelder Straße.",
+        publishedAt: "2026-08-20T08:00:00.000Z",
+        admissionState: "admitted",
+        lifecycle: "current",
+        publisher: "Röbel Kurier",
+        articleUrl: "https://news.example/roebel/querung",
+        reviewedAt: "2026-08-21T10:00:00.000Z",
+      }],
+    });
+    const retrieve = createStadtstackPublicEvidenceRetriever({
+      baseUrl: "https://stadtstack.example",
+      municipalityId: "roebel-mueritz",
+      reviewedSourceKinds: ["local_news", "ratsinformation"],
+      loadReviewedCases: async () => ({
+        municipality: { id: "roebel-mueritz" },
+        cases: [],
+      } as never),
+      reviewedSourceFetch: async (input) => {
+        if (String(input).endsWith("/ratsinformation")) throw new Error("unavailable");
+        return Response.json(newsProjection);
+      },
+    });
+
+    const packet = await retrieve(mention("Was berichtet der Röbel Kurier über die Querung?"));
+    assert.deepEqual(packet.passages.map(({ evidence }) => evidence.sourceKind), ["local_news"]);
+    assert.deepEqual(packet.omissions, [{
+      sourceKind: "ratsinformation",
+      reason: "source_unavailable",
+      count: 1,
+    }]);
   });
 
   it("keeps admitted conversation evidence when the reviewed Civic Case source is unavailable", async () => {

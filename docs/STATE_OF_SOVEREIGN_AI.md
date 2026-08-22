@@ -41,7 +41,7 @@ spells out why the protocol is what makes that plurality safe.
 | Surface | What it does | Model actually used |
 |---|---|---|
 | **Mecky in-app** (`apps/expo/app/mecky.tsx`) | German chat assistant, 11 tools into the backend | Claude via API |
-| **Public Mecky on Nostr** (`packages/agent-watcher`) | Answers `p`-tag mentions from admitted public evidence packets: reviewed Civic Cases plus the exact signature-valid source-bound direct mention as attributed community speech; every answer cites selected evidence, while local-news/RIS adapters remain pending | Pi agent core `0.84.1` with zero tools and fresh bounded runs; Röbel declares Hetzner Inference as the replaceable provider (deployment pending) |
+| **Public Mecky on Nostr** (`packages/agent-watcher`) | Answers `p`-tag mentions from admitted public evidence packets: reviewed Civic Cases, explicitly enabled checksum-bound news/RIS projections, and the exact signature-valid source-bound direct mention as attributed community speech; every answer cites selected evidence | Pi agent core `0.84.1` with zero tools and fresh bounded runs; Röbel declares Hetzner Inference as the replaceable provider; real reviewed news/RIS corpus deployment remains pending |
 | **Story engine / newsroom** | Co-writes local stories, self-publishes to feed + blog | Claude via API |
 | **Fördermittel outreach** | Finds funding programmes, drafts honest banded reports, daily cron, opt-out | Claude via API |
 | **Image generation** (flyers, menu photos, store images) | kie.ai `nano-banana-2-lite` via shared `lib/images/kie.ts` | — |

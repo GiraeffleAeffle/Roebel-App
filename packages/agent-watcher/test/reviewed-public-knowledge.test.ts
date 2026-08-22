@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   createReviewedPublicKnowledgeSourceAdapter,
+  parseReviewedPublicKnowledgeSourceKinds,
   ReviewedPublicKnowledgeError,
   sealReviewedPublicKnowledgeProjection,
   type ReviewedPublicKnowledgeProjection,
@@ -60,6 +61,26 @@ function projectionResponse(projection: ReviewedPublicKnowledgeProjection): Resp
 }
 
 describe("reviewed public knowledge projection", () => {
+  it("parses only the canonical explicit runtime source declaration", () => {
+    assert.deepEqual(parseReviewedPublicKnowledgeSourceKinds(undefined), []);
+    assert.deepEqual(parseReviewedPublicKnowledgeSourceKinds(""), []);
+    assert.deepEqual(parseReviewedPublicKnowledgeSourceKinds("local_news"), ["local_news"]);
+    assert.deepEqual(parseReviewedPublicKnowledgeSourceKinds("ratsinformation"), ["ratsinformation"]);
+    assert.deepEqual(
+      parseReviewedPublicKnowledgeSourceKinds("local_news,ratsinformation"),
+      ["local_news", "ratsinformation"],
+    );
+    for (const invalid of [
+      "local_news,local_news",
+      "ratsinformation,local_news",
+      "raw_news",
+      " local_news",
+      "local_news,",
+    ]) {
+      assert.throws(() => parseReviewedPublicKnowledgeSourceKinds(invalid));
+    }
+  });
+
   it("loads a sealed source-specific projection over one credential-free GET", async () => {
     const projection = sealReviewedPublicKnowledgeProjection({
       schemaVersion: "reviewed_public_knowledge_projection_v1",

@@ -712,6 +712,9 @@ export function renderComposeYml(m: NetizenManifest): string {
         m.services.indexer?.publicRead
           ? `      MECKY_PUBLIC_INDEX_BASE_URL: ${JSON.stringify(m.services.indexer.publicRead)}`
           : "",
+        w.publicEvidence.reviewedSourceKinds
+          ? `      MECKY_REVIEWED_SOURCE_KINDS: ${JSON.stringify(w.publicEvidence.reviewedSourceKinds.join(","))}`
+          : "",
         w.replyProjection
           ? `      MECKY_REPLY_PROJECTION_URL: ${JSON.stringify(w.replyProjection.endpoint)}`
           : "",

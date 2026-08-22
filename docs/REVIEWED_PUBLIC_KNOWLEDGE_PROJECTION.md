@@ -2,7 +2,11 @@
 
 ## Status
 
-The Röbel consumer contract is implemented. The Stadtstack producer endpoints and a real reviewed Röbel news/Ratsinformationssystem corpus are not deployed yet. This document is therefore an integration contract, not evidence that those sources are live.
+The Röbel consumer, explicit runtime composition, and Stadtstack preparation plus
+GET-only reference transport are implemented. The producer endpoints and a real
+reviewed Röbel news/Ratsinformationssystem corpus are not deployed yet. This
+document is therefore an integration contract, not evidence that those sources
+are live.
 
 ## Purpose
 
@@ -69,9 +73,20 @@ The adapter performs one credential-free `GET` with `Accept: application/json`, 
 
 Configuration may only tighten or increase these values within the hard implementation ceilings of 30 seconds, 2 MB and 100 records. Any invalid record fails the entire source snapshot; partial admission is forbidden.
 
-## Producer responsibilities
+## Producer and activation responsibilities
 
-Stadtstack still needs to implement the two public projections. Its review pipeline must retain the original URL or provider record ID, captured content checksum, capture time, reviewer decision, correction/supersession relationship and public lifecycle. Provider-specific parsing stays behind that boundary.
+Stadtstack prepares both public projections only from exact source captures and
+human review attestations, then revalidates their checksum-bound bytes in a
+credential-free reference transport. A city-specific deployment still must
+retain the original URL or provider record ID, captured content checksum,
+capture time, reviewer decision, correction/supersession relationship and
+public lifecycle. Provider-specific parsing stays behind that boundary.
+
+Röbel enables deployed sources explicitly through the canonical manifest field
+`agents.watcher.publicEvidence.reviewedSourceKinds`. The renderer passes that
+closed declaration to Public Mecky; an undeclared source is not contacted. A
+failed enabled source becomes only its own `source_unavailable` omission and
+cannot erase admitted evidence from another source.
 
 The first real end-to-end release should use one reviewed local-news record and one reviewed council record for the same Röbel topic, then prove:
 

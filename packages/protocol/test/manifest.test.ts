@@ -31,6 +31,7 @@ test("Public Mecky declares reviewed evidence and a referenced inference credent
     "https://roebel-stadtstack.agentcart.eu",
   );
   assert.equal(watcher?.publicEvidence.municipalityId, "roebel-mueritz");
+  assert.equal(watcher?.publicEvidence.reviewedSourceKinds, undefined);
   assert.equal(
     watcher?.inference.baseUrl,
     "https://inference.hetzner.com/api/v1",
@@ -67,6 +68,25 @@ test("Public Mecky declares reviewed evidence and a referenced inference credent
     model: "claude-sonnet-5",
   };
   assert.equal(safeParseManifest(legacyUngroundedWatcher).success, false);
+
+  const reviewedSourcesEnabled = structuredClone(roebel);
+  reviewedSourcesEnabled.agents.watcher.publicEvidence.reviewedSourceKinds = [
+    "local_news",
+    "ratsinformation",
+  ];
+  assert.deepEqual(
+    parseManifest(reviewedSourcesEnabled).agents?.watcher?.publicEvidence.reviewedSourceKinds,
+    ["local_news", "ratsinformation"],
+  );
+  for (const invalid of [
+    ["local_news", "local_news"],
+    ["ratsinformation", "local_news"],
+    ["raw_news"],
+  ]) {
+    const candidate = structuredClone(roebel);
+    candidate.agents.watcher.publicEvidence.reviewedSourceKinds = invalid;
+    assert.equal(safeParseManifest(candidate).success, false);
+  }
 });
 
 test("rejects a missing required section", () => {

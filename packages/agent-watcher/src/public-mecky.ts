@@ -14,7 +14,7 @@ import {
   type StadtstackFederationClientOptions,
 } from "@roebel/stadtstack-federation-client";
 import {
-  createPublicEvidencePacket,
+  createPublicKnowledgeCatalog,
   parsePublicEvidence,
   publicEvidenceUrl,
   type PromptPublicEvidence,
@@ -22,7 +22,12 @@ import {
   type PublicEvidenceOmission,
   type PublicEvidencePacket,
   type PublicEvidenceQuery,
+  type PublicEvidenceSourceAdapter,
 } from "./public-evidence";
+import {
+  createReviewedPublicKnowledgeSourceAdapter,
+  type ReviewedPublicKnowledgeSourceKind,
+} from "./reviewed-public-knowledge";
 import type { PublicMeckyAnsweredResult } from "./public-mecky-receipt";
 
 export {
@@ -505,8 +510,13 @@ export interface StadtstackReviewedEvidenceReaderOptions {
   ) => Promise<ReviewedCivicCasesResult>;
 }
 
-export type StadtstackPublicEvidenceRetrieverOptions =
-  StadtstackReviewedEvidenceReaderOptions;
+export interface StadtstackPublicEvidenceRetrieverOptions
+  extends StadtstackReviewedEvidenceReaderOptions {
+  /** Explicitly enabled reviewed source projections; omitted keeps the current Civic Case-only path. */
+  reviewedSourceKinds?: readonly ReviewedPublicKnowledgeSourceKind[];
+  /** Test seam only; production uses credential-free global fetch. */
+  reviewedSourceFetch?: typeof globalThis.fetch;
+}
 
 const STATIC_EVIDENCE_KEYS = [
   "evidenceId", "title", "publicSummary", "currentStageLabel", "nextAction",
@@ -606,11 +616,35 @@ export function createStadtstackPublicEvidenceRetriever(
   conversationEvidence?: readonly PublicEvidence[],
 ) => Promise<PublicEvidencePacket> {
   const load = options.loadReviewedCases ?? loadReviewedCivicCases;
-  return async (query, conversationEvidence = []) => {
-    if (query.municipalityId !== options.municipalityId) {
-      throw new Error("Stadtstack public evidence municipality mismatch.");
-    }
-    try {
+  const configuredSourceKinds = options.reviewedSourceKinds ?? [];
+  if (
+    !Array.isArray(configuredSourceKinds) ||
+    configuredSourceKinds.length > 2 ||
+    new Set(configuredSourceKinds).size !== configuredSourceKinds.length ||
+    configuredSourceKinds.some(
+      (kind) => kind !== "local_news" && kind !== "ratsinformation",
+    ) ||
+    configuredSourceKinds.some(
+      (kind, index) => index > 0 &&
+        kind === "local_news" && configuredSourceKinds[index - 1] === "ratsinformation",
+    )
+  ) {
+    throw new Error("Invalid reviewed public knowledge source declaration.");
+  }
+  const reviewedSourceAdapters = configuredSourceKinds.map((sourceKind) =>
+    createReviewedPublicKnowledgeSourceAdapter({
+      baseUrl: options.baseUrl,
+      sourceKind,
+      allowClusterInternalHttp: true,
+      ...(options.reviewedSourceFetch ? { fetch: options.reviewedSourceFetch } : {}),
+    })
+  );
+  const civicCaseAdapter: PublicEvidenceSourceAdapter = Object.freeze({
+    sourceKind: "reviewed_civic_case" as const,
+    async load(query: PublicEvidenceQuery): Promise<readonly PublicEvidence[]> {
+      if (query.municipalityId !== options.municipalityId) {
+        throw new Error("Stadtstack public evidence municipality mismatch.");
+      }
       const result = await load({
         baseUrl: options.baseUrl,
         municipalityId: options.municipalityId,
@@ -619,7 +653,7 @@ export function createStadtstackPublicEvidenceRetriever(
       if (result.municipality.id !== options.municipalityId) {
         throw new Error("Stadtstack public evidence municipality mismatch.");
       }
-      const entries: PublicEvidence[] = result.cases.map((entry) => ({
+      return result.cases.map((entry): PublicEvidence => ({
         evidenceId: entry.manifest.stageMap.contentSha256 as `sha256:${string}`,
         municipalityId: options.municipalityId,
         sourceKind: "reviewed_civic_case",
@@ -639,14 +673,26 @@ export function createStadtstackPublicEvidenceRetriever(
         caseUrl: entry.summary.publicCaseUrl,
         reviewedAt: entry.summary.updatedAt,
       }));
-      return createPublicEvidencePacket([...entries, ...conversationEvidence], query);
-    } catch {
-      return createPublicEvidencePacket(conversationEvidence, query, [{
-        sourceKind: "reviewed_civic_case",
-        reason: "source_unavailable",
-        count: 1,
-      }]);
+    },
+  });
+  return async (query, conversationEvidence = []) => {
+    if (query.municipalityId !== options.municipalityId) {
+      throw new Error("Stadtstack public evidence municipality mismatch.");
     }
+    const conversationAdapter: PublicEvidenceSourceAdapter | null =
+      conversationEvidence.length > 0
+        ? Object.freeze({
+            sourceKind: "nostr_post" as const,
+            async load(): Promise<readonly PublicEvidence[]> {
+              return conversationEvidence;
+            },
+          })
+        : null;
+    return createPublicKnowledgeCatalog([
+      civicCaseAdapter,
+      ...reviewedSourceAdapters,
+      ...(conversationAdapter ? [conversationAdapter] : []),
+    ]).retrieve(query);
   };
 }
 
