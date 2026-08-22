@@ -443,6 +443,37 @@ describe("Röbel E2E workbench boundary", () => {
           topicTitle?: string;
         }>;
       };
+      const publicFeedResponse = await fetch(
+        `${origin}/api/feed?profile=public`
+      );
+      const publicFeed = (await publicFeedResponse.json()) as {
+        posts: Array<{
+          id: string;
+          entryType: "post" | "topic";
+          synthetic: boolean;
+          topicId?: string;
+        }>;
+      };
+      assert.equal(publicFeedResponse.status, 200);
+      assert.deepEqual(
+        publicFeed.posts.map((entry) => entry.id).sort(),
+        [promotion.id, sourcePost.id].sort()
+      );
+      assert.equal(
+        publicFeed.posts.every((entry) => !entry.synthetic),
+        true
+      );
+      assert.equal(
+        publicFeed.posts.some(
+          (entry) =>
+            entry.entryType === "topic" &&
+            entry.topicId ===
+              "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt"
+        ),
+        true
+      );
+      const invalidProfile = await fetch(`${origin}/api/feed?profile=all`);
+      assert.equal(invalidProfile.status, 400);
       const topic = feed.posts.find(
         (entry) =>
           entry.entryType === "topic" &&
@@ -575,8 +606,7 @@ describe("Röbel E2E workbench boundary", () => {
           if (
             Array.isArray(expectedParents) &&
             !(entry.tags as string[][]).some(
-              (tag) =>
-                tag[0] === "e" && expectedParents.includes(tag[1])
+              (tag) => tag[0] === "e" && expectedParents.includes(tag[1])
             )
           ) {
             return false;
@@ -605,9 +635,7 @@ describe("Röbel E2E workbench boundary", () => {
       const citizenSecret = Uint8Array.from(
         Buffer.from("11".repeat(32), "hex")
       );
-      const meckySecret = Uint8Array.from(
-        Buffer.from("33".repeat(32), "hex")
-      );
+      const meckySecret = Uint8Array.from(Buffer.from("33".repeat(32), "hex"));
       const topicId =
         "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt";
       const sourcePost = buildNoteEvent(citizenSecret, "Treffpunkt gesucht", {
@@ -631,10 +659,7 @@ describe("Röbel E2E workbench boundary", () => {
         tags: [
           ["e", discussion.id, "", "reply"],
           ["p", discussion.pubkey],
-          [
-            "mecky-receipt",
-            `urn:stadtstack:mecky-answer:${"d".repeat(64)}`,
-          ],
+          ["mecky-receipt", `urn:stadtstack:mecky-answer:${"d".repeat(64)}`],
           ["municipality", "roebel-mueritz"],
           ["topic", topicId],
           [

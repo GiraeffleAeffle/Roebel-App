@@ -752,7 +752,16 @@ export async function startWorkbench(
           meckyPubkey: config.meckyPubkey,
           authorityBinding: "none",
         });
-      if (request.method === "GET" && path === "/api/feed") {
+      const feedUrl = new URL(path, "http://workbench");
+      if (request.method === "GET" && feedUrl.pathname === "/api/feed") {
+        const profileValues = feedUrl.searchParams.getAll("profile");
+        if (
+          [...feedUrl.searchParams.keys()].some((key) => key !== "profile") ||
+          profileValues.length > 1 ||
+          (profileValues.length === 1 && profileValues[0] !== "public")
+        )
+          return json(response, 400, { error: "feed_profile_invalid" });
+        const publicProfile = profileValues[0] === "public";
         const [events, agentEvents] = await Promise.all([
           citizenRelay
             .query([{ kinds: [1], limit: 100 }])
@@ -761,14 +770,17 @@ export async function startWorkbench(
             .query([{ kinds: [1], authors: [config.meckyPubkey], limit: 100 }])
             .then((entries) => entries.filter(verifyEvent)),
         ]);
-        const argumentsList = events
+        const visibleEvents = publicProfile
+          ? events.filter((entry) => !isSyntheticCitizen(config, entry.pubkey))
+          : events;
+        const argumentsList = visibleEvents
           .map((entry) => asArgument(config, entry))
           .filter((entry): entry is PublicArgument => entry !== null);
         const promotionBySourcePost = new Map<
           string,
           { discussionId: string; topicId: string }
         >();
-        for (const entry of events) {
+        for (const entry of visibleEvents) {
           const sourcePostId = tagValue(entry, "source-post");
           const topic = topicFor(entry);
           if (sourcePostId && topic)
@@ -777,7 +789,7 @@ export async function startWorkbench(
               topicId: topic.id,
             });
         }
-        const ordinaryPosts = events
+        const ordinaryPosts = visibleEvents
           .filter(
             (entry) =>
               entry.kind === 1 &&
@@ -815,7 +827,7 @@ export async function startWorkbench(
         const roots = argumentsList
           .filter((entry) => entry.stance === "root")
           .flatMap((entry) => {
-            const source = events.find(
+            const source = visibleEvents.find(
               (candidate) => candidate.id === entry.id
             );
             if (!source) return [];
@@ -897,7 +909,7 @@ export async function startWorkbench(
             discussionIds: discussions.map((entry) => entry.id).sort(),
             sourcePostIds: discussions
               .flatMap((discussion) => {
-                const source = events.find(
+                const source = visibleEvents.find(
                   (candidate) => candidate.id === discussion.id
                 );
                 return source
@@ -1046,16 +1058,14 @@ export async function startWorkbench(
                 entry.pubkey === config.meckyPubkey &&
                 entry.tags.some(
                   (tag) =>
-                    tag[0] === "e" &&
-                    tag[1] === rootId &&
-                    tag[3] === "reply"
+                    tag[0] === "e" && tag[1] === rootId && tag[3] === "reply"
                 )
             )
             .sort((a, b) => b.created_at - a.created_at)[0] ?? null;
         const topic = rootEvent ? topicFor(rootEvent) : null;
         const suggestion =
           rootEvent && topic && caseBindingFor(rootEvent) === null
-            ? citizenEvents
+            ? (citizenEvents
                 .filter(verifyEvent)
                 .filter(
                   (candidate) =>
@@ -1101,7 +1111,7 @@ export async function startWorkbench(
                   } catch {
                     return [];
                   }
-                })[0] ?? null
+                })[0] ?? null)
             : null;
         return json(response, 200, {
           schemaVersion: "roebel_staging_argument_thread_v1",
