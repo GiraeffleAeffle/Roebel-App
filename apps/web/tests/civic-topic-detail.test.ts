@@ -115,6 +115,47 @@ test("projects one canonical topic with attributable posts and discussions", () 
   );
 });
 
+test("advances the same topic journey only for its exact reviewed case", () => {
+  const bound = topic();
+  bound.discussions[0]!.caseBinding = {
+    municipalityId: "roebel-mueritz",
+    sourceCaseId: "offener-treffpunkt",
+    canonicalCaseId:
+      "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
+  };
+  const detail = projectPublicCivicTopicDetail(
+    {
+      schemaVersion: "roebel_staging_mixed_feed_v1",
+      authorityBinding: "none",
+      posts: [bound],
+    },
+    TOPIC_ID
+  );
+  assert.ok(detail?.caseBinding);
+  assert.equal(detail.caseBindingConflict, false);
+
+  const reviewed = projectPublicCivicTopicJourney(detail, {
+    caseId: detail.caseBinding.canonicalCaseId,
+    status: "brief_current",
+  });
+  assert.equal(reviewed?.currentStageId, "participation");
+
+  const wrongCase = projectPublicCivicTopicJourney(detail, {
+    caseId:
+      "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000099",
+    status: "brief_current",
+  });
+  assert.equal(wrongCase?.currentStageId, "administration");
+  assert.equal(
+    wrongCase?.stages.find((stage) => stage.id === "administration")?.state,
+    "current"
+  );
+  assert.equal(
+    wrongCase?.stages.find((stage) => stage.id === "participation")?.state,
+    "gated"
+  );
+});
+
 test("fails closed for another municipality, synthetic topics, or authority drift", () => {
   const feed: StagingFeedResponse = {
     schemaVersion: "roebel_staging_mixed_feed_v1",

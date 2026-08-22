@@ -38,6 +38,14 @@ const STATUS_COPY = {
   },
 } as const;
 
+function reviewedAt(value: string): string {
+  return new Date(value).toLocaleString("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
 export function StadtstackAdministrationProgress({
   progress,
   loading,
@@ -135,6 +143,19 @@ export function StadtstackAdministrationProgress({
                         ? department.publicSummary
                         : "Noch keine öffentlich geprüfte Antwort"}
                     </p>
+                    {department.packageBinding && department.reviewedAt && (
+                      <p className="mt-1 text-[11px] font-medium text-sky-950">
+                        Arbeitspaket {department.packageBinding.packageId} ·
+                        geprüft {reviewedAt(department.reviewedAt)} · Paket{" "}
+                        {department.packageBinding.packageChecksum.slice(7, 19)}
+                        … · Artefakt{" "}
+                        {department.packageBinding.artifactChecksum.slice(
+                          7,
+                          19
+                        )}
+                        …
+                      </p>
+                    )}
                     {department.state === "reviewed" && (
                       <p className="mt-1 text-[11px] text-emerald-900">
                         {department.publicCitations.length} öffentliche

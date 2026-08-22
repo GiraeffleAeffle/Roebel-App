@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   Bot,
@@ -20,8 +20,11 @@ import {
 } from "@/lib/stadtstack/civic-topic-detail";
 import {
   stagingGet,
+  loadStadtstackAdministrationProgress,
   type StagingFeedResponse,
 } from "@/lib/stadtstack/staging-api";
+import type { StadtstackAdministrationProgress as AdministrationProgress } from "@/lib/stadtstack/administration-progress";
+import { StadtstackAdministrationProgress } from "./StadtstackAdministrationProgress";
 import { CivicJourneyRail } from "./CivicJourneyRail";
 
 function date(value: string): string {
@@ -38,6 +41,36 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
   const [detail, setDetail] = useState<PublicCivicTopicDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [administrationProgress, setAdministrationProgress] =
+    useState<AdministrationProgress | null>(null);
+  const [administrationLoading, setAdministrationLoading] = useState(false);
+  const [administrationError, setAdministrationError] = useState<string | null>(
+    null
+  );
+  const administrationRequestId = useRef(0);
+  const canonicalCaseId = detail?.caseBinding?.canonicalCaseId ?? null;
+
+  const refreshAdministration = useCallback(async () => {
+    if (!canonicalCaseId) return;
+    const requestId = ++administrationRequestId.current;
+    setAdministrationLoading(true);
+    setAdministrationError(null);
+    try {
+      const progress =
+        await loadStadtstackAdministrationProgress(canonicalCaseId);
+      if (administrationRequestId.current !== requestId) return;
+      setAdministrationProgress(progress);
+    } catch {
+      if (administrationRequestId.current !== requestId) return;
+      setAdministrationError(
+        "Der öffentlich geprüfte Verwaltungsstand ist gerade nicht erreichbar."
+      );
+    } finally {
+      if (administrationRequestId.current === requestId) {
+        setAdministrationLoading(false);
+      }
+    }
+  }, [canonicalCaseId]);
 
   useEffect(() => {
     let active = true;
@@ -60,6 +93,17 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
       active = false;
     };
   }, [topicId]);
+
+  useEffect(() => {
+    setAdministrationProgress(null);
+    setAdministrationError(null);
+    if (!canonicalCaseId) {
+      administrationRequestId.current += 1;
+      setAdministrationLoading(false);
+      return;
+    }
+    void refreshAdministration();
+  }, [canonicalCaseId, refreshAdministration]);
 
   if (loading) {
     return (
@@ -85,7 +129,16 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
   }
 
   const { topic, sourcePosts, unresolvedSourcePostIds } = detail;
-  const journey = projectPublicCivicTopicJourney(detail);
+  const administrationStatus = administrationProgress
+    ? {
+        caseId: administrationProgress.caseBinding.caseId,
+        status:
+          administrationProgress.status === "citizen_brief_current"
+            ? ("brief_current" as const)
+            : ("in_review" as const),
+      }
+    : null;
+  const journey = projectPublicCivicTopicJourney(detail, administrationStatus);
   return (
     <div className="space-y-5">
       <Link
@@ -115,6 +168,23 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
       </header>
 
       {journey && <CivicJourneyRail journey={journey} />}
+
+      {detail.caseBindingConflict && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          Mehrere Civic-Case-Bindungen wurden für dieses Thema gefunden. Der
+          Verwaltungsstand bleibt ausgeblendet, bis die Zuordnung menschlich
+          geklärt ist.
+        </div>
+      )}
+
+      {detail.caseBinding && (
+        <StadtstackAdministrationProgress
+          progress={administrationProgress}
+          loading={administrationLoading}
+          error={administrationError}
+          onRefresh={refreshAdministration}
+        />
+      )}
 
       <section className="rounded-xl border border-border bg-card p-4">
         <div className="flex items-start gap-3">

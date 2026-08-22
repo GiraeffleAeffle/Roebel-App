@@ -26,14 +26,12 @@ import {
 import {
   stagingGet,
   stagingPost,
+  loadStadtstackAdministrationProgress,
   type StagingConfigResponse,
   type StagingPersona,
   type StagingThreadResponse,
 } from "@/lib/stadtstack/staging-api";
-import {
-  toStadtstackAdministrationProgress,
-  type StadtstackAdministrationProgress as AdministrationProgress,
-} from "@/lib/stadtstack/administration-progress";
+import type { StadtstackAdministrationProgress as AdministrationProgress } from "@/lib/stadtstack/administration-progress";
 import { projectCivicJourney } from "@/lib/stadtstack/civic-journey";
 import { useCitizenSession } from "@/lib/citizen-session/CitizenSessionContext";
 import { StadtstackAdministrationProgress } from "./StadtstackAdministrationProgress";
@@ -45,7 +43,7 @@ type WorkflowState = {
   suggestion?: Record<string, unknown>;
   admission?: Record<string, unknown>;
   completion?: Record<string, unknown>;
-  publicView?: Record<string, unknown>;
+  publicView?: AdministrationProgress;
 };
 
 const MECKY_POLL_INTERVAL_MS = 3_000;
@@ -159,13 +157,9 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
     setAdministrationProgressLoading(true);
     setAdministrationProgressError(null);
     try {
-      const publicView = await stagingPost<unknown>("/view", {
-        profile: "public",
-      });
-      const progress = toStadtstackAdministrationProgress(publicView);
-      if (progress.caseBinding.caseId !== canonicalCaseId) {
-        throw new Error("stadtstack_public_projection_case_mismatch");
-      }
+      const progress = await loadStadtstackAdministrationProgress(
+        canonicalCaseId
+      );
       if (administrationRequestId.current !== requestId) return;
       setAdministrationProgress(progress);
     } catch {
@@ -342,8 +336,9 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
       });
       const admission = await stagingPost<Record<string, unknown>>("/admit", { discussion: thread.rootEvent, answer: thread.mecky.event, suggestion: suggestion.suggestion });
       const completion = await stagingPost<Record<string, unknown>>("/complete", {});
-      const publicView = await stagingPost<Record<string, unknown>>("/view", { profile: "public" });
-      const progress = toStadtstackAdministrationProgress(publicView);
+      const progress = await loadStadtstackAdministrationProgress(
+        thread.caseBinding.canonicalCaseId
+      );
       if (progress.caseBinding.caseId !== thread.caseBinding.canonicalCaseId) {
         throw new Error("stadtstack_public_projection_case_mismatch");
       }
@@ -351,7 +346,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
       setAdministrationProgress(progress);
       setAdministrationProgressLoading(false);
       setAdministrationProgressError(null);
-      setWorkflow({ discussion: thread.rootEvent, answer: thread.mecky.event, suggestion: suggestion.suggestion, admission, completion, publicView });
+      setWorkflow({ discussion: thread.rootEvent, answer: thread.mecky.event, suggestion: suggestion.suggestion, admission, completion, publicView: progress });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Vorschlagsfluss fehlgeschlagen");
     } finally { setWorkflowBusy(false); }

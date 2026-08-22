@@ -37,6 +37,11 @@ export type StadtstackAdministrationProgress = {
     label: string;
     state: "reviewed" | "not_publicly_reviewed";
     reviewedAt: string | null;
+    packageBinding: {
+      packageId: string;
+      packageChecksum: string;
+      artifactChecksum: string;
+    } | null;
     publicSummary: string | null;
     publicCitations: string[];
   }>;
@@ -546,6 +551,11 @@ export function toStadtstackAdministrationProgress(
             label,
             state: "reviewed" as const,
             reviewedAt: department.reviewedAt,
+            packageBinding: {
+              packageId: department.packageId,
+              packageChecksum: department.packageChecksum,
+              artifactChecksum: department.artifactChecksum,
+            },
             publicSummary: department.publicSummary,
             publicCitations: [...department.publicCitations],
           }
@@ -554,6 +564,7 @@ export function toStadtstackAdministrationProgress(
             label,
             state: "not_publicly_reviewed" as const,
             reviewedAt: null,
+            packageBinding: null,
             publicSummary: null,
             publicCitations: [],
           };

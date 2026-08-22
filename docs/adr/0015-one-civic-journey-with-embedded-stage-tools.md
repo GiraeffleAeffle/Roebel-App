@@ -38,6 +38,7 @@ Combining every capability into one large page would create the opposite problem
 11. A proposal candidate is signed while the journey is still topic-bound. The next stage remains “awaiting human case admission”; signing never calls the admission, administration, participation, governance, or treasury adapters automatically.
 12. Röbel renders **public administration progress** only from Stadtstack's redacted public case projection. It may show accepted, current department responses and a current Citizen Brief. A department absent from that projection is labelled only as “not publicly reviewed”; Röbel must not infer whether private work is missing, pending, rejected, corrected, or retracted.
 13. The journey may enter **Mitmachen readiness** as soon as the current Citizen Brief is public. This stage exposes the reviewed brief and provenance but no input control, option counts, or outcome. An advisory round becomes open or complete only from its own reviewed projection; readiness alone never advances the canonical Stadtstack case stage.
+14. Röbel reads administration progress through a case-bound, GET-only public projection. The response must match the journey's exact canonical case ID. Reviewed department entries retain their public package ID, package checksum, artifact checksum, and review date; conflicting case bindings hide the administration stage until a human resolves them. This reader exposes no case-steward command and grants no administrative authority.
 
 ## Consequences
 
@@ -51,5 +52,6 @@ Combining every capability into one large page would create the opposite problem
   responsive journey rail. Missing receipts stay visible gaps; later records do
   not fabricate earlier transitions.
 - Administration progress can stay in the same journey without copying private openDesk work queues or creating a second case state.
+- The canonical topic and its discussion render the same checksum-bound public package projection; a detached mini-app or unbound public view is not the primary administration surface.
 - People can see that a reviewed brief is ready for participation without mistaking readiness for an open poll or completed signal.
 - This ADR does not authorize automatic promotion, a formal municipal vote, a treasury payment, or production data migration.
