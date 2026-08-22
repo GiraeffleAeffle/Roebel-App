@@ -113,6 +113,18 @@ test("protected builds reuse only component-scoped public BuildKit caches", () =
     webDockerfile,
     /COPY --from=dependency-manifests \. \.[\s\S]*?pnpm --filter @roebel\/web\.\.\. install[\s\S]*?COPY \. \./u,
   );
+  const webInstall = webDockerfile.indexOf("pnpm --filter @roebel/web... install");
+  const webSourceRevision = webDockerfile.indexOf("ARG SOURCE_REVISION");
+  const webSourceCopy = webDockerfile.indexOf("COPY . .");
+  assert.ok(webInstall >= 0, "web dependency install must exist");
+  assert.ok(
+    webSourceRevision > webInstall,
+    "source revision must not invalidate the dependency-only install layer",
+  );
+  assert.ok(
+    webSourceCopy > webSourceRevision,
+    "source revision must still invalidate and bind the application build",
+  );
   assert.match(
     meckyDockerfile,
     /COPY --from=dependency-manifests \. \.[\s\S]*?pnpm --filter @netizen-labs\/agent-watcher\.\.\. install[\s\S]*?COPY \. \./u,
@@ -130,6 +142,19 @@ test("protected builds reuse only component-scoped public BuildKit caches", () =
     );
     assert.match(candidateWorkflow, /test ! -e "\$RUNNER_TEMP\/context\/node_modules"/u);
   }
+  assert.match(
+    webCandidateWorkflow,
+    /BUILDKIT_CACHE_SCOPE: roebel-web-pr-\$\{\{ github\.event\.pull_request\.number \|\| github\.run_id \}\}/u,
+  );
+  assert.match(
+    webCandidateWorkflow,
+    /--cache-from "type=gha,scope=\$BUILDKIT_CACHE_SCOPE"/u,
+  );
+  assert.match(
+    webCandidateWorkflow,
+    /--cache-to "type=gha,scope=\$BUILDKIT_CACHE_SCOPE,mode=max,ignore-error=true"/u,
+  );
+  assert.doesNotMatch(workflow, /type=gha/u);
   assert.match(
     servicesCandidateWorkflow,
     /pnpm --dir "\$RUNNER_TEMP\/test-context" --store-dir "\$RUNNER_TEMP\/pnpm-store" --offline install/u,
