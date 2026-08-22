@@ -209,7 +209,7 @@ jobs:
             --build-arg "SOURCE_REVISION=$SOURCE_REVISION" \
             --build-arg "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" \
             --cache-from "type=registry,ref=$cache_ref" \
-            --cache-to "type=registry,ref=$cache_ref,mode=max,oci-mediatypes=true,image-manifest=true" \
+            --cache-to "type=registry,ref=$cache_ref,mode=min,oci-mediatypes=true,image-manifest=true" \
             --output "type=oci,dest=$ARCHIVE,name=$import_name,annotation.io.containerd.image.name=$import_name,rewrite-timestamp=true" \
             "$RUNNER_TEMP/context"
           artifact_bytes="$(stat -c %s "$ARCHIVE")"

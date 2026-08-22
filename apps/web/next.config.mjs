@@ -6,6 +6,17 @@ const MINI_APPS_SITE_DOMAIN = process.env.MINI_APPS_SITE_DOMAIN || "roebel.site"
 const MINI_APPS_SITE_APEX_RE = MINI_APPS_SITE_DOMAIN.replace(/\./g, "\\.");
 const MINI_APPS_SITE_HOST_RE = `(?<slug>[a-z0-9-]+)\\.${MINI_APPS_SITE_APEX_RE}`;
 
+export function resolveWebpackParallelism(value) {
+  if (value === undefined || value === "") return 1;
+  if (value !== "1" && value !== "2")
+    throw new Error("roebel_webpack_parallelism_invalid");
+  return Number(value);
+}
+
+const WEBPACK_PARALLELISM = resolveWebpackParallelism(
+  process.env.ROEBEL_WEBPACK_PARALLELISM,
+);
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // The public/Vercel build keeps its existing output mode. Talos' immutable
@@ -80,7 +91,7 @@ const nextConfig = {
     // a much lower peak RSS, reclaiming the headroom the heap cap + memory
     // optimizations alone no longer cover. If OOM recurs, enable Vercel Enhanced
     // Builds (larger machine) — code levers are exhausted at this point.
-    config.parallelism = 1;
+    config.parallelism = WEBPACK_PARALLELISM;
     return config;
   },
   async rewrites() {
