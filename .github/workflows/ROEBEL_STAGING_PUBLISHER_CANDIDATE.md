@@ -26,8 +26,9 @@ produced inside the job is disposable and never copied into the runtime image.
 An exact dependency-cache trial was rejected as well. Its cold job took 7m02s,
 57 seconds slower than the 6m05s runtime-only baseline, including 33 seconds to
 persist the materialization. The measured warm-cache run then failed closed
-during the frozen offline install because a restored `node_modules` graph is
-not a self-contained pnpm store. The publisher therefore fetches a fresh,
+during the frozen offline install: the restored `node_modules` graph was not a
+self-contained pnpm store, the mounted store was empty and read-only, and pnpm
+correctly refused when it needed `/pnpm/store/v3`. The publisher therefore fetches a fresh,
 lockfile-bound offline store on every run and limits the resulting dependency
 installation to 4 GiB. Neither that installation nor a compiler cache is copied
 into the runtime image.
