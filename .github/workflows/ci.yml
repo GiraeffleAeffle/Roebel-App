@@ -13,6 +13,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect affected staging components
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.affected.outputs.web }}
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect affected image boundaries
+        id: affected
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BASE_SHA" =~ ^0+$ ]] || ! git cat-file -e "$BASE_SHA^{commit}"; then
+            printf '__all__\n' > "$RUNNER_TEMP/changed-paths.txt"
+          else
+            git diff --name-only "$BASE_SHA" "$HEAD_SHA" > "$RUNNER_TEMP/changed-paths.txt"
+          fi
+          node scripts/ci/affected-staging-components.mjs --github-output < "$RUNNER_TEMP/changed-paths.txt"
+
   quality:
     name: Quality and non-Web builds
     permissions:
@@ -46,6 +78,8 @@ jobs:
 
   web-oci:
     name: Verified Web build
+    needs: changes
+    if: ${{ needs.changes.outputs.web == 'true' }}
     permissions:
       contents: read
     uses: ./.github/workflows/staging-web-oci.yml
@@ -56,16 +90,25 @@ jobs:
     name: ci
     if: ${{ always() }}
     needs:
+      - changes
       - quality
       - web-oci
     runs-on: ubuntu-latest
     steps:
       - name: Require quality and the verified Web build
         env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
           QUALITY_RESULT: ${{ needs.quality.result }}
           WEB_OCI_RESULT: ${{ needs.web-oci.result }}
+          WEB_REQUIRED: ${{ needs.changes.outputs.web }}
         shell: bash
         run: |
           set -euo pipefail
+          test "$CHANGES_RESULT" = success
           test "$QUALITY_RESULT" = success
-          test "$WEB_OCI_RESULT" = success
+          if test "$WEB_REQUIRED" = true; then
+            test "$WEB_OCI_RESULT" = success
+          else
+            test "$WEB_REQUIRED" = false
+            test "$WEB_OCI_RESULT" = skipped
+          fi
