@@ -91,11 +91,12 @@ test("protected builds reuse only component-scoped public BuildKit caches", () =
   assert.match(workflow, /--cache-from "type=registry,ref=\$cache_ref"/u);
   assert.match(
     workflow,
-    /--cache-to "type=registry,ref=\$cache_ref,mode=min,oci-mediatypes=true,image-manifest=true"/u,
+    /component: roebel-web-staging[\s\S]*?cache_mode: max[\s\S]*?component: public-mecky[\s\S]*?cache_mode: min/u,
   );
-  assert.doesNotMatch(
+  assert.match(workflow, /CACHE_MODE: \$\{\{ matrix\.cache_mode \}\}/u);
+  assert.match(
     workflow,
-    /--cache-to "type=registry,ref=\$cache_ref,mode=max/u,
+    /--cache-to "type=registry,ref=\$cache_ref,mode=\$CACHE_MODE,oci-mediatypes=true,image-manifest=true"/u,
   );
   assert.match(workflow, /--build-context "dependency-manifests=\$RUNNER_TEMP\/dependency-manifests"/u);
   assert.match(workflow, /cp -a "\$RUNNER_TEMP\/pruned\/json\/\." "\$RUNNER_TEMP\/dependency-manifests\/"/u);

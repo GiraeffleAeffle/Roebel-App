@@ -82,17 +82,23 @@ jobs:
             image: ghcr.io/giraeffleaeffle/roebel-web-staging
             archive: roebel-web-staging.oci.tar
             max_artifact_bytes: "167772160"
+            # The Web dependency graph is 2.01 GB and its platform-specific
+            # install takes about 53 seconds. Protected main is the only writer
+            # to this cache, so retain intermediate dependency layers there.
+            cache_mode: max
           - component: public-mecky
             package: "@netizen-labs/agent-watcher"
             dockerfile: packages/agent-watcher/Dockerfile
             image: ghcr.io/giraeffleaeffle/public-mecky
             archive: public-mecky.oci.tar
             max_artifact_bytes: "134217728"
+            cache_mode: min
     env:
       SOURCE_REVISION: ${{ github.event_name == 'workflow_dispatch' && inputs.source_revision || github.sha }}
       COMPONENT: ${{ matrix.component }}
       PACKAGE: ${{ matrix.package }}
       IMAGE: ${{ matrix.image }}
+      CACHE_MODE: ${{ matrix.cache_mode }}
     steps:
       - name: Check out the exact source revision
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -209,7 +215,7 @@ jobs:
             --build-arg "SOURCE_REVISION=$SOURCE_REVISION" \
             --build-arg "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" \
             --cache-from "type=registry,ref=$cache_ref" \
-            --cache-to "type=registry,ref=$cache_ref,mode=min,oci-mediatypes=true,image-manifest=true" \
+            --cache-to "type=registry,ref=$cache_ref,mode=$CACHE_MODE,oci-mediatypes=true,image-manifest=true" \
             --output "type=oci,dest=$ARCHIVE,name=$import_name,annotation.io.containerd.image.name=$import_name,rewrite-timestamp=true" \
             "$RUNNER_TEMP/context"
           artifact_bytes="$(stat -c %s "$ARCHIVE")"
