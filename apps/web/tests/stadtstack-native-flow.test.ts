@@ -33,6 +33,13 @@ const advisoryParticipation = readFileSync(
   ),
   "utf8"
 );
+const administrationProgress = readFileSync(
+  new URL(
+    "../src/components/app/StadtstackAdministrationProgress.tsx",
+    import.meta.url
+  ),
+  "utf8"
+);
 
 test("keeps the civic workflow native to ordinary Röbel posts and discussion routes", () => {
   assert.doesNotMatch(appPage, /StadtstackStagingFeed/);
@@ -121,6 +128,24 @@ test("labels the civic handoff and keeps vote and treasury authority disabled", 
   assert.match(discussion, /Beratendes Meinungsbild/);
   assert.match(discussion, /Keine echte Abstimmung/);
   assert.match(discussion, /keine Auszahlung/i);
+});
+
+test("shows reviewed administration progress inside the same Civic Journey", () => {
+  assert.match(discussion, /toStadtstackAdministrationProgress/);
+  assert.match(
+    discussion,
+    /stagingPost<unknown>\("\/view", \{\s*profile: "public",?\s*\}\)/
+  );
+  assert.match(discussion, /progress\.caseBinding\.caseId !== canonicalCaseId/);
+  assert.match(discussion, /administrationRequestId\.current !== requestId/);
+  assert.match(discussion, /administrationProgress\.acceptedCount/);
+  assert.match(discussion, /<StadtstackAdministrationProgress/);
+  assert.match(administrationProgress, /Öffentliche Verwaltungssicht/);
+  assert.match(administrationProgress, /Noch keine öffentlich geprüfte Antwort/);
+  assert.match(administrationProgress, /Bereit für den Case Steward/);
+  assert.match(administrationProgress, /Keine Entscheidungswirkung/);
+  assert.match(administrationProgress, /Keine Treasury-Wirkung/);
+  assert.doesNotMatch(administrationProgress, /review_pending|review_rejected/);
 });
 
 test("lets the topic author sign a proposal without inventing a CivicCase", () => {

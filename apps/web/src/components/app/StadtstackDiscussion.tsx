@@ -30,7 +30,12 @@ import {
   type StagingPersona,
   type StagingThreadResponse,
 } from "@/lib/stadtstack/staging-api";
+import {
+  toStadtstackAdministrationProgress,
+  type StadtstackAdministrationProgress as AdministrationProgress,
+} from "@/lib/stadtstack/administration-progress";
 import { useCitizenSession } from "@/lib/citizen-session/CitizenSessionContext";
+import { StadtstackAdministrationProgress } from "./StadtstackAdministrationProgress";
 
 type WorkflowState = {
   discussion?: Record<string, unknown>;
@@ -103,7 +108,15 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
   const [workflowBusy, setWorkflowBusy] = useState(false);
   const [proposalTitle, setProposalTitle] = useState("");
   const [proposalSummary, setProposalSummary] = useState("");
+  const [administrationProgress, setAdministrationProgress] =
+    useState<AdministrationProgress | null>(null);
+  const [administrationProgressLoading, setAdministrationProgressLoading] =
+    useState(false);
+  const [administrationProgressError, setAdministrationProgressError] =
+    useState<string | null>(null);
   const meckyPollAttempts = useRef(0);
+  const administrationRequestId = useRef(0);
+  const canonicalCaseId = thread?.caseBinding?.canonicalCaseId ?? null;
 
   const reload = useCallback(async () => {
     try {
@@ -137,6 +150,44 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
     meckyPollAttempts.current = 0;
     void reload();
   }, [reload]);
+
+  const refreshAdministrationProgress = useCallback(async () => {
+    if (!canonicalCaseId) return;
+    const requestId = ++administrationRequestId.current;
+    setAdministrationProgressLoading(true);
+    setAdministrationProgressError(null);
+    try {
+      const publicView = await stagingPost<unknown>("/view", {
+        profile: "public",
+      });
+      const progress = toStadtstackAdministrationProgress(publicView);
+      if (progress.caseBinding.caseId !== canonicalCaseId) {
+        throw new Error("stadtstack_public_projection_case_mismatch");
+      }
+      if (administrationRequestId.current !== requestId) return;
+      setAdministrationProgress(progress);
+    } catch {
+      if (administrationRequestId.current !== requestId) return;
+      setAdministrationProgressError(
+        "Der öffentlich geprüfte Verwaltungsstand ist gerade nicht erreichbar."
+      );
+    } finally {
+      if (administrationRequestId.current === requestId) {
+        setAdministrationProgressLoading(false);
+      }
+    }
+  }, [canonicalCaseId]);
+
+  useEffect(() => {
+    setAdministrationProgress(null);
+    setAdministrationProgressError(null);
+    if (!canonicalCaseId) {
+      administrationRequestId.current += 1;
+      setAdministrationProgressLoading(false);
+      return;
+    }
+    void refreshAdministrationProgress();
+  }, [canonicalCaseId, refreshAdministrationProgress]);
 
   useEffect(() => {
     if (!thread?.topic || thread.caseBinding || thread.suggestion) return;
@@ -290,6 +341,14 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
       const admission = await stagingPost<Record<string, unknown>>("/admit", { discussion: thread.rootEvent, answer: thread.mecky.event, suggestion: suggestion.suggestion });
       const completion = await stagingPost<Record<string, unknown>>("/complete", {});
       const publicView = await stagingPost<Record<string, unknown>>("/view", { profile: "public" });
+      const progress = toStadtstackAdministrationProgress(publicView);
+      if (progress.caseBinding.caseId !== thread.caseBinding.canonicalCaseId) {
+        throw new Error("stadtstack_public_projection_case_mismatch");
+      }
+      administrationRequestId.current += 1;
+      setAdministrationProgress(progress);
+      setAdministrationProgressLoading(false);
+      setAdministrationProgressError(null);
       setWorkflow({ discussion: thread.rootEvent, answer: thread.mecky.event, suggestion: suggestion.suggestion, admission, completion, publicView });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Vorschlagsfluss fehlgeschlagen");
@@ -387,9 +446,28 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
           <WorkflowStep label="Geprüfte Mecky-Antwort" done={Boolean(workflow.answer || thread.mecky)} detail="Mecky darf Quellen erklären, aber den Vorschlag nicht selbst einreichen." />
           <WorkflowStep label="Bürger-signierter Vorschlag" done={Boolean(workflow.suggestion || thread.suggestion)} detail={topicProposalMode ? "Ein verbundenes Röbel-Konto bestätigt Titel und Zusammenfassung mit einer eigenen Nostr-Signatur." : "Die synthetische Testperson bestätigt Titel und Zusammenfassung."} />
           <WorkflowStep label="Menschliche Aufnahme als CivicCase" done={Boolean(thread.caseBinding || workflow.admission)} detail="Eine getrennte, autorisierte Aufnahme legt den append-only Fall an; die Bürger-Signatur allein tut das nicht." />
-          <WorkflowStep label="Verwaltungsfeedback und Citizen Brief" done={Boolean(workflow.completion)} detail="Acht getrennte Fachpakete werden geprüft und öffentlich verständlich zusammengeführt." />
+          <WorkflowStep
+            label="Verwaltungsfeedback und Citizen Brief"
+            done={
+              administrationProgress?.status === "citizen_brief_current" ||
+              Boolean(workflow.completion)
+            }
+            detail={
+              administrationProgress
+                ? `${administrationProgress.acceptedCount} von ${administrationProgress.requiredCount} Fachantworten sind öffentlich geprüft${administrationProgress.currentBrief ? "; der Citizen Brief ist aktuell." : "."}`
+                : "Acht getrennte Fachpakete werden geprüft und öffentlich verständlich zusammengeführt."
+            }
+          />
           <WorkflowStep label="Beratendes Meinungsbild im Mitmachen-Bereich" done={Boolean(workflow.publicView)} detail="In Staging sichtbar und nachvollziehbar, aber nicht bindend." />
         </ol>
+        {(thread.caseBinding || workflow.admission) && (
+          <StadtstackAdministrationProgress
+            progress={administrationProgress}
+            loading={administrationProgressLoading}
+            error={administrationProgressError}
+            onRefresh={() => void refreshAdministrationProgress()}
+          />
+        )}
         {!thread.caseBinding && (
           <>
             <div className={`mt-5 rounded-lg border p-3 text-sm ${topicSuggestionSigned ? "border-emerald-300 bg-emerald-50 text-emerald-950" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
