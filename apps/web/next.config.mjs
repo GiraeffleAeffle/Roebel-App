@@ -21,6 +21,10 @@ export function resolveStagingBuildWorkers(value) {
   return value === "1";
 }
 
+export function resolveStagingOptimizedPackageImports(value) {
+  return value === "1" ? ["thirdweb", "thirdweb/react"] : undefined;
+}
+
 // The Talos staging image builds on GitHub's 4-core / 16 GiB public runner.
 // Unlike the smaller Vercel build, it has enough memory to run Next's server
 // compilation and output tracing concurrently. No-publish run 32569355209
@@ -28,6 +32,15 @@ export function resolveStagingBuildWorkers(value) {
 // exact Next build from 363.5s to 279.8s. Keep the smaller Vercel build on its
 // existing memory-constrained path.
 const STAGING_BUILD_WORKERS = resolveStagingBuildWorkers(
+  process.env.ROEBEL_STANDALONE_IMAGE,
+);
+
+// thirdweb/react is imported from 121 source files. Isolated no-publish run
+// 32569478401 proved Next's named-import rewriting against the complete route
+// graph and reduced the exact build from 363.5s to 301.1s. Limit the
+// experimental optimization to the same staging image until its deployed
+// semantic browser checks pass.
+const STAGING_OPTIMIZED_PACKAGE_IMPORTS = resolveStagingOptimizedPackageImports(
   process.env.ROEBEL_STANDALONE_IMAGE,
 );
 
@@ -51,6 +64,7 @@ const nextConfig = {
     webpackBuildWorker: STAGING_BUILD_WORKERS,
     parallelServerCompiles: STAGING_BUILD_WORKERS,
     parallelServerBuildTraces: STAGING_BUILD_WORKERS,
+    optimizePackageImports: STAGING_OPTIMIZED_PACKAGE_IMPORTS,
   },
   // The Netizen packages ship untranspiled TS source (main: src/index.ts), so
   // they must be transpiled by the app that consumes them.

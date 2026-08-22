@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   resolveStagingBuildWorkers,
+  resolveStagingOptimizedPackageImports,
   resolveWebpackParallelism,
 } from "../next.config.mjs";
 
@@ -27,4 +28,13 @@ test("enables Next build workers only for the standalone staging image", () => {
   assert.equal(resolveStagingBuildWorkers("1"), true);
   for (const value of [undefined, "", "0", "true", " 1"])
     assert.equal(resolveStagingBuildWorkers(value), false);
+});
+
+test("optimizes thirdweb barrels only for the standalone staging image", () => {
+  assert.deepEqual(resolveStagingOptimizedPackageImports("1"), [
+    "thirdweb",
+    "thirdweb/react",
+  ]);
+  for (const value of [undefined, "", "0", "true", " 1"])
+    assert.equal(resolveStagingOptimizedPackageImports(value), undefined);
 });
