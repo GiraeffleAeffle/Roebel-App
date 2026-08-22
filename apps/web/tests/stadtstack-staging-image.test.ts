@@ -25,7 +25,7 @@ test("emits the standalone server only for the explicit Talos staging image", ()
     /process\.env\.ROEBEL_STANDALONE_IMAGE === "1" \? "standalone" : undefined/
   );
   assert.match(dockerfile, /ROEBEL_STANDALONE_IMAGE=1/);
-  assert.match(dockerfile, /ROEBEL_WEBPACK_PARALLELISM=2/);
+  assert.match(dockerfile, /ROEBEL_WEBPACK_PARALLELISM=4/);
   assert.match(dockerfile, /\.next\/standalone/);
   assert.match(dockerfile, /inject-public-runtime-config\.mjs/);
   assert.match(dockerfile, /CMD \["apps\/web\/runtime-entrypoint\.mjs"\]/);

@@ -8,7 +8,7 @@ const MINI_APPS_SITE_HOST_RE = `(?<slug>[a-z0-9-]+)\\.${MINI_APPS_SITE_APEX_RE}`
 
 export function resolveWebpackParallelism(value) {
   if (value === undefined || value === "") return 1;
-  if (value !== "1" && value !== "2")
+  if (value !== "1" && value !== "2" && value !== "4")
     throw new Error("roebel_webpack_parallelism_invalid");
   return Number(value);
 }
