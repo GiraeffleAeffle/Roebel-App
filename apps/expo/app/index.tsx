@@ -14,7 +14,7 @@ import SearchModal from '@/components/SearchModal';
 import CalendarModal from '@/components/CalendarModal';
 import BottomNavigation from '@/components/BottomNavigation';
 import { Skeleton, EventCardSkeleton, HeroCardSkeleton } from '@/components/SkeletonLoader';
-import { useRouter } from 'expo-router';
+import { useRouter, Redirect } from 'expo-router';
 import { isEventThisWeek, isEventTodayOrFuture, isEventInRoebel } from '@/lib/utils';
 import HomeCategoryChips from '@/components/HomeCategoryChips';
 import NearbyEventsSection from '@/components/NearbyEventsSection';
@@ -33,8 +33,30 @@ import { isNotificationPromptPending, clearNotificationPromptPending } from '@/l
 import { isNotificationPromptDue, markNotificationPromptDismissed } from '@/lib/notification-prompt';
 import { useConsent } from '@/context/ConsentContext';
 import { useDebouncedValue as useDebounced } from '@/hooks/useDebouncedValue';
+import { bootState } from '@/lib/navigation/bootPathname';
+
+// True once this screen has rendered at least once in the current JS process.
+// Module scope (not a ref) so the flag survives this component unmounting and
+// remounting as the user tabs away and back — it should only ever gate the
+// very first mount of this file, not every mount.
+let hasHomeScreenRenderedBefore = false;
 
 export default function HomeScreen() {
+  // The app opens on "Erkunden" (/explore) instead of the feed (see
+  // app/_layout.tsx's `ThemedLayout`, which captures the cold-boot pathname
+  // into `bootState` during its own render — always before this component's
+  // first render in the same initial commit). Redirect to /explore only when
+  // BOTH are true: this is this screen's first-ever mount in the process, AND
+  // that first mount is happening because the app actually cold-booted into
+  // `/` (default landing with no deep link, or a deep link explicitly
+  // targeting `/` — today's behavior stomps that case too, so this replicates
+  // it exactly). A cold boot that deep-linked elsewhere leaves `bootState`
+  // pointing at that other path, so the first later in-session visit to `/`
+  // renders the feed normally, same as every visit after that.
+  const isColdStartLandingOnRoot =
+    !hasHomeScreenRenderedBefore && bootState.pathname === '/';
+  hasHomeScreenRenderedBefore = true;
+
   // Feed is the home screen for ALL modes (spec section 2)
   // Content adapts per mode via the feed algorithm
   const [showNotificationSheet, setShowNotificationSheet] = useState(false);
@@ -54,6 +76,9 @@ export default function HomeScreen() {
   const pushActive = permissionStatus === 'granted' && consentPrefs.push;
 
   useEffect(() => {
+    // This render redirects away instead of showing the feed — nothing to
+    // schedule (this instance unmounts as soon as the redirect takes hold).
+    if (isColdStartLandingOnRoot) return;
     // Wait until permission + consent state are known, and never fight the
     // full-screen consent modal or the re-consent sheet for attention.
     if (promptedThisSession.current) return;
@@ -78,12 +103,16 @@ export default function HomeScreen() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [notificationsLoading, consentReady, needsConsent, needsReconsent, pushActive]);
+  }, [isColdStartLandingOnRoot, notificationsLoading, consentReady, needsConsent, needsReconsent, pushActive]);
 
   const handleNotificationDismiss = async () => {
     setShowNotificationSheet(false);
     await Promise.all([clearNotificationPromptPending(), markNotificationPromptDismissed()]);
   };
+
+  if (isColdStartLandingOnRoot) {
+    return <Redirect href="/explore" />;
+  }
 
   return (
     <>

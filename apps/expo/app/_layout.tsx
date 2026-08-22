@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { usePathname, useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -34,7 +34,7 @@ import { RewardCelebrationProvider } from '@/context/RewardCelebrationContext';
 import { RoebelTalerProvider } from '@/context/RoebelTalerProvider';
 import { MaciProvider } from '@/context/MaciContext';
 import { useDeferredTaskTriggers } from '@/hooks/useDeferredTaskTriggers';
-import { StatusBar, View, StyleSheet, Text, Platform } from 'react-native';
+import { StatusBar, View, StyleSheet, Text, Platform, InteractionManager } from 'react-native';
 import '@/lib/patch-text';
 import useAppFonts from '@/hooks/useFonts';
 import * as SplashScreen from 'expo-splash-screen';
@@ -49,25 +49,12 @@ import { ConsentGate } from '@/components/consent/ConsentGate';
 import { PostHogTelemetry } from '@/components/consent/PostHogTelemetry';
 import { AppUpdateGate } from '@/components/AppUpdateGate';
 import AnimatedSplash from '@/components/AnimatedSplash';
+import { bootState } from '@/lib/navigation/bootPathname';
 // DISABLED — debug-log FAB kept for later (also re-enable the capture in index.js):
 // import DebugLogOverlay from '@/components/DebugLogOverlay';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
-
-// Check for OTA updates on native platforms
-if (Platform.OS !== 'web') {
-  const Updates = require('expo-updates');
-  Updates.checkForUpdateAsync()
-    .then((update: any) => {
-      if (update.isAvailable) {
-        return Updates.fetchUpdateAsync().then(() => Updates.reloadAsync());
-      }
-    })
-    .catch(() => {
-      // silently fail — user continues with current version
-    });
-}
 
 // Native-only: lock orientation. The notification foreground handler is set
 // in hooks/useNotifications.ts — do NOT set another one here: this module
@@ -148,30 +135,33 @@ function NotificationHandler() {
 }
 
 /**
- * Opens the app on "Erkunden" (/explore) instead of the feed (/).
- *
- * expo-router boots at `/` whenever the app is launched from the icon: without
- * an initial URL `+native-intent.redirectSystemPath` is never called, so the
- * default screen has to be swapped here. Runs once per app process and only
- * when the launch actually landed on `/` — a cold start from a deep link has
- * already resolved to its own path by the time the root layout mounts, and the
- * consent / app-update gates push their modals later (both behind a timeout),
- * so nothing is stolen from them.
- *
- * `/` stays the "Austausch" tab: it navigates back to the feed normally, since
- * the one-shot flag is spent by then.
+ * Checks for and applies OTA updates (native only). This used to run at
+ * module scope — network on the JS critical path, with `Updates.reloadAsync()`
+ * able to restart the app mid-boot. Now it waits until the first screen has
+ * mounted and interactions have settled (`InteractionManager`), so the check
+ * still runs — and still applies + reloads — on every launch, just off the
+ * cold-start path. Runs once per app process. Error handling unchanged:
+ * failures are swallowed and the user continues on the current version.
  */
-function InitialRouteRedirect() {
-  const router = useRouter();
-  const pathname = usePathname();
-  const handledRef = useRef(false);
-
+function DeferredUpdateCheck() {
   useEffect(() => {
-    if (handledRef.current) return;
-    handledRef.current = true;
-    if (pathname !== '/') return;
-    router.replace('/explore');
-  }, [pathname, router]);
+    if (Platform.OS === 'web') return undefined;
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      const Updates = require('expo-updates');
+      Updates.checkForUpdateAsync()
+        .then((update: any) => {
+          if (update.isAvailable) {
+            return Updates.fetchUpdateAsync().then(() => Updates.reloadAsync());
+          }
+        })
+        .catch(() => {
+          // silently fail — user continues with current version
+        });
+    });
+
+    return () => task.cancel();
+  }, []);
 
   return null;
 }
@@ -231,10 +221,23 @@ function RewardsTaskTriggers() {
 
 function ThemedLayout() {
   const { colors, isDark } = useTheme();
+  const pathname = usePathname();
+
+  // Capture the cold-boot pathname exactly once, during THIS component's own
+  // render — which always happens before React descends into rendering the
+  // Stack's matched screen (parent renders before child within one commit).
+  // `app/index.tsx` reads `bootState.pathname` to tell "cold start resolved
+  // to `/`" apart from "the user navigated back to `/` later in the session"
+  // without ever mounting the feed screen on the former. See
+  // `lib/navigation/bootPathname.ts`.
+  if (!bootState.captured) {
+    bootState.captured = true;
+    bootState.pathname = pathname;
+  }
 
   return (
     <>
-      <InitialRouteRedirect />
+      <DeferredUpdateCheck />
       <NotificationHandler />
       <AnalyticsTracker />
       <PostHogTelemetry />
