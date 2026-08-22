@@ -35,6 +35,7 @@ Combining every capability into one large page would create the opposite problem
 10. Mecky may classify, summarize, cite, and suggest the next human action. It may not promote a post, sign for a person, admit a civic case, approve administration work, open a binding vote, or spend funds.
 11. A proposal candidate is signed while the journey is still topic-bound. The next stage remains “awaiting human case admission”; signing never calls the admission, administration, participation, governance, or treasury adapters automatically.
 12. Röbel renders **public administration progress** only from Stadtstack's redacted public case projection. It may show accepted, current department responses and a current Citizen Brief. A department absent from that projection is labelled only as “not publicly reviewed”; Röbel must not infer whether private work is missing, pending, rejected, corrected, or retracted.
+13. The journey may enter **Mitmachen readiness** as soon as the current Citizen Brief is public. This stage exposes the reviewed brief and provenance but no input control, option counts, or outcome. An advisory round becomes open or complete only from its own reviewed projection; readiness alone never advances the canonical Stadtstack case stage.
 
 ## Consequences
 
@@ -45,4 +46,5 @@ Combining every capability into one large page would create the opposite problem
 - The host needs a versioned journey projection and stage-tool context; mini-apps need to stop treating a query-string topic slug as sufficient state.
 - Proposal signing and Civic Case admission are two independently attributable transitions, even when the interface presents them consecutively.
 - Administration progress can stay in the same journey without copying private openDesk work queues or creating a second case state.
+- People can see that a reviewed brief is ready for participation without mistaking readiness for an open poll or completed signal.
 - This ADR does not authorize automatic promotion, a formal municipal vote, a treasury payment, or production data migration.

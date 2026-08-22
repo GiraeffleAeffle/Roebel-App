@@ -21,6 +21,7 @@ This glossary fixes the terms used by the Röbel app and Stadtstack integration.
 | **Administrative feedback** | Human-reviewed department packages attached to the civic case. | Mecky output. |
 | **Public administration progress** | The redacted journey view of accepted, current department responses and any current Citizen Brief. An absent response means only that no publicly reviewed answer is available. | A private work queue, a rejected response, or an inferred review status. |
 | **Citizen Brief** | The public, source-bound explanation of reviewed options and constraints. | A press release or binding decision. |
+| **Mitmachen readiness** | The public state in which a current reviewed Citizen Brief is visible in Mitmachen but no advisory participation round or result exists yet. | An open poll, an accepted input, a tally, or a formal vote. |
 | **Mitmachen opinion signal** | A separate advisory participation round over reviewed options. | A formal municipal vote or binding on-chain governance action. |
 | **Governance ballot** | A future explicitly authorized binding vote with frozen rules and authority. | The staging opinion signal. |
 | **Treasury review** | A finance package that states budget needs, constraints, and possible funding source. | A payment or treasury transaction. |
