@@ -1,5 +1,9 @@
 import type { StagingArgument } from "./discussion-tree";
 import type { CitizenSignedTopicSuggestionV1 } from "@netizen-labs/nostr";
+import {
+  toStadtstackAdministrationProgress,
+  type StadtstackAdministrationProgress,
+} from "./administration-progress";
 
 export const STADTSTACK_STAGING_API = "/stadtstack-test/api" as const;
 
@@ -210,6 +214,33 @@ export async function stagingGet<T>(path: string): Promise<T> {
   return stagingRequest<T>(path, {
     cache: "no-store",
   });
+}
+
+const ROEBEL_CIVIC_CASE_ID =
+  /^urn:stadtstack:case:municipality:roebel-mueritz:[0-9a-z][0-9a-z-]{0,127}$/;
+
+/**
+ * Read one already-public, already-reviewed administration projection. The
+ * browser never invokes the case-steward command surface and never infers
+ * private openDesk state from a missing package.
+ */
+export async function loadStadtstackAdministrationProgress(
+  caseId: string
+): Promise<StadtstackAdministrationProgress> {
+  if (!ROEBEL_CIVIC_CASE_ID.test(caseId)) throw new StagingUnavailableError();
+  try {
+    const value = await stagingGet<unknown>(
+      `/administration?case=${encodeURIComponent(caseId)}`
+    );
+    const progress = toStadtstackAdministrationProgress(value);
+    if (progress.caseBinding.caseId !== caseId) {
+      throw new StagingUnavailableError();
+    }
+    return progress;
+  } catch (error) {
+    if (error instanceof StagingUnavailableError) throw error;
+    throw new StagingUnavailableError();
+  }
 }
 
 export async function stagingPost<T>(path: string, body: unknown): Promise<T> {

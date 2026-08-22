@@ -148,25 +148,27 @@ test("labels the civic handoff and keeps vote and treasury authority disabled", 
   assert.match(discussion, /Citizen Brief/);
   assert.match(discussion, /Beratendes Meinungsbild/);
   assert.match(discussion, /Keine echte Abstimmung/);
-  assert.match(discussion, /keine Auszahlung/i);
+  assert.match(discussion, /keine\s+Auszahlung/i);
 });
 
 test("shows reviewed administration progress inside the same Civic Journey", () => {
-  assert.match(discussion, /toStadtstackAdministrationProgress/);
-  assert.match(
-    discussion,
-    /stagingPost<unknown>\("\/view", \{\s*profile: "public",?\s*\}\)/
-  );
-  assert.match(discussion, /progress\.caseBinding\.caseId !== canonicalCaseId/);
+  assert.match(discussion, /loadStadtstackAdministrationProgress/);
+  assert.doesNotMatch(discussion, /stagingPost<unknown>\("\/view"/);
   assert.match(discussion, /administrationRequestId\.current !== requestId/);
   assert.match(discussion, /administrationProgress\.acceptedCount/);
   assert.match(discussion, /<StadtstackAdministrationProgress/);
+  assert.match(civicTopic, /loadStadtstackAdministrationProgress/);
+  assert.match(civicTopic, /detail\.caseBinding/);
+  assert.match(civicTopic, /<StadtstackAdministrationProgress/);
+  assert.match(civicTopic, /caseBindingConflict/);
   assert.match(administrationProgress, /Öffentliche Verwaltungssicht/);
   assert.match(
     administrationProgress,
     /Noch keine öffentlich geprüfte Antwort/
   );
   assert.match(administrationProgress, /Bereit für den Case Steward/);
+  assert.match(administrationProgress, /Arbeitspaket/);
+  assert.match(administrationProgress, /packageChecksum/);
   assert.match(administrationProgress, /Keine Entscheidungswirkung/);
   assert.match(administrationProgress, /Keine Treasury-Wirkung/);
   assert.doesNotMatch(administrationProgress, /review_pending|review_rejected/);
@@ -180,8 +182,8 @@ test("lets the topic author sign a proposal without inventing a CivicCase", () =
   assert.match(discussion, /Noch kein CivicCase/);
   assert.match(discussion, /signTopicSuggestion/);
   assert.match(discussion, /intent: "suggestion"/);
-  assert.match(discussion, /Vorschlag prüfen und signieren/);
-  assert.match(discussion, /Wartet auf menschliche Aufnahme/);
+  assert.match(discussion, /Vorschlag prüfen und\s+signieren/);
+  assert.match(discussion, /Wartet auf menschliche\s+Aufnahme/);
   assert.match(discussion, /kein CivicCase automatisch angelegt/);
   assert.match(discussion, /Menschliche Aufnahme als CivicCase/);
 });

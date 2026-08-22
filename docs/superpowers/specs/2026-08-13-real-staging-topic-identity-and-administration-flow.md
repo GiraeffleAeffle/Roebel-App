@@ -6,17 +6,17 @@ Proposed integration specification. It consolidates the current public Röbel UI
 
 ## What works today
 
-| Capability                            | Current state                                                                                                                                                                             |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sign up in the Röbel web app          | The app can create an app/wallet account. Posting remains subject to the current citizen or organisation gate.                                                                            |
-| Public staging discussion             | Works with labelled synthetic Nostr identities on the isolated staging relay.                                                                                                             |
-| Pro/con tree and sunburst             | Work as projections of the synthetic signed reply graph.                                                                                                                                  |
-| `@Mecky` reply                        | Works for the prepared staging discussion and reviewed evidence fixture.                                                                                                                  |
-| Proposal/case demonstration           | Works as a synthetic, non-authoritative handoff.                                                                                                                                          |
-| Normal user post reaches Nostr/Mecky  | Implemented on the feature branch through `CitizenSession`, mutual proof admission, and browser-signed events; immutable deployment and real-account browser verification remain pending. |
-| Mecky creates a discussion on request | **Intentionally not automatic.** Mecky may propose a question; a human must confirm and sign the discussion root.                                                                         |
-| Administrative openDesk handoff       | Contract boundary exists; the admitted, idempotent live handoff is not yet enabled.                                                                                                       |
-| Binding vote or treasury execution    | Not enabled and outside the staging authority.                                                                                                                                            |
+| Capability                            | Current state                                                                                                                                                                                                           |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sign up in the Röbel web app          | The app can create an app/wallet account. Posting remains subject to the current citizen or organisation gate.                                                                                                          |
+| Public staging discussion             | Works with labelled synthetic Nostr identities on the isolated staging relay.                                                                                                                                           |
+| Pro/con tree and sunburst             | Work as projections of the synthetic signed reply graph.                                                                                                                                                                |
+| `@Mecky` reply                        | Works for the prepared staging discussion and reviewed evidence fixture.                                                                                                                                                |
+| Proposal/case demonstration           | Works as a synthetic, non-authoritative handoff.                                                                                                                                                                        |
+| Normal user post reaches Nostr/Mecky  | Implemented on the feature branch through `CitizenSession`, mutual proof admission, and browser-signed events; immutable deployment and real-account browser verification remain pending.                               |
+| Mecky creates a discussion on request | **Intentionally not automatic.** Mecky may propose a question; a human must confirm and sign the discussion root.                                                                                                       |
+| Administrative openDesk handoff       | A case-bound GET-only public-read candidate now returns reviewed package IDs/checksums to the same topic and discussion. The admitted, idempotent live openDesk handoff and deployed browser proof are not yet enabled. |
+| Binding vote or treasury execution    | Not enabled and outside the staging authority.                                                                                                                                                                          |
 
 ## Canonical aggregate boundaries
 
@@ -122,6 +122,8 @@ Local news and council-information-system connectors are read-only ingestion sou
 Only an admitted civic case creates administrative work. The export uses an outbox with the deterministic operation key above and contains the case ID, source checksums, human owner, department package, and return channel. It does not forward raw private account mappings or grant Mecky administrative authority.
 
 openDesk returns human-reviewed packages. Stadtstack converts those packages into a source-bound Citizen Brief, and the Röbel app projects the brief back onto the same civic topic. The Mitmachen view remains advisory until an independently accepted governance rule activates a ballot. Treasury review can state funding constraints; it cannot move funds.
+
+The public application reads only the exact canonical case projection through a GET-only boundary. It preserves each publicly reviewed package ID, package checksum, artifact checksum, and review date, and renders that state on the canonical topic as well as the discussion. A case mismatch, conflicting topic binding, private field, or unreviewed package fails closed. This projection is visibility and provenance only; it is not an openDesk command, case transition, formal decision, or publication authority.
 
 ## Staging topic set
 

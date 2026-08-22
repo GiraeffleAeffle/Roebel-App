@@ -25,6 +25,7 @@ import { createGnosisWalletVerifier } from "@netizen-labs/relay-sync";
 import WebSocket from "ws";
 
 const HEX64 = /^[0-9a-f]{64}$/;
+const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ADDRESS = /^0x[0-9a-f]{40}$/;
@@ -42,6 +43,54 @@ const SERVICE_NAMESPACES = new Set([
   "stadtstack-roebel-staging-lab",
   "stadtstack-roebel-web-preview",
 ]);
+const PUBLIC_CASE_PROJECTION_KEYS = new Set([
+  "schemaVersion",
+  "caseId",
+  "jurisdiction",
+  "municipalityId",
+  "sourceScope",
+  "authorityBinding",
+  "formalDecision",
+  "discussion",
+  "discussions",
+  "suggestion",
+  "suggestions",
+  "provenance",
+  "departmentPackage",
+  "departmentPackages",
+  "reviewedCitizenBrief",
+  "participationResult",
+  "reviewedOutcome",
+  "councilDryRunBrief",
+]);
+const PUBLIC_DEPARTMENT_PACKAGE_KEYS = [
+  "schemaVersion",
+  "id",
+  "departmentId",
+  "suggestionId",
+  "request",
+  "packageChecksum",
+  "reviewState",
+  "correctionState",
+  "artifactChecksum",
+  "reviewedAt",
+  "policyVersion",
+  "publicSummary",
+  "publicCitations",
+  "authorityBinding",
+];
+const PUBLIC_BRIEF_KEYS = [
+  "schemaVersion",
+  "id",
+  "title",
+  "summary",
+  "responses",
+  "provenance",
+  "briefChecksum",
+  "policyVersion",
+  "correctionState",
+  "authorityBinding",
+];
 
 type Persona = {
   id: string;
@@ -700,6 +749,202 @@ async function currentCaseVersion(
   return Number((projection as Record<string, unknown>).caseVersion);
 }
 
+function publicStrings(value: unknown, limit: number): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length > limit ||
+    value.some((entry) => typeof entry !== "string")
+  ) {
+    throw new Error("public_administration_projection_invalid");
+  }
+  return [...value];
+}
+
+function checkedPublicDepartmentPackage(value: unknown): Record<string, unknown> {
+  if (!exactRecord(value, PUBLIC_DEPARTMENT_PACKAGE_KEYS)) {
+    throw new Error("public_administration_projection_invalid");
+  }
+  for (const key of PUBLIC_DEPARTMENT_PACKAGE_KEYS) {
+    if (key !== "publicCitations" && typeof value[key] !== "string") {
+      throw new Error("public_administration_projection_invalid");
+    }
+  }
+  return {
+    ...value,
+    publicCitations: publicStrings(value.publicCitations, 32),
+  };
+}
+
+function checkedPublicBrief(value: unknown): Record<string, unknown> {
+  if (!exactRecord(value, PUBLIC_BRIEF_KEYS)) {
+    throw new Error("public_administration_projection_invalid");
+  }
+  const responses = Array.isArray(value.responses)
+    ? value.responses.map((entry) => {
+        if (
+          !exactRecord(entry, [
+            "departmentId",
+            "publicSummary",
+            "publicCitations",
+          ]) ||
+          typeof entry.departmentId !== "string" ||
+          typeof entry.publicSummary !== "string"
+        ) {
+          throw new Error("public_administration_projection_invalid");
+        }
+        return {
+          departmentId: entry.departmentId,
+          publicSummary: entry.publicSummary,
+          publicCitations: publicStrings(entry.publicCitations, 32),
+        };
+      })
+    : null;
+  if (!responses || responses.length > 8) {
+    throw new Error("public_administration_projection_invalid");
+  }
+  const provenance = value.provenance;
+  if (
+    !exactRecord(provenance, [
+      "sourceDiscussionRef",
+      "suggestionId",
+      "packageBindings",
+    ]) ||
+    !exactRecord(provenance.sourceDiscussionRef, ["type", "id", "ref"]) ||
+    typeof provenance.sourceDiscussionRef.type !== "string" ||
+    typeof provenance.sourceDiscussionRef.id !== "string" ||
+    typeof provenance.sourceDiscussionRef.ref !== "string" ||
+    typeof provenance.suggestionId !== "string" ||
+    !Array.isArray(provenance.packageBindings) ||
+    provenance.packageBindings.length > 8
+  ) {
+    throw new Error("public_administration_projection_invalid");
+  }
+  const packageBindings = provenance.packageBindings.map((entry) => {
+    const keys = [
+      "packageId",
+      "packageChecksum",
+      "draftArtifactChecksum",
+      "reviewAttestationChecksum",
+      "departmentId",
+      "reviewedAt",
+    ];
+    if (
+      !exactRecord(entry, keys) ||
+      keys.some((key) => typeof entry[key] !== "string")
+    ) {
+      throw new Error("public_administration_projection_invalid");
+    }
+    return { ...entry };
+  });
+  for (const key of PUBLIC_BRIEF_KEYS) {
+    if (
+      key !== "responses" &&
+      key !== "provenance" &&
+      typeof value[key] !== "string"
+    ) {
+      throw new Error("public_administration_projection_invalid");
+    }
+  }
+  return {
+    ...value,
+    responses,
+    provenance: {
+      sourceDiscussionRef: { ...provenance.sourceDiscussionRef },
+      suggestionId: provenance.suggestionId,
+      packageBindings,
+    },
+  };
+}
+
+function checkedPublicCaseProjection(
+  value: unknown,
+  expectedCaseId: string
+): Record<string, unknown> {
+  if (
+    !exactRecord(value, [
+      "schemaVersion",
+      "caseId",
+      "caseVersion",
+      "journalHeadChecksum",
+      "projectionChecksum",
+      "visibility",
+      "policyVersion",
+      "projection",
+    ]) ||
+    value.schemaVersion !== "projection_envelope_v1" ||
+    value.caseId !== expectedCaseId ||
+    value.visibility !== "public" ||
+    !Number.isSafeInteger(value.caseVersion) ||
+    Number(value.caseVersion) < 1 ||
+    typeof value.journalHeadChecksum !== "string" ||
+    !SHA256.test(value.journalHeadChecksum) ||
+    typeof value.projectionChecksum !== "string" ||
+    !SHA256.test(value.projectionChecksum) ||
+    typeof value.policyVersion !== "string" ||
+    !value.policyVersion ||
+    !value.projection ||
+    typeof value.projection !== "object" ||
+    Array.isArray(value.projection)
+  ) {
+    throw new Error("public_administration_projection_invalid");
+  }
+  const projection = value.projection as Record<string, unknown>;
+  const suggestion = projection.suggestion;
+  if (
+    Object.keys(projection).some(
+      (key) => !PUBLIC_CASE_PROJECTION_KEYS.has(key)
+    ) ||
+    projection.schemaVersion !== "case_projection_v1" ||
+    projection.caseId !== expectedCaseId ||
+    projection.municipalityId !== "roebel-mueritz" ||
+    projection.authorityBinding !== "none" ||
+    projection.formalDecision !== null ||
+    !suggestion ||
+    typeof suggestion !== "object" ||
+    Array.isArray(suggestion) ||
+    (suggestion as Record<string, unknown>).status !== "admitted"
+  ) {
+    throw new Error("public_administration_projection_invalid");
+  }
+  const rawDepartmentPackages = projection.departmentPackages ?? [];
+  if (!Array.isArray(rawDepartmentPackages) || rawDepartmentPackages.length > 8) {
+    throw new Error("public_administration_projection_invalid");
+  }
+  const departmentPackages = rawDepartmentPackages.map(
+    checkedPublicDepartmentPackage
+  );
+  const departmentPackage =
+    projection.departmentPackage === undefined
+      ? undefined
+      : checkedPublicDepartmentPackage(projection.departmentPackage);
+  const reviewedCitizenBrief =
+    projection.reviewedCitizenBrief === undefined
+      ? undefined
+      : checkedPublicBrief(projection.reviewedCitizenBrief);
+  return {
+    schemaVersion: value.schemaVersion,
+    caseId: value.caseId,
+    caseVersion: value.caseVersion,
+    journalHeadChecksum: value.journalHeadChecksum,
+    projectionChecksum: value.projectionChecksum,
+    visibility: value.visibility,
+    policyVersion: value.policyVersion,
+    projection: {
+      schemaVersion: projection.schemaVersion,
+      caseId: projection.caseId,
+      municipalityId: projection.municipalityId,
+      authorityBinding: projection.authorityBinding,
+      formalDecision: null,
+      suggestion: { status: "admitted" },
+      departmentPackages,
+      ...(departmentPackage === undefined ? {} : { departmentPackage }),
+      ...(reviewedCitizenBrief === undefined
+        ? {}
+        : { reviewedCitizenBrief }),
+    },
+  };
+}
+
 async function admitToCitizenRelay(
   config: WorkbenchConfig,
   fetcher: typeof globalThis.fetch,
@@ -1218,6 +1463,32 @@ export async function startWorkbench(
           response,
           200,
           answer ? { status: "answered", event: answer } : null
+        );
+      }
+      const administrationUrl = new URL(path, "http://workbench");
+      if (
+        request.method === "GET" &&
+        administrationUrl.pathname === "/api/administration"
+      ) {
+        const caseValues = administrationUrl.searchParams.getAll("case");
+        if (
+          [...administrationUrl.searchParams.keys()].some(
+            (key) => key !== "case"
+          ) ||
+          caseValues.length !== 1 ||
+          caseValues[0] !== CASE_ID
+        ) {
+          return json(response, 400, {
+            error: "administration_case_invalid",
+          });
+        }
+        const publicView = await control(config, fetcher, "/v1/e2e/view", {
+          profile: "public",
+        });
+        return json(
+          response,
+          200,
+          checkedPublicCaseProjection(publicView, caseValues[0])
         );
       }
       if (

@@ -12,12 +12,25 @@ export type PublicCivicTopicDetail = Readonly<{
   topic: StagingTopicPost;
   sourcePosts: readonly StagingOrdinaryPost[];
   unresolvedSourcePostIds: readonly string[];
+  caseBinding: StagingTopicPost["discussions"][number]["caseBinding"];
+  caseBindingConflict: boolean;
+}>;
+
+export type PublicCivicTopicAdministrationStage = Readonly<{
+  caseId: string;
+  status: "not_available" | "in_review" | "brief_current";
 }>;
 
 export function projectPublicCivicTopicJourney(
-  detail: PublicCivicTopicDetail
+  detail: PublicCivicTopicDetail,
+  administration: PublicCivicTopicAdministrationStage | null = null
 ): CivicJourney | null {
   const discussions = detail.topic.discussions;
+  const administrationStatus =
+    detail.caseBinding &&
+    administration?.caseId === detail.caseBinding.canonicalCaseId
+      ? administration.status
+      : "not_available";
   return projectCivicJourney({
     sourcePostCount: detail.topic.sourcePostIds.length,
     discussionCount: discussions.length,
@@ -25,6 +38,11 @@ export function projectPublicCivicTopicJourney(
     meckyAnswered: discussions.some((entry) => entry.meckyAnswered),
     proposalSigned: discussions.some((entry) => entry.suggestionSigned),
     caseAdmitted: discussions.some((entry) => entry.caseBinding !== null),
+    administrationStatus,
+    participationStatus:
+      administrationStatus === "brief_current"
+        ? "brief_ready"
+        : "not_available",
   });
 }
 
@@ -83,10 +101,24 @@ export function projectPublicCivicTopicDetail(
         left.id.localeCompare(right.id)
     );
   const resolved = new Set(sourcePosts.map((entry) => entry.id));
+  const bindings = new Map<
+    string,
+    NonNullable<StagingTopicPost["discussions"][number]["caseBinding"]>
+  >();
+  for (const discussion of primary.discussions) {
+    if (discussion.caseBinding) {
+      bindings.set(
+        `${discussion.caseBinding.municipalityId}:${discussion.caseBinding.canonicalCaseId}`,
+        discussion.caseBinding
+      );
+    }
+  }
 
   return {
     topic: primary,
     sourcePosts,
     unresolvedSourcePostIds: [...sourceIds].filter((id) => !resolved.has(id)),
+    caseBinding: bindings.size === 1 ? [...bindings.values()][0]! : null,
+    caseBindingConflict: bindings.size > 1,
   };
 }

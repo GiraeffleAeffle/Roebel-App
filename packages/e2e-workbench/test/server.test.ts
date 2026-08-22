@@ -304,8 +304,8 @@ describe("Röbel E2E workbench boundary", () => {
         body: JSON.stringify({ intent: "promotion", event: promotion }),
       });
       assert.equal(promotionResponse.status, 200);
-      const feed = (await fetch(`${origin}/api/feed`).then((response) =>
-        response.json()
+      const feed = (await fetch(`${origin}/api/feed`).then(
+        (response) => response.json()
       )) as {
         posts: Array<{
           id: string;
@@ -745,8 +745,8 @@ describe("Röbel E2E workbench boundary", () => {
       assert.equal(thread.caseBinding, null);
       assert.equal(thread.suggestion?.candidateId, signed.candidateId);
       assert.equal(thread.suggestion?.submittedToCivicWorkflow, false);
-      const feed = (await fetch(`${origin}/api/feed`).then(
-        (response) => response.json()
+      const feed = (await fetch(`${origin}/api/feed`).then((response) =>
+        response.json()
       )) as {
         posts: Array<{
           entryType: string;
@@ -1443,6 +1443,127 @@ describe("Röbel E2E workbench boundary", () => {
       );
       assert.deepEqual(calls[0]?.body, { profile: "administration" });
       assert.equal(calls[1]?.body.expectedCaseVersion, 17);
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("serves one case-bound public administration projection over GET only", async () => {
+    const config = parseWorkbenchConfig(environment());
+    const caseId =
+      "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001";
+    const publicPackage = {
+      schemaVersion: "department_package_projection_v1",
+      id: "package-planning",
+      departmentId: "planning",
+      suggestionId: "suggestion-1",
+      request: "Planung öffentlich prüfen",
+      packageChecksum: `sha256:${"c".repeat(64)}`,
+      reviewState: "accepted",
+      correctionState: "current",
+      artifactChecksum: `sha256:${"d".repeat(64)}`,
+      reviewedAt: "2026-08-22T00:00:00.000Z",
+      policyVersion: "case-intake-v1",
+      publicSummary: "Die öffentliche Planungsantwort.",
+      publicCitations: ["https://example.invalid/planning"],
+      authorityBinding: "none",
+    };
+    const projection = {
+      schemaVersion: "projection_envelope_v1",
+      caseId,
+      caseVersion: 4,
+      journalHeadChecksum: `sha256:${"a".repeat(64)}`,
+      projectionChecksum: `sha256:${"b".repeat(64)}`,
+      visibility: "public",
+      policyVersion: "case-intake-v1",
+      projection: {
+        schemaVersion: "case_projection_v1",
+        caseId,
+        jurisdiction: { scheme: "municipality", value: "roebel-mueritz" },
+        municipalityId: "roebel-mueritz",
+        sourceScope: {
+          municipalityId: "roebel-mueritz",
+          caseId: "marienfelder-strasse",
+        },
+        authorityBinding: "none",
+        formalDecision: null,
+        discussion: {},
+        discussions: [],
+        suggestion: { status: "admitted", internalOwner: "must-not-leak" },
+        suggestions: [],
+        provenance: {},
+        departmentPackages: [publicPackage],
+      },
+    };
+    const calls: Array<{ path: string; body: unknown }> = [];
+    const fetcher: typeof globalThis.fetch = async (input, init) => {
+      calls.push({
+        path: new URL(String(input)).pathname,
+        body: JSON.parse(String(init?.body)),
+      });
+      return Response.json(projection);
+    };
+    const relay = {
+      query: async () => [],
+      publish: async () => ({ ok: true, message: "stored" }),
+      close: () => {},
+    };
+    const running = await startWorkbench(config, {
+      citizenRelay: relay,
+      agentRelay: relay,
+      fetch: fetcher,
+    });
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${running.port}/api/administration?case=${encodeURIComponent(caseId)}`
+      );
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        schemaVersion: projection.schemaVersion,
+        caseId,
+        caseVersion: projection.caseVersion,
+        journalHeadChecksum: projection.journalHeadChecksum,
+        projectionChecksum: projection.projectionChecksum,
+        visibility: "public",
+        policyVersion: projection.policyVersion,
+        projection: {
+          schemaVersion: "case_projection_v1",
+          caseId,
+          municipalityId: "roebel-mueritz",
+          authorityBinding: "none",
+          formalDecision: null,
+          suggestion: { status: "admitted" },
+          departmentPackages: [publicPackage],
+        },
+      });
+      assert.deepEqual(calls, [
+        { path: "/v1/e2e/view", body: { profile: "public" } },
+      ]);
+
+      const ambiguous = await fetch(
+        `http://127.0.0.1:${running.port}/api/administration?case=${encodeURIComponent(caseId)}&case=${encodeURIComponent(caseId)}`
+      );
+      assert.equal(ambiguous.status, 400);
+      assert.equal(calls.length, 1);
+
+      const wrongMethod = await fetch(
+        `http://127.0.0.1:${running.port}/api/administration?case=${encodeURIComponent(caseId)}`,
+        { method: "POST" }
+      );
+      assert.equal(wrongMethod.status, 404);
+      assert.equal(calls.length, 1);
+
+      Object.assign(projection.projection.departmentPackages[0]!, {
+        privateNotes: "must-not-leak",
+      });
+      const leaked = await fetch(
+        `http://127.0.0.1:${running.port}/api/administration?case=${encodeURIComponent(caseId)}`
+      );
+      assert.equal(leaked.status, 422);
+      assert.deepEqual(await leaked.json(), {
+        error: "public_administration_projection_invalid",
+      });
+      assert.equal(calls.length, 2);
     } finally {
       await running.close();
     }

@@ -126,7 +126,13 @@ test("shows only publicly reviewed departments and never guesses private state",
     departments
   );
   assert.equal(progress.departments[0]?.state, "reviewed");
+  assert.deepEqual(progress.departments[0]?.packageBinding, {
+    packageId: "package-planning",
+    packageChecksum: sha(10),
+    artifactChecksum: sha(100),
+  });
   assert.equal(progress.departments[3]?.state, "not_publicly_reviewed");
+  assert.equal(progress.departments[3]?.packageBinding, null);
   assert.equal(progress.departments[3]?.publicSummary, null);
   assert.deepEqual(progress.effects, {
     civicCaseMutation: false,
