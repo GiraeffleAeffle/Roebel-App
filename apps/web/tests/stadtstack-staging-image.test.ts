@@ -74,8 +74,8 @@ test("builds one bounded private OCI artifact remotely without publishing it", (
   assert.match(workflow, /turbo@2\.4\.0 prune @roebel\/web --docker/);
   assert.match(workflow, /pnpm fetch --store-dir/);
   assert.doesNotMatch(workflow, /staging-web-cache-family|\.next\/cache/);
-  assert.match(workflow, /staging-web-dependency-family\.mjs/);
-  assert.match(workflow, /context\/node_modules/);
+  assert.doesNotMatch(workflow, /staging-web-dependency-family|actions\/cache|DEPENDENCY_CACHE_HIT/);
+  assert.match(workflow, /test ! -e "\$RUNNER_TEMP\/context\/node_modules"/);
   assert.match(workflow, /Dockerfile\.staging-web-runtime/);
   assert.doesNotMatch(workflow, /pnpm fetch --(?:dev|prod)/);
   assert.match(

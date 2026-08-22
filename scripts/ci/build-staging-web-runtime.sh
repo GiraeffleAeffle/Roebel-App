@@ -30,9 +30,7 @@ done
 [[ "$max_runtime_context_bytes" =~ ^[1-9][0-9]*$ ]] || fail 'runtime context budget differs'
 [[ -f "$source_context/pnpm-lock.yaml" && ! -L "$source_context/pnpm-lock.yaml" ]] || fail 'pruned lockfile differs'
 [[ -f "$source_context/apps/web/package.json" && ! -L "$source_context/apps/web/package.json" ]] || fail 'Web package manifest differs'
-if [[ -e "$source_context/node_modules" ]]; then
-  [[ -d "$source_context/node_modules/.pnpm" && ! -L "$source_context/node_modules" ]] || fail 'restored dependency materialization differs'
-fi
+[[ ! -e "$source_context/node_modules" ]] || fail 'source context must begin without node_modules'
 
 docker run --rm \
   --platform linux/amd64 \

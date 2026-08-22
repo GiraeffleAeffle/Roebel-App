@@ -41,9 +41,8 @@ test("the required summary has no publication or deployment authority", () => {
 
 test("PR Web builds once and packages runtime output only", () => {
   assert.doesNotMatch(web, /staging-web-cache-family|MAX_NEXT_CACHE_BYTES|\.next\/cache/u);
-  assert.match(web, /node scripts\/ci\/staging-web-dependency-family\.mjs/u);
-  assert.match(web, /actions\/cache@0057852bfaa89a56745cba8c7296529d2fc39830/u);
-  assert.match(web, /context\/node_modules/u);
+  assert.doesNotMatch(web, /staging-web-dependency-family|actions\/cache|DEPENDENCY_CACHE_HIT/u);
+  assert.match(web, /test ! -e "\$RUNNER_TEMP\/context\/node_modules"/u);
   assert.match(web, /MAX_DEPENDENCY_INSTALL_BYTES: "4294967296"/u);
   assert.match(web, /MAX_RUNTIME_CONTEXT_BYTES: "805306368"/u);
   assert.match(web, /run: scripts\/ci\/build-staging-web-runtime\.sh/u);

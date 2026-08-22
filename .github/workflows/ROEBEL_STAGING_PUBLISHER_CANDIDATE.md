@@ -23,14 +23,14 @@ it compiled in 4.7 minutes, slower than Webpack's 3.2 minutes, and then failed
 page-data collection for an existing newsletter route. Any compiler cache
 produced inside the job is disposable and never copied into the runtime image.
 
-The remaining repeated install is handled by a separate dependency
-materialization cache. Its exact key binds the pinned Node image, pnpm version,
-pruned lockfile, workspace configuration, every pruned package manifest and all
-patches. The network-disabled builder still runs a frozen offline install on
-every use; a missing or inconsistent package fails closed. Pull requests cannot
-write the protected default branch's cache scope, the uncompressed install is
-limited to 4 GiB, and neither the dependency materialization nor a compiler
-cache is copied into the runtime image.
+An exact dependency-cache trial was rejected as well. Its cold job took 7m02s,
+57 seconds slower than the 6m05s runtime-only baseline, including 33 seconds to
+persist the materialization. The measured warm-cache run then failed closed
+during the frozen offline install because a restored `node_modules` graph is
+not a self-contained pnpm store. The publisher therefore fetches a fresh,
+lockfile-bound offline store on every run and limits the resulting dependency
+installation to 4 GiB. Neither that installation nor a compiler cache is copied
+into the runtime image.
 
 After the standalone build, a separate runtime context receives only traced
 production dependencies, server output, static assets, public files and the
@@ -40,16 +40,13 @@ and prevents the 2.01 GB pnpm graph from becoming image-cache output. Public
 Mecky remains on its small component-scoped `mode=min` registry BuildKit cache.
 That mutable `buildcache-main` reference contains only public build inputs, is
 never a deployment input, carries no release authority, and cannot bypass the
-post-build OCI verifier. Either cache may be absent; a clean build remains the
+post-build OCI verifier. That cache may be absent; a clean build remains the
 fail-safe path.
 
-On a dependency-cache miss, `pnpm fetch` writes its virtual store into a
-runner-only fetch directory and the source context starts without
-`node_modules`. On an exact-key hit, the source context may receive only the
-previous pinned linux/amd64 dependency materialization; the frozen offline
-install verifies it before compilation. The dependency-manifest context never
-contains `node_modules`, and runner-generated fetch shims never overwrite the
-builder's platform-specific install.
+`pnpm fetch` writes its virtual store into a runner-only fetch directory and the
+source context always starts without `node_modules`. The dependency-manifest
+context never contains `node_modules`, and runner-generated fetch shims never
+overwrite the builder's platform-specific install.
 
 Mutable `source-<sha>` tags are transport labels only. An existing identical
 tag is reused; a different digest is never overwritten. Talos, Release Sets

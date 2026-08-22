@@ -25,7 +25,6 @@ const servicesCandidateWorkflow = readFileSync(
 const actionPins = new Map([
   ["actions/checkout", "d23441a48e516b6c34aea4fa41551a30e30af803"],
   ["actions/setup-node", "49933ea5288caeca8642d1e84afbd3f7d6820020"],
-  ["actions/cache", "0057852bfaa89a56745cba8c7296529d2fc39830"],
   ["pnpm/action-setup", "b906affcce14559ad1aafd4ab0e942779e9f58b1"],
   ["docker/setup-buildx-action", "37fe631027851001ddb9b187196cc803df7f5f0e"],
   ["oras-project/setup-oras", "22ce207df3b08e061f537244349aac6ae1d214f6"],
@@ -49,7 +48,6 @@ test("publisher follows protected relevant main pushes and retains exact-SHA rec
     "Dockerfile.staging-web",
     "Dockerfile.staging-web-runtime",
     "scripts/ci/build-staging-web-runtime.sh",
-    "scripts/ci/staging-web-dependency-family.mjs",
     "pnpm-lock.yaml",
   ]) {
     assert.match(workflow, new RegExp(`- "${relevantPath.replaceAll("*", "\\*")}"`, "u"));
@@ -98,10 +96,8 @@ test("publisher builds and publishes exactly the two secret-free staging compone
 
 test("Web builds once and packages a runtime-only image", () => {
   assert.doesNotMatch(workflow, /staging-web-cache-family|MAX_NEXT_CACHE_BYTES|context\/apps\/web\/\.next\/cache/u);
-  assert.match(workflow, /node scripts\/ci\/staging-web-dependency-family\.mjs/u);
-  assert.match(workflow, /path: \$\{\{ runner\.temp \}\}\/context\/node_modules/u);
-  assert.match(workflow, /roebel-web-dependencies-/u);
-  assert.match(workflow, /DEPENDENCY_CACHE_HIT/u);
+  assert.doesNotMatch(workflow, /staging-web-dependency-family|actions\/cache|DEPENDENCY_CACHE_HIT|roebel-web-dependencies-/u);
+  assert.match(workflow, /test ! -e "\$RUNNER_TEMP\/context\/node_modules"/u);
   assert.match(workflow, /run: scripts\/ci\/build-staging-web-runtime\.sh/u);
   assert.match(workflow, /RUNTIME_CONTEXT: \$\{\{ runner\.temp \}\}\/web-runtime-context/u);
   assert.match(workflow, /--file "\$GITHUB_WORKSPACE\/source\/\$DOCKERFILE"[\s\S]*?"\$RUNNER_TEMP\/web-runtime-context"/u);
@@ -152,7 +148,7 @@ test("offline dependency inputs remain isolated and Public Mecky keeps a minimal
   assert.match(servicesCandidateWorkflow, /pnpm --dir "\$RUNNER_TEMP\/test-context" --store-dir "\$RUNNER_TEMP\/pnpm-store" --offline install/u);
   assert.doesNotMatch(servicesCandidateWorkflow, /pnpm --dir "\$RUNNER_TEMP\/context" --store-dir "\$RUNNER_TEMP\/pnpm-store" --offline install/u);
   assert.match(docs, /runtime-only packaging path/iu);
-  assert.match(docs, /dependency\s+materialization cache/iu);
+  assert.match(docs, /dependency-cache trial/iu);
   assert.match(docs, /measured warm-cache run/iu);
   assert.match(docs, /Turbopack trial/iu);
   assert.match(docs, /never a deployment input/iu);
