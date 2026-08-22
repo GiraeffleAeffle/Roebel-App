@@ -61,3 +61,23 @@ stable member migration. The relay admission token, Gnosis RPC configuration,
 and durable admission file are private deployment inputs. A passkey/Safe adapter
 can reuse the same proof and event interface without changing feed or civic
 journey callers.
+
+The second adapter seam and the first coexistence proof are now implemented as
+an effect-free staging contract. A passkey-owned Safe is adapted structurally
+to the same `CitizenSession`; WebAuthn, Safe Protocol Kit, and Pimlico remain
+behind that adapter. Linking begins only from a short-lived, one-time server
+challenge bound to one stable member UUID, one existing app-account UUID, the
+current Thirdweb credential, and the existing Nostr public key. The current
+credential and the candidate Safe sign the same checksum-bound statement, while
+the current session also supplies its existing wallet↔Nostr admission proof.
+The resulting receipt explicitly preserves the member, app account, Nostr
+identity, address-bound rights, and Thirdweb credential and remains
+`awaiting_server_verification` with `authorityBinding: none`.
+
+This does **not** yet create or recover a passkey, deploy a Safe, call Pimlico,
+write a member/credential mapping, consume a challenge, or migrate a user. The
+next server-side slice must verify both ERC-1271/EIP-6492 signatures, consume the
+nonce atomically, persist the reviewed stable-member mapping, and prove that
+the existing client-held Nostr key can be recovered without putting its
+secret-equivalent derivation material in the database. Until those gates pass,
+the Thirdweb adapter remains the only provider selected by the app shell.
