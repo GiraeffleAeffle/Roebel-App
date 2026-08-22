@@ -10,7 +10,7 @@ deployment:
 
 | Boundary | Current fact | Gate to the first whole-flow browser test |
 | --- | --- | --- |
-| Reviewed source | Protected `main` is `7dc0bc0766f6c2e6bf6949ea05afb89fb0de40df`; the protected publisher builds immutable Web and Public Mecky artifacts plus one Release Set. | Promote that exact Release Set through the reviewed operations repository. |
+| Reviewed source | Protected `main` is `7dc0bc0766f6c2e6bf6949ea05afb89fb0de40df`; publisher run `32565703857` built the immutable Web and Public Mecky artifacts and read back Release Set `sha256:07fb1fd038e2f5f1bb7038e9876c51efba7805c5361fe8171969e73b9506852f`. | Promote that exact Release Set through the reviewed operations repository. |
 | Talos delivery | The Flux package, zero-effect preflight, rollback and namespace contracts pass; Flux is absent live. | Merge the one-time value-free operations bootstrap, install controller-only Flux, then adopt source, Web and Public Mecky as separate transitions. |
 | Existing Web | Three legacy replicas are healthy, but the normal feed is empty and the supplied old post detail does not complete. | Deploy the current digest and pass public semantic QA for feed, post detail and civic navigation. |
 | Thirdweb staging login | Runtime substitution works, but the configured client ID is literally `disabled-for-readonly-presentation`, so Thirdweb correctly returns `KEY_NOT_FOUND`. | Supply a valid browser-public client ID, allow `roebel-web.staging.agentcart.eu` in Thirdweb, roll the Web pods and prove signup. No Thirdweb secret key belongs in Git or the public ConfigMap. |
