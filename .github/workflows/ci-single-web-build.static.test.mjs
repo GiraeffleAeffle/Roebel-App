@@ -39,11 +39,14 @@ test("the required summary has no publication or deployment authority", () => {
   assert.doesNotMatch(ci, /^\s*(?:kubectl|helm|flux|talosctl|tailscale|ssh)\b/imu);
 });
 
-test("PR Web caching reads protected main and writes only to the PR scope", () => {
-  assert.match(web, /BUILDKIT_BASE_CACHE_SCOPE: roebel-web-main/u);
-  assert.match(web, /BUILDKIT_CACHE_SCOPE: \$\{\{ github\.event_name == 'pull_request'[\s\S]*?github\.ref == 'refs\/heads\/main'[\s\S]*?roebel-web-run-/u);
-  assert.match(web, /--cache-from "type=gha,scope=\$BUILDKIT_BASE_CACHE_SCOPE"/u);
-  assert.match(web, /--cache-from "type=gha,scope=\$BUILDKIT_CACHE_SCOPE"/u);
-  assert.match(web, /--cache-to "type=gha,scope=\$BUILDKIT_CACHE_SCOPE,mode=max,ignore-error=true"/u);
-  assert.doesNotMatch(web, /--cache-to "type=gha,scope=\$BUILDKIT_BASE_CACHE_SCOPE"/u);
+test("PR Web builds reuse a bounded Next cache and package runtime output only", () => {
+  assert.match(web, /node scripts\/ci\/staging-web-cache-family\.mjs/u);
+  assert.match(web, /actions\/cache@0057852bfaa89a56745cba8c7296529d2fc39830/u);
+  assert.match(web, /context\/apps\/web\/\.next\/cache/u);
+  assert.match(web, /MAX_NEXT_CACHE_BYTES: "1073741824"/u);
+  assert.match(web, /MAX_RUNTIME_CONTEXT_BYTES: "805306368"/u);
+  assert.match(web, /run: scripts\/ci\/build-staging-web-runtime\.sh/u);
+  assert.match(web, /--file Dockerfile\.staging-web-runtime/u);
+  assert.match(web, /"\$RUNNER_TEMP\/web-runtime-context"/u);
+  assert.doesNotMatch(web, /type=gha|mode=max/u);
 });

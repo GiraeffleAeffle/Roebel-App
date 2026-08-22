@@ -14,17 +14,27 @@ embedded runtime secrets with the source revision's verifier, and copies that
 exact manifest to GHCR. It then generates an SPDX-2.3 SBOM and attaches both an
 SBOM attestation and GitHub OIDC build provenance to the immutable digest.
 
-Each protected-main component build also imports and refreshes one
-component-scoped BuildKit cache in that component's GHCR package. Dependency
-manifests are copied before application source, so an ordinary source change
-can reuse the verified dependency-install layer and BuildKit intermediates.
-The Web cache uses `mode=max` because its measured 2.01 GB pnpm graph otherwise
-forces a roughly 53-second platform install for every source-only release; the
-small Public Mecky cache remains `mode=min`. Only the protected-main publisher
-writes either mutable cache reference. Each `buildcache-main` reference contains
-only public build inputs, is never a deployment input, carries no release
-authority, and cannot bypass the post-build OCI verifier. A missing cache always
-falls back to a clean build.
+The Web build uses a persistent Next compilation cache, but persists only its
+bounded `.next/cache` with GitHub's cache service. Its key binds the pinned
+Node image, pnpm version, pruned dependency
+graph, Next configuration and reviewed build script; the exact source revision
+is the terminal key segment. A pull request may restore the protected default
+branch's preceding compilation cache, but GitHub scopes anything it writes to
+that pull request, so it cannot poison protected `main`. The build itself runs
+once in the exact pinned Node image with networking disabled, a read-only
+offline pnpm store, no Linux capabilities and no-new-privileges. The retained
+Next cache is limited to 1 GiB and is never copied into the runtime image.
+
+After the standalone build, a separate runtime context receives only traced
+production dependencies, server output, static assets, public files and the
+reviewed runtime-config entrypoint. A tiny runtime-only Dockerfile packages that
+context. This removes the measured 149-second `mode=max` BuildKit cache export
+and prevents the 2.01 GB pnpm graph from becoming image-cache output. Public
+Mecky remains on its small component-scoped `mode=min` registry BuildKit cache.
+That mutable `buildcache-main` reference contains only public build inputs, is
+never a deployment input, carries no release authority, and cannot bypass the
+post-build OCI verifier. Either cache may be absent; a clean build remains the
+fail-safe path.
 
 Dependency fetching is isolated from the source build context. `pnpm fetch`
 writes its virtual store into a runner-only fetch directory; neither the

@@ -30,11 +30,9 @@ jobs:
       SOURCE_REVISION: ${{ inputs.source_revision || github.sha }}
       MAX_CONTEXT_BYTES: "41943040"
       MAX_STORE_BYTES: "4294967296"
+      MAX_NEXT_CACHE_BYTES: "1073741824"
+      MAX_RUNTIME_CONTEXT_BYTES: "805306368"
       MAX_ARTIFACT_BYTES: "167772160"
-      # PRs read the protected main cache but write only to their own scope.
-      # Main refreshes the shared base after merge; a PR cannot poison it.
-      BUILDKIT_BASE_CACHE_SCOPE: roebel-web-main
-      BUILDKIT_CACHE_SCOPE: ${{ github.event_name == 'pull_request' && format('roebel-web-pr-{0}', github.event.pull_request.number) || (github.ref == 'refs/heads/main' && 'roebel-web-main' || format('roebel-web-run-{0}', github.run_id)) }}
     steps:
       - name: Check out the exact source revision
         uses: actions/checkout@v4
@@ -91,6 +89,32 @@ jobs:
           test "$store_bytes" -le "$MAX_STORE_BYTES"
           printf 'store_bytes=%s\n' "$store_bytes"
 
+      - name: Bind the persistent Next build-cache family
+        id: next-cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          family="$(node scripts/ci/staging-web-cache-family.mjs "$RUNNER_TEMP/context")"
+          [[ "$family" =~ ^[0-9a-f]{64}$ ]]
+          printf 'family=%s\n' "$family" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the bounded Next compilation cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/context/apps/web/.next/cache
+          key: ${{ runner.os }}-roebel-web-next-${{ steps.next-cache.outputs.family }}-${{ env.SOURCE_REVISION }}
+          restore-keys: |
+            ${{ runner.os }}-roebel-web-next-${{ steps.next-cache.outputs.family }}-
+
+      - name: Build the cached standalone Web runtime once
+        shell: bash
+        env:
+          SOURCE_CONTEXT: ${{ runner.temp }}/context
+          PNPM_STORE: ${{ runner.temp }}/pnpm-store
+          COREPACK_CACHE: ${{ runner.temp }}/corepack-cache
+          RUNTIME_CONTEXT: ${{ runner.temp }}/web-runtime-context
+        run: scripts/ci/build-staging-web-runtime.sh
+
       - name: Set up isolated Buildx
         uses: docker/setup-buildx-action@v4
         with:
@@ -109,17 +133,11 @@ jobs:
             --platform linux/amd64 \
             --provenance=false \
             --sbom=false \
-            --file Dockerfile.staging-web \
-            --build-context "corepack-cache=$RUNNER_TEMP/corepack-cache" \
-            --build-context "pnpm-store=$RUNNER_TEMP/pnpm-store" \
-            --build-context "dependency-manifests=$RUNNER_TEMP/dependency-manifests" \
+            --file Dockerfile.staging-web-runtime \
             --build-arg "SOURCE_REVISION=$SOURCE_REVISION" \
             --build-arg "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" \
-            --cache-from "type=gha,scope=$BUILDKIT_BASE_CACHE_SCOPE" \
-            --cache-from "type=gha,scope=$BUILDKIT_CACHE_SCOPE" \
-            --cache-to "type=gha,scope=$BUILDKIT_CACHE_SCOPE,mode=max,ignore-error=true" \
             --output "type=oci,dest=/tmp/roebel-web-staging.oci.tar,name=$import_name,annotation.io.containerd.image.name=$import_name,rewrite-timestamp=true" \
-            "$RUNNER_TEMP/context"
+            "$RUNNER_TEMP/web-runtime-context"
           artifact_bytes="$(stat -c %s /tmp/roebel-web-staging.oci.tar)"
           test "$artifact_bytes" -le "$MAX_ARTIFACT_BYTES"
           printf 'artifact_bytes=%s\n' "$artifact_bytes"

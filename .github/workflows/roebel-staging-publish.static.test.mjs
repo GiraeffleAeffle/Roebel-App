@@ -4,7 +4,14 @@ import test from "node:test";
 
 const workflow = readFileSync(new URL("./roebel-staging-publish.yml", import.meta.url), "utf8");
 const docs = readFileSync(new URL("./ROEBEL_STAGING_PUBLISHER_CANDIDATE.md", import.meta.url), "utf8");
-const webDockerfile = readFileSync(new URL("../../Dockerfile.staging-web", import.meta.url), "utf8");
+const webRuntimeDockerfile = readFileSync(
+  new URL("../../Dockerfile.staging-web-runtime", import.meta.url),
+  "utf8",
+);
+const webBuildScript = readFileSync(
+  new URL("../../scripts/ci/build-staging-web-runtime.sh", import.meta.url),
+  "utf8",
+);
 const meckyDockerfile = readFileSync(
   new URL("../../packages/agent-watcher/Dockerfile", import.meta.url),
   "utf8",
@@ -18,6 +25,7 @@ const servicesCandidateWorkflow = readFileSync(
 const actionPins = new Map([
   ["actions/checkout", "d23441a48e516b6c34aea4fa41551a30e30af803"],
   ["actions/setup-node", "49933ea5288caeca8642d1e84afbd3f7d6820020"],
+  ["actions/cache", "0057852bfaa89a56745cba8c7296529d2fc39830"],
   ["pnpm/action-setup", "b906affcce14559ad1aafd4ab0e942779e9f58b1"],
   ["docker/setup-buildx-action", "37fe631027851001ddb9b187196cc803df7f5f0e"],
   ["oras-project/setup-oras", "22ce207df3b08e061f537244349aac6ae1d214f6"],
@@ -39,6 +47,8 @@ test("publisher follows protected relevant main pushes and retains exact-SHA rec
     "packages/agent-watcher/**",
     "packages/stadtstack-federation-client/**",
     "Dockerfile.staging-web",
+    "Dockerfile.staging-web-runtime",
+    "scripts/ci/build-staging-web-runtime.sh",
     "pnpm-lock.yaml",
   ]) {
     assert.match(workflow, new RegExp(`- "${relevantPath.replaceAll("*", "\\*")}"`, "u"));
@@ -54,13 +64,15 @@ test("publisher follows protected relevant main pushes and retains exact-SHA rec
 });
 
 test("runner-local paths are bound only after the runner exists", () => {
-  assert.doesNotMatch(workflow, /\$\{\{\s*runner\./u);
+  const beforeJobs = workflow.slice(0, workflow.indexOf("\njobs:"));
+  assert.doesNotMatch(beforeJobs, /\$\{\{\s*runner\./u);
   assert.match(workflow, /- name: Bind runner-local evidence paths/u);
   assert.match(workflow, /printf 'ARCHIVE=%s\/%s\\n' "\$RUNNER_TEMP" "\$ARCHIVE_NAME"/u);
   for (const variable of ["LAYOUT", "SOURCE_RECEIPT", "SBOM", "PUBLICATION_RECEIPT"]) {
     assert.match(workflow, new RegExp(`printf '${variable}=`, "u"));
   }
   assert.match(workflow, /\} >> "\$GITHUB_ENV"/u);
+  assert.match(workflow, /path: \$\{\{ runner\.temp \}\}\/context\/apps\/web\/\.next\/cache/u);
 });
 
 test("publisher builds and publishes exactly the two secret-free staging components", () => {
@@ -83,100 +95,60 @@ test("publisher builds and publishes exactly the two secret-free staging compone
   assert.doesNotMatch(workflow, /(?:tags?:\s*(?:latest|main)|:latest\b)/u);
 });
 
-test("protected builds reuse only component-scoped public BuildKit caches", () => {
+test("Web persists only bounded Next cache and packages a runtime-only image", () => {
+  assert.match(workflow, /actions\/cache@0057852bfaa89a56745cba8c7296529d2fc39830/u);
+  assert.match(workflow, /node scripts\/ci\/staging-web-cache-family\.mjs/u);
+  assert.match(workflow, /path: \$\{\{ runner\.temp \}\}\/context\/apps\/web\/\.next\/cache/u);
+  assert.match(workflow, /restore-keys:[\s\S]*?roebel-web-next-/u);
+  assert.match(workflow, /run: scripts\/ci\/build-staging-web-runtime\.sh/u);
+  assert.match(workflow, /RUNTIME_CONTEXT: \$\{\{ runner\.temp \}\}\/web-runtime-context/u);
+  assert.match(workflow, /--file "\$GITHUB_WORKSPACE\/source\/\$DOCKERFILE"[\s\S]*?"\$RUNNER_TEMP\/web-runtime-context"/u);
+  assert.doesNotMatch(workflow, /mode=max/u);
+
+  assert.match(webBuildScript, /--network none/u);
+  assert.match(webBuildScript, /--user "\$\(id -u\):\$\(id -g\)"/u);
+  assert.match(webBuildScript, /--cap-drop ALL/u);
+  assert.match(webBuildScript, /--security-opt no-new-privileges/u);
+  assert.match(webBuildScript, /corepack pnpm --store-dir \/pnpm\/store --filter @roebel\/web\.\.\. install --offline/u);
+  assert.match(webBuildScript, /corepack pnpm --filter @roebel\/web build/u);
+  assert.match(webBuildScript, /next_cache_bytes <= max_next_cache_bytes/u);
+  assert.match(webBuildScript, /runtime_context_bytes <= max_runtime_context_bytes/u);
+  assert.match(webBuildScript, /! -e "\$runtime_context\/apps\/web\/\.next\/cache"/u);
+
+  assert.match(webRuntimeDockerfile, /COPY --chown=65532:65532 \. \./u);
+  assert.match(webRuntimeDockerfile, /org\.opencontainers\.image\.revision="\$\{SOURCE_REVISION\}"/u);
+  assert.match(webRuntimeDockerfile, /stadtstack\.io\/civic-authority="none"/u);
+  assert.doesNotMatch(webRuntimeDockerfile, /pnpm|next build|dependency-manifests/u);
+});
+
+test("offline dependency inputs remain isolated and Public Mecky keeps a minimal BuildKit cache", () => {
   const login = workflow.indexOf("- name: Authenticate BuildKit to the exact GHCR namespace");
-  const build = workflow.indexOf("- name: Build exactly one linux/amd64 OCI archive");
-  assert.ok(login >= 0 && build > login, "registry auth must precede the cache-backed build");
+  const build = workflow.indexOf("- name: Build exactly one Public Mecky linux/amd64 OCI archive");
+  assert.ok(login >= 0 && build > login, "registry auth must precede the cache-backed Mecky build");
   assert.match(workflow, /cache_ref="\$IMAGE:buildcache-main"/u);
   assert.match(workflow, /--cache-from "type=registry,ref=\$cache_ref"/u);
-  assert.match(
-    workflow,
-    /component: roebel-web-staging[\s\S]*?cache_mode: max[\s\S]*?component: public-mecky[\s\S]*?cache_mode: min/u,
-  );
-  assert.match(workflow, /CACHE_MODE: \$\{\{ matrix\.cache_mode \}\}/u);
-  assert.match(
-    workflow,
-    /--cache-to "type=registry,ref=\$cache_ref,mode=\$CACHE_MODE,oci-mediatypes=true,image-manifest=true"/u,
-  );
+  assert.match(workflow, /--cache-to "type=registry,ref=\$cache_ref,mode=min,oci-mediatypes=true,image-manifest=true"/u);
   assert.match(workflow, /--build-context "dependency-manifests=\$RUNNER_TEMP\/dependency-manifests"/u);
   assert.match(workflow, /cp -a "\$RUNNER_TEMP\/pruned\/json\/\." "\$RUNNER_TEMP\/dependency-manifests\/"/u);
-  assert.match(
-    workflow,
-    /cp -a "\$RUNNER_TEMP\/dependency-manifests\/\." "\$RUNNER_TEMP\/fetch-input\/"/u,
-  );
-  assert.match(
-    workflow,
-    /pnpm fetch --store-dir "\$RUNNER_TEMP\/pnpm-store" --dir "\$RUNNER_TEMP\/fetch-input"/u,
-  );
-  assert.doesNotMatch(
-    workflow,
-    /pnpm fetch --store-dir "\$RUNNER_TEMP\/pnpm-store" --dir "\$RUNNER_TEMP\/context"/u,
-  );
+  assert.match(workflow, /cp -a "\$RUNNER_TEMP\/dependency-manifests\/\." "\$RUNNER_TEMP\/fetch-input\/"/u);
+  assert.match(workflow, /pnpm fetch --store-dir "\$RUNNER_TEMP\/pnpm-store" --dir "\$RUNNER_TEMP\/fetch-input"/u);
+  assert.doesNotMatch(workflow, /pnpm fetch --store-dir "\$RUNNER_TEMP\/pnpm-store" --dir "\$RUNNER_TEMP\/context"/u);
   assert.match(workflow, /test ! -e "\$RUNNER_TEMP\/context\/node_modules"/u);
-  assert.match(webDockerfile, /COPY --from=dependency-manifests \. \./u);
-  assert.match(
-    webDockerfile,
-    /COPY --from=dependency-manifests \. \.[\s\S]*?pnpm --filter @roebel\/web\.\.\. install[\s\S]*?COPY \. \./u,
-  );
-  const webInstall = webDockerfile.indexOf("pnpm --filter @roebel/web... install");
-  const webSourceRevision = webDockerfile.indexOf("ARG SOURCE_REVISION");
-  const webSourceCopy = webDockerfile.indexOf("COPY . .");
-  assert.ok(webInstall >= 0, "web dependency install must exist");
-  assert.ok(
-    webSourceRevision > webInstall,
-    "source revision must not invalidate the dependency-only install layer",
-  );
-  assert.ok(
-    webSourceCopy > webSourceRevision,
-    "source revision must still invalidate and bind the application build",
-  );
   assert.match(
     meckyDockerfile,
     /COPY --from=dependency-manifests \. \.[\s\S]*?pnpm --filter @netizen-labs\/agent-watcher\.\.\. install[\s\S]*?COPY \. \./u,
   );
   for (const candidateWorkflow of [webCandidateWorkflow, servicesCandidateWorkflow]) {
     assert.match(candidateWorkflow, /cp -a "\$RUNNER_TEMP\/pruned\/json\/\." "\$RUNNER_TEMP\/dependency-manifests\/"/u);
-    assert.match(candidateWorkflow, /--build-context "dependency-manifests=\$RUNNER_TEMP\/dependency-manifests"/u);
-    assert.match(
-      candidateWorkflow,
-      /pnpm fetch --store-dir "\$RUNNER_TEMP\/pnpm-store" --dir "\$RUNNER_TEMP\/fetch-input"/u,
-    );
-    assert.doesNotMatch(
-      candidateWorkflow,
-      /pnpm fetch --store-dir "\$RUNNER_TEMP\/pnpm-store" --dir "\$RUNNER_TEMP\/context"/u,
-    );
+    assert.match(candidateWorkflow, /pnpm fetch --store-dir "\$RUNNER_TEMP\/pnpm-store" --dir "\$RUNNER_TEMP\/fetch-input"/u);
+    assert.doesNotMatch(candidateWorkflow, /pnpm fetch --store-dir "\$RUNNER_TEMP\/pnpm-store" --dir "\$RUNNER_TEMP\/context"/u);
     assert.match(candidateWorkflow, /test ! -e "\$RUNNER_TEMP\/context\/node_modules"/u);
   }
-  assert.match(
-    webCandidateWorkflow,
-    /BUILDKIT_BASE_CACHE_SCOPE: roebel-web-main/u,
-  );
-  assert.match(
-    webCandidateWorkflow,
-    /BUILDKIT_CACHE_SCOPE: \$\{\{ github\.event_name == 'pull_request'[\s\S]*?github\.ref == 'refs\/heads\/main'[\s\S]*?roebel-web-run-/u,
-  );
-  assert.match(
-    webCandidateWorkflow,
-    /--cache-from "type=gha,scope=\$BUILDKIT_BASE_CACHE_SCOPE"/u,
-  );
-  assert.match(
-    webCandidateWorkflow,
-    /--cache-from "type=gha,scope=\$BUILDKIT_CACHE_SCOPE"/u,
-  );
-  assert.match(
-    webCandidateWorkflow,
-    /--cache-to "type=gha,scope=\$BUILDKIT_CACHE_SCOPE,mode=max,ignore-error=true"/u,
-  );
-  assert.doesNotMatch(workflow, /type=gha/u);
-  assert.match(
-    servicesCandidateWorkflow,
-    /pnpm --dir "\$RUNNER_TEMP\/test-context" --store-dir "\$RUNNER_TEMP\/pnpm-store" --offline install/u,
-  );
-  assert.doesNotMatch(
-    servicesCandidateWorkflow,
-    /pnpm --dir "\$RUNNER_TEMP\/context" --store-dir "\$RUNNER_TEMP\/pnpm-store" --offline install/u,
-  );
-  assert.match(docs, /component-scoped BuildKit cache/iu);
+  assert.doesNotMatch(webCandidateWorkflow, /type=gha|mode=max/u);
+  assert.match(servicesCandidateWorkflow, /--build-context "dependency-manifests=\$RUNNER_TEMP\/dependency-manifests"/u);
+  assert.match(servicesCandidateWorkflow, /pnpm --dir "\$RUNNER_TEMP\/test-context" --store-dir "\$RUNNER_TEMP\/pnpm-store" --offline install/u);
+  assert.doesNotMatch(servicesCandidateWorkflow, /pnpm --dir "\$RUNNER_TEMP\/context" --store-dir "\$RUNNER_TEMP\/pnpm-store" --offline install/u);
+  assert.match(docs, /persistent Next compilation cache/iu);
   assert.match(docs, /never a deployment input/iu);
 });
 
