@@ -29,6 +29,109 @@ export const STAGING_SERVICE_BUILD_MATRIX = Object.freeze([
   }),
 ]);
 
+/**
+ * Closed workspace ownership used by the quality gate. The detector tests
+ * this list against every workspace package.json so a newly added package
+ * cannot silently escape CI.
+ */
+export const QUALITY_WORKSPACES = Object.freeze([
+  ["apps/expo", "@roebel/expo"],
+  ["apps/mini-apps/_template", "@netizen/miniapp-template"],
+  ["apps/mini-apps/roebel-data", "@netizen/miniapp-roebel-data"],
+  ["apps/roebel-id", "@roebel/roebel-id"],
+  ["apps/web", "@roebel/web"],
+  ["contracts/governor-contract", "hardhat-javascript-starter"],
+  ["packages/agent-watcher", "@netizen-labs/agent-watcher"],
+  ["packages/blockchain", "@roebel/blockchain"],
+  ["packages/cli", "@netizen-labs/cli"],
+  ["packages/config", "@roebel/config"],
+  ["packages/design-tokens", "@roebel/design-tokens"],
+  ["packages/e2e-workbench", "@roebel/e2e-workbench"],
+  ["packages/facilitator", "@netizen-labs/facilitator"],
+  ["packages/gateway", "@netizen-labs/gateway"],
+  ["packages/indexer", "@netizen-labs/indexer"],
+  ["packages/miniapp-sdk", "@netizen-labs/miniapp-sdk"],
+  ["packages/nostr", "@netizen-labs/nostr"],
+  ["packages/protocol", "@netizen-labs/protocol"],
+  ["packages/publisher", "@netizen-labs/publisher"],
+  ["packages/record-client", "@netizen-labs/record-client"],
+  ["packages/relay-sync", "@netizen-labs/relay-sync"],
+  ["packages/stadtstack-federation-client", "@roebel/stadtstack-federation-client"],
+  ["packages/staging-relay", "@roebel/staging-relay"],
+  ["packages/workspace", "@netizen-labs/workspace"],
+].map(([root, name]) => Object.freeze({ root, name })));
+
+const FULL_QUALITY_PATHS = new Set([
+  ".github/workflows/ci.yml",
+  ".npmrc",
+  ".nvmrc",
+  ".prettierrc",
+  "app.json",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "turbo.json",
+]);
+
+const QUALITY_FREE_PATHS = new Set([
+  ".dockerignore",
+  ".gitignore",
+  ".mcp.json",
+  "CLAUDE.md",
+  "CODE_OF_CONDUCT.md",
+  "CONTEXT.md",
+  "CONTRIBUTING.md",
+  "Dockerfile.staging-web",
+  "Dockerfile.staging-web.dockerignore",
+  "LICENSE",
+  "README.md",
+  "SECURITY.md",
+  "scripts/verify-staging-service-oci.mjs",
+  "scripts/verify-staging-service-oci.test.mjs",
+  "scripts/verify-staging-web-oci.mjs",
+  "scripts/verify-staging-web-oci.test.mjs",
+]);
+
+function qualitySelection(changedPaths, affected) {
+  let full = changedPaths.includes("__all__");
+  const packages = new Set();
+  for (const path of changedPaths) {
+    if (path === "__all__") continue;
+    const workspace = QUALITY_WORKSPACES.find(({ root }) =>
+      path === `${root}/package.json` || path.startsWith(`${root}/`)
+    );
+    if (workspace) {
+      packages.add(workspace.name);
+      continue;
+    }
+    if (
+      QUALITY_FREE_PATHS.has(path) ||
+      path.startsWith("docs/") ||
+      path.startsWith(".changeset/")
+    ) {
+      continue;
+    }
+    if (
+      FULL_QUALITY_PATHS.has(path) ||
+      path.startsWith("patches/") ||
+      path.startsWith("scripts/ci/") ||
+      path.startsWith(".github/workflows/")
+    ) {
+      full = true;
+      continue;
+    }
+    // Unknown repository surfaces fail closed to the complete quality suite.
+    full = true;
+  }
+  const packageNames = Object.freeze(full ? [] : [...packages].sort());
+  return Object.freeze({
+    quality_required: full || packageNames.length > 0,
+    quality_full: full,
+    quality_web_tests: full || affected.web,
+    quality_packages: packageNames,
+  });
+}
+
 const ALL_COMPONENT_PATHS = new Set([
   ".npmrc",
   "package.json",
@@ -127,10 +230,12 @@ export function affectedStagingComponents(paths) {
       .filter(({ key }) => affected[key])
       .map(({ key: _key, ...entry }) => Object.freeze(entry))),
   });
+  const quality = qualitySelection(changedPaths, affected);
   return Object.freeze({
     ...affected,
     any_service: affected.public_mecky || affected.e2e_workbench || affected.staging_relay,
     service_build_matrix: serviceBuildMatrix,
+    ...quality,
     changed_paths: Object.freeze(changedPaths),
   });
 }
@@ -153,6 +258,10 @@ function runCli() {
       `staging_relay=${result.staging_relay}`,
       `any_service=${result.any_service}`,
       `service_build_matrix=${JSON.stringify(result.service_build_matrix)}`,
+      `quality_required=${result.quality_required}`,
+      `quality_full=${result.quality_full}`,
+      `quality_web_tests=${result.quality_web_tests}`,
+      `quality_packages=${JSON.stringify(result.quality_packages)}`,
       "",
     ].join("\n"), "utf8");
     return;

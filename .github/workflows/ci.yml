@@ -20,6 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       web: ${{ steps.affected.outputs.web }}
+      quality_required: ${{ steps.affected.outputs.quality_required }}
+      quality_full: ${{ steps.affected.outputs.quality_full }}
+      quality_web_tests: ${{ steps.affected.outputs.quality_web_tests }}
+      quality_packages: ${{ steps.affected.outputs.quality_packages }}
     steps:
       - name: Check out the exact source revision
         uses: actions/checkout@v4
@@ -46,12 +50,25 @@ jobs:
           node scripts/ci/affected-staging-components.mjs --github-output < "$RUNNER_TEMP/changed-paths.txt"
 
   quality:
-    name: Quality and non-Web builds
+    name: Affected quality and non-Web builds
+    needs: changes
+    if: ${{ needs.changes.outputs.quality_required == 'true' }}
     permissions:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out the exact source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify the affected-quality boundary
+        run: >-
+          node --test
+          scripts/ci/affected-staging-components.test.mjs
+          scripts/ci/run-affected-quality.test.mjs
 
       - uses: pnpm/action-setup@v4
 
@@ -62,19 +79,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Web unit tests
-        run: pnpm test:web
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Build non-Web packages
-        # The reusable Web OCI job below performs the one authoritative Next
-        # build for this revision. Keep every other package build in CI.
-        run: pnpm exec turbo build --filter='!@roebel/web'
+      - name: Test, lint, typecheck and build the affected graph
+        env:
+          QUALITY_FULL: ${{ needs.changes.outputs.quality_full }}
+          QUALITY_PACKAGES: ${{ needs.changes.outputs.quality_packages }}
+          QUALITY_WEB_TESTS: ${{ needs.changes.outputs.quality_web_tests }}
+        run: node scripts/ci/run-affected-quality.mjs
 
   web-oci:
     name: Verified Web build
@@ -99,13 +109,19 @@ jobs:
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
           QUALITY_RESULT: ${{ needs.quality.result }}
+          QUALITY_REQUIRED: ${{ needs.changes.outputs.quality_required }}
           WEB_OCI_RESULT: ${{ needs.web-oci.result }}
           WEB_REQUIRED: ${{ needs.changes.outputs.web }}
         shell: bash
         run: |
           set -euo pipefail
           test "$CHANGES_RESULT" = success
-          test "$QUALITY_RESULT" = success
+          if test "$QUALITY_REQUIRED" = true; then
+            test "$QUALITY_RESULT" = success
+          else
+            test "$QUALITY_REQUIRED" = false
+            test "$QUALITY_RESULT" = skipped
+          fi
           if test "$WEB_REQUIRED" = true; then
             test "$WEB_OCI_RESULT" = success
           else
