@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
-# Build the Röbel Web standalone output in one pinned, offline container and
-# assemble the only context the runtime image is allowed to receive.
+# Build the Röbel Web standalone output once with the staging-only Turbopack
+# adapter in a pinned, offline container, then assemble the only context the
+# runtime image is allowed to receive.
 
 set -euo pipefail
 umask 077
@@ -18,7 +19,6 @@ pnpm_store="${PNPM_STORE:-}"
 corepack_cache="${COREPACK_CACHE:-}"
 runtime_context="${RUNTIME_CONTEXT:-}"
 source_revision="${SOURCE_REVISION:-}"
-max_next_cache_bytes="${MAX_NEXT_CACHE_BYTES:-3221225472}"
 max_runtime_context_bytes="${MAX_RUNTIME_CONTEXT_BYTES:-805306368}"
 
 for path in "$source_context" "$pnpm_store" "$corepack_cache"; do
@@ -26,7 +26,6 @@ for path in "$source_context" "$pnpm_store" "$corepack_cache"; do
 done
 [[ "$runtime_context" == /* && ! -e "$runtime_context" && ! -L "$runtime_context" ]] || fail 'runtime context must be an absent absolute path'
 [[ "$source_revision" =~ ^[0-9a-f]{40}$ ]] || fail 'source revision differs'
-[[ "$max_next_cache_bytes" =~ ^[1-9][0-9]*$ ]] || fail 'Next cache budget differs'
 [[ "$max_runtime_context_bytes" =~ ^[1-9][0-9]*$ ]] || fail 'runtime context budget differs'
 [[ -f "$source_context/pnpm-lock.yaml" && ! -L "$source_context/pnpm-lock.yaml" ]] || fail 'pruned lockfile differs'
 [[ -f "$source_context/apps/web/package.json" && ! -L "$source_context/apps/web/package.json" ]] || fail 'Web package manifest differs'
@@ -44,9 +43,9 @@ docker run --rm \
   --workdir /workspace \
   --env HOME=/tmp \
   --env COREPACK_HOME=/corepack \
+  --env NODE_OPTIONS=--max-old-space-size=4096 \
   --env NEXT_TELEMETRY_DISABLED=1 \
   --env ROEBEL_STANDALONE_IMAGE=1 \
-  --env ROEBEL_WEBPACK_PARALLELISM=2 \
   --env NEXT_PUBLIC_STADTSTACK_STAGING_LAB=1 \
   --env ROEBEL_PUBLIC_DEPLOYMENT_PROFILE=talos_staging_synthetic_workflow \
   --env ROEBEL_PUBLIC_BASE_URL=https://roebel-web.staging.agentcart.eu \
@@ -71,29 +70,19 @@ docker run --rm \
   "$node_image" \
   sh -ceu '
     corepack pnpm --store-dir /pnpm/store --filter @roebel/web... install --offline --frozen-lockfile --ignore-scripts
-    corepack pnpm --filter @roebel/web build
+    corepack pnpm --filter @roebel/web exec next build --turbopack
   '
 
 standalone="$source_context/apps/web/.next/standalone"
 static="$source_context/apps/web/.next/static"
 public="$source_context/apps/web/public"
 entrypoint="$source_context/apps/web/scripts/inject-public-runtime-config.mjs"
-next_cache="$source_context/apps/web/.next/cache"
 
 for path in "$standalone" "$static" "$public"; do
   [[ -d "$path" && ! -L "$path" ]] || fail "required standalone build directory differs: $path"
 done
 [[ -f "$standalone/apps/web/server.js" && ! -L "$standalone/apps/web/server.js" ]] || fail 'standalone server differs'
 [[ -f "$entrypoint" && ! -L "$entrypoint" ]] || fail 'runtime entrypoint differs'
-[[ -d "$next_cache" && ! -L "$next_cache" ]] || fail 'Next cache differs'
-
-next_cache_bytes="$(du -sb "$next_cache" | cut -f1)"
-[[ "$next_cache_bytes" =~ ^[0-9]+$ ]] || fail 'Next cache measurement differs'
-printf 'next_cache_bytes=%s\n' "$next_cache_bytes"
-find "$next_cache" -mindepth 1 -maxdepth 2 -type d -exec du -sb {} + \
-  | LC_ALL=C sort -nr \
-  | sed -n '1,20p'
-(( next_cache_bytes <= max_next_cache_bytes )) || fail "Next cache exceeds its retained budget ($next_cache_bytes > $max_next_cache_bytes bytes)"
 
 mkdir -p "$runtime_context/apps/web/.next" "$runtime_context/apps/web"
 cp -a "$standalone/." "$runtime_context/"
@@ -111,6 +100,6 @@ runtime_context_bytes="$(du -sb "$runtime_context" | cut -f1)"
 
 printf '%s\n' \
   'staging_web_runtime_build=PASS' \
+  'bundler=turbopack' \
   "source_revision=$source_revision" \
-  "next_cache_bytes=$next_cache_bytes" \
   "runtime_context_bytes=$runtime_context_bytes"

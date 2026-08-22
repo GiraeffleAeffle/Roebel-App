@@ -14,16 +14,14 @@ embedded runtime secrets with the source revision's verifier, and copies that
 exact manifest to GHCR. It then generates an SPDX-2.3 SBOM and attaches both an
 SBOM attestation and GitHub OIDC build provenance to the immutable digest.
 
-The Web build uses a persistent Next compilation cache, but persists only its
-bounded `.next/cache` with GitHub's cache service. Its key binds the pinned
-Node image, pnpm version, pruned dependency
-graph, Next configuration and reviewed build script; the exact source revision
-is the terminal key segment. A pull request may restore the protected default
-branch's preceding compilation cache, but GitHub scopes anything it writes to
-that pull request, so it cannot poison protected `main`. The build itself runs
-once in the exact pinned Node image with networking disabled, a read-only
-offline pnpm store, no Linux capabilities and no-new-privileges. The retained
-Next cache is limited to 3 GiB and is never copied into the runtime image.
+The Web build uses a staging-only Turbopack adapter while the upstream/Vercel
+build remains on its reviewed Webpack path. The adapter runs once in the exact
+pinned Node image with networking disabled, a read-only offline pnpm store, no
+Linux capabilities and no-new-privileges. The measured warm-cache run for the
+preceding Webpack experiment took 6m22s versus 6m05s cold, so the ineffective
+168 MiB compressed / 2.50-2.91 GiB uncompressed cache is not restored or
+retained. Any compiler cache produced inside the job is disposable and never
+copied into the runtime image.
 
 After the standalone build, a separate runtime context receives only traced
 production dependencies, server output, static assets, public files and the

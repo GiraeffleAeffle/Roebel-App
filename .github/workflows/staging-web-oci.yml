@@ -30,7 +30,6 @@ jobs:
       SOURCE_REVISION: ${{ inputs.source_revision || github.sha }}
       MAX_CONTEXT_BYTES: "41943040"
       MAX_STORE_BYTES: "4294967296"
-      MAX_NEXT_CACHE_BYTES: "3221225472"
       MAX_RUNTIME_CONTEXT_BYTES: "805306368"
       MAX_ARTIFACT_BYTES: "167772160"
     steps:
@@ -89,24 +88,7 @@ jobs:
           test "$store_bytes" -le "$MAX_STORE_BYTES"
           printf 'store_bytes=%s\n' "$store_bytes"
 
-      - name: Bind the persistent Next build-cache family
-        id: next-cache
-        shell: bash
-        run: |
-          set -euo pipefail
-          family="$(node scripts/ci/staging-web-cache-family.mjs "$RUNNER_TEMP/context")"
-          [[ "$family" =~ ^[0-9a-f]{64}$ ]]
-          printf 'family=%s\n' "$family" >> "$GITHUB_OUTPUT"
-
-      - name: Restore the bounded Next compilation cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: ${{ runner.temp }}/context/apps/web/.next/cache
-          key: ${{ runner.os }}-roebel-web-next-${{ steps.next-cache.outputs.family }}-${{ env.SOURCE_REVISION }}
-          restore-keys: |
-            ${{ runner.os }}-roebel-web-next-${{ steps.next-cache.outputs.family }}-
-
-      - name: Build the cached standalone Web runtime once
+      - name: Build the standalone Web runtime once with Turbopack
         shell: bash
         env:
           SOURCE_CONTEXT: ${{ runner.temp }}/context
