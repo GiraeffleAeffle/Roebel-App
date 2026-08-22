@@ -452,6 +452,11 @@ describe("Röbel E2E workbench boundary", () => {
           entryType: "post" | "topic";
           synthetic: boolean;
           topicId?: string;
+          discussions?: Array<{
+            id: string;
+            content: string;
+            synthetic: boolean;
+          }>;
         }>;
       };
       assert.equal(publicFeedResponse.status, 200);
@@ -468,7 +473,11 @@ describe("Röbel E2E workbench boundary", () => {
           (entry) =>
             entry.entryType === "topic" &&
             entry.topicId ===
-              "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt"
+              "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt" &&
+            entry.discussions?.length === 1 &&
+            entry.discussions[0]?.id === promotion.id &&
+            entry.discussions[0]?.content === promotion.content &&
+            entry.discussions[0]?.synthetic === false
         ),
         true
       );

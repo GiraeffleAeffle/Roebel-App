@@ -18,6 +18,23 @@ function topic(
     topicTitle: input.topicTitle ?? "Offener Treffpunkt",
     discussionCount: input.discussionCount ?? 1,
     discussionIds: input.discussionIds ?? [input.id],
+    discussions: input.discussions ?? [
+      {
+        id: input.id,
+        author: input.author ?? {
+          name: "Max",
+          kind: "citizen",
+          pubkey: "a".repeat(64),
+        },
+        content:
+          input.content ?? "Soll daraus eine gemeinsame Diskussion werden?",
+        createdAt: input.createdAt ?? "2026-08-22T11:00:00.000Z",
+        replyCount: input.replyCount ?? 0,
+        meckyMentioned: input.meckyMentioned ?? false,
+        meckyAnswered: input.meckyAnswered ?? false,
+        synthetic: input.synthetic ?? false,
+      },
+    ],
     sourcePostIds: input.sourcePostIds ?? [],
     activityCount: input.activityCount ?? 1,
     lastActivityAt: input.lastActivityAt ?? "2026-08-22T12:00:00.000Z",

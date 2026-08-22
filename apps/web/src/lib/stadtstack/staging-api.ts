@@ -28,6 +28,16 @@ export type StagingTopicPost = StagingFeedBase & {
   topicTitle: string;
   discussionCount: number;
   discussionIds: string[];
+  discussions: Array<{
+    id: string;
+    author: StagingFeedBase["author"];
+    content: string;
+    createdAt: string;
+    replyCount: number;
+    meckyMentioned: boolean;
+    meckyAnswered: boolean;
+    synthetic: boolean;
+  }>;
   sourcePostIds: string[];
   activityCount: number;
   lastActivityAt: string;

@@ -37,5 +37,5 @@ The public app, Stadtstack case workflow, administrative workspace, governance v
 - General social posting remains useful even when a post never enters a civic workflow.
 - Topic identifiers, discussion identifiers, proposal identifiers, and civic-case identifiers remain separate and require explicit idempotency constraints.
 - Existing staging roots need a deterministic backfill to a canonical topic before the grouped projection is enabled.
-- Topic detail UI must expose the underlying signed discussions and provenance rather than hiding them behind a summary.
+- The staging topic detail UI exposes the underlying signed source posts and discussion roots rather than hiding them behind a summary. A production dataset still needs a deterministic topic backfill and release review.
 - This ADR does not authorize a formal vote, a municipal budget programme, a treasury transaction, or production data migration.

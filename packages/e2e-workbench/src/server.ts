@@ -907,6 +907,33 @@ export async function startWorkbench(
             meckyAnswered: discussions.some((entry) => entry.meckyAnswered),
             discussionCount: discussions.length,
             discussionIds: discussions.map((entry) => entry.id).sort(),
+            discussions: [...discussions]
+              .sort(
+                (a, b) =>
+                  b.createdAt.localeCompare(a.createdAt) ||
+                  a.id.localeCompare(b.id)
+              )
+              .map(
+                ({
+                  id,
+                  author,
+                  content,
+                  createdAt,
+                  replyCount,
+                  meckyMentioned,
+                  meckyAnswered,
+                  synthetic,
+                }) => ({
+                  id,
+                  author,
+                  content,
+                  createdAt,
+                  replyCount,
+                  meckyMentioned,
+                  meckyAnswered,
+                  synthetic,
+                })
+              ),
             sourcePostIds: discussions
               .flatMap((discussion) => {
                 const source = visibleEvents.find(
