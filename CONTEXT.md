@@ -33,6 +33,7 @@ This glossary fixes the terms used by the Röbel app and Stadtstack integration.
 | **Identity binding** | The private, mutually proved association between one member identity and one Nostr public key, with credential-specific proofs retained for audit. | A public directory of residents and wallets. |
 | **Stage tool** | A narrowly scoped mini-app or external adapter used inside one journey stage, such as an argument visualization, budget explorer, or administration handoff. | The canonical journey, a second source of truth, or an independent authority lane. |
 | **Reviewed evidence** | A source URL or document version with content checksum, retrieval time, visibility, provenance, and human review state. | A model-generated claim. |
+| **Synthetic evidence capability** | A staging-only, two-factor runtime capability that requires both the exact synthetic mode and an explicit E2E permission. | A production default or a capability granted by a leftover legacy environment variable. |
 | **Administrative work package** | The idempotently exported, human-owned task created in openDesk only after proposal admission. | A raw feed post, Mecky answer, or automatic municipal decision. |
 | **Staging dataset release** | A named projection selecting the currently demonstrated synthetic events while retaining older signed events as archived activity. | Deleting or rewriting the Nostr event log. |
 | **Staging identity** | An explicitly labelled synthetic Nostr key used only by the isolated staging relay. | A resident, citizen credential, or production account. |
