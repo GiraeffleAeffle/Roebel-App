@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import {
   affectedStagingComponents,
   QUALITY_WORKSPACES,
+  STAGING_PUBLISH_BUILD_MATRIX,
   STAGING_SERVICE_BUILD_MATRIX,
 } from "./affected-staging-components.mjs";
 
@@ -18,7 +19,7 @@ const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 function actualWorkspaceRoots(directory = ROOT, prefix = "") {
   const roots = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    if (!entry.isDirectory() || entry.name === ".git" || entry.name === "node_modules") continue;
+    if (!entry.isDirectory() || entry.name === ".git" || entry.name === "node_modules" || entry.name === ".next") continue;
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
     const absolute = join(directory, entry.name);
     if (relative !== "apps" && relative !== "packages" && relative !== "contracts" && !prefix) {
@@ -30,6 +31,43 @@ function actualWorkspaceRoots(directory = ROOT, prefix = "") {
   return roots;
 }
 
+function workspaceClosure(root) {
+  const manifests = new Map(
+    actualWorkspaceRoots().map((workspaceRoot) => {
+      const manifest = JSON.parse(
+        readFileSync(join(ROOT, workspaceRoot, "package.json"), "utf8"),
+      );
+      return [manifest.name, { manifest, root: workspaceRoot }];
+    }),
+  );
+  const start = JSON.parse(
+    readFileSync(join(ROOT, root, "package.json"), "utf8"),
+  );
+  const pending = [start.name];
+  const visited = new Set();
+  while (pending.length > 0) {
+    const name = pending.pop();
+    if (visited.has(name)) continue;
+    visited.add(name);
+    const entry = manifests.get(name);
+    if (!entry) continue;
+    const dependencies = {
+      ...(entry.manifest.dependencies ?? {}),
+      ...(entry.manifest.devDependencies ?? {}),
+      ...(entry.manifest.optionalDependencies ?? {}),
+    };
+    for (const [dependency, version] of Object.entries(dependencies)) {
+      if (String(version).startsWith("workspace:") && manifests.has(dependency)) {
+        pending.push(dependency);
+      }
+    }
+  }
+  return [...visited]
+    .map((name) => manifests.get(name)?.root)
+    .filter(Boolean)
+    .sort();
+}
+
 const selection = (paths) => {
   const result = affectedStagingComponents(paths);
   return {
@@ -38,6 +76,7 @@ const selection = (paths) => {
     e2e_workbench: result.e2e_workbench,
     staging_relay: result.staging_relay,
     any_service: result.any_service,
+    any_publish: result.any_publish,
   };
 };
 
@@ -64,6 +103,7 @@ describe("staging component change detection", () => {
       e2e_workbench: false,
       staging_relay: false,
       any_service: false,
+      any_publish: false,
     });
     assert.equal(result.quality_required, false);
     assert.equal(result.quality_full, false);
@@ -78,12 +118,24 @@ describe("staging component change detection", () => {
       e2e_workbench: false,
       staging_relay: false,
       any_service: true,
+      any_publish: true,
     });
     assert.deepEqual(result.service_build_matrix, {
       include: [{
         component: "public-mecky",
         package: "@netizen-labs/agent-watcher",
         dockerfile: "packages/agent-watcher/Dockerfile",
+      }],
+    });
+    assert.deepEqual(result.publish_build_matrix, {
+      include: [{
+        component: "public-mecky",
+        package: "@netizen-labs/agent-watcher",
+        dockerfile: "packages/agent-watcher/Dockerfile",
+        image: "ghcr.io/giraeffleaeffle/public-mecky",
+        archive: "public-mecky.oci.tar",
+        max_artifact_bytes: "134217728",
+        cache_mode: "min",
       }],
     });
     assert.equal(result.quality_required, true);
@@ -99,7 +151,7 @@ describe("staging component change detection", () => {
     ]);
     assert.equal(result.quality_required, true);
     assert.equal(result.quality_full, false);
-    assert.equal(result.quality_web_tests, false);
+    assert.equal(result.quality_web_tests, true);
     assert.deepEqual(result.quality_packages, [
       "@netizen-labs/cli",
       "@netizen-labs/protocol",
@@ -120,17 +172,35 @@ describe("staging component change detection", () => {
       e2e_workbench: true,
       staging_relay: true,
       any_service: true,
+      any_publish: true,
     });
   });
 
   it("maps exact Web build inputs without widening to services", () => {
-    assert.deepEqual(selection(["Dockerfile.staging-web"]), {
-      web: true,
-      public_mecky: false,
-      e2e_workbench: false,
-      staging_relay: false,
-      any_service: false,
-    });
+    for (const path of [
+      "Dockerfile.staging-web",
+      "Dockerfile.staging-web-runtime",
+      "scripts/ci/build-staging-web-runtime.sh",
+    ]) {
+      assert.deepEqual(selection([path]), {
+        web: true,
+        public_mecky: false,
+        e2e_workbench: false,
+        staging_relay: false,
+        any_service: false,
+        any_publish: true,
+      });
+    }
+  });
+
+  it("maps every shared Web workspace dependency to the Web image", () => {
+    for (const root of workspaceClosure("apps/web")) {
+      assert.equal(
+        affectedStagingComponents([`${root}/src/publisher-input.ts`]).web,
+        true,
+        root,
+      );
+    }
   });
 
   it("maps shared service workflow and verifier changes to all services but not Web", () => {
@@ -146,6 +216,7 @@ describe("staging component change detection", () => {
         e2e_workbench: true,
         staging_relay: true,
         any_service: true,
+        any_publish: true,
       });
       assert.deepEqual(
         result.service_build_matrix.include,
@@ -155,7 +226,13 @@ describe("staging component change detection", () => {
   });
 
   it("fails closed for dependency and detector changes", () => {
-    for (const path of ["pnpm-lock.yaml", "scripts/ci/affected-staging-components.mjs", "__all__"]) {
+    for (const path of [
+      "pnpm-lock.yaml",
+      "scripts/ci/affected-staging-components.mjs",
+      "scripts/assemble-roebel-staging-release-set.mjs",
+      ".github/workflows/roebel-staging-publish.yml",
+      "__all__",
+    ]) {
       const result = affectedStagingComponents([path]);
       assert.deepEqual(selection([path]), {
         web: true,
@@ -163,10 +240,15 @@ describe("staging component change detection", () => {
         e2e_workbench: true,
         staging_relay: true,
         any_service: true,
+        any_publish: true,
       });
       assert.equal(result.quality_required, true);
       assert.equal(result.quality_full, true);
       assert.deepEqual(result.quality_packages, []);
+      assert.deepEqual(
+        result.publish_build_matrix.include,
+        STAGING_PUBLISH_BUILD_MATRIX.map(({ key: _key, ...entry }) => entry),
+      );
     }
     const mixed = affectedStagingComponents([
       "pnpm-lock.yaml",
@@ -174,6 +256,32 @@ describe("staging component change detection", () => {
     ]);
     assert.equal(mixed.quality_full, true);
     assert.deepEqual(mixed.quality_packages, []);
+  });
+
+  it("selects only the changed protected publisher component", () => {
+    const web = affectedStagingComponents(["apps/web/src/app/page.tsx"]);
+    assert.equal(web.any_publish, true);
+    assert.deepEqual(web.publish_build_matrix.include, [{
+      component: "roebel-web-staging",
+      package: "@roebel/web",
+      dockerfile: "Dockerfile.staging-web-runtime",
+      image: "ghcr.io/giraeffleaeffle/roebel-web-staging",
+      archive: "roebel-web-staging.oci.tar",
+      max_artifact_bytes: "167772160",
+    }]);
+
+    const docs = affectedStagingComponents(["docs/adr/publisher.md"]);
+    assert.equal(docs.any_publish, false);
+    assert.deepEqual(docs.publish_build_matrix, { include: [] });
+  });
+
+  it("treats a publisher workflow change as an explicit full rebuild", () => {
+    const result = affectedStagingComponents([".github/workflows/roebel-staging-publish.yml"]);
+    assert.equal(result.any_publish, true);
+    assert.deepEqual(
+      result.publish_build_matrix.include,
+      STAGING_PUBLISH_BUILD_MATRIX.map(({ key: _key, ...entry }) => entry),
+    );
   });
 
   it("fails closed to full quality for an unknown repository surface", () => {
@@ -205,6 +313,8 @@ describe("staging component change detection", () => {
         "staging_relay=false",
         "any_service=true",
         'service_build_matrix={"include":[{"component":"public-mecky","package":"@netizen-labs/agent-watcher","dockerfile":"packages/agent-watcher/Dockerfile"}]}',
+        "any_publish=true",
+        'publish_build_matrix={"include":[{"component":"public-mecky","package":"@netizen-labs/agent-watcher","dockerfile":"packages/agent-watcher/Dockerfile","image":"ghcr.io/giraeffleaeffle/public-mecky","archive":"public-mecky.oci.tar","max_artifact_bytes":"134217728","cache_mode":"min"}]}',
         "quality_required=true",
         "quality_full=false",
         "quality_web_tests=false",
