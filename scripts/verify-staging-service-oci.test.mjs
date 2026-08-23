@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -101,6 +101,24 @@ test("rejects a credential embedded in a service image", () => {
       () => verifyStagingServiceOci(root, "a".repeat(40), "public-mecky"),
       /runtime_secret_embedded/,
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("accepts an ORAS single-manifest reuse layout with platform metadata omitted", () => {
+  const root = mkdtempSync(join(tmpdir(), "roebel-service-oci-reuse-"));
+  const revision = "a".repeat(40);
+  try {
+    const result = writeLayout(root, revision, "public-mecky", ["node", "/app/agent-watcher.cjs"]);
+    const indexPath = join(root, "index.json");
+    const index = JSON.parse(readFileSync(indexPath, "utf8"));
+    delete index.manifests[0].platform;
+    writeFileSync(indexPath, JSON.stringify(index));
+
+    const receipt = verifyStagingServiceOci(root, revision, "public-mecky");
+    assert.equal(receipt.manifestDigest, result.manifest.digest);
+    assert.equal(receipt.configDigest, result.config.digest);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
