@@ -16,7 +16,7 @@ function writeBlob(root, value) {
   return { digest: `sha256:${hash}`, size: bytes.length };
 }
 
-function writeLayout(root, sourceRevision, component, entrypoint, mutate) {
+function writeLayout(root, sourceRevision, component, entrypoint, mutate, options = {}) {
   mkdirSync(join(root, "blobs", "sha256"), { recursive: true });
   const layerBytes = Buffer.from("synthetic-service-layer");
   const layerHash = sha256(layerBytes);
@@ -39,7 +39,8 @@ function writeLayout(root, sourceRevision, component, entrypoint, mutate) {
   };
   mutate?.(configValue);
   const config = writeBlob(root, configValue);
-  const manifest = writeBlob(root, {
+  const importName = `stadtstack.local/roebel-staging-lab/${component}:source-${sourceRevision}`;
+  const manifestValue = {
     schemaVersion: 2,
     mediaType: "application/vnd.oci.image.manifest.v1+json",
     config: { mediaType: "application/vnd.oci.image.config.v1+json", ...config },
@@ -48,8 +49,13 @@ function writeLayout(root, sourceRevision, component, entrypoint, mutate) {
       digest: `sha256:${layerHash}`,
       size: layerBytes.length,
     }],
-  });
-  const importName = `stadtstack.local/roebel-staging-lab/${component}:source-${sourceRevision}`;
+  };
+  if (options.manifestImportName !== false) {
+    manifestValue.annotations = {
+      "io.containerd.image.name": options.manifestImportName ?? importName,
+    };
+  }
+  const manifest = writeBlob(root, manifestValue);
   writeFileSync(join(root, "oci-layout"), JSON.stringify({ imageLayoutVersion: "1.0.0" }));
   writeFileSync(join(root, "index.json"), JSON.stringify({
     schemaVersion: 2,
@@ -106,7 +112,7 @@ test("rejects a credential embedded in a service image", () => {
   }
 });
 
-test("accepts an ORAS single-manifest reuse layout with platform metadata omitted", () => {
+test("accepts an ORAS single-manifest reuse layout with optional index metadata omitted", () => {
   const root = mkdtempSync(join(tmpdir(), "roebel-service-oci-reuse-"));
   const revision = "a".repeat(40);
   try {
@@ -114,11 +120,56 @@ test("accepts an ORAS single-manifest reuse layout with platform metadata omitte
     const indexPath = join(root, "index.json");
     const index = JSON.parse(readFileSync(indexPath, "utf8"));
     delete index.manifests[0].platform;
+    delete index.manifests[0].annotations["io.containerd.image.name"];
+    index.manifests[0].annotations["org.opencontainers.image.ref.name"] = `source-${revision}`;
     writeFileSync(indexPath, JSON.stringify(index));
 
     const receipt = verifyStagingServiceOci(root, revision, "public-mecky");
     assert.equal(receipt.manifestDigest, result.manifest.digest);
     assert.equal(receipt.configDigest, result.config.digest);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects an explicitly conflicting ORAS index import name", () => {
+  const root = mkdtempSync(join(tmpdir(), "roebel-service-oci-name-conflict-"));
+  const revision = "a".repeat(40);
+  try {
+    writeLayout(root, revision, "public-mecky", ["node", "/app/agent-watcher.cjs"]);
+    const indexPath = join(root, "index.json");
+    const index = JSON.parse(readFileSync(indexPath, "utf8"));
+    index.manifests[0].annotations["io.containerd.image.name"] = "ghcr.io/example/wrong:latest";
+    writeFileSync(indexPath, JSON.stringify(index));
+    assert.throws(
+      () => verifyStagingServiceOci(root, revision, "public-mecky"),
+      /import_name_invalid/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a layout with no checksum-bound import name", () => {
+  const root = mkdtempSync(join(tmpdir(), "roebel-service-oci-name-missing-"));
+  const revision = "a".repeat(40);
+  try {
+    writeLayout(
+      root,
+      revision,
+      "public-mecky",
+      ["node", "/app/agent-watcher.cjs"],
+      undefined,
+      { manifestImportName: false },
+    );
+    const indexPath = join(root, "index.json");
+    const index = JSON.parse(readFileSync(indexPath, "utf8"));
+    delete index.manifests[0].annotations["io.containerd.image.name"];
+    writeFileSync(indexPath, JSON.stringify(index));
+    assert.throws(
+      () => verifyStagingServiceOci(root, revision, "public-mecky"),
+      /import_name_invalid/,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
