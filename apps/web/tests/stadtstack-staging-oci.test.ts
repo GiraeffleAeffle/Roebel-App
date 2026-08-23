@@ -16,7 +16,12 @@ const writeBlob = (root: string, value: unknown) => {
   return { digest: `sha256:${digest}`, size: bytes.length };
 };
 
-const writeValidLayout = (root: string, sourceRevision: string, mutate?: (config: Record<string, any>) => void) => {
+const writeValidLayout = (
+  root: string,
+  sourceRevision: string,
+  mutate?: (config: Record<string, any>) => void,
+  mutateDescriptor?: (descriptor: Record<string, any>) => void,
+) => {
   mkdirSync(join(root, "blobs", "sha256"), { recursive: true });
   const layerBytes = Buffer.from("synthetic-layer");
   const layerDigest = sha256(layerBytes);
@@ -59,14 +64,16 @@ const writeValidLayout = (root: string, sourceRevision: string, mutate?: (config
   });
   const importName = `stadtstack.local/roebel-web-preview/roebel-web-staging:source-${sourceRevision}`;
   writeFileSync(join(root, "oci-layout"), JSON.stringify({ imageLayoutVersion: "1.0.0" }));
+  const descriptor = {
+    mediaType: "application/vnd.oci.image.manifest.v1+json",
+    ...manifest,
+    platform: { os: "linux", architecture: "amd64" },
+    annotations: { "io.containerd.image.name": importName },
+  };
+  mutateDescriptor?.(descriptor);
   writeFileSync(join(root, "index.json"), JSON.stringify({
     schemaVersion: 2,
-    manifests: [{
-      mediaType: "application/vnd.oci.image.manifest.v1+json",
-      ...manifest,
-      platform: { os: "linux", architecture: "amd64" },
-      annotations: { "io.containerd.image.name": importName },
-    }],
+    manifests: [descriptor],
   }));
   return { config, importName, layerDigest, manifest };
 };
@@ -89,6 +96,48 @@ test("accepts one source-bound non-root Röbel staging web image", () => {
       entrypoint: ["node"],
       cmd: ["apps/web/runtime-entrypoint.mjs"],
     });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("accepts an ORAS single-manifest layout without optional descriptor platform", () => {
+  const sourceRevision = "a".repeat(40);
+  const root = mkdtempSync(join(tmpdir(), "roebel-staging-oci-no-platform-"));
+  try {
+    writeValidLayout(root, sourceRevision, undefined, (descriptor) => {
+      delete descriptor.platform;
+    });
+    assert.equal(verifyStagingWebOci(root, sourceRevision).sourceRevision, sourceRevision);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects an explicitly wrong descriptor platform", () => {
+  const sourceRevision = "a".repeat(40);
+  const root = mkdtempSync(join(tmpdir(), "roebel-staging-oci-wrong-platform-"));
+  try {
+    writeValidLayout(root, sourceRevision, undefined, (descriptor) => {
+      descriptor.platform = { os: "linux", architecture: "arm64" };
+    });
+    assert.throws(() => verifyStagingWebOci(root, sourceRevision), /platform_invalid/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a wrong config platform when the optional descriptor platform is absent", () => {
+  const sourceRevision = "a".repeat(40);
+  const root = mkdtempSync(join(tmpdir(), "roebel-staging-oci-wrong-config-platform-"));
+  try {
+    writeValidLayout(
+      root,
+      sourceRevision,
+      (config) => { config.architecture = "arm64"; },
+      (descriptor) => { delete descriptor.platform; },
+    );
+    assert.throws(() => verifyStagingWebOci(root, sourceRevision), /config_platform_invalid/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
