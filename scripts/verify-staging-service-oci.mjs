@@ -51,10 +51,21 @@ export function verifyStagingServiceOci(root, sourceRevision, component) {
     (platform !== undefined && (platform === null || platform.os !== "linux" || platform.architecture !== "amd64"))
   ) throw new Error("platform_invalid");
   const importName = `${repositoryFor(component)}:source-${sourceRevision}`;
-  if (descriptor.annotations?.["io.containerd.image.name"] !== importName) throw new Error("import_name_invalid");
   const manifest = JSON.parse(readBlob(descriptor, "manifest"));
   if (manifest.schemaVersion !== 2 || manifest.mediaType !== "application/vnd.oci.image.manifest.v1+json" || !Array.isArray(manifest.layers) || manifest.layers.length < 1) {
     throw new Error("manifest_invalid");
+  }
+  // BuildKit writes the checksum-bound local import name onto both the index
+  // descriptor and the image manifest. ORAS preserves the manifest annotation
+  // when it copies one immutable registry digest into a layout, but may omit
+  // the optional descriptor annotation. Require at least one exact binding and
+  // reject every explicit conflict.
+  const importNames = [
+    descriptor.annotations?.["io.containerd.image.name"],
+    manifest.annotations?.["io.containerd.image.name"],
+  ].filter((value) => value !== undefined);
+  if (importNames.length === 0 || importNames.some((value) => value !== importName)) {
+    throw new Error("import_name_invalid");
   }
   const config = JSON.parse(readBlob(manifest.config, "config"));
   if (config.os !== "linux" || config.architecture !== "amd64") throw new Error("config_platform_invalid");
