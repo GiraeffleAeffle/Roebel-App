@@ -655,6 +655,91 @@ describe("Public Mecky", () => {
     });
   });
 
+  it("retries one transient OpenAI-compatible provider response", async () => {
+    let attempts = 0;
+    const infer = createOpenAICompatiblePublicMeckyInference({
+      baseUrl: "https://inference.hetzner.com/api/v1",
+      apiKey: "test-token",
+      model: "DeepSeek-V4-Flash-0731",
+      fetch: async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return new Response("provider busy", {
+            status: 503,
+            headers: { "retry-after": "0" },
+          });
+        }
+        return Response.json({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                answer: "Eine Abstimmung ist noch nicht eröffnet.",
+                evidenceIds: [EVIDENCE_ID],
+              }),
+            },
+          }],
+        });
+      },
+    });
+
+    const result = await infer({
+      question: "Kann ich schon abstimmen?",
+      evidence: [{
+        evidenceId: EVIDENCE_ID,
+        title: "Marienfelder Straße",
+        publicSummary: "Eine Abstimmung ist noch nicht eröffnet.",
+        currentStageLabel: "Verwaltungsprüfung",
+        nextAction: null,
+        participationAuthorityState: "unconfirmed",
+        reviewedAt: "2026-08-10T12:00:00.000Z",
+        publicCaseUrl: "https://stadtstack.example/case",
+      }],
+    });
+
+    assert.equal(attempts, 2);
+    assert.deepEqual(result, {
+      answer: "Eine Abstimmung ist noch nicht eröffnet.",
+      evidenceIds: [EVIDENCE_ID],
+    });
+  });
+
+  it("retries each supported transient provider status once", async () => {
+    for (const status of [429, 502, 503, 504]) {
+      let attempts = 0;
+      const infer = createOpenAICompatiblePublicMeckyInference({
+        baseUrl: "https://inference.hetzner.com/api/v1",
+        apiKey: "test-token",
+        model: "DeepSeek-V4-Flash-0731",
+        fetch: async () => {
+          attempts += 1;
+          if (attempts === 1) {
+            return new Response("provider busy", {
+              status,
+              headers: { "retry-after": "0" },
+            });
+          }
+          return Response.json({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  answer: "Eine Abstimmung ist noch nicht eröffnet.",
+                  evidenceIds: [EVIDENCE_ID],
+                }),
+              },
+            }],
+          });
+        },
+      });
+
+      const result = await infer({ question: "Frage", evidence: [] });
+      assert.equal(attempts, 2, `status ${status}`);
+      assert.deepEqual(result, {
+        answer: "Eine Abstimmung ist noch nicht eröffnet.",
+        evidenceIds: [EVIDENCE_ID],
+      });
+    }
+  });
+
   it("runs reviewed evidence through a zero-tool Pi agent", async () => {
     let observedUrl = "";
     let observedAuthorization = "";
@@ -735,6 +820,81 @@ describe("Public Mecky", () => {
     });
   });
 
+  it("retries one transient Pi provider response and preserves the bounded request", async () => {
+    let attempts = 0;
+    const infer = createPiPublicMeckyInference({
+      baseUrl: "https://inference.hetzner.com/api/v1",
+      apiKey: "test-token",
+      model: "DeepSeek-V4-Flash-0731",
+      fetch: async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return new Response("provider busy", {
+            status: 503,
+            headers: { "retry-after": "0" },
+          });
+        }
+        return Response.json({
+          id: "chatcmpl-retried",
+          model: "DeepSeek-V4-Flash-0731",
+          choices: [{
+            index: 0,
+            message: {
+              role: "assistant",
+              content: JSON.stringify({
+                answer: "Eine Abstimmung ist noch nicht eröffnet.",
+                evidenceIds: [EVIDENCE_ID],
+              }),
+            },
+            finish_reason: "stop",
+          }],
+        });
+      },
+    });
+
+    const result = await infer({
+      question: "Kann ich schon abstimmen?",
+      evidence: [{
+        evidenceId: EVIDENCE_ID,
+        title: "Marienfelder Straße",
+        publicSummary: "Eine Abstimmung ist noch nicht eröffnet.",
+        currentStageLabel: "Verwaltungsprüfung",
+        nextAction: null,
+        participationAuthorityState: "unconfirmed",
+        reviewedAt: "2026-08-10T12:00:00.000Z",
+        publicCaseUrl: "https://stadtstack.example/case",
+      }],
+    });
+
+    assert.equal(attempts, 2);
+    assert.deepEqual(result, {
+      answer: "Eine Abstimmung ist noch nicht eröffnet.",
+      evidenceIds: [EVIDENCE_ID],
+    });
+  });
+
+  it("stops after one retry when the provider remains transiently unavailable", async () => {
+    let attempts = 0;
+    const infer = createOpenAICompatiblePublicMeckyInference({
+      baseUrl: "https://inference.hetzner.com/api/v1",
+      apiKey: "test-token",
+      model: "DeepSeek-V4-Flash-0731",
+      fetch: async () => {
+        attempts += 1;
+        return new Response("provider busy", {
+          status: 503,
+          headers: { "retry-after": "0" },
+        });
+      },
+    });
+
+    await assert.rejects(
+      infer({ question: "Frage", evidence: [] }),
+      /Public Mecky provider failed with HTTP 503/
+    );
+    assert.equal(attempts, 2);
+  });
+
   it("aborts a Pi provider request at the public deadline", async () => {
     let aborted = false;
     const infer = createPiPublicMeckyInference({
@@ -799,17 +959,22 @@ describe("Public Mecky", () => {
   });
 
   it("preserves only a provider HTTP status for retry diagnostics", async () => {
+    let attempts = 0;
     const infer = createPiPublicMeckyInference({
       baseUrl: "https://inference.hetzner.com/api/v1",
       apiKey: "test-token",
       model: "Qwen/Qwen3.6-35B-A3B-FP8",
-      fetch: async () => new Response("not exposed", { status: 403 }),
+      fetch: async () => {
+        attempts += 1;
+        return new Response("not exposed", { status: 403 });
+      },
     });
 
     await assert.rejects(
       infer({ question: "Frage", evidence: [] }),
       /Public Mecky provider failed with HTTP 403/
     );
+    assert.equal(attempts, 1);
   });
 
   it("fails closed when a Pi provider attempts a tool call", async () => {
