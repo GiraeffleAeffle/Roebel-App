@@ -37,8 +37,17 @@ const SWIPE_THRESHOLD = 90;
 const FLING_VELOCITY = 800;
 const FLYOUT_X = CARD_WIDTH * 0.82;
 
-const slotY = (slot: number) => slot * STEP_Y;
-const slotScale = (slot: number) => 1 - slot * STEP_SCALE;
+// Called from useAnimatedStyle worklets — MUST be worklets themselves.
+// Without the directive they reach the UI runtime as plain host objects
+// and calling them crashes release builds ("Object is not a function").
+const slotY = (slot: number) => {
+  'worklet';
+  return slot * STEP_Y;
+};
+const slotScale = (slot: number) => {
+  'worklet';
+  return 1 - slot * STEP_SCALE;
+};
 
 type Props = {
   events: EventRecord[];
