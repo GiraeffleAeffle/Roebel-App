@@ -42,10 +42,13 @@ export function verifyStagingServiceOci(root, sourceRevision, component) {
   const index = readJson(join(root, "index.json"));
   if (index.schemaVersion !== 2 || !Array.isArray(index.manifests) || index.manifests.length !== 1) throw new Error("index_invalid");
   const descriptor = index.manifests[0];
+  // A direct single-manifest export from ORAS may omit the optional index
+  // platform field. The config below remains authoritative for that case;
+  // an explicitly supplied platform must still be the exact target.
+  const platform = descriptor.platform;
   if (
     descriptor.mediaType !== "application/vnd.oci.image.manifest.v1+json" ||
-    descriptor.platform?.os !== "linux" ||
-    descriptor.platform?.architecture !== "amd64"
+    (platform !== undefined && (platform === null || platform.os !== "linux" || platform.architecture !== "amd64"))
   ) throw new Error("platform_invalid");
   const importName = `${repositoryFor(component)}:source-${sourceRevision}`;
   if (descriptor.annotations?.["io.containerd.image.name"] !== importName) throw new Error("import_name_invalid");
