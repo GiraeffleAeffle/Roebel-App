@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator, Linking } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { useActiveAccount } from 'thirdweb/react';
 import { prepareContractCall, readContract, sendTransaction, waitForReceipt } from 'thirdweb';
 import { gnosis } from '@/constants/gnosis';
@@ -439,6 +440,7 @@ export default function VoteButtons({
   // a valid ballot needs it. If it's missing we stash the choice and open the
   // birthdate sheet; `handleBirthdateSubmit` resumes the vote once saved.
   const handleVote = async (support: VoteType) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     if (!canVote || !account || !pollAddress || pollId === null) return;
     if (signUpState.status !== 'signed-up') return;
     if (!gnosisAccount) {
@@ -519,10 +521,12 @@ export default function VoteButtons({
     // unconditionally (the ballot settles on chain in the background).
     const showPrivacySheet = () => {
       setChanging(false);
-      setTimeout(
-        () => setSuccessDrawer({ visible: true, message: VOTE_PRIVACY_MESSAGE, action: () => onVoteSuccess() }),
-        350,
-      );
+      setTimeout(() => {
+        // Vote successfully cast (or changed) — the ballot is signed and
+        // committed; the privacy sheet about to appear is the success moment.
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        setSuccessDrawer({ visible: true, message: VOTE_PRIVACY_MESSAGE, action: () => onVoteSuccess() });
+      }, 350);
     };
 
     try {
@@ -836,10 +840,11 @@ export default function VoteButtons({
       </View>
       <View style={styles.buttonsContainer}>
         <Pressable
-          style={[
+          style={({ pressed }) => [
             styles.voteButton,
             styles.voteButtonFor,
             phase !== 'idle' && styles.disabled,
+            pressed && styles.pressed,
           ]}
           onPress={() => handleVote(VoteType.For)}
           disabled={phase !== 'idle'}
@@ -852,10 +857,11 @@ export default function VoteButtons({
           />
         </Pressable>
         <Pressable
-          style={[
+          style={({ pressed }) => [
             styles.voteButton,
             styles.voteButtonAgainst,
             phase !== 'idle' && styles.disabled,
+            pressed && styles.pressed,
           ]}
           onPress={() => handleVote(VoteType.Against)}
           disabled={phase !== 'idle'}
@@ -868,10 +874,11 @@ export default function VoteButtons({
           />
         </Pressable>
         <Pressable
-          style={[
+          style={({ pressed }) => [
             styles.voteButton,
             { backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.disabled },
             phase !== 'idle' && styles.disabled,
+            pressed && styles.pressed,
           ]}
           onPress={() => handleVote(VoteType.Abstain)}
           disabled={phase !== 'idle'}
@@ -1083,6 +1090,9 @@ const styles = StyleSheet.create({
   },
   disabled: {
     opacity: 0.5,
+  },
+  pressed: {
+    opacity: 0.7,
   },
   voteButtonText: {
     fontSize: 16,

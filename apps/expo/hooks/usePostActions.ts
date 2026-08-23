@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Share } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import {
   togglePostLike,
   reportPost as reportPostApi,
@@ -39,6 +40,8 @@ export function usePostActions(walletAddress: string | undefined) {
         requireAuth(() => {});
         return;
       }
+
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
       const wasLiked = likedPosts.has(postId);
       const newCount = wasLiked ? Math.max(0, currentCount - 1) : currentCount + 1;
@@ -124,6 +127,7 @@ export function usePostActions(walletAddress: string | undefined) {
         return;
       }
       if (repostedPosts.has(post.id)) return;
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       setRepostedPosts((prev) => new Set(prev).add(post.id));
       setRepostCounts((prev) => ({
         ...prev,
@@ -154,6 +158,7 @@ export function usePostActions(walletAddress: string | undefined) {
         requireAuth(() => {});
         return;
       }
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       setRepostedPosts((prev) => {
         const next = new Set(prev);
         next.delete(post.id);

@@ -704,13 +704,13 @@ export default function FeedHome() {
       )}
 
       <Animated.View
-        style={[
-          styles.bottomFloating,
-          { paddingBottom: insets.bottom },
-          bottomNavAnimatedStyle,
-        ]}
+        style={[styles.bottomFloating, bottomNavAnimatedStyle]}
       >
         <GlassSurface />
+        {/* BottomNavigation now owns its own safe-area bottom padding
+            (Task 7) — no extra paddingBottom here, or the home-indicator
+            inset would be applied twice and the glass overlay would grow
+            taller than the scroll content's reserved bottomPadding below. */}
         <BottomNavigation activeTab={navTab} onTabPress={handleNavTabPress} transparent />
       </Animated.View>
     </SafeAreaView>
