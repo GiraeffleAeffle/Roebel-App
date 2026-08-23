@@ -18,7 +18,6 @@ import {
   verifyBindingEvent,
   verifyEvent,
   type CitizenSignedTopicSuggestionV1,
-  type CitizenSignedSuggestionV1,
   type NostrEvent,
 } from "@netizen-labs/nostr";
 import { createGnosisWalletVerifier } from "@netizen-labs/relay-sync";
@@ -729,6 +728,9 @@ async function control(
   }
 }
 
+// Kept for the forthcoming control-plane split. The public workbench no longer
+// calls it; removing the privileged configuration belongs with that deployment
+// boundary, not with this public-surface reduction.
 async function currentCaseVersion(
   config: WorkbenchConfig,
   fetcher: typeof globalThis.fetch
@@ -987,9 +989,8 @@ const HTML = `<!doctype html>
 <article class="card"><div class="step">1 · Bürgerdiskussion</div><h2>Synthetische Person</h2><label for="persona">Person</label><select id="persona"></select><label for="question">Frage an Mecky</label><textarea id="question" rows="4">Wie kann die Querung der Marienfelder Straße sicherer werden?</textarea><button id="publish">Signiert diskutieren</button><pre id="discussion">Noch nicht gestartet.</pre></article>
 <article class="card"><div class="step">2 · Public Mecky (Pi 0.84.1)</div><h2>Geprüfte Antwort</h2><p>Mecky darf nur aus dem checksum-gebundenen Testnachweis antworten.</p><button id="poll">Antwort abrufen</button><pre id="answer">Noch keine Antwort.</pre></article>
 <article class="card"><div class="step">3 · Bürger-Signatur</div><h2>Vorschlag bearbeiten</h2><label for="title">Titel</label><input id="title" value="Sichere Querung prüfen"><label for="summary">Zusammenfassung</label><textarea id="summary" rows="4">Geprüfte Varianten sollen öffentlich und nachvollziehbar abgewogen werden.</textarea><button id="sign">Vorschlag signieren</button><pre id="suggestion">Noch nicht signiert.</pre></article>
-<article class="card"><div class="step">4 · Menschliche Aufnahme</div><h2>Case Steward</h2><p>Der Steward übernimmt exakt die Bürger-Signatur; Mecky darf sie nicht selbst einreichen.</p><button id="admit">Vorschlag aufnehmen</button><pre id="admission">Noch nicht aufgenommen.</pre></article>
-<article class="card"><div class="step">5 · Verwaltung und Mitmachen</div><h2>Vollständigen Testlauf ausführen</h2><p>Acht Fachpakete, Reviews, Citizen Brief, beratendes Signal und Outcome.</p><button id="complete">Testlauf ausführen</button><pre id="completion">Noch nicht ausgeführt.</pre></article>
-<article class="card"><div class="step">6 · Rollensichten</div><h2>Public · Verwaltung · Council</h2><div class="row"><button class="secondary view" data-profile="public">Public</button><button class="secondary view" data-profile="administration">Verwaltung</button><button class="secondary view" data-profile="council">Council</button></div><pre id="view">Noch keine Sicht geladen.</pre></article>
+<article class="card"><div class="step">4 · Warten auf menschliche Aufnahme</div><h2>Rollengetrennter Case Steward</h2><p>Der signierte Vorschlag wartet auf eine getrennte, berechtigte Case-Steward-Aufnahme. Diese öffentliche Testoberfläche besitzt keine Verwaltungsbefehle; Mecky darf den Vorschlag nicht einreichen.</p><pre>Awaiting role-isolated Case Steward admission.</pre></article>
+<article class="card"><div class="step">5 · Verwaltung und Mitmachen</div><h2>Öffentlicher Fortschritt nach Aufnahme</h2><p>Nach einer getrennten menschlichen Aufnahme können geprüfte Verwaltungsinformationen, Citizen Brief und beratendes Mitmachen über die öffentliche, nur lesbare Fallprojektion erscheinen.</p><pre>Keine Verwaltungs-, Beteiligungs-, Governance- oder Treasury-Aktion in dieser Oberfläche.</pre></article>
 </section></main>
 <script>
 const base='/stadtstack-test';const state={discussion:null,answer:null,suggestion:null};const $=id=>document.getElementById(id);async function api(path,body){const response=await fetch(path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'content-type':'application/json','x-stadtstack-e2e':'1'},body:body===undefined?undefined:JSON.stringify(body)});const value=await response.json();if(!response.ok)throw new Error(value.error||('HTTP '+response.status));return value}function show(id,value){$(id).textContent=typeof value==='string'?value:JSON.stringify(value,null,2)}
@@ -997,9 +998,6 @@ api(base+'/api/config').then(config=>{for(const person of config.personas){const
 $('publish').onclick=async()=>{try{state.discussion=await api(base+'/api/discussion',{personaId:$('persona').value,question:$('question').value});show('discussion',state.discussion)}catch(error){show('discussion',error.message)}};
 $('poll').onclick=async()=>{try{if(!state.discussion)throw new Error('Zuerst Diskussion starten.');state.answer=await api(base+'/api/reply?parent='+encodeURIComponent(state.discussion.event.id));show('answer',state.answer||'Mecky hat noch nicht geantwortet.')}catch(error){show('answer',error.message)}};
 $('sign').onclick=async()=>{try{if(!state.discussion||!state.answer)throw new Error('Diskussion und Mecky-Antwort fehlen.');state.suggestion=await api(base+'/api/suggestion',{personaId:$('persona').value,discussion:state.discussion.event,answer:state.answer.event,title:$('title').value,summary:$('summary').value});show('suggestion',state.suggestion)}catch(error){show('suggestion',error.message)}};
-$('admit').onclick=async()=>{try{if(!state.discussion||!state.answer||!state.suggestion)throw new Error('Signierter Vorschlag fehlt.');show('admission',await api(base+'/api/admit',{discussion:state.discussion.event,answer:state.answer.event,suggestion:state.suggestion.suggestion}))}catch(error){show('admission',error.message)}};
-$('complete').onclick=async()=>{try{show('completion',await api(base+'/api/complete',{}))}catch(error){show('completion',error.message)}};
-for(const button of document.querySelectorAll('.view'))button.onclick=async()=>{try{show('view',await api(base+'/api/view',{profile:button.dataset.profile}))}catch(error){show('view',error.message)}};
 </script></body></html>`;
 
 export async function startWorkbench(
@@ -2036,45 +2034,6 @@ export async function startWorkbench(
           suggestion,
           event: suggestionEvent,
         });
-      }
-      if (path === "/api/admit") {
-        if (!exactRecord(body, ["discussion", "answer", "suggestion"]))
-          throw new Error("admission_invalid");
-        const expectedCaseVersion = await currentCaseVersion(config, fetcher);
-        return json(
-          response,
-          200,
-          await control(config, fetcher, "/v1/nostr/suggestions/admit", {
-            expectedCaseVersion,
-            sourceDiscussion: event(body.discussion),
-            sourceAnswer: event(body.answer),
-            signedSuggestion: body.suggestion as CitizenSignedSuggestionV1,
-          })
-        );
-      }
-      if (path === "/api/complete") {
-        if (!exactRecord(body, [])) throw new Error("complete_invalid");
-        return json(
-          response,
-          200,
-          await control(config, fetcher, "/v1/e2e/complete", {})
-        );
-      }
-      if (path === "/api/view") {
-        if (
-          !exactRecord(body, ["profile"]) ||
-          !["public", "administration", "council"].includes(
-            String(body.profile)
-          )
-        )
-          throw new Error("view_invalid");
-        return json(
-          response,
-          200,
-          await control(config, fetcher, "/v1/e2e/view", {
-            profile: body.profile,
-          })
-        );
       }
       return json(response, 404, { error: "not_found" });
     })().catch((error: unknown) => {
