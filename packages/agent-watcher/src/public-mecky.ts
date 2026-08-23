@@ -169,6 +169,68 @@ function openAiMessages(context: Context): { role: "system" | "user" | "assistan
   return messages;
 }
 
+const TRANSIENT_PROVIDER_STATUSES = new Set([429, 502, 503, 504]);
+const MAX_TRANSIENT_PROVIDER_RETRIES = 1;
+const DEFAULT_TRANSIENT_RETRY_DELAY_MS = 250;
+const MAX_TRANSIENT_RETRY_DELAY_MS = 5_000;
+
+function transientRetryDelayMs(response: Response): number {
+  const retryAfter = response.headers.get("retry-after")?.trim();
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.min(seconds * 1_000, MAX_TRANSIENT_RETRY_DELAY_MS);
+    }
+    const retryAt = Date.parse(retryAfter);
+    if (Number.isFinite(retryAt)) {
+      return Math.min(
+        Math.max(0, retryAt - Date.now()),
+        MAX_TRANSIENT_RETRY_DELAY_MS,
+      );
+    }
+  }
+  return DEFAULT_TRANSIENT_RETRY_DELAY_MS;
+}
+
+function waitForTransientRetry(
+  delayMs: number,
+  signal: AbortSignal | null | undefined,
+): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(new DOMException("The operation was aborted.", "AbortError"));
+  }
+  if (delayMs <= 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      reject(new DOMException("The operation was aborted.", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function fetchWithTransientProviderRetry(
+  fetcher: typeof globalThis.fetch,
+  endpoint: URL,
+  init: RequestInit,
+): Promise<Response> {
+  for (let retry = 0; ; retry += 1) {
+    const response = await fetcher(endpoint, init);
+    if (
+      !TRANSIENT_PROVIDER_STATUSES.has(response.status) ||
+      retry >= MAX_TRANSIENT_PROVIDER_RETRIES
+    ) {
+      return response;
+    }
+    await waitForTransientRetry(transientRetryDelayMs(response), init.signal);
+  }
+}
+
 function createHetznerPiTransport(options: {
   endpoint: URL;
   apiKey: string;
@@ -188,7 +250,7 @@ function createHetznerPiTransport(options: {
         timestamp: Date.now(),
       };
       try {
-        const response = await options.fetch(options.endpoint, {
+        const response = await fetchWithTransientProviderRetry(options.fetch, options.endpoint, {
           method: "POST",
           headers: {
             authorization: `Bearer ${options.apiKey}`,
@@ -325,7 +387,7 @@ export function createOpenAICompatiblePublicMeckyInference(
     throw new Error("Public Mecky inference fetch is unavailable.");
   }
   return async (input) => {
-    const response = await fetcher(endpoint, {
+    const response = await fetchWithTransientProviderRetry(fetcher, endpoint, {
       method: "POST",
       headers: {
         authorization: `Bearer ${options.apiKey}`,
