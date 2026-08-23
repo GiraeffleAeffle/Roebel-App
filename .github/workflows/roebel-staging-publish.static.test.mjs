@@ -44,14 +44,30 @@ test("publisher follows protected relevant main pushes and retains exact-SHA rec
   for (const relevantPath of [
     "apps/web/**",
     "packages/agent-watcher/**",
+    "packages/miniapp-sdk/**",
+    "packages/nostr/**",
+    "packages/protocol/**",
+    "packages/publisher/**",
+    "packages/record-client/**",
     "packages/stadtstack-federation-client/**",
+    "packages/workspace/**",
     "Dockerfile.staging-web",
     "Dockerfile.staging-web-runtime",
+    ".npmrc",
+    "package.json",
+    "patches/**",
     "scripts/ci/build-staging-web-runtime.sh",
+    "scripts/ci/affected-staging-components.mjs",
+    "scripts/assemble-roebel-staging-release-set.mjs",
     "pnpm-lock.yaml",
   ]) {
     assert.match(workflow, new RegExp(`- "${relevantPath.replaceAll("*", "\\*")}"`, "u"));
   }
+  assert.doesNotMatch(
+    workflow,
+    /^\s+- "\.dockerignore"$/mu,
+    "the publisher uses isolated contexts, so this path must not trigger a no-op run",
+  );
   assert.match(workflow, /github\.event_name == 'workflow_dispatch' && inputs\.source_revision \|\| github\.sha/u);
   assert.match(workflow, /if: \$\{\{ github\.ref == 'refs\/heads\/main' \}\}/u);
   assert.match(workflow, /environment: roebel-staging-publisher/u);
@@ -74,17 +90,22 @@ test("runner-local paths are bound only after the runner exists", () => {
   assert.doesNotMatch(workflow, /staging-web-cache-family|MAX_NEXT_CACHE_BYTES|context\/apps\/web\/\.next\/cache/u);
 });
 
-test("publisher builds and publishes exactly the two secret-free staging components", () => {
-  for (const component of ["roebel-web-staging", "public-mecky"]) {
-    assert.match(workflow, new RegExp(`component: ${component}`, "u"));
-  }
-  for (const image of [
-    "ghcr.io/giraeffleaeffle/roebel-web-staging",
-    "ghcr.io/giraeffleaeffle/public-mecky",
-  ]) {
-    assert.match(workflow, new RegExp(image.replaceAll(".", "\\."), "u"));
-  }
-  assert.equal((workflow.match(/^\s+- component: /gmu) ?? []).length, 2);
+test("publisher selects affected components and publishes only verified digests", () => {
+  assert.match(workflow, /name: Select affected publisher components/u);
+  assert.match(workflow, /needs: guard/u);
+  assert.match(workflow, /fetch-depth: 0/u);
+  assert.match(
+    workflow,
+    /name: Check out the exact comparison range[\s\S]*?path: source[\s\S]*?fetch-depth: 0/u,
+  );
+  assert.match(workflow, /git diff --name-only "\$BASE_REVISION" "\$SOURCE_REVISION"/u);
+  assert.match(workflow, /printf '__all__\\n' > "\$changed_paths"/u);
+  assert.match(workflow, /affected-staging-components\.mjs --github-output/u);
+  assert.match(workflow, /outputs:\n      web: \$\{\{ steps\.detect\.outputs\.web \}\}/u);
+  assert.match(workflow, /outputs:\n      web:[\s\S]*publish_build_matrix: \$\{\{ steps\.detect\.outputs\.publish_build_matrix \}\}/u);
+  assert.match(workflow, /needs: \[guard, changes\]/u);
+  assert.match(workflow, /if: \$\{\{ needs\.changes\.outputs\.any_publish == 'true' \}\}/u);
+  assert.match(workflow, /matrix: \$\{\{ fromJSON\(needs\.changes\.outputs\.publish_build_matrix\) \}\}/u);
   assert.match(workflow, /--output "type=oci,dest=\$ARCHIVE/u);
   assert.match(workflow, /verify-staging-web-oci\.mjs/u);
   assert.match(workflow, /verify-staging-service-oci\.mjs/u);
@@ -183,7 +204,9 @@ test("publication produces SPDX and GitHub OIDC attestations for exact digests",
 
 test("same-run evidence is verified into an effect-free CAS-bound Release Set candidate", () => {
   assert.notEqual(assemblyJobStart, -1);
-  assert.match(assemblyJob, /needs: publish/u);
+  assert.match(assemblyJob, /needs: \[publish, changes\]/u);
+  assert.match(assemblyJob, /AFFECTED_WEB: \$\{\{ needs\.changes\.outputs\.web \}\}/u);
+  assert.match(assemblyJob, /AFFECTED_MECKY: \$\{\{ needs\.changes\.outputs\.public_mecky \}\}/u);
   assert.match(assemblyJob, /permissions:\n      actions: read\n      contents: read\n      packages: write\n      attestations: read/u);
   assert.doesNotMatch(assemblyJob, /(?:attestations|contents): write/u);
   assert.doesNotMatch(assemblyJob, /id-token: write/u);
@@ -195,7 +218,7 @@ test("same-run evidence is verified into an effect-free CAS-bound Release Set ca
     /OPERATIONS_HEAD_URL: https:\/\/raw\.githubusercontent\.com\/GiraeffleAeffle\/roebel-staging-operations\/main\/reviewed-render\/roebel-staging\/head\.json/u,
   );
   assert.equal((assemblyJob.match(/gh attestation download /gu) ?? []).length, 2);
-  assert.equal((assemblyJob.match(/gh attestation verify /gu) ?? []).length, 2);
+  assert.equal((assemblyJob.match(/gh attestation verify /gu) ?? []).length, 4);
   assert.equal(
     (
       assemblyJob.match(
@@ -218,11 +241,18 @@ test("same-run evidence is verified into an effect-free CAS-bound Release Set ca
   assert.match(assemblyJob, /--deny-self-hosted-runners/u);
   assert.match(assemblyJob, /verify_component roebel-web-staging "\$WEB_IMAGE"/u);
   assert.match(assemblyJob, /verify_component public-mecky "\$MECKY_IMAGE"/u);
+  assert.match(assemblyJob, /reuse_component roebel-web-staging "\$WEB_IMAGE"/u);
+  assert.match(assemblyJob, /reuse_component public-mecky "\$MECKY_IMAGE"/u);
+  assert.match(assemblyJob, /release-set-\$previous_revision/u);
+  assert.match(assemblyJob, /candidatePayloadDigest/u);
+  assert.match(assemblyJob, /oras cp "\$image@\$manifest_digest" --to-oci-layout/u);
+  assert.match(assemblyJob, /--source-digest "\$source_revision"/u);
+  assert.match(assemblyJob, /approved_release_set_digest_mismatch/u);
   assert.match(assemblyJob, /scripts\/assemble-roebel-staging-release-set\.mjs/u);
   assert.match(assemblyJob, /release-set\/release-set\.candidate\.json/u);
   assert.match(assemblyJob, /roebel-staging-release-set-/u);
   assert.match(assemblyJob, /test "\$\(jq -er \.deploymentEffect "\$publication_receipt"\)" = false/u);
-  assert.doesNotMatch(assemblyJob, /^\s*(?:kubectl|helm|flux|talosctl|tailscale|ssh|oras cp)\b/imu);
+  assert.doesNotMatch(assemblyJob, /^\s*(?:kubectl|helm|flux|talosctl|tailscale|ssh)\b/imu);
 });
 
 test("verified Release Set is handed off immutably inside the existing Web package", () => {

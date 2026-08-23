@@ -29,6 +29,31 @@ export const STAGING_SERVICE_BUILD_MATRIX = Object.freeze([
   }),
 ]);
 
+// The protected publisher has a smaller, separate image boundary than the
+// service-only workflow. Keep this matrix explicit so a component-only
+// publication can never accidentally widen into a second image build.
+export const STAGING_PUBLISH_BUILD_MATRIX = Object.freeze([
+  Object.freeze({
+    key: "web",
+    component: "roebel-web-staging",
+    package: "@roebel/web",
+    dockerfile: "Dockerfile.staging-web-runtime",
+    image: "ghcr.io/giraeffleaeffle/roebel-web-staging",
+    archive: "roebel-web-staging.oci.tar",
+    max_artifact_bytes: "167772160",
+  }),
+  Object.freeze({
+    key: "public_mecky",
+    component: "public-mecky",
+    package: "@netizen-labs/agent-watcher",
+    dockerfile: "packages/agent-watcher/Dockerfile",
+    image: "ghcr.io/giraeffleaeffle/public-mecky",
+    archive: "public-mecky.oci.tar",
+    max_artifact_bytes: "134217728",
+    cache_mode: "min",
+  }),
+]);
+
 /**
  * Closed workspace ownership used by the quality gate. The detector tests
  * this list against every workspace package.json so a newly added package
@@ -145,6 +170,8 @@ const PREFIXES = {
     "apps/web/",
     "packages/miniapp-sdk/",
     "packages/nostr/",
+    "packages/protocol/",
+    "packages/publisher/",
     "packages/record-client/",
     "packages/workspace/",
   ],
@@ -170,6 +197,8 @@ const EXACT_PATHS = {
     ".github/workflows/staging-web-oci.yml",
     "Dockerfile.staging-web",
     "Dockerfile.staging-web.dockerignore",
+    "Dockerfile.staging-web-runtime",
+    "scripts/ci/build-staging-web-runtime.sh",
     "scripts/verify-staging-web-oci.mjs",
     "scripts/verify-staging-web-oci.test.mjs",
   ]),
@@ -216,7 +245,9 @@ export function affectedStagingComponents(paths) {
   const all = changedPaths.includes("__all__") || changedPaths.some((path) =>
     ALL_COMPONENT_PATHS.has(path) ||
     path.startsWith("patches/") ||
-    path.startsWith("scripts/ci/")
+    (path.startsWith("scripts/ci/") && path !== "scripts/ci/build-staging-web-runtime.sh") ||
+    path === "scripts/assemble-roebel-staging-release-set.mjs" ||
+    path === ".github/workflows/roebel-staging-publish.yml"
   );
   const affected = Object.fromEntries(STAGING_COMPONENTS.map((component) => [
     component,
@@ -230,11 +261,18 @@ export function affectedStagingComponents(paths) {
       .filter(({ key }) => affected[key])
       .map(({ key: _key, ...entry }) => Object.freeze(entry))),
   });
+  const publishBuildMatrix = Object.freeze({
+    include: Object.freeze(STAGING_PUBLISH_BUILD_MATRIX
+      .filter(({ key }) => affected[key])
+      .map(({ key: _key, ...entry }) => Object.freeze(entry))),
+  });
   const quality = qualitySelection(changedPaths, affected);
   return Object.freeze({
     ...affected,
     any_service: affected.public_mecky || affected.e2e_workbench || affected.staging_relay,
+    any_publish: affected.web || affected.public_mecky,
     service_build_matrix: serviceBuildMatrix,
+    publish_build_matrix: publishBuildMatrix,
     ...quality,
     changed_paths: Object.freeze(changedPaths),
   });
@@ -258,6 +296,8 @@ function runCli() {
       `staging_relay=${result.staging_relay}`,
       `any_service=${result.any_service}`,
       `service_build_matrix=${JSON.stringify(result.service_build_matrix)}`,
+      `any_publish=${result.any_publish}`,
+      `publish_build_matrix=${JSON.stringify(result.publish_build_matrix)}`,
       `quality_required=${result.quality_required}`,
       `quality_full=${result.quality_full}`,
       `quality_web_tests=${result.quality_web_tests}`,
