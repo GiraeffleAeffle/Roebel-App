@@ -1,16 +1,17 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import { useTheme } from '@/context/ThemeContext';
+import type { ColorTokens } from '@/constants/theme';
 
 interface MarkdownRendererProps {
   content: string;
 }
 
-export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
-  const { colors } = useTheme();
-
-  const markdownStyles = StyleSheet.create({
+// Hoisted out of the component so the ~150-key style object isn't rebuilt on
+// every render (this renderer runs per chat bubble, per streamed token).
+function createMarkdownStyles(colors: ColorTokens) {
+  return StyleSheet.create({
     // Body
     body: {
       color: colors.textPrimary,
@@ -223,6 +224,11 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
       flex: 1,
     },
   });
+}
+
+export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
+  const { colors } = useTheme();
+  const markdownStyles = useMemo(() => createMarkdownStyles(colors), [colors]);
 
   return (
     <Markdown style={markdownStyles}>
