@@ -36,6 +36,7 @@ const STEP_SCALE = 0.055;
 const SWIPE_THRESHOLD = 90;
 const FLING_VELOCITY = 800;
 const FLYOUT_X = CARD_WIDTH * 0.82;
+const ROTATE_STEP = 2;
 
 // Called from useAnimatedStyle worklets — MUST be worklets themselves.
 // Without the directive they reach the UI runtime as plain host objects
@@ -47,6 +48,14 @@ const slotY = (slot: number) => {
 const slotScale = (slot: number) => {
   'worklet';
   return 1 - slot * STEP_SCALE;
+};
+// Resting fan: back cards sit slightly rotated behind the top card
+// (slot 1 tilts left, slot 2 tilts right) and straighten toward the
+// slot ahead of them as the top card is dragged.
+const slotRotation = (slot: number) => {
+  'worklet';
+  if (slot <= 0) return 0;
+  return slot % 2 === 1 ? -slot * ROTATE_STEP : slot * ROTATE_STEP;
 };
 
 type Props = {
@@ -189,30 +198,43 @@ function DeckCard({
 
   const locationText = formatLocation(event.location).toUpperCase();
 
+  // Slot transitions run in the RENDER BODY (same trick as the parent's
+  // progress reset) so the tuck state lands in the same frame as
+  // slideIndexSV. The previous useEffect ran a frame later — the freshly
+  // swiped card briefly rendered parked at the back slot, then jumped out
+  // to its flyout pose: the visible hitch at the end of a full cycle.
   const prevSlideIndexRef = useRef(slideIndex);
-  useEffect(() => {
+  if (prevSlideIndexRef.current !== slideIndex) {
     const prev = prevSlideIndexRef.current;
     prevSlideIndexRef.current = slideIndex;
 
     if (prev === 0 && slideIndex === totalSlides - 1 && totalSlides > 1) {
       // Just advanced: this card is now behind the deck, still off to the
-      // side at its flyout pose. Glide it back underneath.
+      // side at its flyout pose. Glide it back underneath — a timing curve
+      // ends crisply where a soft spring's tail read as "stuck".
       isTucking.value = true;
       tuck.value = 1;
-      tuck.value = withSpring(0, { damping: 26, stiffness: 160 }, (finished) => {
-        if (finished) {
-          translateX.value = 0;
-          translateY.value = 0;
-          isTucking.value = false;
-        }
-      });
-    } else if (!isTucking.value) {
-      // Any other slot change (incl. becoming active): clean pan state.
+      tuck.value = withTiming(
+        0,
+        { duration: 380, easing: Easing.out(Easing.cubic) },
+        (finished) => {
+          if (finished) {
+            translateX.value = 0;
+            translateY.value = 0;
+            isTucking.value = false;
+          }
+        },
+      );
+    } else if (slideIndex === 0 || !isTucking.value) {
+      // Any other slot change: clean pan state. Becoming the top card
+      // resets even mid-tuck (rapid full-cycle swiping) so the front
+      // card never starts a drag with stale transforms.
       translateX.value = 0;
       translateY.value = 0;
       tuck.value = 0;
+      isTucking.value = false;
     }
-  }, [slideIndex, totalSlides]);
+  }
 
   const gesture = Gesture.Pan()
     .enabled(isActive && totalSlides > 1)
@@ -272,7 +294,9 @@ function DeckCard({
       // slot's resting pose (tuck=0). z-order already dropped below the
       // deck the moment the index advanced — the visible "moves back".
       const t = tuck.value;
-      const rotate = (translateX.value / CARD_WIDTH) * 14 * t;
+      // Blend the drag tilt out and the back slot's resting fan tilt in.
+      const rotate =
+        (translateX.value / CARD_WIDTH) * 14 * t + slotRotation(backSlot) * (1 - t);
       const scale = slotScale(backSlot) + (1 - slotScale(backSlot)) * t;
       const isGhost = si >= VISIBLE_CARDS;
       return {
@@ -296,25 +320,28 @@ function DeckCard({
           { translateX: 0 },
           { translateY: slotY(backSlot) },
           { scale: slotScale(backSlot) },
-          { rotateZ: '0deg' },
+          { rotateZ: `${slotRotation(backSlot)}deg` },
         ],
         zIndex: 4,
         opacity: 0,
       };
     }
 
-    // Back cards: rest at their slot, glide one slot forward as the top
+    // Back cards: rest at their slot slightly rotated (the fan), and glide
+    // one slot forward — straightening toward the slot ahead — as the top
     // card is dragged (progress 0→1).
     const fromY = slotY(si);
     const toY = slotY(si - 1);
     const fromScale = slotScale(si);
     const toScale = slotScale(si - 1);
+    const fromRotate = slotRotation(si);
+    const toRotate = slotRotation(si - 1);
     return {
       transform: [
         { translateX: 0 },
         { translateY: interpolate(progress.value, [0, 1], [fromY, toY]) },
         { scale: interpolate(progress.value, [0, 1], [fromScale, toScale]) },
-        { rotateZ: '0deg' },
+        { rotateZ: `${interpolate(progress.value, [0, 1], [fromRotate, toRotate])}deg` },
       ],
       zIndex: 20 - si * 5,
       opacity: 1,

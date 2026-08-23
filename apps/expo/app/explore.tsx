@@ -272,7 +272,7 @@ export default function ExploreScreen() {
             events={futurePopularEvents}
             showPagination
             loop
-            containerStyle={{ paddingTop: 40, paddingBottom: 16, marginBottom: 0 }}
+            containerStyle={{ paddingTop: 16, paddingBottom: 16, marginBottom: 0 }}
           />
         )}
 
