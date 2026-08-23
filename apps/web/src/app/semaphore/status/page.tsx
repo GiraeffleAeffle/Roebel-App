@@ -5,7 +5,7 @@ import { useActiveAccount } from "thirdweb/react";
 import { getContract, readContract } from "thirdweb";
 import { client } from "@/app/client";
 import { CONTRACTS, NETWORK, CITIZEN_GROUP_ID } from "@/lib/semaphore-config";
-import { loadIdentity, hasIdentity, getCommitment } from "@/lib/semaphore";
+import { loadIdentity, hasIdentity, getCommitment } from "@/lib/semaphore/identity";
 import { CheckCircle, XCircle, AlertCircle, Loader2, Shield, Users } from "lucide-react";
 import Link from "next/link";
 
