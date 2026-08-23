@@ -728,29 +728,6 @@ async function control(
   }
 }
 
-// Kept for the forthcoming control-plane split. The public workbench no longer
-// calls it; removing the privileged configuration belongs with that deployment
-// boundary, not with this public-surface reduction.
-async function currentCaseVersion(
-  config: WorkbenchConfig,
-  fetcher: typeof globalThis.fetch
-): Promise<number> {
-  const projection = await control(config, fetcher, "/v1/e2e/view", {
-    profile: "administration",
-  });
-  if (
-    !projection ||
-    typeof projection !== "object" ||
-    Array.isArray(projection) ||
-    !Number.isSafeInteger(
-      (projection as Record<string, unknown>).caseVersion
-    ) ||
-    Number((projection as Record<string, unknown>).caseVersion) < 2
-  )
-    throw new Error("control_case_version_invalid");
-  return Number((projection as Record<string, unknown>).caseVersion);
-}
-
 function publicStrings(value: unknown, limit: number): string[] {
   if (
     !Array.isArray(value) ||

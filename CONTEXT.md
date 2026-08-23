@@ -17,7 +17,9 @@ This glossary fixes the terms used by the Röbel app and Stadtstack integration.
 | **Sunburst** | A radial projection of the same argument tree. Area represents structure, not support or vote weight. | Poll results. |
 | **Mecky answer** | Machine-labelled assistance produced from admitted public evidence with explicit source authority and citations. | Administrative feedback, legal advice, or an official position. |
 | **Improvement proposal candidate** | A citizen-signed, topic-bound suggestion linking the exact discussion and reviewed Mecky receipt while still awaiting human Civic Case admission. | A Civic Case, submitted governance proposal, or administrative decision. |
+| **Case Steward** | A separately authenticated human role that may admit one exact citizen-signed improvement proposal candidate after checking scope and responsibility. | Mecky, a public-app user action, administrative feedback, or authority to decide the proposal. |
 | **Civic case** | The admitted, append-only Stadtstack workflow record. | The public discussion alone. |
+| **Case binding receipt** | The public-safe, append-only proof that one exact signed candidate and source discussion were admitted as one exact Civic Case version. | A mutation of the signed Nostr root, the private admission command, or permission to advance later stages. |
 | **Administrative feedback** | Human-reviewed department packages attached to the civic case. | Mecky output. |
 | **Public administration progress** | The redacted journey view of accepted, current department responses and any current Citizen Brief. An absent response means only that no publicly reviewed answer is available. | A private work queue, a rejected response, or an inferred review status. |
 | **Citizen Brief** | The public, source-bound explanation of reviewed options and constraints. | A press release or binding decision. |

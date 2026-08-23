@@ -1367,9 +1367,14 @@ describe("Röbel E2E workbench boundary", () => {
       publish: async () => ({ ok: true, message: "stored" }),
       close: () => {},
     };
+    let upstreamCalls = 0;
     const running = await startWorkbench(config, {
       citizenRelay: relay,
       agentRelay: relay,
+      fetch: async () => {
+        upstreamCalls += 1;
+        throw new Error("public_case_steward_route_called_upstream");
+      },
     });
     try {
       const origin = `http://127.0.0.1:${running.port}`;
@@ -1391,6 +1396,7 @@ describe("Röbel E2E workbench boundary", () => {
         assert.equal(response.status, 404, path);
         assert.deepEqual(await response.json(), { error: "not_found" });
       }
+      assert.equal(upstreamCalls, 0);
     } finally {
       await running.close();
     }

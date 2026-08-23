@@ -183,15 +183,18 @@ test("lets the topic author sign a proposal without inventing a CivicCase", () =
   assert.match(discussion, /signTopicSuggestion/);
   assert.match(discussion, /intent: "suggestion"/);
   assert.match(discussion, /Vorschlag prüfen und\s+signieren/);
-  assert.match(discussion, /Wartet auf menschliche\s+Aufnahme/);
+  assert.match(discussion, /Wartet auf Case Steward/);
   assert.match(discussion, /kein CivicCase automatisch angelegt/);
   assert.match(discussion, /Menschliche Aufnahme als CivicCase/);
+  assert.match(discussion, /Diese öffentliche App kann die Aufnahme nicht auslösen/);
+  assert.doesNotMatch(discussion, /stagingPost<[^>]+>\("\/admit"/);
+  assert.doesNotMatch(discussion, /stagingPost<[^>]+>\("\/complete"/);
 });
 
 test("promotes the displayed signed discussion without publishing or polling a duplicate", () => {
-  assert.match(discussion, /discussion: thread\.rootEvent/);
-  assert.match(discussion, /answer: thread\.mecky\.event/);
-  assert.match(discussion, /proposalPersona\.id/);
+  assert.match(discussion, /sourceDiscussion: thread\.rootEvent/);
+  assert.match(discussion, /sourceAnswer: thread\.mecky\.event/);
+  assert.match(discussion, /signTopicSuggestion/);
   assert.doesNotMatch(discussion, /stagingPost<[^>]+>\("\/discussion"/);
   assert.doesNotMatch(discussion, /\/reply\?parent=/);
 });
