@@ -33,6 +33,15 @@ const GlassTargetContext = createContext<RefObject<View | null> | null>(null);
  */
 export function GlassBackdrop({ children, style, ...rest }: ViewProps) {
   const ref = useRef<View>(null);
+  // Android: plain View — no BlurTargetView RenderNode capture while the
+  // backdrop blur is disabled (see the platform branch in GlassSurface).
+  if (Platform.OS !== 'ios') {
+    return (
+      <View style={style} {...rest}>
+        {children}
+      </View>
+    );
+  }
   return (
     <GlassTargetContext.Provider value={ref}>
       <BlurTargetView ref={ref} style={style} {...rest}>
@@ -77,7 +86,12 @@ export default function GlassSurface({ intensity = 100, edge = 'none' }: Props) 
 
   const tint = isDark ? 'systemChromeMaterialDark' : 'systemChromeMaterial';
 
-  if (BLUR_AVAILABLE && (Platform.OS === 'ios' || (Platform.OS === 'android' && target))) {
+  // Android backdrop blur is disabled: the RenderNode snapshot of a
+  // BlurTargetView full of expo-image/video surfaces crashes the feed on
+  // physical devices (Pixel confirmed 2026-08-23) while emulators render it
+  // fine — same class as expo/expo#24572. Android keeps the tinted fill +
+  // edge line below until the blur can be gated per-device safely.
+  if (BLUR_AVAILABLE && Platform.OS === 'ios') {
     return (
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
         <BlurView
