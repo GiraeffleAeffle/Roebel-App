@@ -106,6 +106,65 @@ type Props = {
 
 const PROPOSAL_HERO_ID = '__proposal_hero';
 
+// Resolves the record a feed row actually acts on: repost rows act on the
+// quoted original, everything else acts on itself. Pure/side-effect-free so
+// it can live at module scope and be shared by renderItem and the stable
+// per-cell callback lookups below.
+function resolveRepostTarget(post: PostRecord): PostRecord {
+  return post.post_type === 'repost' && post.quoted_post ? post.quoted_post : post;
+}
+
+// Hoisted to module scope so FlatList sees the SAME component reference on
+// every render — an inline `() => <View .../>` recreates a brand-new function
+// component every render, which React treats as a type change and remounts.
+// Reads the theme itself, so it needs no props from the list.
+const FeedSeparator = React.memo(function FeedSeparator() {
+  const { colors } = useTheme();
+  return <View style={[styles.separator, { backgroundColor: colors.border }]} />;
+});
+
+type FeedListFooterProps = {
+  isLoadingMore: boolean;
+  bottomPadding: number;
+};
+
+const FeedListFooter = React.memo(function FeedListFooter({
+  isLoadingMore,
+  bottomPadding,
+}: FeedListFooterProps) {
+  return isLoadingMore ? (
+    <View style={styles.footerLoader}>
+      <FeedPostSkeleton />
+    </View>
+  ) : (
+    <View style={{ height: bottomPadding + 40 }} />
+  );
+});
+
+type FeedListEmptyProps = {
+  isLoading: boolean;
+  feedType: FeedType;
+  isCitizen: boolean;
+  onCompose: () => void;
+};
+
+const FeedListEmpty = React.memo(function FeedListEmpty({
+  isLoading,
+  feedType,
+  isCitizen,
+  onCompose,
+}: FeedListEmptyProps) {
+  return isLoading ? (
+    <View style={styles.skeletonList}>
+      {[1, 2, 3, 4].map((i) => (
+        <FeedPostSkeleton key={i} />
+      ))}
+    </View>
+  ) : (
+    <FeedEmptyState feedType={feedType} isCitizen={isCitizen} onCompose={onCompose} />
+  );
+});
+
 const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
   {
     feedType,
@@ -153,6 +212,12 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
 
   const visibleDeals = useRef(new Set<string>());
   const [visibleVideoIds, setVisibleVideoIds] = useState<Set<string>>(new Set());
+  // Latest-ref mirror of visibleVideoIds: renderItem reads this instead of
+  // the state directly so a visibility flip doesn't force renderItem itself
+  // to be recreated. `extraData` below is what actually tells FlatList to
+  // re-render the currently mounted cells when this set changes.
+  const visibleVideoIdsRef = useRef(visibleVideoIds);
+  visibleVideoIdsRef.current = visibleVideoIds;
 
   React.useEffect(() => {
     setViewTrackerWallet(walletAddress);
@@ -236,6 +301,107 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
     minimumViewTime: 200,
   });
 
+  // --- Stable per-cell callbacks for FeedPostCard --------------------------
+  // FeedPostCard is React.memo'd; its default shallow-prop-compare only pays
+  // off if the onLike/onShare/onMore/onRepost props it receives keep a
+  // stable identity across renders. usePostActions re-derives toggleLike /
+  // sharePost / isReposted etc. whenever ANY post's like/repost state
+  // changes anywhere in the feed, so handing those straight through as
+  // per-item closures would recreate every mounted cell's callbacks on every
+  // like. Instead: keep "latest" refs to the volatile bits, and cache one
+  // bound handler per post id (created once, reused forever) that reads the
+  // refs at call time — liking post A never changes the onLike reference
+  // held by post B, C, D...
+  const toggleLikeRef = useRef(toggleLike);
+  toggleLikeRef.current = toggleLike;
+  const sharePostRef = useRef(sharePost);
+  sharePostRef.current = sharePost;
+  const onMorePropRef = useRef(onMore);
+  onMorePropRef.current = onMore;
+  const onRepostPropRef = useRef(onRepost);
+  onRepostPropRef.current = onRepost;
+  const isRepostedRef = useRef(isReposted);
+  isRepostedRef.current = isReposted;
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
+  const likeHandlersRef = useRef(new Map<string, () => void>());
+  const shareHandlersRef = useRef(new Map<string, () => void>());
+  const moreHandlersRef = useRef(new Map<string, () => void>());
+
+  // Look up the freshest post data by id at CALL time (via itemsRef), not at
+  // cache-creation time — so the cached handlers below never act on stale
+  // counts/content even though each one is created once and reused.
+  const findTargetById = useCallback((id: string): PostRecord | undefined => {
+    for (const it of itemsRef.current) {
+      if (it.type !== 'post' && it.type !== 'mecky') continue;
+      const resolved = resolveRepostTarget(it.data as PostRecord);
+      if (resolved.id === id) return resolved;
+    }
+    return undefined;
+  }, []);
+
+  const findRowById = useCallback((id: string): PostRecord | undefined => {
+    for (const it of itemsRef.current) {
+      if (it.type !== 'post' && it.type !== 'mecky') continue;
+      const p = it.data as PostRecord;
+      if (p.id === id) return p;
+    }
+    return undefined;
+  }, []);
+
+  const getLikeHandler = useCallback(
+    (id: string) => {
+      let fn = likeHandlersRef.current.get(id);
+      if (!fn) {
+        fn = () => {
+          const target = findTargetById(id);
+          toggleLikeRef.current(id, target?.likes_count ?? 0);
+        };
+        likeHandlersRef.current.set(id, fn);
+      }
+      return fn;
+    },
+    [findTargetById],
+  );
+
+  const getShareHandler = useCallback(
+    (id: string) => {
+      let fn = shareHandlersRef.current.get(id);
+      if (!fn) {
+        fn = () => {
+          const target = findTargetById(id);
+          sharePostRef.current(id, target?.content ?? '');
+        };
+        shareHandlersRef.current.set(id, fn);
+      }
+      return fn;
+    },
+    [findTargetById],
+  );
+
+  const getMoreHandler = useCallback(
+    (id: string) => {
+      let fn = moreHandlersRef.current.get(id);
+      if (!fn) {
+        fn = () => {
+          const row = findRowById(id);
+          if (row) onMorePropRef.current(row);
+        };
+        moreHandlersRef.current.set(id, fn);
+      }
+      return fn;
+    },
+    [findRowById],
+  );
+
+  // onRepost already receives its target as a call-time argument (from
+  // FeedPostCard), so unlike like/share/more it needs no per-id cache — one
+  // stable function works for every cell.
+  const handleRepost = useCallback((target: PostRecord) => {
+    onRepostPropRef.current?.(target, isRepostedRef.current(target.id));
+  }, []);
+
   const renderItem = useCallback(
     ({ item }: { item: FeedItem }) => {
       switch (item.type) {
@@ -262,20 +428,20 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
               </View>
             );
           }
-          const target = post.post_type === 'repost' && post.quoted_post ? post.quoted_post : post;
+          const target = resolveRepostTarget(post);
           return (
             <FeedPostCard
               post={post}
               isLiked={isLiked(target.id)}
               displayLikeCount={getLikeCount(target.id, target.likes_count)}
               walletAddress={walletAddress}
-              isVisible={active && visibleVideoIds.has(post.id)}
-              onLike={() => toggleLike(target.id, target.likes_count)}
-              onShare={() => sharePost(target.id, target.content)}
-              onMore={() => onMore(post)}
+              isVisible={active && visibleVideoIdsRef.current.has(post.id)}
+              onLike={getLikeHandler(target.id)}
+              onShare={getShareHandler(target.id)}
+              onMore={getMoreHandler(post.id)}
               isReposted={isReposted(target.id)}
               displayRepostCount={getRepostCount(target.id, target.reposts_count ?? 0)}
-              onRepost={onRepost ? (t) => onRepost(t, isReposted(t.id)) : undefined}
+              onRepost={onRepost ? handleRepost : undefined}
             />
           );
         }
@@ -288,7 +454,7 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
               isLiked={isLiked(post.id)}
               displayLikeCount={getLikeCount(post.id, post.likes_count)}
               walletAddress={walletAddress}
-              isVisible={active && visibleVideoIds.has(post.id)}
+              isVisible={active && visibleVideoIdsRef.current.has(post.id)}
               onLike={() => toggleLike(post.id, post.likes_count)}
               onShare={() => sharePost(post.id, post.content)}
               onMore={() => onMore(post)}
@@ -404,7 +570,22 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
           return null;
       }
     },
-    [walletAddress, isLiked, getLikeCount, toggleLike, sharePost, onMore, onRepost, isReposted, getRepostCount, visibleVideoIds, active],
+    [
+      walletAddress,
+      isLiked,
+      getLikeCount,
+      toggleLike,
+      sharePost,
+      onMore,
+      onRepost,
+      isReposted,
+      getRepostCount,
+      active,
+      getLikeHandler,
+      getShareHandler,
+      getMoreHandler,
+      handleRepost,
+    ],
   );
 
   const keyExtractor = useCallback((item: FeedItem) => item.id, []);
@@ -493,10 +674,12 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
       data={displayData}
       keyExtractor={keyExtractor}
       renderItem={renderItem}
+      // Forces the (memoized) cells that FlatList currently has mounted to
+      // re-render when video visibility changes, since renderItem no longer
+      // depends on visibleVideoIds directly (see visibleVideoIdsRef above).
+      extraData={visibleVideoIds}
       ListHeaderComponent={listHeader ? <>{listHeader}</> : undefined}
-      ItemSeparatorComponent={() => (
-        <View style={[styles.separator, { backgroundColor: colors.border }]} />
-      )}
+      ItemSeparatorComponent={FeedSeparator}
       style={{ backgroundColor: colors.background }}
       refreshControl={
         <RefreshControl
@@ -513,25 +696,18 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
       onViewableItemsChanged={onViewableItemsChanged}
       viewabilityConfig={viewabilityConfig.current}
       scrollIndicatorInsets={{ top: topPadding, bottom: bottomPadding }}
+      windowSize={7}
+      maxToRenderPerBatch={5}
       ListEmptyComponent={
-        isLoading ? (
-          <View style={styles.skeletonList}>
-            {[1, 2, 3, 4].map((i) => (
-              <FeedPostSkeleton key={i} />
-            ))}
-          </View>
-        ) : (
-          <FeedEmptyState feedType={feedType} isCitizen={isCitizen} onCompose={onCompose} />
-        )
+        <FeedListEmpty
+          isLoading={isLoading}
+          feedType={feedType}
+          isCitizen={isCitizen}
+          onCompose={onCompose}
+        />
       }
       ListFooterComponent={
-        isLoadingMore ? (
-          <View style={styles.footerLoader}>
-            <FeedPostSkeleton />
-          </View>
-        ) : (
-          <View style={{ height: bottomPadding + 40 }} />
-        )
+        <FeedListFooter isLoadingMore={isLoadingMore} bottomPadding={bottomPadding} />
       }
       contentContainerStyle={[
         styles.feedContent,
