@@ -11,7 +11,7 @@ import {
   importIdentity,
   deleteIdentity,
   formatIdentityInfo,
-} from "@/lib/semaphore";
+} from "@/lib/semaphore/identity";
 import type { Identity } from "@semaphore-protocol/identity";
 
 // Force dynamic rendering since we use localStorage

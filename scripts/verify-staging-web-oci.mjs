@@ -29,7 +29,14 @@ export function verifyStagingWebOci(root, sourceRevision) {
   const index = readJson(join(root, "index.json"));
   if (index.schemaVersion !== 2 || !Array.isArray(index.manifests) || index.manifests.length !== 1) throw new Error("index_invalid");
   const descriptor = index.manifests[0];
-  if (descriptor.mediaType !== "application/vnd.oci.image.manifest.v1+json" || descriptor.platform?.os !== "linux" || descriptor.platform?.architecture !== "amd64") throw new Error("platform_invalid");
+  // ORAS can omit the optional descriptor platform when it copies one exact
+  // manifest into an OCI layout. An explicit value must still be the target;
+  // the image config below remains authoritative in both cases.
+  const platform = descriptor.platform;
+  if (
+    descriptor.mediaType !== "application/vnd.oci.image.manifest.v1+json" ||
+    (platform !== undefined && (platform === null || platform.os !== "linux" || platform.architecture !== "amd64"))
+  ) throw new Error("platform_invalid");
   const repository = "stadtstack.local/roebel-web-preview/roebel-web-staging";
   const importName = `${repository}:source-${sourceRevision}`;
   if (descriptor.annotations?.["io.containerd.image.name"] !== importName) throw new Error("import_name_invalid");
