@@ -1,7 +1,6 @@
 import React, { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react';
 import {
   View,
-  FlatList,
   StyleSheet,
   RefreshControl,
   ViewToken,

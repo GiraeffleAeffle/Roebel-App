@@ -40,13 +40,9 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     }
   }, [inbox.markAllAsRead, userNotifs.markAllAsRead]);
 
-  // NOTE: `notifications`, `inbox`, and `userNotifs` are fresh object
-  // literals returned by their respective hooks on every render (none of
-  // useNotifications/useNotificationInbox/useUserNotifications memoize their
-  // return value), so this useMemo's deps change every render too and the
-  // cascade isn't actually broken here — see task-3 report for detail. The
-  // memoization is still exact/correct and becomes effective for free the
-  // moment those hooks are memoized upstream.
+  // NOTE: The three hooks (useNotifications, useNotificationInbox, useUserNotifications)
+  // memoize their returns, so this useMemo holds identity across renders but the
+  // cascade is broken — deps change unnecessarily at the provider level.
   const value = useMemo<NotificationsContextValue>(
     () => ({
       ...notifications,

@@ -16,6 +16,7 @@ import UserFilled from '../assets/icons/bottom-nav/user-circle-filled.svg';
 
 export type TabKey = 'home' | 'explore' | 'profile';
 
+// Content height only — the rendered bar adds Math.max(insets.bottom, 8) bottom padding, so on home-indicator devices the total is taller.
 export const BOTTOM_NAV_HEIGHT = 72;
 
 const ICON_SIZE = 24;
