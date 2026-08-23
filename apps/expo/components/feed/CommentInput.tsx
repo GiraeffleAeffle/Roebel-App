@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '@/context/ThemeContext';
-import GlassSurface from '@/components/GlassSurface';
+import GlassSurface, { glassEdgeColor } from '@/components/GlassSurface';
 import StickerEmojiPicker from '@/components/pickers/StickerEmojiPicker';
 import { uploadMediaFile } from '@/lib/upload-media';
 import type { LootboxReward } from '@/lib/supabase-rewards';
@@ -51,7 +51,7 @@ export default function CommentInput({
   avatarFallbackInitial,
   onExpand,
 }: Props) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const inputRef = useRef<TextInput>(null);
   const [showPicker, setShowPicker] = useState(false);
   const [pendingSticker, setPendingSticker] = useState<LootboxReward | null>(null);
@@ -173,7 +173,7 @@ export default function CommentInput({
 
       {/* Floating fully-rounded pill. Glass background, hairline border,
           content scrolls beneath it in the screen. */}
-      <View style={[styles.pill, { borderColor: colors.border }]}>
+      <View style={[styles.pill, { borderColor: glassEdgeColor(isDark) }]}>
         <GlassSurface />
         <View style={styles.pillRow}>
           {isEditMode ? (
@@ -274,7 +274,8 @@ export default function CommentInput({
 const styles = StyleSheet.create({
   pill: {
     borderRadius: 26,
-    borderWidth: StyleSheet.hairlineWidth,
+    // A visible 1px light rim — the glass edge — instead of a hairline.
+    borderWidth: 1,
     overflow: 'hidden',
   },
   pillRow: {

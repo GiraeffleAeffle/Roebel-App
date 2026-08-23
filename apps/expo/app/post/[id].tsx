@@ -62,6 +62,7 @@ import RepostDrawer from '@/components/feed/RepostDrawer';
 import { resolveYouTubeUrl, removeYouTubeUrls } from '@/lib/utils/youtube';
 import CommentInput from '@/components/feed/CommentInput';
 import CommentComposerModal from '@/components/feed/CommentComposerModal';
+import { GlassBackdrop } from '@/components/GlassSurface';
 import CommentScrim from '@/components/feed/CommentScrim';
 import FeedPostSkeleton, { CommentSkeleton } from '@/components/feed/FeedPostSkeleton';
 import { useActiveProfileImage } from '@/hooks/useActiveProfileImage';
@@ -719,7 +720,9 @@ export default function PostDetailScreen() {
         style={styles.flex}
         keyboardVerticalOffset={0}
       >
-        <View style={styles.flex}>
+        {/* GlassBackdrop: the surface the floating pill's frost samples on
+            Android (plain View on iOS). The pill renders after/outside it. */}
+        <GlassBackdrop style={styles.flex}>
           {/* Header */}
           <View style={[styles.header, { borderBottomColor: colors.border }]}>
             <Pressable onPress={goBack} style={styles.backButton}>
@@ -760,7 +763,7 @@ export default function PostDetailScreen() {
             }
           />
           <CommentScrim visible={commentFocused} />
-        </View>
+        </GlassBackdrop>
 
         {/* Floating comment bar — overlaps the list bottom so comments
             scroll beneath the glass pill. */}

@@ -32,7 +32,7 @@ import { deletePost, pinPost, DuplicateReportError } from '@/lib/supabase-posts'
 import { isPostPinned, pinErrorMessage } from '@/lib/utils/pin';
 import type { FeedType, PostRecord } from '@/lib/types/feed';
 import BottomNavigation, { BOTTOM_NAV_HEIGHT } from '@/components/BottomNavigation';
-import GlassSurface from '@/components/GlassSurface';
+import GlassSurface, { GlassBackdrop } from '@/components/GlassSurface';
 import FeedTabBar from './FeedTabBar';
 import FeedList, { type FeedListHandle } from './FeedList';
 import PostComposer from './PostComposer';
@@ -503,7 +503,7 @@ export default function FeedHome() {
         headerAnimatedStyle,
       ]}
     >
-      <GlassSurface />
+      <GlassSurface edge="bottom" />
       <View style={styles.header}>
         <HeaderWeather
           fallbackSource={isDark ? HANDWRITTEN_DARK : HANDWRITTEN_LIGHT}
@@ -585,6 +585,10 @@ export default function FeedHome() {
           stories never disappear/reload. rathaus/app only fetch once isCitizen
           resolves (enabled gate); offscreenPageLimit keeps all pages mounted so
           tab switches don't refetch. */}
+      {/* GlassBackdrop is the surface Android's frosted chrome samples
+          from (BlurTargetView) — the glass bars below must stay OUTSIDE
+          it and render after it. Plain passthrough View on iOS. */}
+      <GlassBackdrop style={styles.pager}>
       <Pager
         ref={pagerRef}
         initialPage={0}
@@ -637,6 +641,7 @@ export default function FeedHome() {
           />
         </View>
       </Pager>
+      </GlassBackdrop>
 
       {appHeader}
 
@@ -706,7 +711,7 @@ export default function FeedHome() {
       <Animated.View
         style={[styles.bottomFloating, bottomNavAnimatedStyle]}
       >
-        <GlassSurface />
+        <GlassSurface edge="top" />
         {/* BottomNavigation now owns its own safe-area bottom padding
             (Task 7) — no extra paddingBottom here, or the home-indicator
             inset would be applied twice and the glass overlay would grow

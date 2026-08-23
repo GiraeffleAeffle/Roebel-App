@@ -1,54 +1,111 @@
-import React from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
-import { BlurView } from 'expo-blur';
+import React, { createContext, useContext, useRef, type RefObject } from 'react';
+import { Platform, StyleSheet, View, type ViewProps } from 'react-native';
+import { BlurView, BlurTargetView } from 'expo-blur';
+import { requireOptionalNativeModule } from 'expo';
 import { useTheme } from '@/context/ThemeContext';
 
-// High-opacity glass: the surface reads as solid chrome, but content
-// scrolling beneath it shimmers through just enough to feel layered.
-// iOS gets a real backdrop blur; Android skips the blur (the experimental
-// dimezis method costs frames on scroll-heavy screens) and uses a slightly
-// more opaque tint instead so text on top stays legible.
-const IOS_TINT_ALPHA = 0.85;
-const ANDROID_TINT_ALPHA = 0.96;
+// Real frosted glass, not lowered opacity: a backdrop blur with the iOS
+// "chrome" material tint (the material system bars use — heavily frosted
+// yet ~80-90% opaque) and a light hairline edge where the glass meets the
+// content. iOS blurs the layer beneath natively; Android (SDK 55+ stable
+// blur) samples a BlurTargetView that must wrap the scrolling content —
+// see <GlassBackdrop>. Android < 12 gracefully degrades to the tinted
+// semi-transparent fill inside expo-blur itself.
+
+// An EAS Update could ship this JS into a binary built without the
+// expo-blur native module — same guard pattern as PagerView in FeedHome.
+const BLUR_AVAILABLE = (() => {
+  try {
+    return requireOptionalNativeModule('ExpoBlur') != null;
+  } catch {
+    return false;
+  }
+})();
+
+const GlassTargetContext = createContext<RefObject<View | null> | null>(null);
+
+/**
+ * Wraps the scrollable content that glass chrome floats over. On Android
+ * this is the surface the frost samples its pixels from; on iOS and web
+ * it's a plain View passthrough. Every screen using <GlassSurface /> must
+ * render its content inside one of these — and the glass bars OUTSIDE it,
+ * after it in JSX order.
+ */
+export function GlassBackdrop({ children, style, ...rest }: ViewProps) {
+  const ref = useRef<View>(null);
+  return (
+    <GlassTargetContext.Provider value={ref}>
+      <BlurTargetView ref={ref} style={style} {...rest}>
+        {children}
+      </BlurTargetView>
+    </GlassTargetContext.Provider>
+  );
+}
+
+/** The light rim where a glass edge catches light — also usable as a borderColor. */
+export function glassEdgeColor(isDark: boolean): string {
+  return isDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.09)';
+}
 
 type Props = {
-  /** Blur strength on iOS. Ignored on Android. */
+  /** Blur strength 1-100. 100 = the authentic system material. */
   intensity?: number;
+  /** Which edge of the bar meets the content — draws the light hairline there. */
+  edge?: 'top' | 'bottom' | 'none';
 };
 
 /**
- * Absolute-fill glass background. Render as the FIRST child of a container
- * (siblings paint above it). The container itself must stay transparent.
+ * Absolute-fill frosted-glass background. Render as the FIRST child of a
+ * bar/pill (siblings paint above it); the container itself must stay
+ * transparent and, for rounded shapes, clip with overflow:'hidden'.
  */
-export default function GlassSurface({ intensity = 50 }: Props) {
+export default function GlassSurface({ intensity = 100, edge = 'none' }: Props) {
   const { colors, isDark } = useTheme();
+  const target = useContext(GlassTargetContext);
 
-  if (Platform.OS === 'ios') {
-    return (
-      <BlurView
+  const edgeLine =
+    edge === 'none' ? null : (
+      <View
         pointerEvents="none"
-        style={StyleSheet.absoluteFill}
-        intensity={intensity}
-        tint={isDark ? 'dark' : 'light'}
-      >
-        <View
-          style={[
-            StyleSheet.absoluteFill,
-            { backgroundColor: hexToRgba(colors.background, IOS_TINT_ALPHA) },
-          ]}
+        style={[
+          styles.edge,
+          edge === 'top' ? styles.edgeTop : styles.edgeBottom,
+          { backgroundColor: glassEdgeColor(isDark) },
+        ]}
+      />
+    );
+
+  const tint = isDark ? 'systemChromeMaterialDark' : 'systemChromeMaterial';
+
+  if (BLUR_AVAILABLE && (Platform.OS === 'ios' || (Platform.OS === 'android' && target))) {
+    return (
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <BlurView
+          style={StyleSheet.absoluteFill}
+          intensity={intensity}
+          tint={tint}
+          // Android-only props; ignored on iOS. Blurs the GlassBackdrop
+          // beneath via RenderNode on Android 12+, tinted fill below that.
+          blurMethod="dimezisBlurViewSdk31Plus"
+          blurTarget={target ?? undefined}
         />
-      </BlurView>
+        {edgeLine}
+      </View>
     );
   }
 
+  // No native blur available (old binary, web, Android outside a
+  // GlassBackdrop): translucent solid keeps the chrome legible.
   return (
-    <View
-      pointerEvents="none"
-      style={[
-        StyleSheet.absoluteFill,
-        { backgroundColor: hexToRgba(colors.background, ANDROID_TINT_ALPHA) },
-      ]}
-    />
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          { backgroundColor: hexToRgba(colors.background, 0.96) },
+        ]}
+      />
+      {edgeLine}
+    </View>
   );
 }
 
@@ -67,3 +124,18 @@ function hexToRgba(hex: string, alpha: number): string {
   if ([r, g, b].some(Number.isNaN)) return hex;
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
+
+const styles = StyleSheet.create({
+  edge: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+  },
+  edgeTop: {
+    top: 0,
+  },
+  edgeBottom: {
+    bottom: 0,
+  },
+});
