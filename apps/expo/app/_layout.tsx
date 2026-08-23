@@ -134,18 +134,37 @@ function NotificationHandler() {
   return null;
 }
 
+// True once some `DeferredUpdateCheck` instance has scheduled the OTA check.
+// Module scope, shared across every mount site (the `fontError` branch, the
+// `!fontsLoaded` branch, and the steady-state instance inside `ThemedLayout`
+// — see `Layout()` below) so only the FIRST instance whose effect actually
+// runs schedules the network call; every later instance is a no-op. Without
+// this, an ordinary cold start double-fires the check: the `!fontsLoaded`
+// instance's `runAfterInteractions` callback typically fires within a frame
+// (nothing else registers an interaction handle that early), well before
+// fonts finish loading and `ThemedLayout` mounts its own fresh instance.
+// Checked-and-spent INSIDE the effect (not during render) so it's only
+// flipped once a render has actually committed and its effect has run — the
+// same reasoning as the `hasRedirectedFromRoot` guard in `app/index.tsx`.
+let hasScheduledUpdateCheck = false;
+
 /**
  * Checks for and applies OTA updates (native only). This used to run at
  * module scope — network on the JS critical path, with `Updates.reloadAsync()`
  * able to restart the app mid-boot. Now it waits until the first screen has
  * mounted and interactions have settled (`InteractionManager`), so the check
  * still runs — and still applies + reloads — on every launch, just off the
- * cold-start path. Runs once per app process. Error handling unchanged:
- * failures are swallowed and the user continues on the current version.
+ * cold-start path. Runs once per app process (see `hasScheduledUpdateCheck`
+ * above — this component can mount more than once per process across
+ * `Layout()`'s branches, but only the first mount's effect schedules
+ * anything). Error handling unchanged: failures are swallowed and the user
+ * continues on the current version.
  */
 function DeferredUpdateCheck() {
   useEffect(() => {
     if (Platform.OS === 'web') return undefined;
+    if (hasScheduledUpdateCheck) return undefined;
+    hasScheduledUpdateCheck = true;
 
     const task = InteractionManager.runAfterInteractions(() => {
       const Updates = require('expo-updates');
