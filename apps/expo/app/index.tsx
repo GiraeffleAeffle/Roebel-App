@@ -653,7 +653,10 @@ function DefaultHome() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top', 'left', 'right']}
+    >
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}

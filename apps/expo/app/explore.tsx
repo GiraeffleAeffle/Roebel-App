@@ -241,7 +241,10 @@ export default function ExploreScreen() {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top', 'left', 'right']}
+    >
       <Animated.ScrollView
         // flex:1 is load-bearing on web: react-native-web sizes an unstyled
         // ScrollView to its content, so `overflow-y: auto` never has anything
