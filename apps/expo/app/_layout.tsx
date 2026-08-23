@@ -167,6 +167,31 @@ function DeferredUpdateCheck() {
 }
 
 /**
+ * Captures the cold-boot pathname exactly once, during this component's own
+ * render. Rendered as `ThemedLayout`'s FIRST child, so — siblings render in
+ * declaration order, depth-first — it always runs before React descends into
+ * the Stack's matched screen (the same tree position the old
+ * `InitialRouteRedirect` occupied). `app/index.tsx` reads
+ * `bootState.pathname` to tell "cold start resolved to `/`" apart from "the
+ * user navigated back to `/` later in the session" without ever mounting the
+ * feed screen on the former. See `lib/navigation/bootPathname.ts`.
+ *
+ * Deliberately kept OUT of `ThemedLayout` itself: `usePathname()` subscribes
+ * to every navigation, and `ThemedLayout` is the ancestor of the entire
+ * 24-screen `TransitionStack` — calling the hook there would re-render that
+ * whole subtree on every route change. As a null-rendering leaf sibling, its
+ * own re-renders never cascade into the Stack.
+ */
+function BootPathnameCapture() {
+  const pathname = usePathname();
+  if (!bootState.captured) {
+    bootState.captured = true;
+    bootState.pathname = pathname;
+  }
+  return null;
+}
+
+/**
  * Component to handle Firebase Analytics screen tracking
  */
 function AnalyticsTracker() {
@@ -221,22 +246,10 @@ function RewardsTaskTriggers() {
 
 function ThemedLayout() {
   const { colors, isDark } = useTheme();
-  const pathname = usePathname();
-
-  // Capture the cold-boot pathname exactly once, during THIS component's own
-  // render — which always happens before React descends into rendering the
-  // Stack's matched screen (parent renders before child within one commit).
-  // `app/index.tsx` reads `bootState.pathname` to tell "cold start resolved
-  // to `/`" apart from "the user navigated back to `/` later in the session"
-  // without ever mounting the feed screen on the former. See
-  // `lib/navigation/bootPathname.ts`.
-  if (!bootState.captured) {
-    bootState.captured = true;
-    bootState.pathname = pathname;
-  }
 
   return (
     <>
+      <BootPathnameCapture />
       <DeferredUpdateCheck />
       <NotificationHandler />
       <AnalyticsTracker />
@@ -316,23 +329,33 @@ function Layout() {
     }
   }, [fontsLoaded]);
 
-  // Show error state if fonts fail to load
+  // Show error state if fonts fail to load. The OTA update check is mounted
+  // here too — not just inside `ThemedLayout` below — so a broken update that
+  // breaks font loading can still be superseded by the next OTA instead of
+  // stranding the device until a store update. `DeferredUpdateCheck` renders
+  // null; mounting it costs nothing.
   if (fontError) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#ffffff' }}>
-        <Text style={{ fontSize: 20, fontWeight: '600', marginBottom: 16, color: '#000000' }}>Font Loading Error</Text>
-        <Text style={{ fontSize: 14, color: '#6b7280', textAlign: 'center' }}>
-          Die Schriftarten konnten nicht geladen werden. Bitte versuchen Sie es später erneut.
-        </Text>
-        <Text style={{ fontSize: 12, color: '#dc2626', marginTop: 16, textAlign: 'center' }}>
-          {fontError.message}
-        </Text>
-      </View>
+      <>
+        <DeferredUpdateCheck />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#ffffff' }}>
+          <Text style={{ fontSize: 20, fontWeight: '600', marginBottom: 16, color: '#000000' }}>Font Loading Error</Text>
+          <Text style={{ fontSize: 14, color: '#6b7280', textAlign: 'center' }}>
+            Die Schriftarten konnten nicht geladen werden. Bitte versuchen Sie es später erneut.
+          </Text>
+          <Text style={{ fontSize: 12, color: '#dc2626', marginTop: 16, textAlign: 'center' }}>
+            {fontError.message}
+          </Text>
+        </View>
+      </>
     );
   }
 
   if (!fontsLoaded) {
-    return null;
+    // Same reasoning as the fontError branch above: keep the update check
+    // alive even while fonts are still loading, so a hang here doesn't also
+    // block the OTA path that could fix it.
+    return <DeferredUpdateCheck />;
   }
 
   return (
