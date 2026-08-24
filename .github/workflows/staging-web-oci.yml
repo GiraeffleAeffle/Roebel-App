@@ -74,6 +74,87 @@ jobs:
           test "$context_bytes" -le "$MAX_CONTEXT_BYTES"
           printf 'context_bytes=%s\n' "$context_bytes"
 
+      - name: Guard the exact-head PR compiler cache destination
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        env:
+          PR_HEAD_REVISION: ${{ github.event.pull_request.head.sha }}
+          WEB_APP_PATH: ${{ runner.temp }}/context/apps/web
+          NEXT_BUILD_PATH: ${{ runner.temp }}/context/apps/web/.next
+          NEXT_CACHE_ROOT: ${{ runner.temp }}/context/apps/web/.next/cache
+        run: |
+          set -euo pipefail
+          [[ "$PR_HEAD_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$SOURCE_REVISION" = "$PR_HEAD_REVISION"
+          [[ -d "$WEB_APP_PATH" && ! -L "$WEB_APP_PATH" ]]
+          [[ ! -e "$NEXT_BUILD_PATH" && ! -L "$NEXT_BUILD_PATH" ]]
+          mkdir -p "$NEXT_CACHE_ROOT/webpack"
+          [[ -d "$NEXT_CACHE_ROOT" && ! -L "$NEXT_CACHE_ROOT" ]]
+          [[ -d "$NEXT_CACHE_ROOT/webpack" && ! -L "$NEXT_CACHE_ROOT/webpack" ]]
+          test -z "$(find "$NEXT_CACHE_ROOT" -type l -print -quit)"
+
+      - name: Restore the exact-head PR server compiler cache
+        id: next-cache-restore
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            ${{ runner.temp }}/context/apps/web/.next/cache/webpack/server-production
+            ${{ runner.temp }}/context/apps/web/.next/cache/webpack/edge-server-production
+          key: roebel-web-pr-webpack-server-v1-${{ runner.os }}-${{ runner.arch }}-node22-pnpm9.15.0-head-${{ github.event.pull_request.head.sha }}
+
+      - name: Validate the exact-head PR server compiler cache
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.next-cache-restore.outputs.cache-hit }}
+          MAX_SELECTED_CACHE_BYTES: "2147483648"
+          NEXT_CACHE_ROOT: ${{ runner.temp }}/context/apps/web/.next/cache
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          server_cache="$NEXT_CACHE_ROOT/webpack/server-production"
+          edge_cache="$NEXT_CACHE_ROOT/webpack/edge-server-production"
+          [[ -d "$NEXT_CACHE_ROOT" && ! -L "$NEXT_CACHE_ROOT" ]]
+          [[ -d "$NEXT_CACHE_ROOT/webpack" && ! -L "$NEXT_CACHE_ROOT/webpack" ]]
+          test -z "$(find "$NEXT_CACHE_ROOT" -type l -print -quit)"
+          test -z "$(find "$NEXT_CACHE_ROOT" ! -type d ! -type f -print -quit)"
+          test -z "$(find "$NEXT_CACHE_ROOT" -mindepth 1 -maxdepth 1 ! -path "$NEXT_CACHE_ROOT/webpack" -print -quit)"
+          test -z "$(find "$NEXT_CACHE_ROOT/webpack" -mindepth 1 -maxdepth 1 ! -path "$server_cache" ! -path "$edge_cache" -print -quit)"
+
+          selected_apparent_bytes=0
+          selected_allocated_bytes=0
+          selected_files=0
+          case "$CACHE_HIT" in
+            true)
+              normalized_hit=true
+              for directory in "$server_cache" "$edge_cache"; do
+                [[ -d "$directory" && ! -L "$directory" ]]
+                directory_apparent_bytes="$(du -sb -- "$directory" | cut -f1)"
+                directory_allocated_bytes="$(du -sB1 -- "$directory" | cut -f1)"
+                directory_files="$(find "$directory" -type f -print0 | tr -cd '\000' | wc -c | tr -d '[:space:]')"
+                [[ "$directory_apparent_bytes" =~ ^[0-9]+$ ]]
+                [[ "$directory_allocated_bytes" =~ ^[0-9]+$ ]]
+                [[ "$directory_files" =~ ^[0-9]+$ ]]
+                (( directory_apparent_bytes < MAX_SELECTED_CACHE_BYTES ))
+                (( directory_allocated_bytes < MAX_SELECTED_CACHE_BYTES ))
+                selected_apparent_bytes="$((selected_apparent_bytes + directory_apparent_bytes))"
+                selected_allocated_bytes="$((selected_allocated_bytes + directory_allocated_bytes))"
+                selected_files="$((selected_files + directory_files))"
+              done
+              (( selected_apparent_bytes < MAX_SELECTED_CACHE_BYTES ))
+              (( selected_allocated_bytes < MAX_SELECTED_CACHE_BYTES ))
+              ;;
+            ''|false)
+              normalized_hit=false
+              [[ ! -e "$server_cache" && ! -L "$server_cache" ]]
+              [[ ! -e "$edge_cache" && ! -L "$edge_cache" ]]
+              ;;
+            *) exit 1 ;;
+          esac
+          printf 'next_cache_restore_v1 hit=%s apparent_bytes=%s allocated_bytes=%s files=%s key_scope=exact-pr-head selection=webpack/server-production,webpack/edge-server-production\n' \
+            "$normalized_hit" "$selected_apparent_bytes" "$selected_allocated_bytes" "$selected_files"
+
       - name: Prepare the exact offline package inputs
         shell: bash
         run: |
@@ -155,6 +236,66 @@ jobs:
           trap - EXIT
           printf 'next_cache_diagnostic_v1 archive_deleted=true upload=false save=false\n'
 
+      - name: Guard and measure the selected PR server compiler cache
+        id: next-cache-selection
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        env:
+          BASELINE_SELECTED_APPARENT_BYTES: "1688883560"
+          MAX_SELECTED_CACHE_BYTES: "2147483648"
+          NEXT_CACHE_ROOT: ${{ runner.temp }}/context/apps/web/.next/cache
+          SELECTED_CACHE_ARCHIVE: ${{ runner.temp }}/next-cache-selected-diagnostic.tar.zst
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          server_cache="$NEXT_CACHE_ROOT/webpack/server-production"
+          edge_cache="$NEXT_CACHE_ROOT/webpack/edge-server-production"
+          [[ -d "$NEXT_CACHE_ROOT" && ! -L "$NEXT_CACHE_ROOT" ]]
+          test -z "$(find "$NEXT_CACHE_ROOT" -type l -print -quit)"
+          test -z "$(find "$NEXT_CACHE_ROOT" ! -type d ! -type f -print -quit)"
+          [[ ! -e "$SELECTED_CACHE_ARCHIVE" && ! -L "$SELECTED_CACHE_ARCHIVE" ]]
+          trap 'rm -f -- "$SELECTED_CACHE_ARCHIVE"' EXIT
+
+          selected_apparent_bytes=0
+          selected_allocated_bytes=0
+          selected_files=0
+          for directory in "$server_cache" "$edge_cache"; do
+            [[ -d "$directory" && ! -L "$directory" ]]
+            directory_apparent_bytes="$(du -sb -- "$directory" | cut -f1)"
+            directory_allocated_bytes="$(du -sB1 -- "$directory" | cut -f1)"
+            directory_files="$(find "$directory" -type f -print0 | tr -cd '\000' | wc -c | tr -d '[:space:]')"
+            [[ "$directory_apparent_bytes" =~ ^[0-9]+$ ]]
+            [[ "$directory_allocated_bytes" =~ ^[0-9]+$ ]]
+            [[ "$directory_files" =~ ^[0-9]+$ ]]
+            (( directory_apparent_bytes < MAX_SELECTED_CACHE_BYTES ))
+            (( directory_allocated_bytes < MAX_SELECTED_CACHE_BYTES ))
+            selected_apparent_bytes="$((selected_apparent_bytes + directory_apparent_bytes))"
+            selected_allocated_bytes="$((selected_allocated_bytes + directory_allocated_bytes))"
+            selected_files="$((selected_files + directory_files))"
+          done
+          (( selected_apparent_bytes < MAX_SELECTED_CACHE_BYTES ))
+          (( selected_allocated_bytes < MAX_SELECTED_CACHE_BYTES ))
+
+          compression_started="$(date +%s)"
+          tar --zstd -cf "$SELECTED_CACHE_ARCHIVE" \
+            -C "$NEXT_CACHE_ROOT" \
+            webpack/server-production \
+            webpack/edge-server-production
+          compression_finished="$(date +%s)"
+          selected_compressed_bytes="$(stat -c %s "$SELECTED_CACHE_ARCHIVE")"
+          [[ "$selected_compressed_bytes" =~ ^[0-9]+$ ]]
+          (( selected_compressed_bytes < MAX_SELECTED_CACHE_BYTES ))
+          compression_elapsed_seconds="$((compression_finished - compression_started))"
+          printf 'next_cache_selected_v1 apparent_bytes=%s allocated_bytes=%s files=%s compressed_bytes=%s elapsed_seconds=%s baseline_apparent_bytes=%s limit_bytes=%s selection=webpack/server-production,webpack/edge-server-production\n' \
+            "$selected_apparent_bytes" "$selected_allocated_bytes" "$selected_files" \
+            "$selected_compressed_bytes" "$compression_elapsed_seconds" \
+            "$BASELINE_SELECTED_APPARENT_BYTES" "$MAX_SELECTED_CACHE_BYTES"
+
+          rm -f -- "$SELECTED_CACHE_ARCHIVE"
+          [[ ! -e "$SELECTED_CACHE_ARCHIVE" && ! -L "$SELECTED_CACHE_ARCHIVE" ]]
+          trap - EXIT
+          printf 'save_allowed=true\n' >> "$GITHUB_OUTPUT"
+
       - name: Set up isolated Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
         with:
@@ -193,6 +334,40 @@ jobs:
             "$SOURCE_REVISION" \
             /tmp/roebel-web-staging.receipt.json
           sha256sum /tmp/roebel-web-staging.oci.tar > /tmp/roebel-web-staging.oci.tar.sha256
+
+      - name: Save the exact-head PR server compiler cache
+        id: next-cache-save
+        if: ${{ success() && github.event_name == 'pull_request' && steps.next-cache-restore.outputs.cache-hit != 'true' && steps.next-cache-selection.outputs.save_allowed == 'true' }}
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            ${{ runner.temp }}/context/apps/web/.next/cache/webpack/server-production
+            ${{ runner.temp }}/context/apps/web/.next/cache/webpack/edge-server-production
+          key: roebel-web-pr-webpack-server-v1-${{ runner.os }}-${{ runner.arch }}-node22-pnpm9.15.0-head-${{ github.event.pull_request.head.sha }}
+
+      - name: Log the exact-head PR server compiler cache decision
+        if: ${{ success() && github.event_name == 'pull_request' }}
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.next-cache-restore.outputs.cache-hit }}
+          SAVE_OUTCOME: ${{ steps.next-cache-save.outcome }}
+        run: |
+          set -euo pipefail
+          case "$CACHE_HIT" in
+            true)
+              normalized_hit=true
+              save_attempted=false
+              test "$SAVE_OUTCOME" = skipped
+              ;;
+            ''|false)
+              normalized_hit=false
+              save_attempted=true
+              test "$SAVE_OUTCOME" = success
+              ;;
+            *) exit 1 ;;
+          esac
+          printf 'next_cache_save_v1 restore_hit=%s attempted=%s outcome=%s key_scope=exact-pr-head\n' \
+            "$normalized_hit" "$save_attempted" "$SAVE_OUTCOME"
 
       - name: Upload the private short-lived build result
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

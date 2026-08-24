@@ -20,20 +20,33 @@ and no-new-privileges. The earlier 168 MiB compressed / 2.50-2.91 GiB
 unbounded cache trial was rejected after its measured warm run took 6m22s
 versus 6m05s cold. A later direct `.next/cache` attempt produced
 2,641,798,000 apparent bytes against its 512 MiB save budget, so it saved
-nothing and its cold Web job still took 6m15s. That attempt is not a speed
-optimization and no compiler cache is now restored, saved or uploaded.
+nothing and its cold Web job still took 6m15s. That attempt was not a speed
+optimization and the complete cache is never restored, saved or uploaded.
 
-The current title-ready slice is **measure Web compiler cache candidates**.
-Only a pull-request Web build inventories the complete `.next/cache` root, all
-immediate directories and each immediate Webpack subdirectory. It logs stable
-apparent-byte, allocated-byte and regular-file counts, then measures the full
+The current title-ready slice is **test the exact-head server compiler cache**.
+Only a pull-request Web build may restore and save the complete
+`webpack/server-production` and `webpack/edge-server-production` directories,
+measured together at 1,688,883,560 apparent bytes. The key is bound to the
+exact PR head, operating system, architecture, Node and pnpm versions, has no
+fallback prefix, and is useful only for a seed run followed by a rerun of that
+same head. It never restores or saves `client-production`, the cache root,
+dependencies, runtime output, OCI content or BuildKit state. Exact hits skip
+the save. Both each selected directory and their combined apparent and
+allocated sizes must remain strictly below 2 GiB; root or descendant symlinks
+fail closed.
+
+The existing PR measurement still inventories the complete `.next/cache`
+root, all immediate directories and each immediate Webpack subdirectory. It
+logs stable apparent-byte, allocated-byte and regular-file counts, then measures the full
 cache's zstd-compressed size and compression time in a temporary runner-local
 archive. The archive is deleted in the same step and is never uploaded, saved,
-packaged or used by the protected publisher. The measurement fails closed if
-the cache root or any descendant is a symlink. Manual dispatch and protected
-publication therefore remain cold and receive no compiler-cache state. These
-measurements are evidence for selecting a useful remote subset capped at 2 GiB;
-they do not claim a warm-build improvement. A staging-only Turbopack trial was
+packaged or used by the protected publisher. A second deleted diagnostic
+archive records the selected subset's compressed size. Manual dispatch, main
+pushes and protected publication remain cold and receive no compiler-cache
+state. The first seed run cannot be faster and includes compression plus cache
+upload overhead; only an exact-head rerun can establish a warm-build result.
+The PR cache is untrusted build acceleration and never a publication or
+deployment input. A staging-only Turbopack trial was
 also rejected: it compiled in 4.7 minutes, slower than Webpack's 3.2 minutes,
 and then failed page-data collection for an existing newsletter route.
 

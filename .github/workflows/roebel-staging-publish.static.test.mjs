@@ -125,9 +125,14 @@ test("publisher selects affected components and publishes only verified digests"
 
 test("Web builds once, packages runtime-only, and keeps diagnostics outside publication", () => {
   const diagnostic = workflowStep(webCandidateWorkflow, "Measure PR-only Web compiler cache candidates");
+  const restore = workflowStep(webCandidateWorkflow, "Restore the exact-head PR server compiler cache");
+  const save = workflowStep(webCandidateWorkflow, "Save the exact-head PR server compiler cache");
 
   assert.doesNotMatch(workflow, /MAX_NEXT_CACHE_BYTES|actions\/cache|\.next\/cache/u);
-  assert.doesNotMatch(webCandidateWorkflow, /actions\/cache|MAX_NEXT_CACHE_BYTES/u);
+  assert.equal((webCandidateWorkflow.match(/uses: actions\/cache\/(?:restore|save)@[0-9a-f]{40}/gu) ?? []).length, 2);
+  assert.match(restore, /github\.event_name == 'pull_request'/u);
+  assert.match(save, /github\.event_name == 'pull_request'/u);
+  assert.doesNotMatch(`${restore}\n${save}`, /restore-keys|client-production|node_modules|pnpm-store|runtime-context|\.oci/iu);
   assert.match(diagnostic, /if: \$\{\{ github\.event_name == 'pull_request' \}\}/u);
   assert.match(diagnostic, /NEXT_CACHE_ARCHIVE: \$\{\{ runner\.temp \}\}\/next-cache-diagnostic\.tar\.zst/u);
   assert.match(diagnostic, /next_cache_directory_v1/u);
@@ -187,8 +192,10 @@ test("offline dependency inputs remain isolated and Public Mecky keeps a minimal
   assert.match(docs, /runtime-only packaging path/iu);
   assert.match(docs, /dependency-cache trial/iu);
   assert.match(docs, /measured warm-cache run/iu);
-  assert.match(docs, /measure Web compiler cache candidates/iu);
+  assert.match(docs, /test the exact-head server compiler cache/iu);
+  assert.match(docs, /1,688,883,560 apparent bytes/iu);
   assert.match(docs, /never uploaded, saved/iu);
+  assert.match(docs, /never a publication or[\s\S]*deployment input/iu);
   assert.match(docs, /Turbopack trial/iu);
   assert.match(docs, /never a deployment input/iu);
 });
