@@ -7,20 +7,27 @@ Proposed; no route extraction or deployment split is authorized yet.
 ## Context
 
 The current `apps/web` image compiles the public Röbel experience and the
-operator product as one Next application. The reviewed 2026-08-24 route
-inventory contains 300 page files: 76 below `/admin`, 111 below `/dashboard`,
-and 113 other pages. The 187 operator-shaped pages dominate a build that still
-ships as one public artifact. The protected staging publisher spends about six
-and a half minutes on the verified Web job; the standalone Next build is its
-dominant step.
-Increasing webpack parallelism from two to four changed the exact Next build
-from 363.5 seconds to 358.5 seconds, so runner slots are not the limiting seam.
-The current measured build spends about 29 seconds fetching the scoped offline
-inputs, 33 seconds materializing a 2.33 GB install, 4 minutes 12 seconds in
-Next (about 3.6 minutes compiling and 31 seconds collecting page/static data),
-and about 39 seconds packaging, publishing, producing the SBOM and recording
-provenance. Compiler-cache, dependency-cache and Turbopack trials were slower,
-larger or failed existing page-data gates and remain rejected.
+operator product as one Next application. The corrected 2026-08-24 hosted
+baseline at source `42d5ffab4725a6d6f327b991cf97755ae498575c` emitted 361
+route entries: 227 page entries and 134 route-handler entries. Separately, the
+source tree contains 226 `page.*` files: 75 below the top-level `/admin` tree
+and 36 below the top-level `/dashboard` tree. Generated route entries and
+source files are different measures and must not be added. The first `/admin`
+extraction therefore removes 75 source page files (about one third of the
+source pages), not a previously claimed 187 pages; its compile-time effect must
+be measured rather than inferred from that ratio.
+
+That exact post-checkout verified pipeline took 325.589 seconds: 1.623 seconds
+to prune, 30.738 seconds to fetch the scoped offline inputs, 52.469 seconds to
+materialize them, 198.133 seconds in Next, 0.626 seconds assembling the runtime,
+19.528 seconds packaging the OCI archive and 22.472 seconds of bounded
+unattributed orchestration and verification. The complete hosted Web job took
+6 minutes 7 seconds including runner setup and artifact upload. The standalone
+Next build is therefore the dominant measured step. Earlier experiments that
+increased webpack parallelism from two to four changed an exact Next build from
+363.5 seconds to 358.5 seconds, so runner slots alone are not the limiting seam.
+Compiler-cache, dependency-cache and Turbopack trials were slower, larger or
+failed existing page-data gates and remain rejected.
 
 These surfaces also have different authority. The public app owns ordinary
 posts, profiles, topics, discussions and the visible civic journey. The
@@ -99,6 +106,61 @@ accepted independently; they do not count as implementing this ADR.
 Hosted builds record stage timing and route-count regression evidence during
 that period. Those measurements protect the budget but do not pretend to be a
 latency improvement.
+
+The measurement artifact contains absolute, ordered intervals for prune,
+offline fetch, dependency materialization, the Next build, runtime assembly
+and OCI packaging. It is bound to the independently re-verified OCI archive
+and receipt. Route evidence is aggregate-only: the short-lived artifact keeps
+counts and digests, while the canonical manifest containing route names stays
+private to the runner and is never uploaded.
+
+Container-local phase offsets are re-anchored to the host pipeline clock before
+validation. Host and container wall clocks are never compared directly, so a
+runner's virtualization offset cannot fabricate an overlap or push an otherwise
+valid phase outside the measured pipeline. The pinned Node runtime supplies
+millisecond offsets with `Date.now()` rather than relying on container-specific
+`date` formatting. Evidence also records attributed and unattributed duration
+and fails when more than two minutes of the verified pipeline are unexplained;
+this prevents a seconds-versus-milliseconds clock regression from producing
+plausible-looking measurements.
+
+The OCI binding is evaluated from one private archive snapshot, created with
+mode `0600` and sealed mode `0400` before verification.
+The source archive is opened without following symlinks and without blocking,
+is capped at 160 MiB before allocation, and must retain the same device, inode,
+size and timestamps before, during and after the copy. The digest is paired
+with that post-seal identity, and any mismatch is rejected before member
+validation or extraction. Its digest, validation and extraction therefore
+refer to the same bytes. The outer archive
+accepts only regular OCI metadata/blob members and the two OCI directories;
+each member is size-capped before extraction, while sparse, PAX, link and
+duplicate members are rejected. Each layer is then opened once with the same
+no-follow/non-blocking identity check and copied into a private snapshot.
+Prefix inspection and streaming tar validation consume that one snapshot, so a
+replacement, symlink or FIFO cannot race those reads. Layer parsing caps every
+layer at one GiB expanded data and 250,000 headers, and caps the complete image
+at 64 layers, two GiB expanded data and one million headers. Evidence
+generation never invokes an unbounded external decompressor or pre-reads an
+extracted layer blob. Checksums, receipts, stage timings and route/runtime
+manifests use the same bounded, regular-file snapshot discipline before
+parsing.
+
+That snapshot is also the delivery boundary. Immediately after Buildx, one
+preparation process snapshots and validates the raw runner-private output
+before any extraction, derives the receipt, checksum and aggregate evidence
+from the validated bytes, and exclusively exposes the same inode at the final
+artifact path. The upload step cannot observe the unvalidated Buildx path or a
+second archive copy. Direct and deferred OCI verification import the same
+64-layer ceiling and enforce it immediately after manifest parsing, before any
+layer blob is opened. The pipeline finish timestamp is sampled only after that
+snapshot has been extracted and verified, so validation remains visible as
+bounded unattributed pipeline time rather than falling outside the evidence.
+
+That aggregate-only statement applies exclusively to the separate measurement
+evidence artifact. The existing runtime-delivery artifact remains unchanged in
+name, contents and retention; as executable application code, its OCI layers
+can inherently contain route strings and are not telemetry. The two upload
+boundaries must not be combined.
 
 ## Acceptance gates
 

@@ -83,7 +83,9 @@ test("builds one bounded private OCI artifact remotely without publishing it", (
     /name=\$import_name,annotation\.io\.containerd\.image\.name=\$import_name/
   );
   assert.match(workflow, /MAX_ARTIFACT_BYTES:\s*"?167772160"?/);
-  assert.match(workflow, /verify-staging-web-oci\.mjs/);
+  assert.match(workflow, /write-staging-web-build-evidence\.mjs/);
+  assert.match(workflow, /--pipeline-finished-at-ms after-verification/);
+  assert.doesNotMatch(workflow, /node scripts\/verify-staging-web-oci\.mjs/);
   assert.match(workflow, /retention-days: 1/);
   assert.match(workflow, /compression-level: 0/);
 });

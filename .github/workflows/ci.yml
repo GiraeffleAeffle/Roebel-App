@@ -67,8 +67,10 @@ jobs:
       - name: Verify the affected-quality boundary
         run: >-
           node --test
+          .github/workflows/ci-single-web-build.static.test.mjs
           scripts/ci/affected-staging-components.test.mjs
           scripts/ci/run-affected-quality.test.mjs
+          scripts/ci/write-staging-web-build-evidence.test.mjs
 
       - uses: pnpm/action-setup@v4
 

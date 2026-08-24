@@ -33,6 +33,8 @@ jobs:
       MAX_DEPENDENCY_INSTALL_BYTES: "4294967296"
       MAX_RUNTIME_CONTEXT_BYTES: "805306368"
       MAX_ARTIFACT_BYTES: "167772160"
+      MAX_ROUTE_MANIFEST_BYTES: "1048576"
+      MAX_BUILD_EVIDENCE_BYTES: "1048576"
     steps:
       - name: Check out the exact source revision
         uses: actions/checkout@v4
@@ -46,6 +48,17 @@ jobs:
           set -euo pipefail
           [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$SOURCE_REVISION"
+
+      - name: Start post-checkout Web pipeline timing
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence_dir="$RUNNER_TEMP/web-build-evidence"
+          mkdir -p "$evidence_dir/private" "$evidence_dir/runtime"
+          pipeline_started_at_ms="$(date +%s%3N)"
+          [[ "$pipeline_started_at_ms" =~ ^[0-9]+$ ]]
+          printf '%s\n' "$pipeline_started_at_ms" > "$evidence_dir/pipeline-started-at-ms"
+          : > "$evidence_dir/stage-timings.tsv"
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -62,6 +75,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          stage_started_at_ms="$(date +%s%3N)"
           pnpm dlx turbo@2.4.0 prune @roebel/web --docker --out-dir "$RUNNER_TEMP/pruned"
           mkdir -p "$RUNNER_TEMP/context" "$RUNNER_TEMP/dependency-manifests"
           cp -a "$RUNNER_TEMP/pruned/full/." "$RUNNER_TEMP/context/"
@@ -73,11 +87,14 @@ jobs:
           context_bytes="$(du -sb "$RUNNER_TEMP/context" | cut -f1)"
           test "$context_bytes" -le "$MAX_CONTEXT_BYTES"
           printf 'context_bytes=%s\n' "$context_bytes"
+          stage_finished_at_ms="$(date +%s%3N)"
+          printf 'prune\t%s\t%s\n' "$stage_started_at_ms" "$stage_finished_at_ms" >> "$RUNNER_TEMP/web-build-evidence/stage-timings.tsv"
 
       - name: Prepare the exact offline package inputs
         shell: bash
         run: |
           set -euo pipefail
+          stage_started_at_ms="$(date +%s%3N)"
           mkdir -p "$RUNNER_TEMP/corepack-cache" "$RUNNER_TEMP/pnpm-store" "$RUNNER_TEMP/fetch-input"
           cp -a "$RUNNER_TEMP/dependency-manifests/." "$RUNNER_TEMP/fetch-input/"
           COREPACK_HOME="$RUNNER_TEMP/corepack-cache" corepack prepare pnpm@9.15.0 --activate
@@ -88,6 +105,8 @@ jobs:
           store_bytes="$(du -sb "$RUNNER_TEMP/pnpm-store" | cut -f1)"
           test "$store_bytes" -le "$MAX_STORE_BYTES"
           printf 'store_bytes=%s\n' "$store_bytes"
+          stage_finished_at_ms="$(date +%s%3N)"
+          printf 'offline_fetch\t%s\t%s\n' "$stage_started_at_ms" "$stage_finished_at_ms" >> "$RUNNER_TEMP/web-build-evidence/stage-timings.tsv"
 
       - name: Build the standalone Web runtime once
         shell: bash
@@ -96,6 +115,7 @@ jobs:
           PNPM_STORE: ${{ runner.temp }}/pnpm-store
           COREPACK_CACHE: ${{ runner.temp }}/corepack-cache
           RUNTIME_CONTEXT: ${{ runner.temp }}/web-runtime-context
+          WEB_BUILD_TIMING_PATH: ${{ runner.temp }}/web-build-evidence/runtime/runtime-timing.json
         run: scripts/ci/build-staging-web-runtime.sh
 
       - name: Set up isolated Buildx
@@ -110,6 +130,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          stage_started_at_ms="$(date +%s%3N)"
           SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$SOURCE_REVISION")"
           import_name="stadtstack.local/roebel-web-preview/roebel-web-staging:source-$SOURCE_REVISION"
           docker buildx build \
@@ -119,25 +140,40 @@ jobs:
             --file Dockerfile.staging-web-runtime \
             --build-arg "SOURCE_REVISION=$SOURCE_REVISION" \
             --build-arg "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" \
-            --output "type=oci,dest=/tmp/roebel-web-staging.oci.tar,name=$import_name,annotation.io.containerd.image.name=$import_name,rewrite-timestamp=true" \
+            --output "type=oci,dest=$RUNNER_TEMP/roebel-web-staging.buildx.oci.tar,name=$import_name,annotation.io.containerd.image.name=$import_name,rewrite-timestamp=true" \
             "$RUNNER_TEMP/web-runtime-context"
-          artifact_bytes="$(stat -c %s /tmp/roebel-web-staging.oci.tar)"
+          artifact_bytes="$(stat -c %s "$RUNNER_TEMP/roebel-web-staging.buildx.oci.tar")"
           test "$artifact_bytes" -le "$MAX_ARTIFACT_BYTES"
           printf 'artifact_bytes=%s\n' "$artifact_bytes"
+          stage_finished_at_ms="$(date +%s%3N)"
+          printf 'oci_packaging\t%s\t%s\n' "$stage_started_at_ms" "$stage_finished_at_ms" >> "$RUNNER_TEMP/web-build-evidence/stage-timings.tsv"
 
-      - name: Verify the content-addressed OCI result
+      - name: Validate, bind and atomically expose the exact OCI snapshot
         shell: bash
         run: |
           set -euo pipefail
-          mkdir /tmp/roebel-web-staging-oci
-          tar -xf /tmp/roebel-web-staging.oci.tar -C /tmp/roebel-web-staging-oci
-          node scripts/verify-staging-web-oci.mjs \
-            /tmp/roebel-web-staging-oci \
-            "$SOURCE_REVISION" \
-            /tmp/roebel-web-staging.receipt.json
-          sha256sum /tmp/roebel-web-staging.oci.tar > /tmp/roebel-web-staging.oci.tar.sha256
+          pipeline_started_at_ms="$(< "$RUNNER_TEMP/web-build-evidence/pipeline-started-at-ms")"
+          node scripts/ci/write-staging-web-build-evidence.mjs \
+            --source-revision "$SOURCE_REVISION" \
+            --stage-timings "$RUNNER_TEMP/web-build-evidence/stage-timings.tsv" \
+            --runtime-timing "$RUNNER_TEMP/web-build-evidence/runtime/runtime-timing.json" \
+            --app-paths-manifest "$RUNNER_TEMP/context/apps/web/.next/server/app-paths-manifest.json" \
+            --canonical-route-manifest-output "$RUNNER_TEMP/web-build-evidence/private/canonical-route-manifest.json" \
+            --oci-archive-input "$RUNNER_TEMP/roebel-web-staging.buildx.oci.tar" \
+            --oci-archive-output /tmp/roebel-web-staging.oci.tar \
+            --oci-archive-checksum-output /tmp/roebel-web-staging.oci.tar.sha256 \
+            --oci-receipt-output /tmp/roebel-web-staging.receipt.json \
+            --pipeline-started-at-ms "$pipeline_started_at_ms" \
+            --pipeline-finished-at-ms after-verification \
+            --max-route-manifest-bytes "$MAX_ROUTE_MANIFEST_BYTES" \
+            --max-evidence-bytes "$MAX_BUILD_EVIDENCE_BYTES" \
+            --output /tmp/roebel-web-staging.build-evidence.json > /dev/null
+          test -s /tmp/roebel-web-staging.build-evidence.json
 
-      - name: Upload the private short-lived build result
+      # This preserves the established runtime-delivery contract. The OCI is
+      # executable application code and can inherently contain route strings;
+      # it is not covered by the aggregate-only measurement privacy claim.
+      - name: Upload the private short-lived runtime delivery artifact
         uses: actions/upload-artifact@v4
         with:
           name: roebel-web-staging-${{ env.SOURCE_REVISION }}
@@ -147,4 +183,16 @@ jobs:
             /tmp/roebel-web-staging.receipt.json
           if-no-files-found: error
           compression-level: 0
+          retention-days: 1
+
+      # Measurement evidence is a distinct aggregate-only telemetry artifact;
+      # neither the OCI bytes nor the runner-private canonical route manifest
+      # cross this upload boundary.
+      - name: Upload aggregate-only short-lived measurement evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: roebel-web-staging-measurement-${{ env.SOURCE_REVISION }}
+          path: /tmp/roebel-web-staging.build-evidence.json
+          if-no-files-found: error
+          compression-level: 9
           retention-days: 1
