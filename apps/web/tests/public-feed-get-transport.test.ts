@@ -40,6 +40,20 @@ test("resolves a legacy staging source ID and always clears the detail skeleton"
   assert.match(detailPage, /Erneut laden/);
 });
 
+test("keeps staging reader dependencies stable across state updates", () => {
+  const stableFlag =
+    /const stagingEnabled = Boolean\(\s*resolveStadtstackStagingLab\(/s;
+  const unstableObject =
+    /const stagingEnabled = resolveStadtstackStagingLab\(/;
+
+  assert.match(detailPage, stableFlag);
+  assert.match(comments, stableFlag);
+  assert.doesNotMatch(detailPage, unstableObject);
+  assert.doesNotMatch(comments, unstableObject);
+  assert.match(detailPage, /\[id, retry, stagingEnabled\]/);
+  assert.match(comments, /\[postId, stagingEnabled\]/);
+});
+
 test("bounds a failed public-feed read and still attempts the labelled staging mirror", () => {
   assert.match(client, /export const PUBLIC_FEED_REQUEST_TIMEOUT_MS = \d+_\d+;/);
   assert.match(client, /new AbortController\(\)/);
