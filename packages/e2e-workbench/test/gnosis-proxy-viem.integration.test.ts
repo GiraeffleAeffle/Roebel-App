@@ -69,12 +69,13 @@ function assertExactViemPins(): void {
       /viem:\n\s+specifier: 2\.53\.1\n\s+version: 2\.53\.1\(/
     );
   }
-  const expectedResolution =
-    "  viem@2.53.1:\n" +
-    "    resolution: {integrity: " +
+  // Turbo's pruned lockfile may retain a peer-context suffix on the package
+  // key. The exact importer specifiers above bind the version; independently
+  // require the reviewed tarball integrity without depending on key layout.
+  const expectedIntegrity =
     "sha512-FhfJ/SW73CVosiyVLmIMVgKDRKYV1AGCLzZoHYvmNayyVff63Qi1ocPCk59LqC/" +
-    "cNw244RbBJjHnmxqXkE7NpA==}\n";
-  assert.equal(lock.includes(expectedResolution), true);
+    "cNw244RbBJjHnmxqXkE7NpA==";
+  assert.equal(lock.includes(`integrity: ${expectedIntegrity}`), true);
 }
 
 it("pins the verifier and transport fixture to exact viem 2.53.1", () => {
