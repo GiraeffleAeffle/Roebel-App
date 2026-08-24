@@ -102,12 +102,12 @@ jobs:
           export PNPM_STORE_DIR="$RUNNER_TEMP/pnpm-store"
           mkdir -p "$COREPACK_HOME" "$PNPM_HOME" "$PNPM_STORE_DIR" evidence
           corepack prepare pnpm@9.15.0 --activate
-          test "$(pnpm --version)" = "9.15.0"
+          test "$(corepack pnpm --version)" = "9.15.0"
           # The upstream lock is only a temporary structurally valid baseline;
           # pnpm derives the final result from the merged manifests.
           git checkout --theirs pnpm-lock.yaml
-          pnpm install --lockfile-only --ignore-scripts --store-dir "$PNPM_STORE_DIR"
-          pnpm install --frozen-lockfile --ignore-scripts --store-dir "$PNPM_STORE_DIR"
+          corepack pnpm install --lockfile-only --ignore-scripts --store-dir "$PNPM_STORE_DIR"
+          corepack pnpm install --frozen-lockfile --ignore-scripts --store-dir "$PNPM_STORE_DIR"
           git diff --check
           ! grep -En '^(<<<<<<<|=======|>>>>>>>)' pnpm-lock.yaml
           cp pnpm-lock.yaml evidence/pnpm-lock.yaml
@@ -119,7 +119,7 @@ jobs:
             printf 'fork_revision=%s\n' "$FORK_REVISION"
             printf 'upstream_revision=%s\n' "$UPSTREAM_REVISION"
             printf 'merge_base=%s\n' "$MERGE_BASE"
-            printf 'pnpm_version=%s\n' "$(pnpm --version)"
+            printf 'pnpm_version=%s\n' "$(corepack pnpm --version)"
             printf 'lifecycle_scripts=disabled\n'
             printf 'deployment_effect=false\n'
             printf 'civic_authority=none\n'
