@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@netizen-labs/nostr": "workspace:*",
-    "viem": "^2.47.6"
+    "viem": "2.53.1"
   },
   "devDependencies": {
     "@types/node": "^22.7.4",

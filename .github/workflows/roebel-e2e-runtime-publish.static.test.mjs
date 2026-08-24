@@ -52,3 +52,9 @@ test("publication has scoped OIDC attestation permissions and no secret dependen
   assert.doesNotMatch(workflow, /secrets\.[A-Z0-9_]+/u);
   assert.match(workflow, /concurrency:\n  group: roebel-e2e-runtime-publisher-/u);
 });
+
+test("the protected publisher runs the workbench's mandatory package tests", () => {
+  assert.match(workflow, /package: "@roebel\/e2e-workbench"/u);
+  assert.match(workflow, /--filter "\$PACKAGE" test/u);
+  assert.doesNotMatch(workflow, /ROEBEL_LOCKED_VIEM_WEBPACK_SERVER/u);
+});

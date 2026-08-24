@@ -60,6 +60,8 @@ function publicSignedEnvironment() {
   } = environment();
   return {
     ...publicEnvironment,
+    GNOSIS_RPC_URL:
+      "http://gnosis-private-rpc.stadtstack-roebel-web-preview.svc.cluster.local:8545",
     WORKBENCH_MODE: "public-signed-only",
   };
 }
@@ -221,6 +223,47 @@ describe("Röbel E2E workbench boundary", () => {
       parsed.controlBaseUrl?.includes("stadtstack-roebel-staging-lab"),
       true
     );
+  });
+
+  it("requires the private Gnosis proxy in the public signed-only lane", () => {
+    assert.equal(
+      parseWorkbenchConfig(publicSignedEnvironment()).gnosisRpcUrl,
+      "http://gnosis-private-rpc.stadtstack-roebel-web-preview.svc.cluster.local:8545"
+    );
+    for (const value of [
+      "https://rpc.gnosischain.com",
+      "http://gnosis-private-rpc.default.svc.cluster.local:8545",
+      "http://gnosis-private-rpc.stadtstack-roebel-web-preview.svc.cluster.local:8546",
+    ]) {
+      assert.throws(
+        () =>
+          parseWorkbenchConfig({
+            ...publicSignedEnvironment(),
+            GNOSIS_RPC_URL: value,
+          }),
+        /workbench_gnosis_rpc_url_invalid/
+      );
+    }
+    for (const name of [
+      "GNOSIS_PROXY_ALLOWED_METHODS",
+      "GNOSIS_PROXY_BIND_HOST",
+      "GNOSIS_PROXY_EXPECTED_CHAIN_ID",
+      "GNOSIS_PROXY_MAX_BODY_BYTES",
+      "GNOSIS_PROXY_MAX_CONCURRENT",
+      "GNOSIS_PROXY_PORT",
+      "GNOSIS_PROXY_REQUEST_BODY_TIMEOUT_MS",
+      "GNOSIS_PROXY_UPSTREAM_TIMEOUT_MS",
+      "GNOSIS_PROXY_UPSTREAM_URL",
+    ]) {
+      assert.throws(
+        () =>
+          parseWorkbenchConfig({
+            ...publicSignedEnvironment(),
+            [name]: "present",
+          }),
+        /workbench_public_signed_forbidden_input/
+      );
+    }
   });
 
   it("serves a local-only accessible workflow UI without exposing private keys", async () => {
