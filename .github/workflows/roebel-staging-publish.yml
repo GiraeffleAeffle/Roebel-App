@@ -619,13 +619,14 @@ jobs:
             release_set_target="$WEB_IMAGE:release-set-$previous_revision"
             release_set_digest="$(oras resolve "$release_set_target")"
             [[ "$release_set_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-            oras manifest fetch "$WEB_IMAGE@$release_set_digest" > "$RUNNER_TEMP/reused-release-set-manifest.json"
+            reused_release_set_manifest="$RUNNER_TEMP/reused-release-set-manifest-$component.json"
+            oras manifest fetch "$WEB_IMAGE@$release_set_digest" > "$reused_release_set_manifest"
             jq -e \
               --arg type application/vnd.stadtstack.roebel.release-set.v1 \
               --arg source "$previous_revision" \
               --arg candidate "$previous_digest" \
               '.artifactType == $type and .annotations["org.opencontainers.image.revision"] == $source and .annotations["stadtstack.io/candidate-payload-digest"] == $candidate' \
-              "$RUNNER_TEMP/reused-release-set-manifest.json" >/dev/null
+              "$reused_release_set_manifest" >/dev/null
 
             reused="$RUNNER_TEMP/reused-release-set-$component"
             mkdir "$reused"
@@ -707,16 +708,34 @@ jobs:
               --format json --jq 'length == 1' | grep -Fx true
           }
 
-          if test "$AFFECTED_WEB" = true; then
-            verify_component roebel-web-staging "$WEB_IMAGE"
-          else
-            reuse_component roebel-web-staging "$WEB_IMAGE"
-          fi
-          if test "$AFFECTED_MECKY" = true; then
-            verify_component public-mecky "$MECKY_IMAGE"
-          else
-            reuse_component public-mecky "$MECKY_IMAGE"
-          fi
+          verify_or_reuse_component() {
+            affected="$1"
+            component="$2"
+            image="$3"
+            if test "$affected" = true; then
+              verify_component "$component" "$image"
+            elif test "$affected" = false; then
+              reuse_component "$component" "$image"
+            else
+              printf 'affected-component selection is invalid for %s\n' "$component" >&2
+              exit 1
+            fi
+          }
+
+          # Each component writes only to its own receipt, evidence, bundle and
+          # OCI-layout paths. Both paths still complete their full immutable
+          # verification before the CAS-bound candidate is assembled below.
+          verify_or_reuse_component "$AFFECTED_WEB" roebel-web-staging "$WEB_IMAGE" &
+          web_verification_pid=$!
+          verify_or_reuse_component "$AFFECTED_MECKY" public-mecky "$MECKY_IMAGE" &
+          mecky_verification_pid=$!
+
+          web_verification_status=0
+          mecky_verification_status=0
+          wait "$web_verification_pid" || web_verification_status=$?
+          wait "$mecky_verification_pid" || mecky_verification_status=$?
+          test "$web_verification_status" -eq 0
+          test "$mecky_verification_status" -eq 0
 
       - name: Assemble the CAS-bound candidate
         working-directory: source

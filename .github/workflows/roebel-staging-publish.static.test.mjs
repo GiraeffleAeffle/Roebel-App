@@ -239,10 +239,28 @@ test("same-run evidence is verified into an effect-free CAS-bound Release Set ca
   assert.match(assemblyJob, /--source-digest "\$SOURCE_REVISION"/u);
   assert.match(assemblyJob, /--source-ref refs\/heads\/main/u);
   assert.match(assemblyJob, /--deny-self-hosted-runners/u);
-  assert.match(assemblyJob, /verify_component roebel-web-staging "\$WEB_IMAGE"/u);
-  assert.match(assemblyJob, /verify_component public-mecky "\$MECKY_IMAGE"/u);
-  assert.match(assemblyJob, /reuse_component roebel-web-staging "\$WEB_IMAGE"/u);
-  assert.match(assemblyJob, /reuse_component public-mecky "\$MECKY_IMAGE"/u);
+  assert.match(assemblyJob, /verify_component "\$component" "\$image"/u);
+  assert.match(assemblyJob, /reuse_component "\$component" "\$image"/u);
+  assert.match(
+    assemblyJob,
+    /verify_or_reuse_component "\$AFFECTED_WEB" roebel-web-staging "\$WEB_IMAGE" &\n          web_verification_pid=\$!/u,
+  );
+  assert.match(
+    assemblyJob,
+    /verify_or_reuse_component "\$AFFECTED_MECKY" public-mecky "\$MECKY_IMAGE" &\n          mecky_verification_pid=\$!/u,
+  );
+  assert.match(assemblyJob, /wait "\$web_verification_pid" \|\| web_verification_status=\$\?/u);
+  assert.match(assemblyJob, /wait "\$mecky_verification_pid" \|\| mecky_verification_status=\$\?/u);
+  assert.match(assemblyJob, /test "\$web_verification_status" -eq 0/u);
+  assert.match(assemblyJob, /test "\$mecky_verification_status" -eq 0/u);
+  assert.match(
+    assemblyJob,
+    /reused_release_set_manifest="\$RUNNER_TEMP\/reused-release-set-manifest-\$component\.json"/u,
+  );
+  assert.doesNotMatch(
+    assemblyJob,
+    /"\$RUNNER_TEMP\/reused-release-set-manifest\.json"/u,
+  );
   assert.match(assemblyJob, /release-set-\$previous_revision/u);
   assert.match(assemblyJob, /candidatePayloadDigest/u);
   assert.match(assemblyJob, /oras cp "\$image@\$manifest_digest" --to-oci-layout/u);
