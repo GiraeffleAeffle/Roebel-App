@@ -282,14 +282,12 @@ describe("Röbel E2E workbench boundary", () => {
         body: JSON.stringify({ intent: "post", event: signedPost }),
       });
       assert.equal(publishResponse.status, 200);
-      const promotion = buildCivicPromotionEvent(citizenSecret, {
+      const promotion = buildCivicTopicPromotionEvent(citizenSecret, {
         sourcePost: signedPost,
         municipalityId: "roebel-mueritz",
-        sourceCaseId: "marienfelder-strasse",
-        canonicalCaseId:
-          "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
         topicId:
           "urn:stadtstack:topic:municipality:roebel-mueritz:marienfelder-strasse",
+        topicTitle: "Marienfelder Straße",
         agentPubkey: config.meckyPubkey,
         content: "@Mecky, welche geprüften Informationen liegen dazu vor?",
         createdAt: 102,
@@ -696,11 +694,15 @@ describe("Röbel E2E workbench boundary", () => {
       )) as {
         posts: Array<{
           entryType: "post" | "topic";
+          topicId?: string;
           discussionIds?: string[];
         }>;
       };
       const duplicateTopics = duplicateFeed.posts.filter(
-        (entry) => entry.entryType === "topic"
+        (entry) =>
+          entry.entryType === "topic" &&
+          entry.topicId ===
+            "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt"
       );
       assert.equal(duplicateTopics.length, 1);
       assert.deepEqual(duplicateTopics[0]!.discussionIds, [firstPromotion.id]);
