@@ -35,9 +35,6 @@ jobs:
       UPSTREAM_REVISION: 178419d5d291218f11d5e8383c9845171c9e126b
       MERGE_BASE: 3a26b43307cf5e72fd23d1c37ab665f3cc1c2ab1
       UPSTREAM_REPOSITORY: https://github.com/Roebel-Labs/Roebel-App.git
-      COREPACK_HOME: ${{ runner.temp }}/corepack
-      PNPM_HOME: ${{ runner.temp }}/pnpm-home
-      PNPM_STORE_DIR: ${{ runner.temp }}/pnpm-store
       NPM_CONFIG_IGNORE_SCRIPTS: "true"
 
     steps:
@@ -99,6 +96,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export COREPACK_HOME="$RUNNER_TEMP/corepack"
+          export PNPM_HOME="$RUNNER_TEMP/pnpm-home"
+          export PNPM_STORE_DIR="$RUNNER_TEMP/pnpm-store"
           mkdir -p "$COREPACK_HOME" "$PNPM_HOME" "$PNPM_STORE_DIR" evidence
           corepack prepare pnpm@9.15.0 --activate
           test "$(pnpm --version)" = "9.15.0"
