@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
@@ -24,6 +24,40 @@ const OUTSIDER_PUBKEY = buildNoteEvent(OUTSIDER, "key", {
 }).pubkey;
 
 describe("persistent staging relay", () => {
+  it("refuses deterministic event-store overflow and rejects an over-limit durable store on restart", async () => {
+    const root = await mkdtemp(join(tmpdir(), "roebel-relay-capacity-"));
+    const path = join(root, "events.ndjson");
+    const first = buildNoteEvent(CITIZEN, "erste Nachricht", {
+      createdAt: 10,
+    });
+    const second = buildNoteEvent(CITIZEN, "zweite Nachricht", {
+      createdAt: 11,
+    });
+    const limits = {
+      maxBytes: 128 * 1024 * 1024,
+      maxRecords: 1,
+    };
+    const store = new PersistentEventStore(path, new Set([PUBKEY]), limits);
+    await store.open();
+    assert.deepEqual(await store.publish(first), { ok: true, message: "stored" });
+    assert.deepEqual(await store.publish(second), {
+      ok: false,
+      message: "blocked: store capacity",
+    });
+
+    const reopened = new PersistentEventStore(path, new Set([PUBKEY]), limits);
+    await reopened.open();
+    assert.deepEqual(reopened.query([{ kinds: [1] }]).map((event) => event.id), [
+      first.id,
+    ]);
+
+    await writeFile(path, `${JSON.stringify(first)}\n${JSON.stringify(second)}\n`);
+    await assert.rejects(
+      new PersistentEventStore(path, new Set([PUBKEY]), limits).open(),
+      /relay_event_store_capacity_exceeded/
+    );
+  });
+
   it("stores only allow-listed, signature-valid events and reopens deterministically", async () => {
     const root = await mkdtemp(join(tmpdir(), "roebel-relay-"));
     const path = join(root, "events.ndjson");
@@ -228,5 +262,81 @@ describe("NIP-01 websocket boundary", () => {
       [outsiderEvent.id]
     );
     client.close();
+  });
+
+  it("refuses admission-store overflow and refuses an over-limit admission file on restart", async () => {
+    const root = await mkdtemp(join(tmpdir(), "roebel-relay-admission-capacity-"));
+    const storePath = join(root, "events.ndjson");
+    const admissionStorePath = join(root, "admissions.ndjson");
+    const admissionToken = "a".repeat(48);
+    running = await startRelay({
+      allowedPubkeys: [PUBKEY],
+      admissionStorePath,
+      admissionToken,
+      bindHost: "127.0.0.1",
+      maxAdmissionCount: 1,
+      maxAdmissionStoreBytes: 128 * 1024 * 1024,
+      maxEventCount: 1,
+      maxEventStoreBytes: 128 * 1024 * 1024,
+      name: "citizen-test",
+      port: 0,
+      storePath,
+      websocketPath: "/citizen-relay",
+    });
+    const first = await fetch(
+      `http://127.0.0.1:${running.port}/internal/admissions`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${admissionToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          schemaVersion: "roebel_staging_relay_admission_v1",
+          pubkey: OUTSIDER_PUBKEY,
+        }),
+      }
+    );
+    assert.equal(first.status, 200);
+    const anotherPubkey = buildNoteEvent(
+      deriveNostrSecretKey(`0x${"c3".repeat(65)}`),
+      "other",
+      { createdAt: 1 }
+    ).pubkey;
+    const second = await fetch(
+      `http://127.0.0.1:${running.port}/internal/admissions`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${admissionToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          schemaVersion: "roebel_staging_relay_admission_v1",
+          pubkey: anotherPubkey,
+        }),
+      }
+    );
+    assert.equal(second.status, 503);
+    await running.close();
+    running = undefined;
+
+    await writeFile(
+      admissionStorePath,
+      `${JSON.stringify({ schemaVersion: "roebel_staging_relay_admission_v1", pubkey: OUTSIDER_PUBKEY })}\n${JSON.stringify({ schemaVersion: "roebel_staging_relay_admission_v1", pubkey: anotherPubkey })}\n`
+    );
+    await assert.rejects(
+      startRelay({
+        allowedPubkeys: [PUBKEY],
+        admissionStorePath,
+        admissionToken,
+        bindHost: "127.0.0.1",
+        maxAdmissionCount: 1,
+        name: "citizen-test",
+        port: 0,
+        storePath,
+      }),
+      /relay_admission_store_capacity_exceeded/
+    );
   });
 });
