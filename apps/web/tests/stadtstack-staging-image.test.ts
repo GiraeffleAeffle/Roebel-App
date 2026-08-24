@@ -73,8 +73,29 @@ test("builds one bounded private OCI artifact remotely without publishing it", (
   );
   assert.match(workflow, /turbo@2\.4\.0 prune @roebel\/web --docker/);
   assert.match(workflow, /pnpm fetch --store-dir/);
-  assert.doesNotMatch(workflow, /staging-web-cache-family|\.next\/cache/);
-  assert.doesNotMatch(workflow, /staging-web-dependency-family|actions\/cache|DEPENDENCY_CACHE_HIT/);
+  assert.doesNotMatch(workflow, /actions\/cache|MAX_NEXT_CACHE_BYTES/);
+  assert.match(
+    workflow,
+    /runner\.temp \}\}\/context\/apps\/web\/\.next\/cache/
+  );
+  assert.match(
+    workflow,
+    /github\.event_name == 'pull_request'/
+  );
+  assert.match(
+    workflow,
+    /next_cache_directory_v1 path=%q apparent_bytes=%s allocated_bytes=%s files=%s/
+  );
+  assert.match(
+    workflow,
+    /next_cache_compression_v1 compressed_bytes=%s elapsed_seconds=%s/
+  );
+  assert.match(workflow, /archive_deleted=true upload=false save=false/);
+  assert.match(workflow, /find "\$NEXT_CACHE_PATH" -type l -print -quit/);
+  assert.doesNotMatch(
+    workflow,
+    /path:.*(?:node_modules|pnpm-store|oci|runtime-context)/i
+  );
   assert.match(workflow, /test ! -e "\$RUNNER_TEMP\/context\/node_modules"/);
   assert.match(workflow, /Dockerfile\.staging-web-runtime/);
   assert.doesNotMatch(workflow, /pnpm fetch --(?:dev|prod)/);

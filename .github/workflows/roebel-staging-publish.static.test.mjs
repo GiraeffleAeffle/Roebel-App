@@ -37,6 +37,14 @@ const actionPins = new Map([
 const assemblyJobStart = workflow.indexOf("\n  assemble-release-set:");
 const assemblyJob = assemblyJobStart >= 0 ? workflow.slice(assemblyJobStart) : "";
 
+function workflowStep(source, name) {
+  const marker = `      - name: ${name}\n`;
+  const start = source.indexOf(marker);
+  assert.notEqual(start, -1, `missing workflow step: ${name}`);
+  const end = source.indexOf("\n      - name: ", start + marker.length);
+  return source.slice(start, end === -1 ? source.length : end);
+}
+
 test("publisher follows protected relevant main pushes and retains exact-SHA recovery dispatch", () => {
   assert.match(workflow, /on:\n  push:\n    branches: \[main\]/u);
   assert.match(workflow, /  workflow_dispatch:/u);
@@ -87,7 +95,7 @@ test("runner-local paths are bound only after the runner exists", () => {
     assert.match(workflow, new RegExp(`printf '${variable}=`, "u"));
   }
   assert.match(workflow, /\} >> "\$GITHUB_ENV"/u);
-  assert.doesNotMatch(workflow, /staging-web-cache-family|MAX_NEXT_CACHE_BYTES|context\/apps\/web\/\.next\/cache/u);
+  assert.doesNotMatch(workflow, /MAX_NEXT_CACHE_BYTES|actions\/cache|\.next\/cache/u);
 });
 
 test("publisher selects affected components and publishes only verified digests", () => {
@@ -115,9 +123,17 @@ test("publisher selects affected components and publishes only verified digests"
   assert.doesNotMatch(workflow, /(?:tags?:\s*(?:latest|main)|:latest\b)/u);
 });
 
-test("Web builds once and packages a runtime-only image", () => {
-  assert.doesNotMatch(workflow, /staging-web-cache-family|MAX_NEXT_CACHE_BYTES|context\/apps\/web\/\.next\/cache/u);
-  assert.doesNotMatch(workflow, /staging-web-dependency-family|actions\/cache|DEPENDENCY_CACHE_HIT|roebel-web-dependencies-/u);
+test("Web builds once, packages runtime-only, and keeps diagnostics outside publication", () => {
+  const diagnostic = workflowStep(webCandidateWorkflow, "Measure PR-only Web compiler cache candidates");
+
+  assert.doesNotMatch(workflow, /MAX_NEXT_CACHE_BYTES|actions\/cache|\.next\/cache/u);
+  assert.doesNotMatch(webCandidateWorkflow, /actions\/cache|MAX_NEXT_CACHE_BYTES/u);
+  assert.match(diagnostic, /if: \$\{\{ github\.event_name == 'pull_request' \}\}/u);
+  assert.match(diagnostic, /NEXT_CACHE_ARCHIVE: \$\{\{ runner\.temp \}\}\/next-cache-diagnostic\.tar\.zst/u);
+  assert.match(diagnostic, /next_cache_directory_v1/u);
+  assert.match(diagnostic, /next_cache_compression_v1/u);
+  assert.match(diagnostic, /archive_deleted=true upload=false save=false/u);
+  assert.match(diagnostic, /find "\$NEXT_CACHE_PATH" -type l -print -quit/u);
   assert.match(workflow, /test ! -e "\$RUNNER_TEMP\/context\/node_modules"/u);
   assert.match(workflow, /run: scripts\/ci\/build-staging-web-runtime\.sh/u);
   assert.match(workflow, /RUNTIME_CONTEXT: \$\{\{ runner\.temp \}\}\/web-runtime-context/u);
@@ -171,6 +187,8 @@ test("offline dependency inputs remain isolated and Public Mecky keeps a minimal
   assert.match(docs, /runtime-only packaging path/iu);
   assert.match(docs, /dependency-cache trial/iu);
   assert.match(docs, /measured warm-cache run/iu);
+  assert.match(docs, /measure Web compiler cache candidates/iu);
+  assert.match(docs, /never uploaded, saved/iu);
   assert.match(docs, /Turbopack trial/iu);
   assert.match(docs, /never a deployment input/iu);
 });

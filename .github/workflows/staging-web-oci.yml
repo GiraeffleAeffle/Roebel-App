@@ -35,7 +35,7 @@ jobs:
       MAX_ARTIFACT_BYTES: "167772160"
     steps:
       - name: Check out the exact source revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ env.SOURCE_REVISION }}
           persist-credentials: false
@@ -48,12 +48,12 @@ jobs:
           test "$(git rev-parse HEAD)" = "$SOURCE_REVISION"
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 9.15.0
           run_install: false
@@ -98,8 +98,65 @@ jobs:
           RUNTIME_CONTEXT: ${{ runner.temp }}/web-runtime-context
         run: scripts/ci/build-staging-web-runtime.sh
 
+      - name: Measure PR-only Web compiler cache candidates
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        env:
+          NEXT_CACHE_PATH: ${{ runner.temp }}/context/apps/web/.next/cache
+          NEXT_CACHE_ARCHIVE: ${{ runner.temp }}/next-cache-diagnostic.tar.zst
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          [[ -d "$NEXT_CACHE_PATH" && ! -L "$NEXT_CACHE_PATH" ]]
+          test -z "$(find "$NEXT_CACHE_PATH" -type l -print -quit)"
+          [[ ! -e "$NEXT_CACHE_ARCHIVE" && ! -L "$NEXT_CACHE_ARCHIVE" ]]
+          trap 'rm -f -- "$NEXT_CACHE_ARCHIVE"' EXIT
+
+          report_directory() {
+            local directory="$1"
+            local relative_path="$2"
+            local apparent_bytes allocated_bytes file_count
+            apparent_bytes="$(du -sb -- "$directory" | cut -f1)"
+            allocated_bytes="$(du -sB1 -- "$directory" | cut -f1)"
+            file_count="$(find "$directory" -type f -print0 | tr -cd '\000' | wc -c | tr -d '[:space:]')"
+            [[ "$apparent_bytes" =~ ^[0-9]+$ ]]
+            [[ "$allocated_bytes" =~ ^[0-9]+$ ]]
+            [[ "$file_count" =~ ^[0-9]+$ ]]
+            printf 'next_cache_directory_v1 path=%q apparent_bytes=%s allocated_bytes=%s files=%s\n' \
+              "$relative_path" "$apparent_bytes" "$allocated_bytes" "$file_count"
+          }
+
+          report_directory "$NEXT_CACHE_PATH" .
+          shopt -s nullglob dotglob
+          for directory in "$NEXT_CACHE_PATH"/*; do
+            [[ -d "$directory" ]] || continue
+            report_directory "$directory" "${directory#"$NEXT_CACHE_PATH"/}"
+          done
+          if [[ -d "$NEXT_CACHE_PATH/webpack" ]]; then
+            for directory in "$NEXT_CACHE_PATH"/webpack/*; do
+              [[ -d "$directory" ]] || continue
+              report_directory "$directory" "${directory#"$NEXT_CACHE_PATH"/}"
+            done
+          fi
+
+          compression_started="$(date +%s)"
+          tar --zstd -cf "$NEXT_CACHE_ARCHIVE" \
+            -C "$(dirname -- "$NEXT_CACHE_PATH")" \
+            "$(basename -- "$NEXT_CACHE_PATH")"
+          compression_finished="$(date +%s)"
+          compressed_bytes="$(stat -c %s "$NEXT_CACHE_ARCHIVE")"
+          [[ "$compressed_bytes" =~ ^[0-9]+$ ]]
+          compression_elapsed_seconds="$((compression_finished - compression_started))"
+          printf 'next_cache_compression_v1 compressed_bytes=%s elapsed_seconds=%s\n' \
+            "$compressed_bytes" "$compression_elapsed_seconds"
+
+          rm -f -- "$NEXT_CACHE_ARCHIVE"
+          [[ ! -e "$NEXT_CACHE_ARCHIVE" && ! -L "$NEXT_CACHE_ARCHIVE" ]]
+          trap - EXIT
+          printf 'next_cache_diagnostic_v1 archive_deleted=true upload=false save=false\n'
+
       - name: Set up isolated Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
         with:
           driver-opts: |
             image=moby/buildkit:buildx-stable-1
@@ -138,7 +195,7 @@ jobs:
           sha256sum /tmp/roebel-web-staging.oci.tar > /tmp/roebel-web-staging.oci.tar.sha256
 
       - name: Upload the private short-lived build result
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: roebel-web-staging-${{ env.SOURCE_REVISION }}
           path: |

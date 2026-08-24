@@ -16,12 +16,26 @@ SBOM attestation and GitHub OIDC build provenance to the immutable digest.
 
 The Web runtime-only packaging path builds once in the exact pinned Node image
 with networking disabled, a read-only offline pnpm store, no Linux capabilities
-and no-new-privileges. The measured warm-cache run took 6m22s versus 6m05s
-cold, so the ineffective 168 MiB compressed / 2.50-2.91 GiB uncompressed cache
-is not restored or retained. A staging-only Turbopack trial was also rejected:
-it compiled in 4.7 minutes, slower than Webpack's 3.2 minutes, and then failed
-page-data collection for an existing newsletter route. Any compiler cache
-produced inside the job is disposable and never copied into the runtime image.
+and no-new-privileges. The earlier 168 MiB compressed / 2.50-2.91 GiB
+unbounded cache trial was rejected after its measured warm run took 6m22s
+versus 6m05s cold. A later direct `.next/cache` attempt produced
+2,641,798,000 apparent bytes against its 512 MiB save budget, so it saved
+nothing and its cold Web job still took 6m15s. That attempt is not a speed
+optimization and no compiler cache is now restored, saved or uploaded.
+
+The current title-ready slice is **measure Web compiler cache candidates**.
+Only a pull-request Web build inventories the complete `.next/cache` root, all
+immediate directories and each immediate Webpack subdirectory. It logs stable
+apparent-byte, allocated-byte and regular-file counts, then measures the full
+cache's zstd-compressed size and compression time in a temporary runner-local
+archive. The archive is deleted in the same step and is never uploaded, saved,
+packaged or used by the protected publisher. The measurement fails closed if
+the cache root or any descendant is a symlink. Manual dispatch and protected
+publication therefore remain cold and receive no compiler-cache state. These
+measurements are evidence for selecting a useful remote subset capped at 2 GiB;
+they do not claim a warm-build improvement. A staging-only Turbopack trial was
+also rejected: it compiled in 4.7 minutes, slower than Webpack's 3.2 minutes,
+and then failed page-data collection for an existing newsletter route.
 
 An exact dependency-cache trial was rejected as well. Its cold job took 7m02s,
 57 seconds slower than the 6m05s runtime-only baseline, including 33 seconds to
