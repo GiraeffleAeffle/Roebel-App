@@ -90,8 +90,8 @@ jobs:
             docs/kickoffs/2026-08-11_K3_IDENTITY_INVERSION.md \
             docs/kickoffs/README.md
           test "$(git diff --name-only --diff-filter=U)" = "pnpm-lock.yaml"
-          ! rg -n '^(<<<<<<<|=======|>>>>>>>)' apps/expo/app/explore.tsx docs/kickoffs
-          rg -q 'style=\{styles\.scrollView\}' apps/expo/app/explore.tsx
+          ! grep -REn '^(<<<<<<<|=======|>>>>>>>)' apps/expo/app/explore.tsx docs/kickoffs
+          grep -Fq 'style={styles.scrollView}' apps/expo/app/explore.tsx
 
       - name: Regenerate the lockfile with pinned pnpm and no lifecycle scripts
         shell: bash
@@ -109,7 +109,7 @@ jobs:
           pnpm install --lockfile-only --ignore-scripts --store-dir "$PNPM_STORE_DIR"
           pnpm install --frozen-lockfile --ignore-scripts --store-dir "$PNPM_STORE_DIR"
           git diff --check
-          ! rg -n '^(<<<<<<<|=======|>>>>>>>)' pnpm-lock.yaml
+          ! grep -En '^(<<<<<<<|=======|>>>>>>>)' pnpm-lock.yaml
           cp pnpm-lock.yaml evidence/pnpm-lock.yaml
           git diff --no-index -- \
             <(git show "$FORK_REVISION:pnpm-lock.yaml") \
