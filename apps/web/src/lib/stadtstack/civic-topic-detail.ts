@@ -4,6 +4,7 @@ import type {
   StagingTopicPost,
 } from "./staging-api";
 import { projectCivicJourney, type CivicJourney } from "./civic-journey";
+import type { VerifiedPublicCaseBindingReceipt } from "./public-case-binding-receipt-client";
 
 const ROEBEL_TOPIC_ID =
   /^urn:stadtstack:topic:municipality:roebel-mueritz:[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -23,12 +24,14 @@ export type PublicCivicTopicAdministrationStage = Readonly<{
 
 export function projectPublicCivicTopicJourney(
   detail: PublicCivicTopicDetail,
-  administration: PublicCivicTopicAdministrationStage | null = null
+  administration: PublicCivicTopicAdministrationStage | null = null,
+  bindingReceipt: VerifiedPublicCaseBindingReceipt | null = null
 ): CivicJourney | null {
   const discussions = detail.topic.discussions;
   const administrationStatus =
-    detail.caseBinding &&
-    administration?.caseId === detail.caseBinding.canonicalCaseId
+    bindingReceipt &&
+    bindingReceipt.topicId === detail.topic.topicId &&
+    administration?.caseId === bindingReceipt.caseId
       ? administration.status
       : "not_available";
   return projectCivicJourney({
@@ -37,7 +40,10 @@ export function projectPublicCivicTopicJourney(
     meckyMentioned: discussions.some((entry) => entry.meckyMentioned),
     meckyAnswered: discussions.some((entry) => entry.meckyAnswered),
     proposalSigned: discussions.some((entry) => entry.suggestionSigned),
-    caseAdmitted: discussions.some((entry) => entry.caseBinding !== null),
+    // Signed Nostr tags are historical context only; they never advance the
+    // public journey. The credential-free BFF has already verified this exact
+    // receipt before the caller can supply it here.
+    caseAdmitted: bindingReceipt?.topicId === detail.topic.topicId,
     administrationStatus,
     participationStatus:
       administrationStatus === "brief_current"

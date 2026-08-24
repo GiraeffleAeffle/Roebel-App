@@ -9,6 +9,7 @@ import type {
   StagingOrdinaryPost,
   StagingTopicPost,
 } from "../src/lib/stadtstack/staging-api";
+import type { VerifiedPublicCaseBindingReceipt } from "../src/lib/stadtstack/public-case-binding-receipt-client";
 
 const TOPIC_ID =
   "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt";
@@ -89,6 +90,31 @@ function topic(overrides: Partial<StagingTopicPost> = {}): StagingTopicPost {
   };
 }
 
+function bindingReceipt(): VerifiedPublicCaseBindingReceipt {
+  const caseId =
+    "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001";
+  return {
+    schemaVersion: "public_case_binding_receipt_v1",
+    rootEventId: "d".repeat(64),
+    topicId: TOPIC_ID,
+    candidateId: `urn:stadtstack:signed-topic-suggestion:${"e".repeat(64)}`,
+    candidateEventId: "e".repeat(64),
+    sourceAnswerEventId: "f".repeat(64),
+    caseId,
+    caseVersion: 3,
+    caseEventIds: [
+      `urn:stadtstack:case-event:${caseId}:1`,
+      `urn:stadtstack:case-event:${caseId}:2`,
+      `urn:stadtstack:case-event:${caseId}:3`,
+    ],
+    journalHeadChecksum: `sha256:${"a".repeat(64)}`,
+    admissionEventChecksum: `sha256:${"a".repeat(64)}`,
+    receiptChecksum: `sha256:${"b".repeat(64)}`,
+    authorityBinding: "none",
+    openDeskWrite: false,
+  };
+}
+
 test("projects one canonical topic with attributable posts and discussions", () => {
   const feed: StagingFeedResponse = {
     schemaVersion: "roebel_staging_mixed_feed_v1",
@@ -115,6 +141,10 @@ test("projects one canonical topic with attributable posts and discussions", () 
     journey?.stages.find((stage) => stage.id === "proposal")?.state,
     "complete"
   );
+  assert.equal(
+    journey?.stages.find((stage) => stage.id === "case")?.state,
+    "current"
+  );
 });
 
 test("advances the same topic journey only for its exact reviewed case", () => {
@@ -136,17 +166,18 @@ test("advances the same topic journey only for its exact reviewed case", () => {
   assert.ok(detail?.caseBinding);
   assert.equal(detail.caseBindingConflict, false);
 
+  const receipt = bindingReceipt();
   const reviewed = projectPublicCivicTopicJourney(detail, {
-    caseId: detail.caseBinding.canonicalCaseId,
+    caseId: receipt.caseId,
     status: "brief_current",
-  });
+  }, receipt);
   assert.equal(reviewed?.currentStageId, "participation");
 
   const wrongCase = projectPublicCivicTopicJourney(detail, {
     caseId:
       "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000099",
     status: "brief_current",
-  });
+  }, receipt);
   assert.equal(wrongCase?.currentStageId, "administration");
   assert.equal(
     wrongCase?.stages.find((stage) => stage.id === "administration")?.state,
@@ -155,6 +186,31 @@ test("advances the same topic journey only for its exact reviewed case", () => {
   assert.equal(
     wrongCase?.stages.find((stage) => stage.id === "participation")?.state,
     "gated"
+  );
+});
+
+test("does not advance a topic from a legacy Nostr case tag", () => {
+  const bound = topic();
+  bound.discussions[0]!.caseBinding = {
+    municipalityId: "roebel-mueritz",
+    sourceCaseId: "offener-treffpunkt",
+    canonicalCaseId:
+      "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
+  };
+  const detail = projectPublicCivicTopicDetail(
+    {
+      schemaVersion: "roebel_staging_mixed_feed_v1",
+      authorityBinding: "none",
+      posts: [bound],
+    },
+    TOPIC_ID
+  );
+  assert.ok(detail);
+  const journey = projectPublicCivicTopicJourney(detail);
+  assert.equal(journey?.currentStageId, "case");
+  assert.equal(
+    journey?.stages.find((stage) => stage.id === "case")?.state,
+    "current"
   );
 });
 

@@ -24,6 +24,10 @@ import {
   type StagingFeedResponse,
 } from "@/lib/stadtstack/staging-api";
 import type { StadtstackAdministrationProgress as AdministrationProgress } from "@/lib/stadtstack/administration-progress";
+import {
+  loadVerifiedPublicCaseBindingReceipt,
+  type VerifiedPublicCaseBindingReceipt,
+} from "@/lib/stadtstack/public-case-binding-receipt-client";
 import { StadtstackAdministrationProgress } from "./StadtstackAdministrationProgress";
 import { CivicJourneyRail } from "./CivicJourneyRail";
 
@@ -47,8 +51,12 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
   const [administrationError, setAdministrationError] = useState<string | null>(
     null
   );
+  const [bindingReceipt, setBindingReceipt] =
+    useState<VerifiedPublicCaseBindingReceipt | null>(null);
+  const [bindingReceiptUnavailable, setBindingReceiptUnavailable] =
+    useState(false);
   const administrationRequestId = useRef(0);
-  const canonicalCaseId = detail?.caseBinding?.canonicalCaseId ?? null;
+  const canonicalCaseId = bindingReceipt?.caseId ?? null;
 
   const refreshAdministration = useCallback(async () => {
     if (!canonicalCaseId) return;
@@ -95,6 +103,33 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
   }, [topicId]);
 
   useEffect(() => {
+    let active = true;
+    setBindingReceipt(null);
+    setBindingReceiptUnavailable(false);
+    if (!detail) return () => {
+      active = false;
+    };
+    const rootIds = detail.topic.discussions.map((discussion) => discussion.id);
+    void Promise.all(rootIds.map((rootId) => loadVerifiedPublicCaseBindingReceipt(rootId)))
+      .then((receipts) => {
+        if (!active) return;
+        const matching = receipts.filter(
+          (receipt): receipt is VerifiedPublicCaseBindingReceipt =>
+            receipt !== null && receipt.topicId === detail.topic.topicId
+        );
+        const unique = new Map(matching.map((receipt) => [receipt.caseId, receipt]));
+        setBindingReceipt(unique.size === 1 ? [...unique.values()][0]! : null);
+        if (unique.size > 1) setBindingReceiptUnavailable(true);
+      })
+      .catch(() => {
+        if (active) setBindingReceiptUnavailable(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [detail]);
+
+  useEffect(() => {
     setAdministrationProgress(null);
     setAdministrationError(null);
     if (!canonicalCaseId) {
@@ -138,7 +173,11 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
             : ("in_review" as const),
       }
     : null;
-  const journey = projectPublicCivicTopicJourney(detail, administrationStatus);
+  const journey = projectPublicCivicTopicJourney(
+    detail,
+    administrationStatus,
+    bindingReceipt
+  );
   return (
     <div className="space-y-5">
       <Link
@@ -171,20 +210,35 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
 
       {detail.caseBindingConflict && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-          Mehrere Civic-Case-Bindungen wurden für dieses Thema gefunden. Der
-          Verwaltungsstand bleibt ausgeblendet, bis die Zuordnung menschlich
-          geklärt ist.
+          Mehrere synthetische Legacy-Case-Tags wurden für dieses Thema
+          gefunden. Sie ändern den Journey-Stand nicht und öffnen keinen
+          Verwaltungsstand.
         </div>
       )}
 
-      {detail.caseBinding && (
+      {detail.caseBinding && !bindingReceipt && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          Eine synthetische Legacy-Case-Markierung ist in der Nostr-Historie
+          sichtbar. Erst eine checksum-verifizierte öffentliche Case-Steward-
+          Quittung kann den CivicCase- und Verwaltungsstand fortsetzen.
+        </div>
+      )}
+
+      {bindingReceiptUnavailable && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          Die öffentliche Case-Steward-Quittung ist gerade nicht erreichbar
+          oder nicht eindeutig. Der Journey-Stand bleibt unverändert.
+        </div>
+      )}
+
+      {bindingReceipt && (
         <StadtstackAdministrationProgress
           progress={administrationProgress}
           loading={administrationLoading}
           error={administrationError}
           onRefresh={refreshAdministration}
           participationHref={`/app/proposals?case=${encodeURIComponent(
-            detail.caseBinding.canonicalCaseId
+            bindingReceipt.caseId
           )}&topic=${encodeURIComponent(topicId)}`}
         />
       )}
@@ -293,8 +347,9 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
                 </span>
               )}
               {discussion.caseBinding && (
-                <span className="inline-flex items-center gap-1 text-sky-700">
-                  <ShieldCheck className="h-4 w-4" /> CivicCase aufgenommen
+                <span className="inline-flex items-center gap-1 text-amber-700">
+                  <ShieldCheck className="h-4 w-4" /> Synthetische
+                  Legacy-Case-Markierung
                 </span>
               )}
               {discussion.sourceConversation && (
