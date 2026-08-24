@@ -33,33 +33,35 @@ export default function AnimatedSplash({ onFinish }: { onFinish: () => void }) {
   const overlayOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
+    // Forced total kept to 600ms (350 logo fade + 0 dwell + 250 fade-out) —
+    // the text fade-in shares the 350ms window (60ms delay + 220ms duration,
+    // finishing before the logo step ends) so it never extends the sequence.
     Animated.sequence([
       Animated.parallel([
         Animated.timing(logoScale, {
           toValue: 1.12,
-          duration: 650,
+          duration: 350,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
         Animated.timing(textOpacity, {
           toValue: 1,
-          duration: 550,
-          delay: 260,
+          duration: 220,
+          delay: 60,
           easing: Easing.out(Easing.quad),
           useNativeDriver: true,
         }),
         Animated.timing(textShift, {
           toValue: 0,
-          duration: 550,
-          delay: 260,
+          duration: 220,
+          delay: 60,
           easing: Easing.out(Easing.quad),
           useNativeDriver: true,
         }),
       ]),
-      Animated.delay(520),
       Animated.timing(overlayOpacity, {
         toValue: 0,
-        duration: 450,
+        duration: 250,
         easing: Easing.in(Easing.quad),
         useNativeDriver: true,
       }),

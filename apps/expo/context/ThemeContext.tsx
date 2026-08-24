@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, ColorTokens } from '@/constants/theme';
@@ -40,13 +40,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setPreferenceState(pref);
   }, []);
 
-  const value: ThemeContextType = {
-    preference,
-    effectiveTheme,
-    colors: colors[effectiveTheme],
-    isDark: effectiveTheme === 'dark',
-    setPreference,
-  };
+  const value: ThemeContextType = useMemo(
+    () => ({
+      preference,
+      effectiveTheme,
+      colors: colors[effectiveTheme],
+      isDark: effectiveTheme === 'dark',
+      setPreference,
+    }),
+    [preference, effectiveTheme, setPreference]
+  );
 
   if (!loaded) return null;
 

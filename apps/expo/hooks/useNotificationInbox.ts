@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fetchNotificationLog } from '@/lib/supabase-notifications';
 import type { NotificationLogEntry } from '@/lib/types';
@@ -90,17 +90,34 @@ export function useNotificationInbox() {
 
   const unreadCount = notifications.filter(n => !readIds.has(n.id)).length;
 
-  return {
-    notifications,
-    readIds,
-    isLoading,
-    isRefreshing,
-    isLoadingMore,
-    hasMore,
-    unreadCount,
-    refresh,
-    loadMore,
-    markAsRead,
-    markAllAsRead,
-  };
+  // Memoized so consumers (NotificationsContext) get a stable identity
+  // between renders where none of these fields actually changed.
+  return useMemo(
+    () => ({
+      notifications,
+      readIds,
+      isLoading,
+      isRefreshing,
+      isLoadingMore,
+      hasMore,
+      unreadCount,
+      refresh,
+      loadMore,
+      markAsRead,
+      markAllAsRead,
+    }),
+    [
+      notifications,
+      readIds,
+      isLoading,
+      isRefreshing,
+      isLoadingMore,
+      hasMore,
+      unreadCount,
+      refresh,
+      loadMore,
+      markAsRead,
+      markAllAsRead,
+    ]
+  );
 }

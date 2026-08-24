@@ -42,7 +42,7 @@ type Props = {
   onRepost?: (target: PostRecord) => void;
 };
 
-export default function FeedPostCard({
+function FeedPostCard({
   post,
   isLiked,
   displayLikeCount,
@@ -234,6 +234,12 @@ export default function FeedPostCard({
     </View>
   );
 }
+
+// The feed is a long virtualized list of these; memoizing keeps a like/repost
+// or scroll-driven visibility change elsewhere in the list from re-rendering
+// every mounted card. Default shallow prop compare is intentional — `isVisible`
+// is a plain boolean, so a real visibility flip always passes through.
+export default React.memo(FeedPostCard);
 
 const styles = StyleSheet.create({
   container: {

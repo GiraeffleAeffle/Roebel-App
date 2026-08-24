@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Linking, Alert } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, Linking, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { openBrowserAsync } from 'expo-web-browser';
@@ -7,7 +7,10 @@ import { useActiveAccount, useActiveWallet, useDisconnect } from 'thirdweb/react
 import { useTheme, ThemePreference } from '@/context/ThemeContext';
 import { useVerificationContext } from '@/context/VerificationContext';
 import { useDeveloperMode } from '@/context/DeveloperModeContext';
+import { useUser } from '@/context/UserContext';
+import type { PreferredRole } from '@/context/WelcomeWizardContext';
 import { CustomToggle } from '@/components/consent/CustomToggle';
+import { updateUserOnboarding } from '@/lib/supabase-users';
 import { deleteUserAccount, DeleteAccountError } from '@/lib/supabase-account-deletion';
 import BottomDrawer from '@/components/BottomDrawer';
 import InstallAppCard from '@/components/InstallAppCard';
@@ -71,6 +74,17 @@ const themeOptions: { value: ThemePreference; label: string; description?: strin
   { value: 'dark', label: 'Dunkel' },
 ];
 
+// Same options and copy as the onboarding role screen (app/welcome/role.tsx).
+const roleOptions: { value: PreferredRole; label: string; desc: string }[] = [
+  { value: 'buerger', label: 'Bürger:in', desc: 'Ich wohne in Röbel.' },
+  { value: 'tourist', label: 'Besucher:in', desc: 'Ich besuche Röbel.' },
+  {
+    value: 'organisation',
+    label: 'Organisation',
+    desc: 'Ich führe ein Unternehmen oder einen Verein in Röbel.',
+  },
+];
+
 export default function SettingsScreen() {
   const router = useRouter();
   const { preference, setPreference, colors } = useTheme();
@@ -79,11 +93,35 @@ export default function SettingsScreen() {
   const activeWallet = useActiveWallet();
   const { disconnect } = useDisconnect();
   const { isDeveloperMode, toggleDeveloperMode } = useDeveloperMode();
+  const { user, refreshUser } = useUser();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showMembershipMenu, setShowMembershipMenu] = useState(false);
+  const [showRoleMenu, setShowRoleMenu] = useState(false);
+  const [isSavingRole, setIsSavingRole] = useState(false);
 
   const canRequestAttester = hasCitizenNFT && !hasAttesterNFT;
+  const currentRoleLabel =
+    roleOptions.find((role) => role.value === user?.preferred_role)?.label ?? 'Nicht festgelegt';
+
+  const handleSelectRole = async (role: PreferredRole) => {
+    if (!user?.wallet_address || isSavingRole) return;
+    if (role === user.preferred_role) {
+      setShowRoleMenu(false);
+      return;
+    }
+    setIsSavingRole(true);
+    try {
+      await updateUserOnboarding(user.wallet_address, { preferredRole: role });
+      await refreshUser();
+      setShowRoleMenu(false);
+    } catch (err) {
+      console.error('Failed to update preferred role', err);
+      Alert.alert('Fehler', 'Deine Rolle konnte nicht geändert werden. Bitte versuche es erneut.');
+    } finally {
+      setIsSavingRole(false);
+    }
+  };
 
   const handleDeleteAccount = async () => {
     if (!activeAccount || isDeleting) return;
@@ -118,6 +156,22 @@ export default function SettingsScreen() {
 
       <ScrollView style={styles.flex1} showsVerticalScrollIndicator={false}>
         <InstallAppCard />
+        {user && (
+          <Section title="ROLLE" colors={colors}>
+            <Pressable style={styles.themeOptionRow} onPress={() => setShowRoleMenu(true)}>
+              <View style={styles.themeOptionTextContainer}>
+                <Text style={[styles.themeOptionLabel, { color: colors.textPrimary }]}>
+                  Rolle ändern
+                </Text>
+                <Text style={[styles.themeOptionDescription, { color: colors.textSecondary }]}>
+                  {`Aktuell: ${currentRoleLabel}. Bestimmt, welche Funktionen dir angezeigt werden.`}
+                </Text>
+              </View>
+              <Text style={[styles.chevron, { color: colors.textTertiary }]}>›</Text>
+            </Pressable>
+          </Section>
+        )}
+
         <Section title="ERSCHEINUNGSBILD" colors={colors}>
           {themeOptions.map((option, index) => (
             <ThemeOption
@@ -375,6 +429,72 @@ export default function SettingsScreen() {
       </BottomDrawer>
 
       <BottomDrawer
+        visible={showRoleMenu}
+        onClose={() => !isSavingRole && setShowRoleMenu(false)}
+      >
+        <View style={roleStyles.body}>
+          <Text style={[roleStyles.title, { color: colors.textPrimary }]}>
+            Was trifft auf dich zu?
+          </Text>
+          <Text style={[roleStyles.subtitle, { color: colors.textSecondary }]}>
+            Wir zeigen dir passende Funktionen. Du kannst die Auswahl jederzeit ändern.
+          </Text>
+
+          {roleOptions.map((role) => {
+            const selected = user?.preferred_role === role.value;
+            return (
+              <Pressable
+                key={role.value}
+                disabled={isSavingRole}
+                onPress={() => handleSelectRole(role.value)}
+                style={[
+                  roleStyles.option,
+                  {
+                    borderColor: selected ? colors.primary : colors.borderSecondary,
+                    opacity: isSavingRole && !selected ? 0.6 : 1,
+                  },
+                ]}
+              >
+                <View style={roleStyles.optionText}>
+                  <Text style={[roleStyles.optionLabel, { color: colors.textPrimary }]}>
+                    {role.label}
+                  </Text>
+                  <Text style={[roleStyles.optionDesc, { color: colors.textSecondary }]}>
+                    {role.desc}
+                  </Text>
+                </View>
+                {selected && <CheckIcon width={20} height={20} color={colors.primary} />}
+              </Pressable>
+            );
+          })}
+
+          {user?.is_verified_citizen ? (
+            <Text style={[roleStyles.note, { color: colors.textTertiary }]}>
+              Deine Bürger-Verifizierung bleibt von der Auswahl unberührt.
+            </Text>
+          ) : null}
+
+          {isSavingRole && (
+            <View style={roleStyles.savingRow}>
+              <ActivityIndicator size="small" color={colors.textSecondary} />
+              <Text style={[roleStyles.savingText, { color: colors.textSecondary }]}>
+                Wird gespeichert…
+              </Text>
+            </View>
+          )}
+
+          <Pressable
+            onPress={() => !isSavingRole && setShowRoleMenu(false)}
+            style={[roleStyles.cancel, { paddingBottom: 12 }]}
+          >
+            <Text style={[roleStyles.cancelText, { color: colors.textSecondary }]}>
+              Abbrechen
+            </Text>
+          </Pressable>
+        </View>
+      </BottomDrawer>
+
+      <BottomDrawer
         visible={showDeleteConfirm}
         onClose={() => !isDeleting && setShowDeleteConfirm(false)}
       >
@@ -413,6 +533,29 @@ export default function SettingsScreen() {
     </SafeAreaView>
   );
 }
+
+const roleStyles = StyleSheet.create({
+  body: { gap: 12, paddingTop: 4 },
+  title: { fontSize: 18, fontFamily: 'Inter-Bold' },
+  subtitle: { fontSize: 14, fontFamily: 'Inter-Regular', lineHeight: 20, marginBottom: 4 },
+  option: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  optionText: { flex: 1 },
+  optionLabel: { fontSize: 15, fontFamily: 'Inter-SemiBold' },
+  optionDesc: { fontSize: 13, fontFamily: 'Inter-Regular', lineHeight: 18, marginTop: 2 },
+  note: { fontSize: 13, fontFamily: 'Inter-Regular', lineHeight: 18 },
+  savingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  savingText: { fontSize: 13, fontFamily: 'Inter-Regular' },
+  cancel: { alignItems: 'center', paddingTop: 6 },
+  cancelText: { fontSize: 15, fontFamily: 'Inter-Medium' },
+});
 
 const membershipStyles = StyleSheet.create({
   body: { gap: 12, paddingTop: 4 },

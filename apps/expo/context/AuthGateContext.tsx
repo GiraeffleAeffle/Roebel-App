@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useActiveAccount } from 'thirdweb/react';
 import LoginDrawer from '@/components/LoginDrawer';
 
@@ -46,8 +46,10 @@ export function AuthGateProvider({ children }: { children: React.ReactNode }) {
     setVisible(false);
   }, []);
 
+  const value = useMemo<AuthGateValue>(() => ({ requireAuth }), [requireAuth]);
+
   return (
-    <AuthGateContext.Provider value={{ requireAuth }}>
+    <AuthGateContext.Provider value={value}>
       {children}
       <LoginDrawer visible={visible} onClose={onClose} />
     </AuthGateContext.Provider>

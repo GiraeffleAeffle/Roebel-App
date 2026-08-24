@@ -1,12 +1,26 @@
-import React, { useRef, useEffect } from 'react';
-import { Pressable, Text, StyleSheet, Animated, Easing } from 'react-native';
+import React, { useRef } from 'react';
+import { Pressable, Text, StyleSheet, Animated as RNAnimated } from 'react-native';
 import { useRouter } from 'expo-router';
+import ReanimatedAnimated, {
+  useAnimatedStyle,
+  useDerivedValue,
+  useSharedValue,
+  withTiming,
+  Easing,
+  type SharedValue,
+} from 'react-native-reanimated';
 import { useTheme } from '@/context/ThemeContext';
 import { LocationIcon } from '@/components/Icons';
 import { BOTTOM_NAV_HEIGHT } from '@/components/BottomNavigation';
 
 type Props = {
-  visible?: boolean;
+  /**
+   * Reanimated shared value driving show/hide-on-scroll (true = visible).
+   * Pass a shared value written from a `useAnimatedScrollHandler` so
+   * show/hide runs entirely on the UI thread with zero JS re-renders.
+   * Defaults to always-visible when omitted.
+   */
+  visible?: SharedValue<boolean>;
   label?: string;
   href?: string;
   icon?: React.ReactNode;
@@ -14,7 +28,7 @@ type Props = {
 };
 
 export default function MapFAB({
-  visible = true,
+  visible,
   label = 'Karte',
   href = '/location',
   icon,
@@ -22,64 +36,61 @@ export default function MapFAB({
 }: Props) {
   const router = useRouter();
   const { colors } = useTheme();
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  const translateY = useRef(new Animated.Value(0)).current;
-  const opacity = useRef(new Animated.Value(1)).current;
+  const scaleAnim = useRef(new RNAnimated.Value(1)).current;
+  // Fallback for callers that don't drive show/hide — created unconditionally
+  // to satisfy the rules of hooks, only actually used when `visible` is omitted.
+  const alwaysVisible = useSharedValue(true);
+  const visibleShared = visible ?? alwaysVisible;
 
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(translateY, {
-        toValue: visible ? 0 : 80,
-        duration: 400,
-        easing: visible ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacity, {
-        toValue: visible ? 1 : 0,
-        duration: 350,
-        easing: visible ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [visible]);
+  const fabTranslateY = useDerivedValue(() =>
+    withTiming(visibleShared.value ? 0 : 80, {
+      duration: 400,
+      easing: visibleShared.value ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+    })
+  );
+  const fabOpacity = useDerivedValue(() =>
+    withTiming(visibleShared.value ? 1 : 0, {
+      duration: 350,
+      easing: visibleShared.value ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+    })
+  );
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: fabTranslateY.value }],
+    opacity: fabOpacity.value,
+    pointerEvents: visibleShared.value ? 'auto' : 'none',
+  }));
 
   const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
+    RNAnimated.spring(scaleAnim, {
       toValue: 0.95,
       useNativeDriver: true,
     }).start();
   };
 
   const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
+    RNAnimated.spring(scaleAnim, {
       toValue: 1,
       useNativeDriver: true,
     }).start();
   };
 
   return (
-    <Animated.View
-      style={[
-        styles.container,
-        {
-          transform: [{ scale: scaleAnim }, { translateY }],
-          opacity,
-        },
-      ]}
-      pointerEvents={visible ? 'auto' : 'none'}
-    >
-      <Pressable
-        onPress={() => router.push(href as any)}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        style={[styles.pill, { backgroundColor: colors.background }]}
-        accessibilityRole="button"
-        accessibilityLabel={accessibilityLabel ?? `${label} öffnen`}
-      >
-        {icon ?? <LocationIcon size={16} color={colors.textPrimary} />}
-        <Text style={[styles.label, { color: colors.textPrimary }]}>{label}</Text>
-      </Pressable>
-    </Animated.View>
+    <ReanimatedAnimated.View style={[styles.container, animatedStyle]}>
+      <RNAnimated.View style={{ transform: [{ scale: scaleAnim }] }}>
+        <Pressable
+          onPress={() => router.push(href as any)}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+          style={[styles.pill, { backgroundColor: colors.background }]}
+          accessibilityRole="button"
+          accessibilityLabel={accessibilityLabel ?? `${label} öffnen`}
+        >
+          {icon ?? <LocationIcon size={16} color={colors.textPrimary} />}
+          <Text style={[styles.label, { color: colors.textPrimary }]}>{label}</Text>
+        </Pressable>
+      </RNAnimated.View>
+    </ReanimatedAnimated.View>
   );
 }
 

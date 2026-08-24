@@ -1,28 +1,38 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useWindowDimensions, StyleSheet } from 'react-native';
 import RenderHTML from 'react-native-render-html';
 import { useTheme } from '@/context/ThemeContext';
+import type { ColorTokens } from '@/constants/theme';
 
 type Props = {
   content: string;
 };
 
-export default function RichTextRenderer({ content }: Props) {
-  const { width } = useWindowDimensions();
-  const { colors } = useTheme();
+// Static — react-native-render-html re-parses content whenever systemFonts
+// or tagsStyles change identity, so these must not be recreated per render.
+// Module scope for the static array; tagsStyles is memoized below since it
+// closes over theme colors.
+const systemFonts = [
+  'Inter',
+  'Inter-Bold',
+  'Inter-Medium',
+  'Inter-Medium',
+  'Inter-Regular',
+  'Inter-Medium',
+  'Inter-Medium',
+];
 
-  // Define custom fonts for react-native-render-html
-  const systemFonts = [
-    'Inter',
-    'Inter-Bold',
-    'Inter-Medium',
-    'Inter-Medium',
-    'Inter-Regular',
-    'Inter-Medium',
-    'Inter-Medium',
-  ];
+const classesStyles = {
+  'code-block': {
+    backgroundColor: '#1f2937',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+};
 
-  const tagsStyles = {
+function createTagsStyles(colors: ColorTokens) {
+  return {
     body: {
       fontSize: 16,
       lineHeight: 24,
@@ -124,15 +134,13 @@ export default function RichTextRenderer({ content }: Props) {
       marginVertical: 16,
     },
   };
+}
 
-  const classesStyles = {
-    'code-block': {
-      backgroundColor: '#1f2937',
-      padding: 16,
-      borderRadius: 8,
-      marginBottom: 16,
-    },
-  };
+export default function RichTextRenderer({ content }: Props) {
+  const { width } = useWindowDimensions();
+  const { colors } = useTheme();
+
+  const tagsStyles = useMemo(() => createTagsStyles(colors), [colors]);
 
   return (
     <RenderHTML

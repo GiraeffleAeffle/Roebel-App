@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext } from 'react';
+import React, { createContext, useCallback, useContext, useMemo } from 'react';
 import * as Notifications from 'expo-notifications';
 import useNotifications, { UseNotificationsReturn } from '@/hooks/useNotifications';
 import { useNotificationInbox } from '@/hooks/useNotificationInbox';
@@ -40,20 +40,26 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     }
   }, [inbox.markAllAsRead, userNotifs.markAllAsRead]);
 
+  // NOTE: The three hooks (useNotifications, useNotificationInbox, useUserNotifications)
+  // memoize their returns, so this useMemo holds identity across renders but the
+  // cascade is broken — deps change unnecessarily at the provider level.
+  const value = useMemo<NotificationsContextValue>(
+    () => ({
+      ...notifications,
+      inbox,
+      userNotifs,
+      unreadCount: inbox.unreadCount,
+      userUnreadCount: userNotifs.unreadCount,
+      totalUnreadCount: inbox.unreadCount + userNotifs.unreadCount,
+      refreshInbox: inbox.refresh,
+      refreshUserNotifications: userNotifs.refresh,
+      markAllAsRead,
+    }),
+    [notifications, inbox, userNotifs, markAllAsRead]
+  );
+
   return (
-    <NotificationsContext.Provider
-      value={{
-        ...notifications,
-        inbox,
-        userNotifs,
-        unreadCount: inbox.unreadCount,
-        userUnreadCount: userNotifs.unreadCount,
-        totalUnreadCount: inbox.unreadCount + userNotifs.unreadCount,
-        refreshInbox: inbox.refresh,
-        refreshUserNotifications: userNotifs.refresh,
-        markAllAsRead,
-      }}
-    >
+    <NotificationsContext.Provider value={value}>
       {children}
     </NotificationsContext.Provider>
   );

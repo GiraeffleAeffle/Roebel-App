@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useActiveAccount } from 'thirdweb/react';
 import { supabase } from '@/lib/supabase';
 import { useUser } from '@/context/UserContext';
@@ -151,18 +151,36 @@ export default function useUserNotifications() {
     [account]
   );
 
-  return {
-    notifications,
-    unreadCount,
-    isLoading,
-    isRefreshing,
-    isLoadingMore,
-    hasMore,
-    refresh,
-    loadMore,
-    markAsRead,
-    markAllAsRead,
-    acceptInvite: handleAcceptInvite,
-    declineInvite: handleDeclineInvite,
-  };
+  // Memoized so consumers (NotificationsContext) get a stable identity
+  // between renders where none of these fields actually changed.
+  return useMemo(
+    () => ({
+      notifications,
+      unreadCount,
+      isLoading,
+      isRefreshing,
+      isLoadingMore,
+      hasMore,
+      refresh,
+      loadMore,
+      markAsRead,
+      markAllAsRead,
+      acceptInvite: handleAcceptInvite,
+      declineInvite: handleDeclineInvite,
+    }),
+    [
+      notifications,
+      unreadCount,
+      isLoading,
+      isRefreshing,
+      isLoadingMore,
+      hasMore,
+      refresh,
+      loadMore,
+      markAsRead,
+      markAllAsRead,
+      handleAcceptInvite,
+      handleDeclineInvite,
+    ]
+  );
 }

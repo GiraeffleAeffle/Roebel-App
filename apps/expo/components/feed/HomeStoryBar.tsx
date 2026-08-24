@@ -25,6 +25,7 @@ import StoryViewer, {
   type StoryGroup,
   type StorySlideInput,
 } from './StoryViewer';
+import { ShimmerGroup, ShimmerBlock } from './Shimmer';
 
 // Shared background track playing under all event stories — title shown in
 // the marquee tooltip, link opened when the tooltip is tapped.
@@ -86,7 +87,16 @@ function prefetchStoryImages(
   }
 }
 
-export default function HomeStoryBar() {
+type Props = {
+  /**
+   * Fires with true while a finger is down on the horizontal rail, false
+   * when it lifts. FeedHome uses this to lock the feed pager so a story
+   * swipe never falls through and switches the tab instead.
+   */
+  onRailTouchActive?: (active: boolean) => void;
+};
+
+export default function HomeStoryBar({ onRailTouchActive }: Props) {
   const { colors } = useTheme();
   const router = useRouter();
   const { isCitizen } = useUser();
@@ -296,16 +306,19 @@ export default function HomeStoryBar() {
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
+        onTouchStart={() => onRailTouchActive?.(true)}
+        onTouchEnd={() => onRailTouchActive?.(false)}
+        onTouchCancel={() => onRailTouchActive?.(false)}
       >
-        {/* First-load skeletons — placeholder cards matching real card
-            geometry while the events/collections queries resolve. */}
-        {showSkeletons &&
-          Array.from({ length: 5 }).map((_, i) => (
-            <View
-              key={`story-skeleton-${i}`}
-              style={[styles.card, { backgroundColor: colors.skeleton }]}
-            />
-          ))}
+        {/* First-load skeletons — shimmering placeholder cards matching real
+            card geometry while the events/collections queries resolve. */}
+        {showSkeletons && (
+          <ShimmerGroup>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <ShimmerBlock key={`story-skeleton-${i}`} style={styles.card} />
+            ))}
+          </ShimmerGroup>
+        )}
 
         {/* One bubble per event. Tapping any opens the SAME unified events
             story at that event's slide index. */}

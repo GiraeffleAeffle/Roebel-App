@@ -1,36 +1,54 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { useTheme } from '@/context/ThemeContext';
+import { ShimmerGroup, ShimmerBlock } from './Shimmer';
 
 export default function FeedPostSkeleton() {
   const { colors } = useTheme();
-  const bg = colors.skeleton;
 
   return (
-    <View style={[styles.container, { borderBottomColor: colors.border }]}>
-      {/* Author row */}
-      <View style={styles.authorRow}>
-        <View style={[styles.avatar, { backgroundColor: bg }]} />
-        <View style={styles.authorInfo}>
-          <View style={[styles.nameLine, { backgroundColor: bg }]} />
-          <View style={[styles.metaLine, { backgroundColor: bg }]} />
+    <ShimmerGroup>
+      <View style={[styles.container, { borderBottomColor: colors.border }]}>
+        {/* Author row */}
+        <View style={styles.authorRow}>
+          <ShimmerBlock style={styles.avatar} />
+          <View style={styles.authorInfo}>
+            <ShimmerBlock style={styles.nameLine} />
+            <ShimmerBlock style={styles.metaLine} />
+          </View>
+        </View>
+
+        {/* Content lines */}
+        <ShimmerBlock style={[styles.textLine, { width: '100%' }]} />
+        <ShimmerBlock style={[styles.textLine, { width: '80%' }]} />
+
+        {/* Image placeholder */}
+        <ShimmerBlock style={styles.imagePlaceholder} />
+
+        {/* Action row */}
+        <View style={styles.actionRow}>
+          <ShimmerBlock style={styles.actionItem} />
+          <ShimmerBlock style={styles.actionItem} />
+          <ShimmerBlock style={styles.actionItem} />
         </View>
       </View>
+    </ShimmerGroup>
+  );
+}
 
-      {/* Content lines */}
-      <View style={[styles.textLine, { backgroundColor: bg, width: '100%' }]} />
-      <View style={[styles.textLine, { backgroundColor: bg, width: '80%' }]} />
-
-      {/* Image placeholder */}
-      <View style={[styles.imagePlaceholder, { backgroundColor: bg }]} />
-
-      {/* Action row */}
-      <View style={styles.actionRow}>
-        <View style={[styles.actionItem, { backgroundColor: bg }]} />
-        <View style={[styles.actionItem, { backgroundColor: bg }]} />
-        <View style={[styles.actionItem, { backgroundColor: bg }]} />
+/** Compact avatar + text-lines skeleton matching CommentThread geometry. */
+export function CommentSkeleton() {
+  return (
+    <ShimmerGroup>
+      <View style={styles.commentContainer}>
+        <ShimmerBlock style={styles.commentAvatar} />
+        <View style={styles.commentBody}>
+          <ShimmerBlock style={[styles.textLine, { width: 110 }]} />
+          <ShimmerBlock style={[styles.textLine, { width: '92%' }]} />
+          <ShimmerBlock style={[styles.textLine, { width: '60%' }]} />
+        </View>
       </View>
-    </View>
+    </ShimmerGroup>
   );
 }
 
@@ -82,5 +100,22 @@ const styles = StyleSheet.create({
     height: 16,
     width: 50,
     borderRadius: 4,
+  },
+  commentContainer: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    opacity: 0.7,
+  },
+  commentAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+  },
+  commentBody: {
+    flex: 1,
+    gap: 7,
+    paddingTop: 2,
   },
 });

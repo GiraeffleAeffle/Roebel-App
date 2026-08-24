@@ -1,7 +1,8 @@
-import React, { useState, useCallback, useRef } from 'react';
-import { View, StyleSheet, ScrollView, RefreshControl, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
+import { View, StyleSheet, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
+import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
 import { useQuery } from '@tanstack/react-query';
 import { useTheme } from '@/context/ThemeContext';
 import { supabase } from '@/lib/supabase';
@@ -18,7 +19,7 @@ import type {
 import BottomNavigation, { BOTTOM_NAV_HEIGHT } from '@/components/BottomNavigation';
 import ExploreSearchBar from '@/components/ExploreSearchBar';
 import ExploreCategoryChips from '@/components/ExploreCategoryChips';
-import SwipeableCardStack from '@/components/SwipeableCardStack';
+import DeckCardSwiper from '@/components/DeckCardSwiper';
 import ThisWeekEventsHorizontal from '@/components/ThisWeekEventsHorizontal';
 import AllEventsHorizontal from '@/components/AllEventsHorizontal';
 import NewsSection from '@/components/NewsSection';
@@ -34,6 +35,10 @@ import { Skeleton, HeroCardSkeleton } from '@/components/SkeletonLoader';
 
 const EVENT_CARD_COLUMNS =
   'id, title, date, time, location, formatted_address, address_components, image_url, is_popular, is_cancelled, organizer_name';
+
+// Stable (module-level) empty-array fallbacks: `data ?? []` would mint a new
+// array identity every render, which defeats the useMemo below.
+const EMPTY_EVENTS: EventRecord[] = [];
 
 async function fetchExploreEvents() {
   const { data } = await supabase
@@ -113,8 +118,12 @@ export default function ExploreScreen() {
 
   const [refreshing, setRefreshing] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
-  const [fabVisible, setFabVisible] = useState(true);
-  const lastScrollY = useRef(0);
+  // FAB show/hide-on-scroll runs entirely on the UI thread (Reanimated) so a
+  // direction flip never triggers a JS re-render of this screen. MapFAB owns
+  // the actual translateY/opacity tween (via useAnimatedStyle) off this
+  // shared value — this only tracks scroll position + the visible/hidden bit.
+  const lastScrollY = useSharedValue(0);
+  const fabVisible = useSharedValue(true);
   // When the user taps a result/tile inside the search modal we close the modal
   // and navigate, but flag it to reopen once Explore regains focus — so pressing
   // back from the subpage returns to the search page, not the bare feed.
@@ -165,8 +174,8 @@ export default function ExploreScreen() {
     meta: { persist: true },
   });
 
-  const events = eventsQuery.data ?? [];
-  const popularEvents = popularQuery.data ?? [];
+  const events = eventsQuery.data ?? EMPTY_EVENTS;
+  const popularEvents = popularQuery.data ?? EMPTY_EVENTS;
   const newsArticles = newsQuery.data ?? [];
   const movies = moviesQuery.data ?? [];
   const restaurants = restaurantsQuery.data ?? [];
@@ -196,33 +205,54 @@ export default function ExploreScreen() {
     }
   };
 
-  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const currentY = event.nativeEvent.contentOffset.y;
-    if (currentY > lastScrollY.current + 10) {
-      setFabVisible(false);
-    } else if (currentY < lastScrollY.current - 10) {
-      setFabVisible(true);
-    }
-    lastScrollY.current = currentY;
-  };
+  // Same thresholds/direction logic as the old JS-thread handler
+  // (scroll down 10px -> hide, scroll up 10px -> show), just running as a
+  // worklet on the UI thread instead of via setState on every frame. The
+  // translateY/opacity tween itself lives in MapFAB's useAnimatedStyle.
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      const currentY = event.contentOffset.y;
+      if (currentY > lastScrollY.value + 10) {
+        fabVisible.value = false;
+      } else if (currentY < lastScrollY.value - 10) {
+        fabVisible.value = true;
+      }
+      lastScrollY.value = currentY;
+    },
+  });
 
-  // Filter events for sections
-  const futurePopularEvents = popularEvents.filter((e) => isEventTodayOrFuture(e.date));
-  const futureEvents = events.filter((e) => isEventTodayOrFuture(e.date));
-  const nearbyEvents = futureEvents.filter(
-    (e) => !isEventInRoebel(e.location, e.formatted_address, e.address_components) && !e.is_popular
+  // Filter events for sections. `events`/`popularEvents` are referentially
+  // stable across renders (EMPTY_EVENTS fallback, unchanged query data), so
+  // these only recompute when the underlying query data actually changes.
+  const futurePopularEvents = useMemo(
+    () => popularEvents.filter((e) => isEventTodayOrFuture(e.date)),
+    [popularEvents]
+  );
+  const futureEvents = useMemo(
+    () => events.filter((e) => isEventTodayOrFuture(e.date)),
+    [events]
+  );
+  const nearbyEvents = useMemo(
+    () =>
+      futureEvents.filter(
+        (e) => !isEventInRoebel(e.location, e.formatted_address, e.address_components) && !e.is_popular
+      ),
+    [futureEvents]
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScrollView
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top', 'left', 'right']}
+    >
+      <Animated.ScrollView
         // flex:1 is load-bearing on web: react-native-web sizes an unstyled
         // ScrollView to its content, so `overflow-y: auto` never has anything
         // to scroll and the page (body has overflow:hidden) just clips it.
         // Native bounds it regardless, which is why this only broke the PWA.
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        onScroll={handleScroll}
+        onScroll={scrollHandler}
         scrollEventThrottle={16}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
@@ -238,11 +268,11 @@ export default function ExploreScreen() {
         {popularQuery.isPending ? (
           <HeroCardSkeleton />
         ) : (
-          <SwipeableCardStack
+          <DeckCardSwiper
             events={futurePopularEvents}
             showPagination
             loop
-            containerStyle={{ paddingTop: 8, paddingBottom: 16, marginBottom: 0 }}
+            containerStyle={{ paddingTop: 16, paddingBottom: 16, marginBottom: 0 }}
           />
         )}
 
@@ -303,7 +333,7 @@ export default function ExploreScreen() {
 
         {/* Bottom padding for BottomNavigation */}
         <View style={{ height: BOTTOM_NAV_HEIGHT + 10 }} />
-      </ScrollView>
+      </Animated.ScrollView>
 
       {/* Search Modal */}
       <SearchModal
