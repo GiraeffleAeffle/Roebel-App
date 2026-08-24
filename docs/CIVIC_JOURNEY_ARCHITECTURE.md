@@ -61,6 +61,7 @@ Stages are connected through identifiers and receipts, not collapsed into one re
 | [ADR 0017](adr/0017-reviewed-public-knowledge-projection.md)                           | accepted for staging      | Consume explicitly enabled reviewed news/RIS projections through checksum-bound GET-only adapters. |
 | [ADR 0018](adr/0018-separate-public-journey-and-operator-console-build-boundaries.md)  | proposed                  | Separate the public journey from privileged operator routes so authority and builds scale independently. |
 | [ADR 0019](adr/0019-role-isolated-case-steward-admission-and-public-binding-receipts.md) | accepted boundary; deployment pending | Keep Civic Case admission out of the public Web and advance the journey through a public-safe binding receipt. |
+| [ADR 0020](adr/0020-event-driven-attested-release-handoff.md)                         | proposed; bootstrap pending | Replace cron-only staging promotion latency with an exact, attested event handoff while retaining protected human review and recovery paths. |
 
 Canonical terms live in [`CONTEXT.md`](../CONTEXT.md). The integrated staging contract lives in [`2026-08-13-real-staging-topic-identity-and-administration-flow.md`](superpowers/specs/2026-08-13-real-staging-topic-identity-and-administration-flow.md).
 
