@@ -297,6 +297,12 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
                   <ShieldCheck className="h-4 w-4" /> CivicCase aufgenommen
                 </span>
               )}
+              {discussion.sourceConversation && (
+                <span className="inline-flex items-center gap-1 text-blue-700">
+                  <Bot className="h-4 w-4" /> Aus ausgewähltem
+                  Mecky-Austausch
+                </span>
+              )}
               <span className="ml-auto inline-flex items-center gap-1 text-primary">
                 Diskussion öffnen <ChevronRight className="h-4 w-4" />
               </span>

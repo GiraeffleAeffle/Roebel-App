@@ -282,14 +282,12 @@ describe("Röbel E2E workbench boundary", () => {
         body: JSON.stringify({ intent: "post", event: signedPost }),
       });
       assert.equal(publishResponse.status, 200);
-      const promotion = buildCivicPromotionEvent(citizenSecret, {
+      const promotion = buildCivicTopicPromotionEvent(citizenSecret, {
         sourcePost: signedPost,
         municipalityId: "roebel-mueritz",
-        sourceCaseId: "marienfelder-strasse",
-        canonicalCaseId:
-          "urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001",
         topicId:
           "urn:stadtstack:topic:municipality:roebel-mueritz:marienfelder-strasse",
+        topicTitle: "Marienfelder Straße",
         agentPubkey: config.meckyPubkey,
         content: "@Mecky, welche geprüften Informationen liegen dazu vor?",
         createdAt: 102,
@@ -579,6 +577,365 @@ describe("Röbel E2E workbench boundary", () => {
         ),
         true
       );
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("returns the first signed promotion when the real app retries the same source post", async () => {
+    const config = parseWorkbenchConfig(environment());
+    const events: Array<Record<string, unknown>> = [];
+    const relay = {
+      query: async () => events,
+      publish: async (entry: Record<string, unknown>) => {
+        if (!events.some((candidate) => candidate.id === entry.id))
+          events.push(entry);
+        return { ok: true, message: "stored" };
+      },
+      close: () => {},
+    };
+    const running = await startWorkbench(config, {
+      citizenRelay: relay as never,
+      agentRelay: { ...relay, query: async () => [] } as never,
+    });
+    try {
+      const origin = `http://127.0.0.1:${running.port}/stadtstack-test`;
+      const citizenSecret = Uint8Array.from(
+        Buffer.from("5f".repeat(32), "hex")
+      );
+      const sourcePost = buildNoteEvent(
+        citizenSecret,
+        "Ein normaler Röbel-Beitrag bleibt die unveränderte Quelle.",
+        {
+          createdAt: 101,
+          tags: [["source-app-post", "018f1c63-7b2a-4a11-8a55-2e3d9c4b5a61"]],
+        }
+      );
+      const firstPromotion = buildCivicTopicPromotionEvent(citizenSecret, {
+        sourcePost,
+        municipalityId: "roebel-mueritz",
+        topicId:
+          "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt",
+        topicTitle: "Offener Treffpunkt in Röbel",
+        agentPubkey: config.meckyPubkey,
+        content: "@Mecky, welche geprüften Informationen liegen dazu vor?",
+        createdAt: 102,
+      });
+      const retryPromotion = buildCivicTopicPromotionEvent(citizenSecret, {
+        sourcePost,
+        municipalityId: "roebel-mueritz",
+        topicId:
+          "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt",
+        topicTitle: "Offener Treffpunkt in Röbel",
+        agentPubkey: config.meckyPubkey,
+        content: "@Mecky, welche Optionen sollten wir stattdessen prüfen?",
+        createdAt: 103,
+      });
+      const sourceResponse = await fetch(`${origin}/api/signed-event`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stadtstack-e2e": "1",
+        },
+        body: JSON.stringify({ intent: "post", event: sourcePost }),
+      });
+      assert.equal(sourceResponse.status, 200);
+
+      const authoritySmugglingAttempt = buildNoteEvent(
+        citizenSecret,
+        firstPromotion.content,
+        {
+          createdAt: firstPromotion.created_at,
+          tags: [...firstPromotion.tags, ["stadtstack-case", "fake-case"]],
+        }
+      );
+      const rejected = await fetch(`${origin}/api/signed-event`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stadtstack-e2e": "1",
+        },
+        body: JSON.stringify({
+          intent: "promotion",
+          event: authoritySmugglingAttempt,
+        }),
+      });
+      assert.equal(rejected.status, 422);
+      assert.deepEqual(await rejected.json(), {
+        error: "signed_promotion_invalid",
+      });
+      events.push(
+        authoritySmugglingAttempt as unknown as Record<string, unknown>
+      );
+      const poisonedFeed = (await fetch(`${origin}/api/feed`).then((response) =>
+        response.json()
+      )) as { posts: Array<{ id: string }> };
+      assert.equal(
+        poisonedFeed.posts.some(
+          (entry) => entry.id === authoritySmugglingAttempt.id
+        ),
+        false
+      );
+
+      for (const [intent, event] of [["promotion", firstPromotion]] as const) {
+        const response = await fetch(`${origin}/api/signed-event`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-stadtstack-e2e": "1",
+          },
+          body: JSON.stringify({ intent, event }),
+        });
+        assert.equal(response.status, 200);
+      }
+      events.push(retryPromotion as unknown as Record<string, unknown>);
+      const duplicateFeed = (await fetch(`${origin}/api/feed`).then((response) =>
+        response.json()
+      )) as {
+        posts: Array<{
+          entryType: "post" | "topic";
+          topicId?: string;
+          discussionIds?: string[];
+        }>;
+      };
+      const duplicateTopics = duplicateFeed.posts.filter(
+        (entry) =>
+          entry.entryType === "topic" &&
+          entry.topicId ===
+            "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt"
+      );
+      assert.equal(duplicateTopics.length, 1);
+      assert.deepEqual(duplicateTopics[0]!.discussionIds, [firstPromotion.id]);
+
+      const retryResponse = await fetch(`${origin}/api/signed-event`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stadtstack-e2e": "1",
+        },
+        body: JSON.stringify({
+          intent: "promotion",
+          event: retryPromotion,
+        }),
+      });
+      const retry = (await retryResponse.json()) as {
+        status: string;
+        event: { id: string };
+      };
+
+      assert.equal(retryResponse.status, 200);
+      assert.equal(retry.status, "already_promoted");
+      assert.equal(retry.event.id, firstPromotion.id);
+      assert.equal(
+        events.filter(
+          (entry) =>
+            Array.isArray(entry.tags) &&
+            (entry.tags as string[][]).some(
+              (tag) => tag[0] === "source-post" && tag[1] === sourcePost.id
+            ) &&
+            !(entry.tags as string[][]).some(
+              (tag) => tag[0] === "stadtstack-case"
+            )
+        ).length,
+        2
+      );
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("accepts and projects only an exact completed Mecky exchange selected by the post author", async () => {
+    const config = parseWorkbenchConfig({
+      ...environment(),
+      MECKY_PUBKEY: signedMecky.publicKey,
+    });
+    const citizenEvents: Array<Record<string, unknown>> = [];
+    const agentEvents: Array<Record<string, unknown>> = [];
+    const relay = (events: Array<Record<string, unknown>>) => ({
+      query: async () => events,
+      publish: async (entry: Record<string, unknown>) => {
+        if (!events.some((candidate) => candidate.id === entry.id))
+          events.push(entry);
+        return { ok: true, message: "stored" };
+      },
+      close: () => {},
+    });
+    const running = await startWorkbench(config, {
+      citizenRelay: relay(citizenEvents) as never,
+      agentRelay: relay(agentEvents) as never,
+    });
+    try {
+      const origin = `http://127.0.0.1:${running.port}/stadtstack-test`;
+      const citizenSecret = Uint8Array.from(
+        Buffer.from("61".repeat(32), "hex")
+      );
+      const participantSecret = Uint8Array.from(
+        Buffer.from("62".repeat(32), "hex")
+      );
+      const sourceAppPostId = "018f1c63-7b2a-4a11-8a55-2e3d9c4b5a61";
+      const sourceAppCommentId = "018f1c63-7b2a-4a11-8a55-2e3d9c4b5a62";
+      const sourcePost = buildNoteEvent(
+        citizenSecret,
+        "Ein normaler Beitrag beschreibt den fehlenden Treffpunkt.",
+        {
+          createdAt: 101,
+          tags: [["source-app-post", sourceAppPostId]],
+        }
+      );
+      const mention = buildNoteEvent(
+        participantSecret,
+        "@Mecky, welche geprüften Hinweise gibt es dazu?",
+        {
+          createdAt: 102,
+          tags: [
+            ["p", config.meckyPubkey],
+            ["source-app-post", sourceAppPostId],
+            ["source-app-comment", sourceAppCommentId],
+            ["t", "roebel-app-conversation"],
+          ],
+        }
+      );
+      const unprovenAnswer = buildAgentNoteEvent(
+        signedMecky,
+        "Diese Antwort behauptet etwas, bringt aber keinen Beleg mit.",
+        {
+          createdAt: 103,
+          tags: [
+            ["e", mention.id, "", "reply"],
+            ["p", mention.pubkey],
+            ["source-app-post", sourceAppPostId],
+            ["source-app-comment", sourceAppCommentId],
+          ],
+        }
+      );
+      const answer = buildAgentNoteEvent(
+        signedMecky,
+        "Die Antwort trennt belegte Hinweise von offenen Fragen.",
+        {
+          createdAt: 104,
+          tags: [
+            ["e", mention.id, "", "reply"],
+            ["p", mention.pubkey],
+            ["source-app-post", sourceAppPostId],
+            ["source-app-comment", sourceAppCommentId],
+            ["evidence", `sha256:${"b".repeat(64)}`, "https://roebel.example/evidence/1"],
+          ],
+        }
+      );
+      const promotion = buildCivicTopicPromotionEvent(citizenSecret, {
+        sourcePost,
+        municipalityId: "roebel-mueritz",
+        topicId:
+          "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt",
+        topicTitle: "Offener Treffpunkt in Röbel",
+        agentPubkey: config.meckyPubkey,
+        content: "@Mecky, welche Optionen sollen wir gemeinsam abwägen?",
+        conversationSource: {
+          kind: "selected_conversation",
+          sourceAppPostId,
+          sourceAppCommentId,
+          mentionEventId: mention.id,
+          replyEventId: answer.id,
+        },
+        createdAt: 105,
+      });
+
+      for (const [intent, event] of [
+        ["post", sourcePost],
+        ["conversation", mention],
+      ] as const) {
+        const response = await fetch(`${origin}/api/signed-event`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-stadtstack-e2e": "1",
+          },
+          body: JSON.stringify({ intent, event }),
+        });
+        assert.equal(response.status, 200);
+      }
+      agentEvents.push(unprovenAnswer as unknown as Record<string, unknown>);
+      const unprovenPromotion = buildCivicTopicPromotionEvent(citizenSecret, {
+        sourcePost,
+        municipalityId: "roebel-mueritz",
+        topicId:
+          "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt",
+        topicTitle: "Offener Treffpunkt in Röbel",
+        agentPubkey: config.meckyPubkey,
+        content: "@Mecky, welche Optionen sollen wir gemeinsam abwägen?",
+        conversationSource: {
+          kind: "selected_conversation",
+          sourceAppPostId,
+          sourceAppCommentId,
+          mentionEventId: mention.id,
+          replyEventId: unprovenAnswer.id,
+        },
+        createdAt: 105,
+      });
+      const unprovenResponse = await fetch(`${origin}/api/signed-event`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stadtstack-e2e": "1",
+        },
+        body: JSON.stringify({
+          intent: "promotion",
+          event: unprovenPromotion,
+        }),
+      });
+      assert.equal(unprovenResponse.status, 422);
+      assert.deepEqual(await unprovenResponse.json(), {
+        error: "signed_promotion_conversation_invalid",
+      });
+
+      agentEvents.push(answer as unknown as Record<string, unknown>);
+      const promotionResponse = await fetch(`${origin}/api/signed-event`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stadtstack-e2e": "1",
+        },
+        body: JSON.stringify({ intent: "promotion", event: promotion }),
+      });
+      assert.equal(promotionResponse.status, 200);
+
+      const thread = (await fetch(
+        `${origin}/api/thread?root=${promotion.id}`
+      ).then((response) => response.json())) as {
+        sourceConversation: {
+          sourceAppPostId: string;
+          sourceAppCommentId: string | null;
+          mentionId: string;
+          mentionAuthor: {
+            name: string;
+            kind: "citizen" | "mecky";
+            pubkey: string;
+            synthetic: boolean;
+          };
+          replyId: string;
+          receiptId: string | null;
+          evidenceRefs: Array<{ digest: string; url: string }>;
+        } | null;
+      };
+      assert.deepEqual(thread.sourceConversation, {
+        sourceAppPostId,
+        sourceAppCommentId,
+        mentionId: mention.id,
+        mentionAuthor: {
+          name: `Bürger:in ${mention.pubkey.slice(0, 8)}`,
+          kind: "citizen",
+          pubkey: mention.pubkey,
+          synthetic: false,
+        },
+        replyId: answer.id,
+        receiptId: null,
+        evidenceRefs: [
+          {
+            digest: `sha256:${"b".repeat(64)}`,
+            url: "https://roebel.example/evidence/1",
+          },
+        ],
+      });
     } finally {
       await running.close();
     }
@@ -1214,7 +1571,7 @@ describe("Röbel E2E workbench boundary", () => {
     }
   });
 
-  it("projects a signed ordinary app mention and Mecky's answer into that same app conversation", async () => {
+  it("selects a later cited Mecky answer when an earlier app-conversation reply is unproven", async () => {
     const config = parseWorkbenchConfig({
       ...environment(),
       MECKY_PUBKEY: signedMecky.publicKey,
@@ -1287,14 +1644,37 @@ describe("Röbel E2E workbench boundary", () => {
         },
       ]);
 
+      const unprovenAnswer = buildAgentNoteEvent(
+        signedMecky,
+        "Frühere Antwort ohne prüfbaren Beleg.",
+        {
+          createdAt: mention.created_at + 1,
+          tags: [
+            ["e", mention.id, "", "reply"],
+            ["p", mention.pubkey],
+            ["source-app-post", postId],
+            ["source-app-comment", commentId],
+          ],
+        }
+      );
       const answer = buildAgentNoteEvent(signedMecky, "Geprüfte Antwort.", {
-        createdAt: mention.created_at + 1,
+        createdAt: mention.created_at + 2,
         tags: [
           ["e", mention.id, "", "reply"],
           ["p", mention.pubkey],
+          ["source-app-post", postId],
+          ["source-app-comment", commentId],
+          [
+            "evidence",
+            `sha256:${"a".repeat(64)}`,
+            "https://roebel.example/evidence/verified-answer",
+          ],
         ],
       });
-      agentEvents.push(answer as unknown as Record<string, unknown>);
+      agentEvents.push(
+        unprovenAnswer as unknown as Record<string, unknown>,
+        answer as unknown as Record<string, unknown>
+      );
       projection = (await fetch(
         `${origin}/api/conversation?post=${postId}`
       ).then((response) => response.json())) as typeof projection;

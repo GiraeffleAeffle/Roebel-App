@@ -11,6 +11,7 @@ import {
   buildNoteEvent,
   getPublicKeyHex,
   verifyCitizenSignedTopicSuggestion,
+  verifyCivicTopicPromotionEvent,
   verifyEvent,
 } from "../src/index";
 
@@ -69,7 +70,10 @@ test("a human starts a civic topic discussion before any CivicCase exists", () =
   const sourcePost = buildNoteEvent(
     SECRET,
     "In Röbel fehlt ein offener Treffpunkt für unterschiedliche Generationen.",
-    { createdAt: 1_786_463_900 }
+    {
+      createdAt: 1_786_463_900,
+      tags: [["source-app-post", "018f1c63-7b2a-7a55-8a55-2e3d9c4b5a61"]],
+    }
   );
 
   const promotion = buildCivicTopicPromotionEvent(SECRET, {
@@ -103,6 +107,227 @@ test("a human starts a civic topic discussion before any CivicCase exists", () =
   assert.equal(
     promotion.tags.some((tag) => tag[0] === "stadtstack-case"),
     false
+  );
+});
+
+test("an author can attach one selected app conversation to a civic topic promotion", () => {
+  const sourcePost = buildNoteEvent(
+    SECRET,
+    "In Röbel fehlt ein offener Treffpunkt für unterschiedliche Generationen.",
+    {
+      createdAt: 1_786_463_900,
+      tags: [["source-app-post", "018f1c63-7b2a-7a55-8a55-2e3d9c4b5a61"]],
+    }
+  );
+  const mention = buildNoteEvent(
+    SECRET,
+    "@Mecky Welche geprüften Informationen helfen uns bei der Diskussion?",
+    { createdAt: 1_786_463_910 }
+  );
+  const reply = buildNoteEvent(MECKY_SECRET, "Geprüfte Antwort", {
+    createdAt: 1_786_463_920,
+  });
+
+  const promotion = buildCivicTopicPromotionEvent(SECRET, {
+    sourcePost,
+    municipalityId: "roebel-mueritz",
+    topicId:
+      "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt",
+    topicTitle: "Offener Treffpunkt in Röbel",
+    agentPubkey: MECKY,
+    content:
+      "@Mecky Welche geprüften Informationen helfen uns bei der Diskussion?",
+    conversationSource: {
+      kind: "selected_conversation",
+      sourceAppPostId: "018f1c63-7b2a-7a55-8a55-2e3d9c4b5a61",
+      sourceAppCommentId: "018f1c63-7b2a-7a55-8a55-2e3d9c4b5a62",
+      mentionEventId: mention.id,
+      replyEventId: reply.id,
+      receiptId: RECEIPT,
+    },
+    createdAt: 1_786_464_000,
+  });
+
+  assert.equal(verifyEvent(promotion), true);
+  assert.deepEqual(promotion.tags, [
+    ["p", MECKY],
+    ["q", sourcePost.id, "", sourcePost.pubkey],
+    ["source-post", sourcePost.id],
+    ["source-app-post", "018f1c63-7b2a-7a55-8a55-2e3d9c4b5a61"],
+    ["source-app-comment", "018f1c63-7b2a-7a55-8a55-2e3d9c4b5a62"],
+    ["source-conversation-mention", mention.id],
+    ["source-mecky-reply", reply.id],
+    ["source-mecky-receipt", RECEIPT],
+    ["t", "stadtstack-civic-discussion"],
+    ["municipality", "roebel-mueritz"],
+    [
+      "topic",
+      "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt",
+    ],
+    ["topic-title", "Offener Treffpunkt in Röbel"],
+    ["stance", "root"],
+    ["argument-root", "self"],
+  ]);
+  assert.equal(
+    promotion.tags.filter((tag) => tag[0].startsWith("source-")).length,
+    6
+  );
+  assert.equal(promotion.tags.some((tag) => tag[0] === "case"), false);
+  assert.equal(
+    promotion.tags.some((tag) => tag[0] === "stadtstack-case"),
+    false
+  );
+  assert.deepEqual(
+    verifyCivicTopicPromotionEvent({
+      event: promotion,
+      sourcePost,
+      municipalityId: "roebel-mueritz",
+      agentPubkey: MECKY,
+    }),
+    {
+      topicId:
+        "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt",
+      topicTitle: "Offener Treffpunkt in Röbel",
+      conversationSource: {
+        kind: "selected_conversation",
+        sourceAppPostId: "018f1c63-7b2a-7a55-8a55-2e3d9c4b5a61",
+        sourceAppCommentId: "018f1c63-7b2a-7a55-8a55-2e3d9c4b5a62",
+        mentionEventId: mention.id,
+        replyEventId: reply.id,
+        receiptId: RECEIPT,
+      },
+    }
+  );
+
+  const authoritySmugglingAttempt = buildNoteEvent(SECRET, promotion.content, {
+    createdAt: promotion.created_at,
+    tags: [...promotion.tags, ["stadtstack-case", "unauthorized-case"]],
+  });
+  assert.equal(
+    verifyCivicTopicPromotionEvent({
+      event: authoritySmugglingAttempt,
+      sourcePost,
+      municipalityId: "roebel-mueritz",
+      agentPubkey: MECKY,
+    }),
+    null
+  );
+});
+
+test("selected conversation provenance fails closed for malformed or incomplete chains", () => {
+  const sourcePost = buildNoteEvent(SECRET, "Treffpunkt", {
+    createdAt: 400,
+    tags: [["source-app-post", "018f1c63-7b2a-7a55-8a55-2e3d9c4b5a61"]],
+  });
+  const topicId =
+    "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt";
+  const mention = buildNoteEvent(SECRET, "@Mecky Was ist geprüft?", {
+    createdAt: 401,
+  });
+  const reply = buildNoteEvent(MECKY_SECRET, "Geprüfte Antwort", {
+    createdAt: 402,
+  });
+  const validSource = {
+    kind: "selected_conversation" as const,
+    sourceAppPostId: "018f1c63-7b2a-7a55-8a55-2e3d9c4b5a61",
+    sourceAppCommentId: "018f1c63-7b2a-7a55-8a55-2e3d9c4b5a62",
+    mentionEventId: mention.id,
+    replyEventId: reply.id,
+    receiptId: RECEIPT,
+  };
+  const base = {
+    sourcePost,
+    municipalityId: "roebel-mueritz",
+    topicId,
+    topicTitle: "Offener Treffpunkt",
+    agentPubkey: MECKY,
+    content: "@Mecky Was ist geprüft?",
+    createdAt: 403,
+  };
+
+  for (const conversationSource of [
+    { ...validSource, sourceAppPostId: "not-an-app-id" },
+    { ...validSource, sourceAppPostId: "a".repeat(64) },
+    {
+      ...validSource,
+      sourceAppPostId: "018f1c63-7b2a-7a55-8a55-2e3d9c4b5a69",
+    },
+    { ...validSource, sourceAppCommentId: validSource.sourceAppPostId },
+    { ...validSource, mentionEventId: "not-a-nostr-event-id" },
+    { ...validSource, replyEventId: validSource.mentionEventId },
+    { ...validSource, receiptId: "https://example.invalid/receipt" },
+    {
+      kind: "selected_conversation",
+      sourceAppPostId: validSource.sourceAppPostId,
+      replyEventId: validSource.replyEventId,
+      receiptId: validSource.receiptId,
+    },
+    {
+      ...validSource,
+      sourceConversationMentionEventId: validSource.mentionEventId,
+    },
+  ]) {
+    assert.throws(
+      () =>
+        buildCivicTopicPromotionEvent(SECRET, {
+          ...base,
+          conversationSource: conversationSource as never,
+        }),
+      /civic_conversation_source_invalid/
+    );
+  }
+
+  assert.throws(
+    () =>
+      buildCivicTopicPromotionEvent(SECRET, {
+        ...base,
+        conversationSource: {
+          sourceAppPostId: validSource.sourceAppPostId,
+          mentionEventId: validSource.mentionEventId,
+          replyEventId: validSource.replyEventId,
+        } as never,
+      }),
+    /civic_conversation_source_invalid/
+  );
+});
+
+test("selected conversation provenance omits only the optional comment and receipt tags", () => {
+  const sourcePost = buildNoteEvent(SECRET, "Treffpunkt", {
+    createdAt: 450,
+    tags: [["source-app-post", "018f1c63-7b2a-7a55-8a55-2e3d9c4b5a61"]],
+  });
+  const mention = buildNoteEvent(SECRET, "@Mecky Was ist geprüft?", {
+    createdAt: 451,
+  });
+  const reply = buildNoteEvent(MECKY_SECRET, "Geprüfte Antwort", {
+    createdAt: 452,
+  });
+
+  const promotion = buildCivicTopicPromotionEvent(SECRET, {
+    sourcePost,
+    municipalityId: "roebel-mueritz",
+    topicId:
+      "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt",
+    topicTitle: "Offener Treffpunkt",
+    agentPubkey: MECKY,
+    content: "@Mecky Was ist geprüft?",
+    conversationSource: {
+      kind: "selected_conversation",
+      sourceAppPostId: "018f1c63-7b2a-7a55-8a55-2e3d9c4b5a61",
+      mentionEventId: mention.id,
+      replyEventId: reply.id,
+    },
+    createdAt: 453,
+  });
+
+  assert.deepEqual(
+    promotion.tags.filter((tag) => tag[0].startsWith("source-")),
+    [
+      ["source-post", sourcePost.id],
+      ["source-app-post", "018f1c63-7b2a-7a55-8a55-2e3d9c4b5a61"],
+      ["source-conversation-mention", mention.id],
+      ["source-mecky-reply", reply.id],
+    ]
   );
 });
 

@@ -15,6 +15,7 @@ import {
   isAgentEvent,
   RelayClient,
   verifyCitizenSignedTopicSuggestion,
+  verifyCivicTopicPromotionEvent,
   verifyBindingEvent,
   verifyEvent,
   type CitizenSignedTopicSuggestionV1,
@@ -362,6 +363,14 @@ function event(value: unknown): NostrEvent {
   return value as unknown as NostrEvent;
 }
 
+function uniqueEvents(...groups: readonly (readonly NostrEvent[])[]): NostrEvent[] {
+  return [
+    ...new Map(
+      groups.flatMap((group) => group).map((entry) => [entry.id, entry])
+    ).values(),
+  ];
+}
+
 function secret(persona: Persona): Uint8Array {
   return Uint8Array.from(Buffer.from(persona.secretKeyHex, "hex"));
 }
@@ -390,6 +399,203 @@ function sourceAppCommentIdFor(event: NostrEvent): string | null {
     UUID.test(matches[0]![1] ?? "")
     ? matches[0]![1]!
     : null;
+}
+
+type SelectedConversationSource = {
+  sourceAppPostId: string;
+  sourceAppCommentId: string | null;
+  mentionId: string;
+  replyId: string;
+  receiptId: string | null;
+};
+
+type SelectedConversationProjection = SelectedConversationSource & {
+  mentionAuthor: PublicAuthor;
+  evidenceRefs: Array<{ digest: string; url: string }>;
+};
+
+const SELECTED_CONVERSATION_TAGS = new Set([
+  "source-app-post",
+  "source-app-comment",
+  "source-conversation-mention",
+  "source-mecky-reply",
+  "source-mecky-receipt",
+]);
+
+function selectedConversationSourceFor(
+  candidate: NostrEvent,
+  strict = false
+): SelectedConversationSource | null {
+  try {
+    const selectedTags = candidate.tags.filter((tag) =>
+      SELECTED_CONVERSATION_TAGS.has(tag[0] ?? "")
+    );
+    if (selectedTags.length === 0) return null;
+    const exact = (name: string, pattern: RegExp, optional = false) => {
+      const matches = selectedTags.filter((tag) => tag[0] === name);
+      if (optional && matches.length === 0) return null;
+      if (
+        matches.length !== 1 ||
+        matches[0]!.length !== 2 ||
+        !pattern.test(matches[0]![1] ?? "")
+      ) {
+        throw new Error("signed_promotion_conversation_invalid");
+      }
+      return matches[0]![1]!;
+    };
+    return {
+      sourceAppPostId: exact("source-app-post", UUID)!,
+      sourceAppCommentId: exact("source-app-comment", UUID, true),
+      mentionId: exact("source-conversation-mention", HEX64)!,
+      replyId: exact("source-mecky-reply", HEX64)!,
+      receiptId: exact(
+        "source-mecky-receipt",
+        /^urn:stadtstack:mecky-answer:[0-9a-f]{64}$/,
+        true
+      ),
+    };
+  } catch (error) {
+    if (strict) throw error;
+    return null;
+  }
+}
+
+type VerifiedAppConversationReply = {
+  receiptId: string | null;
+  evidenceRefs: Array<{ digest: string; url: string }>;
+};
+
+function verifiedAppConversationReplyFor(
+  config: WorkbenchConfig,
+  mention: NostrEvent,
+  reply: NostrEvent
+): VerifiedAppConversationReply | null {
+  const replyParentTags = reply.tags.filter((tag) => tag[0] === "e");
+  const replyAuthorTags = reply.tags.filter((tag) => tag[0] === "p");
+  const replyAgentTags = reply.tags.filter(
+    (tag) => tag[0] === "netizen_agent"
+  );
+  const replySourcePostTags = reply.tags.filter(
+    (tag) => tag[0] === "source-app-post"
+  );
+  const replySourceCommentTags = reply.tags.filter(
+    (tag) => tag[0] === "source-app-comment"
+  );
+  const evidenceTags = reply.tags.filter((tag) => tag[0] === "evidence");
+  const evidenceRefs = evidenceTags.flatMap((tag) => {
+    if (
+      tag.length !== 3 ||
+      !SHA256.test(tag[1] ?? "") ||
+      !/^https:\/\//.test(tag[2] ?? "")
+    ) {
+      return [];
+    }
+    try {
+      const url = new URL(tag[2]!);
+      if (url.protocol !== "https:" || url.username || url.password) return [];
+    } catch {
+      return [];
+    }
+    return [{ digest: tag[1]!, url: tag[2]! }];
+  });
+  const replyReceiptTags = reply.tags.filter(
+    (tag) => tag[0] === "mecky-receipt"
+  );
+  const receiptId =
+    replyReceiptTags.length === 0
+      ? null
+      : replyReceiptTags.length === 1 &&
+          replyReceiptTags[0]!.length === 2 &&
+          /^urn:stadtstack:mecky-answer:[0-9a-f]{64}$/.test(
+            replyReceiptTags[0]![1] ?? ""
+          )
+        ? replyReceiptTags[0]![1]!
+        : undefined;
+  const sourceAppPostId = sourceAppPostIdFor(mention);
+  const sourceAppCommentId = sourceAppCommentIdFor(mention);
+  if (
+    !isAppConversationMention(config, mention) ||
+    reply.kind !== 1 ||
+    !verifyEvent(reply) ||
+    reply.pubkey !== config.meckyPubkey ||
+    !isAgentEvent(reply) ||
+    replyParentTags.length !== 1 ||
+    replyParentTags[0]!.length !== 4 ||
+    replyParentTags[0]![1] !== mention.id ||
+    replyParentTags[0]![2] !== "" ||
+    replyParentTags[0]![3] !== "reply" ||
+    replyAuthorTags.length !== 1 ||
+    replyAuthorTags[0]!.length !== 2 ||
+    replyAuthorTags[0]![1] !== mention.pubkey ||
+    replyAgentTags.length !== 1 ||
+    replyAgentTags[0]!.length !== 3 ||
+    !(replyAgentTags[0]![1] ?? "") ||
+    !(replyAgentTags[0]![2] ?? "") ||
+    replySourcePostTags.length !== 1 ||
+    replySourcePostTags[0]!.length !== 2 ||
+    replySourceCommentTags.length !== (sourceAppCommentId === null ? 0 : 1) ||
+    (replySourceCommentTags[0] !== undefined &&
+      (replySourceCommentTags[0]!.length !== 2 ||
+        replySourceCommentTags[0]![1] !== sourceAppCommentId)) ||
+    sourceAppPostId === null ||
+    sourceAppPostIdFor(reply) !== sourceAppPostId ||
+    sourceAppCommentIdFor(reply) !== sourceAppCommentId ||
+    mention.created_at > reply.created_at ||
+    evidenceRefs.length < 1 ||
+    evidenceRefs.length > 3 ||
+    evidenceRefs.length !== evidenceTags.length ||
+    new Set(evidenceRefs.map((entry) => entry.digest)).size !==
+      evidenceRefs.length ||
+    receiptId === undefined
+  ) {
+    return null;
+  }
+  return { receiptId, evidenceRefs };
+}
+
+function selectedConversationProjectionFor(
+  config: WorkbenchConfig,
+  promotion: NostrEvent,
+  citizenEvents: readonly NostrEvent[],
+  agentEvents: readonly NostrEvent[]
+): SelectedConversationProjection | null {
+  const selected = selectedConversationSourceFor(promotion);
+  if (!selected) return null;
+  const sourcePostId = tagValue(promotion, "source-post");
+  const sourcePost = citizenEvents.find(
+    (candidate) => candidate.id === sourcePostId && verifyEvent(candidate)
+  );
+  const mention = citizenEvents.find(
+    (candidate) => candidate.id === selected.mentionId && verifyEvent(candidate)
+  );
+  const reply = agentEvents.find(
+    (candidate) => candidate.id === selected.replyId && verifyEvent(candidate)
+  );
+  const verifiedReply =
+    mention && reply
+      ? verifiedAppConversationReplyFor(config, mention, reply)
+      : null;
+  if (
+    !sourcePost ||
+    sourcePost.pubkey !== promotion.pubkey ||
+    sourceAppPostIdFor(sourcePost) !== selected.sourceAppPostId ||
+    !mention ||
+    !isAppConversationMention(config, mention) ||
+    sourceAppPostIdFor(mention) !== selected.sourceAppPostId ||
+    sourceAppCommentIdFor(mention) !== selected.sourceAppCommentId ||
+    !reply ||
+    verifiedReply === null ||
+    sourcePost.created_at > mention.created_at ||
+    reply.created_at > promotion.created_at ||
+    selected.receiptId !== verifiedReply.receiptId
+  ) {
+    return null;
+  }
+  return {
+    ...selected,
+    mentionAuthor: authorFor(config, mention),
+    evidenceRefs: verifiedReply.evidenceRefs,
+  };
 }
 
 function isAppConversationMention(
@@ -458,6 +664,86 @@ function caseBindingFor(event: NostrEvent): {
   return municipalityId && sourceCaseId && canonicalCaseId
     ? { municipalityId, sourceCaseId, canonicalCaseId }
     : null;
+}
+
+function isExactLegacyMarienfelderPromotion(
+  config: WorkbenchConfig,
+  candidate: NostrEvent,
+  sourcePost: NostrEvent
+): boolean {
+  return (
+    candidate.kind === 1 &&
+    verifyEvent(candidate) &&
+    isSyntheticCitizen(config, candidate.pubkey) &&
+    candidate.pubkey === sourcePost.pubkey &&
+    candidate.created_at > sourcePost.created_at &&
+    candidate.content === candidate.content.trim() &&
+    candidate.content.length > 0 &&
+    candidate.content.length <= 2_000 &&
+    /@mecky\b/i.test(candidate.content) &&
+    JSON.stringify(candidate.tags) ===
+      JSON.stringify([
+        ["p", config.meckyPubkey],
+        ["q", sourcePost.id, "", sourcePost.pubkey],
+        ["source-post", sourcePost.id],
+        ["t", "stadtstack-civic-discussion"],
+        ["municipality", "roebel-mueritz"],
+        ["case", "marienfelder-strasse"],
+        ["topic", MARIENFELDER_TOPIC_ID],
+        ["stadtstack-case", CASE_ID],
+        ["stance", "root"],
+        ["argument-root", "self"],
+      ])
+  );
+}
+
+function isExactInteractiveMarienfelderRoot(
+  config: WorkbenchConfig,
+  candidate: NostrEvent
+): boolean {
+  return (
+    candidate.kind === 1 &&
+    verifyEvent(candidate) &&
+    isSyntheticCitizen(config, candidate.pubkey) &&
+    candidate.content === candidate.content.trim() &&
+    candidate.content.length > 0 &&
+    candidate.content.length <= 2_000 &&
+    /@mecky\b/i.test(candidate.content) &&
+    JSON.stringify(candidate.tags) ===
+      JSON.stringify([
+        ["p", config.meckyPubkey],
+        ["t", "stadtstack-civic-discussion"],
+        ["municipality", "roebel-mueritz"],
+        ["case", "marienfelder-strasse"],
+        ["stadtstack-case", CASE_ID],
+      ])
+  );
+}
+
+function isExactSeededMarienfelderGraphRoot(
+  config: WorkbenchConfig,
+  candidate: NostrEvent
+): boolean {
+  return (
+    candidate.kind === 1 &&
+    verifyEvent(candidate) &&
+    isSyntheticCitizen(config, candidate.pubkey) &&
+    candidate.content === candidate.content.trim() &&
+    candidate.content.length > 0 &&
+    candidate.content.length <= 2_000 &&
+    /@mecky\b/i.test(candidate.content) &&
+    JSON.stringify(candidate.tags) ===
+      JSON.stringify([
+        ["p", config.meckyPubkey],
+        ["t", "stadtstack-civic-discussion"],
+        ["municipality", "roebel-mueritz"],
+        ["case", "marienfelder-strasse"],
+        ["topic", MARIENFELDER_TOPIC_ID],
+        ["stadtstack-case", CASE_ID],
+        ["stance", "root"],
+        ["argument-root", "self"],
+      ])
+  );
 }
 
 function verifiedTopicSuggestionFor(
@@ -992,6 +1278,99 @@ export async function startWorkbench(
   const admitPubkey =
     dependencies.admitPubkey ??
     ((pubkey: string) => admitToCitizenRelay(config, fetcher, pubkey));
+  const signedPromotionWrites = new Map<string, Promise<NostrEvent>>();
+  const publishSignedPromotionOnce = async (
+    signed: NostrEvent,
+    sourcePost: NostrEvent
+  ): Promise<{ event: NostrEvent; alreadyPromoted: boolean }> => {
+    const sourcePostId = sourcePost.id;
+    const claimKey = `${signed.pubkey}:${sourcePostId}`;
+    const activeWrite = signedPromotionWrites.get(claimKey);
+    if (activeWrite) {
+      return {
+        event: await activeWrite,
+        alreadyPromoted: true,
+      };
+    }
+    let restoredExisting = false;
+    const write = (async () => {
+      const candidates = (
+        await citizenRelay.query([
+          {
+            kinds: [1],
+            authors: [signed.pubkey],
+            "#q": [sourcePostId],
+            limit: 20,
+          },
+        ])
+      )
+        .filter(verifyEvent)
+        .filter(
+          (candidate) =>
+            candidate.pubkey === signed.pubkey &&
+            tagValue(candidate, "source-post") === sourcePostId &&
+            verifyCivicTopicPromotionEvent({
+              event: candidate,
+              sourcePost,
+              municipalityId: "roebel-mueritz",
+              agentPubkey: config.meckyPubkey,
+            }) !== null
+        )
+        .sort(
+          (left, right) =>
+            left.created_at - right.created_at || left.id.localeCompare(right.id)
+        );
+      let existing: NostrEvent | undefined;
+      for (const candidate of candidates) {
+        const selected = selectedConversationSourceFor(candidate);
+        if (selected !== null) {
+          const [mentions, replies] = await Promise.all([
+            citizenRelay.query([
+              { ids: [selected.mentionId], kinds: [1], limit: 1 },
+            ]),
+            agentRelay.query([
+              {
+                ids: [selected.replyId],
+                authors: [config.meckyPubkey],
+                kinds: [1],
+                limit: 1,
+              },
+            ]),
+          ]);
+          if (
+            selectedConversationProjectionFor(
+              config,
+              candidate,
+              [sourcePost, ...mentions.filter(verifyEvent)],
+              replies.filter(verifyEvent)
+            ) === null
+          ) {
+            continue;
+          }
+        }
+        existing = candidate;
+        break;
+      }
+      if (existing) {
+        restoredExisting = true;
+        return existing;
+      }
+      const published = await citizenRelay.publish(signed);
+      if (!published.ok)
+        throw new Error(`citizen_relay_${published.message}`);
+      return signed;
+    })();
+    signedPromotionWrites.set(claimKey, write);
+    try {
+      return {
+        event: await write,
+        alreadyPromoted: restoredExisting,
+      };
+    } finally {
+      if (signedPromotionWrites.get(claimKey) === write)
+        signedPromotionWrites.delete(claimKey);
+    }
+  };
   await publishSeed(config, citizenRelay);
   const server: Server = createServer((request, response) => {
     void (async () => {
@@ -1038,7 +1417,7 @@ export async function startWorkbench(
         )
           return json(response, 400, { error: "feed_profile_invalid" });
         const publicProfile = profileValues[0] === "public";
-        const [events, agentEvents] = await Promise.all([
+        const [events, recentAgentEvents] = await Promise.all([
           citizenRelay
             .query([{ kinds: [1], limit: 100 }])
             .then((entries) => entries.filter(verifyEvent)),
@@ -1049,14 +1428,124 @@ export async function startWorkbench(
         const visibleEvents = publicProfile
           ? events.filter((entry) => !isSyntheticCitizen(config, entry.pubkey))
           : events;
+        const discoveredRoots = visibleEvents.filter(
+          (entry) => asArgument(config, entry)?.stance === "root"
+        );
+        const selectedSources = discoveredRoots.flatMap((entry) => {
+          const selected = selectedConversationSourceFor(entry);
+          return selected === null ? [] : [selected];
+        });
+        const linkedCitizenIds = [
+          ...discoveredRoots.map((entry) => tagValue(entry, "source-post")),
+          ...selectedSources.map((entry) => entry.mentionId),
+        ].filter((value): value is string => value !== null && HEX64.test(value));
+        const linkedAgentIds = selectedSources.map((entry) => entry.replyId);
+        const [linkedCitizenEvents, linkedAgentEvents, rootAgentEvents] =
+          await Promise.all([
+            linkedCitizenIds.length === 0
+              ? Promise.resolve([])
+              : citizenRelay.query([
+                  {
+                    ids: [...new Set(linkedCitizenIds)],
+                    kinds: [1],
+                    limit: linkedCitizenIds.length,
+                  },
+                ]),
+            linkedAgentIds.length === 0
+              ? Promise.resolve([])
+              : agentRelay.query([
+                  {
+                    ids: [...new Set(linkedAgentIds)],
+                    authors: [config.meckyPubkey],
+                    kinds: [1],
+                    limit: linkedAgentIds.length,
+                  },
+                ]),
+            discoveredRoots.length === 0
+              ? Promise.resolve([])
+              : agentRelay.query([
+                  {
+                    authors: [config.meckyPubkey],
+                    kinds: [1],
+                    "#e": discoveredRoots.map((entry) => entry.id),
+                    limit: Math.min(300, discoveredRoots.length * 20),
+                  },
+                ]),
+          ]);
+        const projectionCitizenEvents = uniqueEvents(
+          visibleEvents,
+          linkedCitizenEvents.filter(verifyEvent)
+        );
+        const agentEvents = uniqueEvents(
+          recentAgentEvents,
+          linkedAgentEvents.filter(verifyEvent),
+          rootAgentEvents.filter(verifyEvent)
+        );
+        const validatedRoots = discoveredRoots.filter((candidate) => {
+          const sourcePostId = tagValue(candidate, "source-post");
+          if (sourcePostId === null) {
+            return (
+              isExactInteractiveMarienfelderRoot(config, candidate) ||
+              isExactSeededMarienfelderGraphRoot(config, candidate)
+            );
+          }
+          const sourcePost = projectionCitizenEvents.find(
+            (entry) => entry.id === sourcePostId
+          );
+          if (sourcePost === undefined) return false;
+          const topicOnlyValid =
+            verifyCivicTopicPromotionEvent({
+              event: candidate,
+              sourcePost,
+              municipalityId: "roebel-mueritz",
+              agentPubkey: config.meckyPubkey,
+            }) !== null;
+          if (!topicOnlyValid) {
+            return isExactLegacyMarienfelderPromotion(
+              config,
+              candidate,
+              sourcePost
+            );
+          }
+          const selected = selectedConversationSourceFor(candidate);
+          return (
+            selected === null ||
+            selectedConversationProjectionFor(
+              config,
+              candidate,
+              projectionCitizenEvents,
+              agentEvents
+            ) !== null
+          );
+        });
+        const visibleRoots: NostrEvent[] = [];
+        const canonicalPromotions = new Set<string>();
+        for (const candidate of [...validatedRoots].sort(
+          (left, right) =>
+            left.created_at - right.created_at || left.id.localeCompare(right.id)
+        )) {
+          const sourcePostId = tagValue(candidate, "source-post");
+          if (sourcePostId === null) {
+            visibleRoots.push(candidate);
+            continue;
+          }
+          const claimKey = `${candidate.pubkey}:${sourcePostId}`;
+          if (canonicalPromotions.has(claimKey)) continue;
+          canonicalPromotions.add(claimKey);
+          visibleRoots.push(candidate);
+        }
+        const visibleRootIds = new Set(visibleRoots.map((entry) => entry.id));
         const argumentsList = visibleEvents
           .map((entry) => asArgument(config, entry))
-          .filter((entry): entry is PublicArgument => entry !== null);
+          .filter(
+            (entry): entry is PublicArgument =>
+              entry !== null && visibleRootIds.has(entry.rootId)
+          );
         const promotionBySourcePost = new Map<
           string,
           { discussionId: string; topicId: string }
         >();
-        for (const entry of visibleEvents) {
+        for (const entry of visibleRoots) {
           const sourcePostId = tagValue(entry, "source-post");
           const topic = topicFor(entry);
           if (sourcePostId && topic)
@@ -1111,7 +1600,7 @@ export async function startWorkbench(
             if (!topic) return [];
             const suggestion = verifiedTopicSuggestionFor(
               config,
-              visibleEvents,
+              projectionCitizenEvents,
               agentEvents,
               source
             );
@@ -1141,6 +1630,12 @@ export async function startWorkbench(
                 ),
                 suggestionSigned: suggestion !== null,
                 caseBinding: caseBindingFor(source),
+                sourceConversation: selectedConversationProjectionFor(
+                  config,
+                  source,
+                  projectionCitizenEvents,
+                  agentEvents
+                ),
                 topicId: topic.id,
                 topicTitle: topic.title,
                 synthetic: isSyntheticCitizen(config, entry.author.pubkey),
@@ -1208,6 +1703,7 @@ export async function startWorkbench(
                   meckyAnswered,
                   suggestionSigned,
                   caseBinding,
+                  sourceConversation,
                   synthetic,
                 }) => ({
                   id,
@@ -1219,6 +1715,7 @@ export async function startWorkbench(
                   meckyAnswered,
                   suggestionSigned,
                   caseBinding,
+                  sourceConversation,
                   synthetic,
                 })
               ),
@@ -1292,14 +1789,20 @@ export async function startWorkbench(
         );
         const requests = [...mentionsBySource.values()].map((mention) => {
           const reply = verifiedAgentEvents
-            .filter((candidate) =>
-              candidate.tags.some(
-                (tag) =>
-                  tag[0] === "e" && tag[1] === mention.id && tag[3] === "reply"
-              )
-            )
+            .flatMap((candidate) => {
+              const projection = verifiedAppConversationReplyFor(
+                config,
+                mention,
+                candidate
+              );
+              return projection === null
+                ? []
+                : [{ event: candidate, projection }];
+            })
             .sort(
-              (a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id)
+              (a, b) =>
+                a.event.created_at - b.event.created_at ||
+                a.event.id.localeCompare(b.event.id)
             )[0];
           return { mention, reply };
         });
@@ -1307,20 +1810,16 @@ export async function startWorkbench(
           reply
             ? [
                 {
-                  id: reply.id,
+                  id: reply.event.id,
                   mentionId: mention.id,
+                  mentionAuthor: authorFor(config, mention),
                   sourceAppCommentId: sourceAppCommentIdFor(mention),
-                  content: reply.content,
-                  createdAt: new Date(reply.created_at * 1_000).toISOString(),
-                  evidenceRefs: reply.tags
-                    .filter(
-                      (tag) =>
-                        tag.length === 3 &&
-                        tag[0] === "evidence" &&
-                        /^sha256:[0-9a-f]{64}$/.test(tag[1] ?? "") &&
-                        /^https:\/\//.test(tag[2] ?? "")
-                    )
-                    .map((tag) => ({ digest: tag[1]!, url: tag[2]! })),
+                  receiptId: reply.projection.receiptId,
+                  content: reply.event.content,
+                  createdAt: new Date(
+                    reply.event.created_at * 1_000
+                  ).toISOString(),
+                  evidenceRefs: reply.projection.evidenceRefs,
                 },
               ]
             : []
@@ -1335,7 +1834,7 @@ export async function startWorkbench(
             mentionId: mention.id,
             sourceAppCommentId: sourceAppCommentIdFor(mention),
             state: reply ? "answered" : "pending",
-            replyId: reply?.id ?? null,
+            replyId: reply?.event.id ?? null,
           })),
           replies: replies.sort(
             (a, b) =>
@@ -1349,32 +1848,115 @@ export async function startWorkbench(
           new URL(path, "http://workbench").searchParams.get("root") ?? "";
         if (!HEX64.test(rootId))
           return json(response, 400, { error: "root_invalid" });
-        const [citizenEvents, meckyEvents] = await Promise.all([
-          citizenRelay.query([{ kinds: [1], limit: 200 }]),
-          agentRelay.query([{ kinds: [1], "#e": [rootId], limit: 20 }]),
-        ]);
-        const argumentsList = citizenEvents
+        const rootCandidate = (
+          await citizenRelay.query([{ ids: [rootId], kinds: [1], limit: 1 }])
+        )
           .filter(verifyEvent)
+          .find(
+            (entry) =>
+              entry.id === rootId &&
+              asArgument(config, entry)?.stance === "root"
+          );
+        const selectedSource = rootCandidate
+          ? selectedConversationSourceFor(rootCandidate)
+          : null;
+        const linkedCitizenIds = rootCandidate
+          ? [
+              tagValue(rootCandidate, "source-post"),
+              selectedSource?.mentionId ?? null,
+            ].filter(
+              (value): value is string => value !== null && HEX64.test(value)
+            )
+          : [];
+        const [
+          threadCitizenEvents,
+          linkedCitizenEvents,
+          rootMeckyEvents,
+          linkedMeckyEvents,
+        ] = await Promise.all([
+          rootCandidate
+            ? citizenRelay.query([{ kinds: [1], "#e": [rootId], limit: 200 }])
+            : Promise.resolve([]),
+          linkedCitizenIds.length === 0
+            ? Promise.resolve([])
+            : citizenRelay.query([
+                {
+                  ids: [...new Set(linkedCitizenIds)],
+                  kinds: [1],
+                  limit: linkedCitizenIds.length,
+                },
+              ]),
+          rootCandidate
+            ? agentRelay.query([
+                {
+                  authors: [config.meckyPubkey],
+                  kinds: [1],
+                  "#e": [rootId],
+                  limit: 20,
+                },
+              ])
+            : Promise.resolve([]),
+          selectedSource === null
+            ? Promise.resolve([])
+            : agentRelay.query([
+                {
+                  ids: [selectedSource.replyId],
+                  kinds: [1],
+                  authors: [config.meckyPubkey],
+                  limit: 1,
+                },
+              ]),
+        ]);
+        const citizenEvents = uniqueEvents(
+          rootCandidate ? [rootCandidate] : [],
+          threadCitizenEvents.filter(verifyEvent),
+          linkedCitizenEvents.filter(verifyEvent)
+        );
+        const meckyEvents = uniqueEvents(
+          rootMeckyEvents.filter(verifyEvent),
+          linkedMeckyEvents.filter(verifyEvent)
+        );
+        const sourceEvent = rootCandidate
+          ? (citizenEvents.find(
+              (entry) => entry.id === tagValue(rootCandidate, "source-post")
+            ) ?? null)
+          : null;
+        const rootEnvelopeValid =
+          rootCandidate !== undefined &&
+          ((sourceEvent !== null &&
+            (verifyCivicTopicPromotionEvent({
+              event: rootCandidate,
+              sourcePost: sourceEvent,
+              municipalityId: "roebel-mueritz",
+              agentPubkey: config.meckyPubkey,
+            }) !== null ||
+              isExactLegacyMarienfelderPromotion(
+                config,
+                rootCandidate,
+                sourceEvent
+              ))) ||
+            (sourceEvent === null &&
+              (isExactInteractiveMarienfelderRoot(config, rootCandidate) ||
+                isExactSeededMarienfelderGraphRoot(config, rootCandidate))));
+        const rootConversationValid =
+          rootCandidate !== undefined &&
+          (selectedSource === null ||
+            selectedConversationProjectionFor(
+              config,
+              rootCandidate,
+              citizenEvents,
+              meckyEvents
+            ) !== null);
+        const rootEvent =
+          rootCandidate && rootEnvelopeValid && rootConversationValid
+            ? rootCandidate
+            : null;
+        const argumentsList = citizenEvents
           .map((entry) => asArgument(config, entry))
           .filter(
             (entry): entry is PublicArgument =>
-              entry !== null && entry.rootId === rootId
+              rootEvent !== null && entry !== null && entry.rootId === rootId
           );
-        const rootEvent =
-          citizenEvents
-            .filter(verifyEvent)
-            .find(
-              (entry) =>
-                entry.id === rootId &&
-                asArgument(config, entry)?.stance === "root"
-            ) ?? null;
-        const sourceEvent = rootEvent
-          ? (citizenEvents
-              .filter(verifyEvent)
-              .find(
-                (entry) => entry.id === tagValue(rootEvent, "source-post")
-              ) ?? null)
-          : null;
         const meckyReply =
           meckyEvents
             .filter(
@@ -1396,6 +1978,14 @@ export async function startWorkbench(
               rootEvent
             )
           : null;
+        const sourceConversation = rootEvent
+          ? selectedConversationProjectionFor(
+              config,
+              rootEvent,
+              citizenEvents,
+              meckyEvents
+            )
+          : null;
         return json(response, 200, {
           schemaVersion: "roebel_staging_argument_thread_v1",
           arguments: argumentsList.sort(
@@ -1411,7 +2001,9 @@ export async function startWorkbench(
               .map((entry) => [entry.id, entry])
           ),
           rootEvent,
-          sourceAppPostId: sourceEvent ? sourceAppPostIdFor(sourceEvent) : null,
+          sourceAppPostId:
+            rootEvent && sourceEvent ? sourceAppPostIdFor(sourceEvent) : null,
+          sourceConversation,
           topic,
           caseBinding: rootEvent ? caseBindingFor(rootEvent) : null,
           mecky: meckyReply
@@ -1605,15 +2197,7 @@ export async function startWorkbench(
             });
         } else if (body.intent === "promotion") {
           const sourcePostId = tagValue(signed, "source-post");
-          if (
-            !sourcePostId ||
-            !HEX64.test(sourcePostId) ||
-            topicFor(signed) === null ||
-            asArgument(config, signed)?.stance !== "root" ||
-            !signed.tags.some(
-              (tag) => tag[0] === "p" && tag[1] === config.meckyPubkey
-            )
-          )
+          if (!sourcePostId || !HEX64.test(sourcePostId))
             throw new Error("signed_promotion_invalid");
           const sourcePost = (
             await citizenRelay.query([
@@ -1639,6 +2223,59 @@ export async function startWorkbench(
             signed.created_at <= sourcePost.created_at
           )
             throw new Error("signed_promotion_source_invalid");
+          if (
+            verifyCivicTopicPromotionEvent({
+              event: signed,
+              sourcePost,
+              municipalityId: "roebel-mueritz",
+              agentPubkey: config.meckyPubkey,
+            }) === null
+          )
+            throw new Error("signed_promotion_invalid");
+          const selectedConversation = selectedConversationSourceFor(
+            signed,
+            true
+          );
+          if (selectedConversation) {
+            const [mentions, replies] = await Promise.all([
+              citizenRelay.query([
+                {
+                  ids: [selectedConversation.mentionId],
+                  kinds: [1],
+                  limit: 1,
+                },
+              ]),
+              agentRelay.query([
+                {
+                  ids: [selectedConversation.replyId],
+                  authors: [config.meckyPubkey],
+                  kinds: [1],
+                  limit: 1,
+                },
+              ]),
+            ]);
+            if (
+              selectedConversationProjectionFor(
+                config,
+                signed,
+                [sourcePost, ...mentions.filter(verifyEvent)],
+                replies.filter(verifyEvent)
+              ) === null
+            ) {
+              throw new Error("signed_promotion_conversation_invalid");
+            }
+          }
+          const publishedPromotion = await publishSignedPromotionOnce(
+            signed,
+            sourcePost
+          );
+          return json(response, 200, {
+            status: publishedPromotion.alreadyPromoted
+              ? "already_promoted"
+              : "promoted",
+            event: publishedPromotion.event,
+            authorityBinding: "none",
+          });
         } else if (body.intent === "suggestion") {
           const rootId = signed.tags.find(
             (tag) => tag[0] === "e" && tag[3] === "root"
@@ -1756,12 +2393,7 @@ export async function startWorkbench(
         if (!published.ok)
           throw new Error(`citizen_relay_${published.message}`);
         return json(response, 200, {
-          status:
-            body.intent === "promotion"
-              ? "promoted"
-              : body.intent === "suggestion"
-                ? "signed"
-                : "published",
+          status: body.intent === "suggestion" ? "signed" : "published",
           event: signed,
           ...(signedSuggestion === null
             ? {}

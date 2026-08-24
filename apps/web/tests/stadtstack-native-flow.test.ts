@@ -56,6 +56,13 @@ const administrationProgress = readFileSync(
   ),
   "utf8"
 );
+const workbenchServer = readFileSync(
+  new URL(
+    "../../../packages/e2e-workbench/src/server.ts",
+    import.meta.url
+  ),
+  "utf8"
+);
 
 test("keeps the civic workflow native to ordinary Röbel posts and discussion routes", () => {
   assert.doesNotMatch(appPage, /StadtstackStagingFeed/);
@@ -107,6 +114,14 @@ test("keeps ordinary posts distinct and requires an explicit human promotion act
   assert.match(postPromotion, /Als Bürger-Thema weiterführen/);
   assert.match(postPromotion, /Was soll gemeinsam geklärt werden/);
   assert.match(postPromotion, /Nur du als Autor/);
+  assert.match(postPromotion, /Nachvollziehbarer Ausgangspunkt/);
+  assert.match(postPromotion, /@Mecky-Austausch von.*mitnehmen/);
+  assert.match(postPromotion, /conversationSource/);
+});
+
+test("makes the real signed promotion writer idempotent by source post", () => {
+  assert.match(workbenchServer, /publishSignedPromotionOnce/);
+  assert.match(workbenchServer, /status: "already_promoted"/);
 });
 
 test("lets explicit @Mecky mentions answer inside an ordinary app thread without auto-promotion", () => {
@@ -216,6 +231,8 @@ test("promotes the displayed signed discussion without publishing or polling a d
   assert.match(discussion, /signTopicSuggestion/);
   assert.doesNotMatch(discussion, /stagingPost<[^>]+>\("\/discussion"/);
   assert.doesNotMatch(discussion, /\/reply\?parent=/);
+  assert.match(discussion, /thread\.sourceConversation/);
+  assert.match(discussion, /Aus einem ausdrücklich ausgewählten @Mecky-Austausch/);
 });
 
 test("shows the reviewed Citizen Brief in Mitmachen without merging it into formal governance", () => {

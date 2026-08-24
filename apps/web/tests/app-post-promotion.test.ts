@@ -143,3 +143,96 @@ test("a different signed-in account cannot promote someone else's app post", asy
   );
   assert.equal(gatewayCalls, 0);
 });
+
+test("a stale feed retry accepts only the writer's exact existing discussion", async () => {
+  const session = createCitizenSession({
+    appAccountId: "account-1",
+    memberId: null,
+    credential: {
+      kind: "thirdweb_smart_account",
+      address: ADDRESS,
+      chainId: 100,
+      signMessage: async () => SIGNATURE,
+    },
+  });
+  const sourcePost = await session.signPublicPost({
+    content: "Röbel braucht einen offenen Treffpunkt für Begegnung.",
+    createdAt: Math.floor(Date.parse("2026-08-17T08:00:00.000Z") / 1_000),
+    sourceAppPostId: APP_POST_ID,
+  });
+  const existingDiscussion = await session.promotePublicPostToTopic({
+    sourcePost,
+    municipalityId: "roebel-mueritz",
+    topicId:
+      "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt-in-roebel",
+    topicTitle: "Offener Treffpunkt in Röbel",
+    agentPubkey: "ab".repeat(32),
+    content: "@Mecky, welche geprüften Informationen liegen dazu vor?",
+    createdAt: 1_787_004_000,
+  });
+  const gateway: AppPostPromotionGateway = {
+    getConfig: async () => ({
+      schemaVersion: "roebel_e2e_workbench_config_v1",
+      personas: [],
+      meckyPubkey: "ab".repeat(32),
+      authorityBinding: "none",
+    }),
+    getFeed: async () => ({
+      schemaVersion: "roebel_staging_mixed_feed_v1",
+      posts: [
+        {
+          id: sourcePost.id,
+          entryType: "post",
+          event: sourcePost,
+          sourceAppPostId: APP_POST_ID,
+          promotedDiscussionId: null,
+          promotedTopicId: null,
+          author: {
+            name: "Bürger:in",
+            kind: "citizen",
+            pubkey: sourcePost.pubkey,
+          },
+          content: sourcePost.content,
+          createdAt: "2026-08-17T08:00:00.000Z",
+          replyCount: 0,
+          meckyMentioned: false,
+          meckyAnswered: false,
+          synthetic: false,
+        },
+      ],
+      authorityBinding: "none",
+    }),
+    admit: async (proof) => ({
+      status: "admitted",
+      pubkey: proof.bindingEvent.pubkey,
+    }),
+    publish: async (intent) => {
+      assert.equal(intent, "promotion");
+      return {
+        status: "already_promoted",
+        event: existingDiscussion,
+      };
+    },
+  };
+
+  const result = await promoteAppPostToCivicTopic({
+    session,
+    gateway,
+    post: {
+      id: APP_POST_ID,
+      walletAddress: ADDRESS,
+      content: sourcePost.content,
+      createdAt: "2026-08-17T08:00:00.000Z",
+    },
+    topicTitle: "Nach einem Timeout anders formulierter Titel",
+    question: "Welche Optionen sollten wir gemeinsam prüfen?",
+    nowSeconds: 1_787_004_100,
+  });
+
+  assert.deepEqual(result, {
+    status: "existing",
+    discussionId: existingDiscussion.id,
+    topicId:
+      "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt-in-roebel",
+  });
+});

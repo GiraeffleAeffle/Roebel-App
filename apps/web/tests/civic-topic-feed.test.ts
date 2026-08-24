@@ -34,6 +34,7 @@ function topic(
         meckyAnswered: input.meckyAnswered ?? false,
         suggestionSigned: false,
         caseBinding: null,
+        sourceConversation: null,
         synthetic: input.synthetic ?? false,
       },
     ],

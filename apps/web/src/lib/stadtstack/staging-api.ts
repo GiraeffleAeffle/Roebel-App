@@ -22,6 +22,21 @@ type StagingFeedBase = {
   synthetic: boolean;
 };
 
+export type StagingSelectedConversation = {
+  sourceAppPostId: string;
+  sourceAppCommentId: string | null;
+  mentionId: string;
+  mentionAuthor: {
+    name: string;
+    kind: "citizen" | "mecky";
+    pubkey: string;
+    synthetic: boolean;
+  };
+  replyId: string;
+  receiptId: string | null;
+  evidenceRefs: { digest: string; url: string }[];
+};
+
 export type StagingOrdinaryPost = StagingFeedBase & {
   entryType: "post";
   event: StagingSignedEvent;
@@ -50,6 +65,7 @@ export type StagingTopicPost = StagingFeedBase & {
       sourceCaseId: string;
       canonicalCaseId: string;
     } | null;
+    sourceConversation: StagingSelectedConversation | null;
     synthetic: boolean;
   }>;
   sourcePostIds: string[];
@@ -101,6 +117,7 @@ export type StagingThreadResponse = {
   events: Record<string, StagingSignedEvent>;
   rootEvent: StagingSignedEvent | null;
   sourceAppPostId: string | null;
+  sourceConversation: StagingSelectedConversation | null;
   topic: { id: string; title: string } | null;
   caseBinding: {
     municipalityId: string;
@@ -142,7 +159,9 @@ export type StagingConfigResponse = {
 export type StagingMeckyConversationReply = {
   id: string;
   mentionId: string;
+  mentionAuthor: StagingSelectedConversation["mentionAuthor"];
   sourceAppCommentId: string | null;
+  receiptId: string | null;
   content: string;
   createdAt: string;
   evidenceRefs: { digest: string; url: string }[];

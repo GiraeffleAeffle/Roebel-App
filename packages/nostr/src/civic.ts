@@ -26,11 +26,28 @@ export type CivicTopicBinding = {
   topicId: string;
 };
 
+/**
+ * Provenance selected by the author from one ordinary Röbel conversation.
+ *
+ * The discriminator is deliberately required: an omitted `conversationSource`
+ * means that no app conversation was selected, while a present value must
+ * describe the complete mention/reply chain.
+ */
+export type CivicSelectedConversationSource = {
+  kind: "selected_conversation";
+  sourceAppPostId: string;
+  sourceAppCommentId?: string;
+  mentionEventId: string;
+  replyEventId: string;
+  receiptId?: string;
+};
+
 export type CivicTopicPromotionInput = CivicTopicBinding & {
   sourcePost: NostrEvent;
   topicTitle: string;
   agentPubkey: string;
   content: string;
+  conversationSource?: CivicSelectedConversationSource;
   createdAt?: number;
 };
 
@@ -140,6 +157,10 @@ const TOPIC_ID =
   /^urn:stadtstack:topic:municipality:([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?):([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)$/;
 const UUID_V7 =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const APP_SOURCE_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const NOSTR_EVENT_ID = /^[0-9a-f]{64}$/;
+const MECKY_RECEIPT = /^urn:stadtstack:mecky-answer:[0-9a-f]{64}$/;
 
 function validateBinding(input: CivicCaseBinding): void {
   const parts = input.canonicalCaseId.split(":");
@@ -164,6 +185,65 @@ function validateTopicBinding(input: CivicTopicBinding): void {
   ) {
     throw new Error("civic_topic_binding_invalid");
   }
+}
+
+function validateSelectedConversationSource(
+  value: unknown
+): CivicSelectedConversationSource | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !exactRecord(value, [
+      "kind",
+      "sourceAppPostId",
+      "sourceAppCommentId",
+      "mentionEventId",
+      "replyEventId",
+      "receiptId",
+    ]) &&
+    !exactRecord(value, [
+      "kind",
+      "sourceAppPostId",
+      "mentionEventId",
+      "replyEventId",
+      "receiptId",
+    ]) &&
+    !exactRecord(value, [
+      "kind",
+      "sourceAppPostId",
+      "sourceAppCommentId",
+      "mentionEventId",
+      "replyEventId",
+    ]) &&
+    !exactRecord(value, [
+      "kind",
+      "sourceAppPostId",
+      "mentionEventId",
+      "replyEventId",
+    ])
+  ) {
+    throw new Error("civic_conversation_source_invalid");
+  }
+  const source = value as Record<string, unknown>;
+  if (
+    source.kind !== "selected_conversation" ||
+    typeof source.sourceAppPostId !== "string" ||
+    !APP_SOURCE_ID.test(source.sourceAppPostId) ||
+    (source.sourceAppCommentId !== undefined &&
+      (typeof source.sourceAppCommentId !== "string" ||
+        !APP_SOURCE_ID.test(source.sourceAppCommentId))) ||
+    typeof source.mentionEventId !== "string" ||
+    !NOSTR_EVENT_ID.test(source.mentionEventId) ||
+    typeof source.replyEventId !== "string" ||
+    !NOSTR_EVENT_ID.test(source.replyEventId) ||
+    (source.receiptId !== undefined &&
+      (typeof source.receiptId !== "string" ||
+        !MECKY_RECEIPT.test(source.receiptId))) ||
+    source.mentionEventId === source.replyEventId ||
+    source.sourceAppCommentId === source.sourceAppPostId
+  ) {
+    throw new Error("civic_conversation_source_invalid");
+  }
+  return source as CivicSelectedConversationSource;
 }
 
 function canonical(value: unknown): string {
@@ -456,6 +536,9 @@ export function buildCivicTopicPromotionEvent(
   secretKey: Uint8Array,
   input: CivicTopicPromotionInput
 ): NostrEvent {
+  const conversationSource = validateSelectedConversationSource(
+    input.conversationSource
+  );
   const topicParts = input.topicId.split(":");
   const topicSlug = topicParts[5] ?? "";
   const sourceIsOrdinaryTopLevelPost =
@@ -468,6 +551,13 @@ export function buildCivicTopicPromotionEvent(
     );
   if (!sourceIsOrdinaryTopLevelPost) {
     throw new Error("civic_promotion_source_invalid");
+  }
+  if (
+    conversationSource !== undefined &&
+    singleTag(input.sourcePost, "source-app-post") !==
+      conversationSource.sourceAppPostId
+  ) {
+    throw new Error("civic_conversation_source_invalid");
   }
   if (
     !SLUG.test(input.municipalityId) ||
@@ -513,6 +603,19 @@ export function buildCivicTopicPromotionEvent(
       ["p", input.agentPubkey],
       ["q", input.sourcePost.id, "", input.sourcePost.pubkey],
       ["source-post", input.sourcePost.id],
+      ...(conversationSource
+        ? [
+            ["source-app-post", conversationSource.sourceAppPostId],
+            ...(conversationSource.sourceAppCommentId === undefined
+              ? []
+              : [["source-app-comment", conversationSource.sourceAppCommentId]]),
+            ["source-conversation-mention", conversationSource.mentionEventId],
+            ["source-mecky-reply", conversationSource.replyEventId],
+            ...(conversationSource.receiptId === undefined
+              ? []
+              : [["source-mecky-receipt", conversationSource.receiptId]]),
+          ]
+        : []),
       ["t", "stadtstack-civic-discussion"],
       ["municipality", input.municipalityId],
       ["topic", input.topicId],
@@ -520,6 +623,134 @@ export function buildCivicTopicPromotionEvent(
       ["stance", "root"],
       ["argument-root", "self"],
     ],
+  });
+}
+
+function selectedConversationSourceFromTags(
+  candidate: NostrEvent
+): CivicSelectedConversationSource | undefined {
+  const names = new Set([
+    "source-app-post",
+    "source-app-comment",
+    "source-conversation-mention",
+    "source-mecky-reply",
+    "source-mecky-receipt",
+  ]);
+  if (!candidate.tags.some((tag) => names.has(tag[0] ?? ""))) return undefined;
+  const required = (name: string): string => {
+    const value = singleTag(candidate, name);
+    if (value === null) throw new Error("civic_conversation_source_invalid");
+    return value;
+  };
+  const optional = (name: string): string | undefined => {
+    const matches = candidate.tags.filter((tag) => tag[0] === name);
+    if (matches.length === 0) return undefined;
+    if (matches.length !== 1 || matches[0]!.length !== 2) {
+      throw new Error("civic_conversation_source_invalid");
+    }
+    return matches[0]![1];
+  };
+  const sourceAppCommentId = optional("source-app-comment");
+  const receiptId = optional("source-mecky-receipt");
+  return validateSelectedConversationSource({
+    kind: "selected_conversation",
+    sourceAppPostId: required("source-app-post"),
+    ...(sourceAppCommentId === undefined ? {} : { sourceAppCommentId }),
+    mentionEventId: required("source-conversation-mention"),
+    replyEventId: required("source-mecky-reply"),
+    ...(receiptId === undefined ? {} : { receiptId }),
+  });
+}
+
+/**
+ * Verify the complete no-authority promotion envelope used by writers and
+ * stale-read recovery. A subset check is intentionally insufficient because
+ * extra case tags would otherwise turn a citizen post into false civic state.
+ */
+export function verifyCivicTopicPromotionEvent(input: {
+  event: NostrEvent;
+  sourcePost: NostrEvent;
+  municipalityId: string;
+  agentPubkey: string;
+}): Readonly<{
+  topicId: string;
+  topicTitle: string;
+  conversationSource?: CivicSelectedConversationSource;
+}> | null {
+  const { event, sourcePost, municipalityId, agentPubkey } = input;
+  let conversationSource: CivicSelectedConversationSource | undefined;
+  try {
+    conversationSource = selectedConversationSourceFromTags(event);
+  } catch {
+    return null;
+  }
+  const topicId = singleTag(event, "topic");
+  const topicTitle = singleTag(event, "topic-title");
+  const topicParts = topicId?.split(":") ?? [];
+  const sourceIsOrdinaryTopLevelPost =
+    verifyEvent(sourcePost) &&
+    sourcePost.kind === 1 &&
+    !sourcePost.tags.some((tag) => tag[0] === "e") &&
+    !sourcePost.tags.some(
+      (tag) => tag[0] === "t" && tag[1] === "stadtstack-civic-discussion"
+    );
+  if (
+    !sourceIsOrdinaryTopLevelPost ||
+    !verifyEvent(event) ||
+    event.kind !== 1 ||
+    event.pubkey !== sourcePost.pubkey ||
+    !SLUG.test(municipalityId) ||
+    !PUBKEY.test(agentPubkey) ||
+    topicParts.length !== 6 ||
+    topicParts.slice(0, 4).join(":") !==
+      "urn:stadtstack:topic:municipality" ||
+    topicParts[4] !== municipalityId ||
+    !SLUG.test(topicParts[5] ?? "") ||
+    topicTitle === null ||
+    topicTitle !== topicTitle.trim() ||
+    topicTitle.length < 3 ||
+    topicTitle.length > 120 ||
+    /[\u0000-\u001f\u007f]/.test(topicTitle) ||
+    event.content !== event.content.trim() ||
+    event.content.length < 1 ||
+    event.content.length > 2_000 ||
+    !/@mecky\b/i.test(event.content) ||
+    event.created_at <= sourcePost.created_at ||
+    (conversationSource !== undefined &&
+      singleTag(sourcePost, "source-app-post") !==
+        conversationSource.sourceAppPostId)
+  ) {
+    return null;
+  }
+  const expectedTags = [
+    ["p", agentPubkey],
+    ["q", sourcePost.id, "", sourcePost.pubkey],
+    ["source-post", sourcePost.id],
+    ...(conversationSource === undefined
+      ? []
+      : [
+          ["source-app-post", conversationSource.sourceAppPostId],
+          ...(conversationSource.sourceAppCommentId === undefined
+            ? []
+            : [["source-app-comment", conversationSource.sourceAppCommentId]]),
+          ["source-conversation-mention", conversationSource.mentionEventId],
+          ["source-mecky-reply", conversationSource.replyEventId],
+          ...(conversationSource.receiptId === undefined
+            ? []
+            : [["source-mecky-receipt", conversationSource.receiptId]]),
+        ]),
+    ["t", "stadtstack-civic-discussion"],
+    ["municipality", municipalityId],
+    ["topic", topicId!],
+    ["topic-title", topicTitle],
+    ["stance", "root"],
+    ["argument-root", "self"],
+  ];
+  if (JSON.stringify(event.tags) !== JSON.stringify(expectedTags)) return null;
+  return Object.freeze({
+    topicId: topicId!,
+    topicTitle,
+    ...(conversationSource === undefined ? {} : { conversationSource }),
   });
 }
 
