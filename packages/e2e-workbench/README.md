@@ -17,7 +17,8 @@ writes: `POST /api/session/admit` and `POST /api/signed-event` (both beneath
 
 Administrative projection reads and every fixture-only mutation route return
 `404` in this mode. The deployment must not mount a Case Steward token or a
-control-plane URL into this runtime.
+control-plane URL into this runtime. Presence of any of those four forbidden
+variables—even an empty string or `[]`—fails startup.
 
 ## GitOps input
 

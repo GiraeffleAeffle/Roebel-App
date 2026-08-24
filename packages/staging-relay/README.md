@@ -26,9 +26,11 @@ staging namespace lifecycle owns cleanup.
 ## Bounded durable state
 
 Both NDJSON stores fail closed before loading or appending beyond their owned
-budget. Defaults are `128 MiB` / `50,000` event records and `16 MiB` / `10,000`
+budget. Defaults are `96 MiB` / `50,000` event records and `16 MiB` / `10,000`
 admission records; all hard caps are at or below `128 MiB` and `100,000`
-records. Configure lower limits with `RELAY_MAX_EVENT_STORE_BYTES`,
+records. When admissions are enabled, the two configured byte budgets together
+must stay at or below `112 MiB`, preserving at least `16 MiB` of a `128 MiB`
+`emptyDir` for filesystem metadata and write headroom. Configure lower limits with `RELAY_MAX_EVENT_STORE_BYTES`,
 `RELAY_MAX_EVENT_COUNT`, `RELAY_MAX_ADMISSION_STORE_BYTES`, and
 `RELAY_MAX_ADMISSION_COUNT`.
 

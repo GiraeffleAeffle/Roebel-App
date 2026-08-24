@@ -91,6 +91,12 @@ const PUBLIC_BRIEF_KEYS = [
   "correctionState",
   "authorityBinding",
 ];
+const PUBLIC_SIGNED_FORBIDDEN_INPUTS = [
+  "CASE_STEWARD_TOKEN",
+  "STADTSTACK_CONTROL_BASE_URL",
+  "STADTSTACK_PUBLIC_BASE_URL",
+  "SYNTHETIC_CITIZENS_JSON",
+] as const;
 
 type Persona = {
   id: string;
@@ -228,6 +234,14 @@ export function parseWorkbenchConfig(
   const mode = environment.WORKBENCH_MODE ?? "isolated-fixture";
   if (mode !== "isolated-fixture" && mode !== "public-signed-only")
     throw new Error("workbench_mode_invalid");
+  if (
+    mode === "public-signed-only" &&
+    PUBLIC_SIGNED_FORBIDDEN_INPUTS.some((name) =>
+      Object.prototype.hasOwnProperty.call(environment, name)
+    )
+  ) {
+    throw new Error("workbench_public_signed_forbidden_input");
+  }
   const rawPersonas = environment.SYNTHETIC_CITIZENS_JSON;
   let parsed: unknown;
   try {
@@ -330,7 +344,12 @@ function nodeRelay(url: string): RelayPort {
   });
 }
 
-function json(response: ServerResponse, status: number, value: unknown): void {
+function json(
+  response: ServerResponse,
+  status: number,
+  value: unknown,
+  omitBody = false
+): void {
   const body = JSON.stringify(value);
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -338,7 +357,7 @@ function json(response: ServerResponse, status: number, value: unknown): void {
     "content-length": Buffer.byteLength(body),
     "x-content-type-options": "nosniff",
   });
-  response.end(body);
+  response.end(omitBody ? undefined : body);
 }
 
 async function readBody(request: IncomingMessage): Promise<unknown> {
@@ -1404,6 +1423,9 @@ export async function startWorkbench(
       const path = prefixed
         ? requestedPath.slice(STAGING_PREFIX.length) || "/"
         : requestedPath;
+      const publicReadHead =
+        config.mode === "public-signed-only" && request.method === "HEAD";
+      const publicReadMethod = request.method === "GET" || publicReadHead;
       if (request.method === "GET" && (path === "/" || path === "")) {
         response.writeHead(200, {
           "content-type": "text/html; charset=utf-8",
@@ -1416,12 +1438,12 @@ export async function startWorkbench(
         );
         return;
       }
-      if (request.method === "GET" && path === "/healthz")
+      if (publicReadMethod && path === "/healthz")
         return json(response, 200, {
           status: "ok",
           mode: "isolated-staging-e2e",
-        });
-      if (request.method === "GET" && path === "/api/config")
+        }, publicReadHead);
+      if (publicReadMethod && path === "/api/config")
         return json(response, 200, {
           schemaVersion: "roebel_e2e_workbench_config_v1",
           personas: config.personas.map(({ id, name, publicKey }) => ({
@@ -1432,10 +1454,10 @@ export async function startWorkbench(
           meckyPubkey: config.meckyPubkey,
           mode: config.mode,
           authorityBinding: "none",
-        });
+        }, publicReadHead);
       if (config.mode === "public-signed-only" && path.startsWith("/api/")) {
         const publicRead =
-          request.method === "GET" &&
+          publicReadMethod &&
           (path.startsWith("/api/feed") ||
             path.startsWith("/api/thread?") ||
             path.startsWith("/api/conversation?"));
@@ -1447,14 +1469,19 @@ export async function startWorkbench(
           return json(response, 404, { error: "not_found" });
       }
       const feedUrl = new URL(path, "http://workbench");
-      if (request.method === "GET" && feedUrl.pathname === "/api/feed") {
+      if (publicReadMethod && feedUrl.pathname === "/api/feed") {
         const profileValues = feedUrl.searchParams.getAll("profile");
         if (
           [...feedUrl.searchParams.keys()].some((key) => key !== "profile") ||
           profileValues.length > 1 ||
           (profileValues.length === 1 && profileValues[0] !== "public")
         )
-          return json(response, 400, { error: "feed_profile_invalid" });
+          return json(
+            response,
+            400,
+            { error: "feed_profile_invalid" },
+            publicReadHead
+          );
         const publicProfile = profileValues[0] === "public";
         const [events, recentAgentEvents] = await Promise.all([
           citizenRelay
@@ -1788,16 +1815,21 @@ export async function startWorkbench(
             )
           ),
           authorityBinding: "none",
-        });
+        }, publicReadHead);
       }
       if (
-        request.method === "GET" &&
+        publicReadMethod &&
         path.startsWith("/api/conversation?post=")
       ) {
         const postId =
           new URL(path, "http://workbench").searchParams.get("post") ?? "";
         if (!UUID.test(postId))
-          return json(response, 400, { error: "conversation_post_invalid" });
+          return json(
+            response,
+            400,
+            { error: "conversation_post_invalid" },
+            publicReadHead
+          );
         const [citizenEvents, agentEvents] = await Promise.all([
           citizenRelay.query([{ kinds: [1], limit: 300 }]),
           agentRelay.query([
@@ -1880,13 +1912,13 @@ export async function startWorkbench(
               a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)
           ),
           authorityBinding: "none",
-        });
+        }, publicReadHead);
       }
-      if (request.method === "GET" && path.startsWith("/api/thread?root=")) {
+      if (publicReadMethod && path.startsWith("/api/thread?root=")) {
         const rootId =
           new URL(path, "http://workbench").searchParams.get("root") ?? "";
         if (!HEX64.test(rootId))
-          return json(response, 400, { error: "root_invalid" });
+          return json(response, 400, { error: "root_invalid" }, publicReadHead);
         const rootCandidate = (
           await citizenRelay.query([{ ids: [rootId], kinds: [1], limit: 1 }])
         )
@@ -2056,7 +2088,7 @@ export async function startWorkbench(
             : null,
           suggestion,
           authorityBinding: "none",
-        });
+        }, publicReadHead);
       }
       if (request.method === "GET" && path.startsWith("/api/reply?parent=")) {
         const parent =

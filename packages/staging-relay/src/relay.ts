@@ -18,9 +18,10 @@ const MAX_FILTERS = 8;
 const MAX_QUERY_RESULTS = 500;
 const MAX_ADMISSION_BODY_BYTES = 512;
 const ADMISSION_SCHEMA_VERSION = "roebel_staging_relay_admission_v1";
-const MAX_PERSISTED_BYTES = 128 * 1024 * 1024;
+const EMPTY_DIR_BYTES = 128 * 1024 * 1024;
+const MAX_RELAY_PERSISTED_BYTES = 112 * 1024 * 1024;
 const MAX_PERSISTED_RECORDS = 100_000;
-const DEFAULT_EVENT_STORE_BYTES = 128 * 1024 * 1024;
+const DEFAULT_EVENT_STORE_BYTES = 96 * 1024 * 1024;
 const DEFAULT_EVENT_COUNT = 50_000;
 const DEFAULT_ADMISSION_STORE_BYTES = 16 * 1024 * 1024;
 const DEFAULT_ADMISSION_COUNT = 10_000;
@@ -55,7 +56,7 @@ function boundedLimit(
     !Number.isSafeInteger(resolved) ||
     resolved < 1 ||
     resolved >
-      (label.endsWith("bytes") ? MAX_PERSISTED_BYTES : MAX_PERSISTED_RECORDS)
+      (label.endsWith("bytes") ? EMPTY_DIR_BYTES : MAX_PERSISTED_RECORDS)
   ) {
     throw new Error(`relay_${label}_invalid`);
   }
@@ -134,7 +135,7 @@ class AdmissionStore {
   }
 
   async allow(pubkey: string): Promise<void> {
-    this.writeQueue = this.writeQueue.then(async () => {
+    const write = this.writeQueue.then(async () => {
       if (this.allowedPubkeys.has(pubkey)) return;
       const record: AdmissionRecord = {
         schemaVersion: ADMISSION_SCHEMA_VERSION,
@@ -156,7 +157,11 @@ class AdmissionStore {
       this.storedRecords += 1;
       this.allowedPubkeys.add(pubkey);
     });
-    await this.writeQueue;
+    this.writeQueue = write.then(
+      () => undefined,
+      () => undefined
+    );
+    await write;
   }
 }
 
@@ -414,30 +419,32 @@ export class PersistentEventStore {
       return { ok: false, message: "invalid: signature" };
     if (!this.allowedPubkeys.has(value.pubkey))
       return { ok: false, message: "blocked: author not allowed" };
-    if (this.events.has(value.id))
-      return { ok: true, message: "duplicate: already stored" };
-
-    const key = replacementKey(value);
-    const current = key ? this.replacements.get(key) : undefined;
-    if (current && !newerThan(value, current))
-      return { ok: true, message: "duplicate: superseded" };
-
     const line = `${JSON.stringify(value)}\n`;
     const lineBytes = Buffer.byteLength(line, "utf8");
-    if (
-      this.storedRecords >= this.limits.maxRecords ||
-      this.storedBytes + lineBytes > this.limits.maxBytes
-    ) {
-      return { ok: false, message: "blocked: store capacity" };
-    }
-    this.index(value);
-    this.writeQueue = this.writeQueue.then(() =>
-      appendFile(this.storePath, line, { encoding: "utf8", mode: 0o600 })
+    const write = this.writeQueue.then(async (): Promise<PublishDecision> => {
+      if (this.events.has(value.id))
+        return { ok: true, message: "duplicate: already stored" };
+      const key = replacementKey(value);
+      const current = key ? this.replacements.get(key) : undefined;
+      if (current && !newerThan(value, current))
+        return { ok: true, message: "duplicate: superseded" };
+      if (
+        this.storedRecords >= this.limits.maxRecords ||
+        this.storedBytes + lineBytes > this.limits.maxBytes
+      ) {
+        return { ok: false, message: "blocked: store capacity" };
+      }
+      await appendFile(this.storePath, line, { encoding: "utf8", mode: 0o600 });
+      this.storedBytes += lineBytes;
+      this.storedRecords += 1;
+      this.index(value);
+      return { ok: true, message: "stored" };
+    });
+    this.writeQueue = write.then(
+      () => undefined,
+      () => undefined
     );
-    await this.writeQueue;
-    this.storedBytes += lineBytes;
-    this.storedRecords += 1;
-    return { ok: true, message: "stored" };
+    return write;
   }
 
   query(filters: readonly Filter[]): NostrEvent[] {
@@ -526,6 +533,13 @@ export async function startRelay(config: RelayConfig): Promise<RunningRelay> {
       config.admissionToken === undefined)
   ) {
     throw new Error("relay_admission_config_incomplete");
+  }
+  if (
+    eventLimits.maxBytes +
+      (admissionConfigured ? admissionLimits.maxBytes : 0) >
+    MAX_RELAY_PERSISTED_BYTES
+  ) {
+    throw new Error("relay_persisted_budget_exceeded");
   }
   if (
     config.admissionToken !== undefined &&

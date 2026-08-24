@@ -71,6 +71,17 @@ describe("Röbel E2E workbench boundary", () => {
     assert.equal(config.caseStewardToken, undefined);
     assert.equal(config.controlBaseUrl, undefined);
     assert.deepEqual(config.personas, []);
+    for (const [name, value] of [
+      ["CASE_STEWARD_TOKEN", ""],
+      ["STADTSTACK_CONTROL_BASE_URL", ""],
+      ["STADTSTACK_PUBLIC_BASE_URL", ""],
+      ["SYNTHETIC_CITIZENS_JSON", "[]"],
+    ] as const) {
+      assert.throws(
+        () => parseWorkbenchConfig({ ...publicSignedEnvironment(), [name]: value }),
+        /workbench_public_signed_forbidden_input/
+      );
+    }
 
     let publishCount = 0;
     const relay = {
@@ -117,6 +128,19 @@ describe("Röbel E2E workbench boundary", () => {
         (await fetch(`${origin}/api/feed?profile=public`)).status,
         200
       );
+      for (const path of [
+        "/healthz",
+        "/api/config",
+        "/api/feed?profile=public",
+        `/api/thread?root=${"a".repeat(64)}`,
+        "/api/conversation?post=00000000-0000-4000-8000-000000000001",
+      ]) {
+        const get = await fetch(`${origin}${path}`);
+        const head = await fetch(`${origin}${path}`, { method: "HEAD" });
+        assert.equal(head.status, get.status);
+        assert.equal(head.headers.get("content-length"), get.headers.get("content-length"));
+        assert.equal(await head.text(), "");
+      }
     } finally {
       await running.close();
     }
