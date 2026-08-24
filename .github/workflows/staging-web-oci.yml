@@ -33,6 +33,7 @@ jobs:
       MAX_DEPENDENCY_INSTALL_BYTES: "4294967296"
       MAX_RUNTIME_CONTEXT_BYTES: "805306368"
       MAX_ARTIFACT_BYTES: "167772160"
+      MAX_NEXT_CACHE_BYTES: "536870912"
     steps:
       - name: Check out the exact source revision
         uses: actions/checkout@v4
@@ -74,6 +75,62 @@ jobs:
           test "$context_bytes" -le "$MAX_CONTEXT_BYTES"
           printf 'context_bytes=%s\n' "$context_bytes"
 
+      - name: Prepare the bounded Next compiler cache path
+        shell: bash
+        run: |
+          set -euo pipefail
+          next_cache="$RUNNER_TEMP/context/apps/web/.next/cache"
+          test ! -e "$next_cache" || test -d "$next_cache"
+          test ! -L "$next_cache" || {
+            printf 'refusing a symlinked Next cache path\n' >&2
+            exit 1
+          }
+          test ! -L "$RUNNER_TEMP/context/apps/web/.next" || {
+            printf 'refusing a symlinked Next cache parent\n' >&2
+            exit 1
+          }
+          mkdir -p "$next_cache"
+
+      - name: Derive the branch-scoped Next cache namespace
+        id: next-cache-scope
+        shell: bash
+        env:
+          CACHE_SCOPE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          CACHE_SCOPE_REF: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          test -n "$CACHE_SCOPE_REPOSITORY" && test -n "$CACHE_SCOPE_REF"
+          scope="$(printf '%s:%s' "$CACHE_SCOPE_REPOSITORY" "$CACHE_SCOPE_REF" | sha256sum | cut -d' ' -f1)"
+          [[ "$scope" =~ ^[0-9a-f]{64}$ ]]
+          printf 'scope=%s\n' "$scope" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the branch-scoped Next compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/context/apps/web/.next/cache
+          key: roebel-web-next-${{ runner.os }}-${{ steps.next-cache-scope.outputs.scope }}-${{ env.SOURCE_REVISION }}-node22-nodeimage-sha256-7c269ea419bfbaef1f5eed57e58016395bbe3036176411025a5093e39a948dcf-pnpm9.15.0-${{ hashFiles('.npmrc', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'turbo.json', 'apps/web/package.json', 'apps/web/next.config.mjs', 'apps/web/tsconfig.json', 'apps/web/postcss.config.mjs', 'apps/web/tailwind.config.*', 'scripts/ci/build-staging-web-runtime.sh') }}
+          restore-keys: |
+            roebel-web-next-${{ runner.os }}-${{ steps.next-cache-scope.outputs.scope }}-
+
+      - name: Validate the restored Next compiler cache
+        shell: bash
+        env:
+          NEXT_CACHE: ${{ runner.temp }}/context/apps/web/.next/cache
+        run: |
+          set -euo pipefail
+          test -d "$NEXT_CACHE" && test ! -L "$NEXT_CACHE"
+          if test -n "$(find "$NEXT_CACHE" -type l -print -quit)"; then
+            printf 'refusing symlinks in the restored Next compiler cache\n' >&2
+            exit 1
+          fi
+          cache_bytes="$(du -sb "$NEXT_CACHE" | cut -f1)"
+          [[ "$cache_bytes" =~ ^[0-9]+$ ]]
+          (( cache_bytes <= MAX_NEXT_CACHE_BYTES )) || {
+            printf 'Next compiler cache exceeds %s bytes: %s\n' "$MAX_NEXT_CACHE_BYTES" "$cache_bytes" >&2
+            exit 1
+          }
+          printf 'next_cache_bytes_before_build=%s\n' "$cache_bytes"
+
       - name: Prepare the exact offline package inputs
         shell: bash
         run: |
@@ -97,6 +154,32 @@ jobs:
           COREPACK_CACHE: ${{ runner.temp }}/corepack-cache
           RUNTIME_CONTEXT: ${{ runner.temp }}/web-runtime-context
         run: scripts/ci/build-staging-web-runtime.sh
+
+      - name: Validate the generated Next compiler cache
+        shell: bash
+        env:
+          NEXT_CACHE: ${{ runner.temp }}/context/apps/web/.next/cache
+        run: |
+          set -euo pipefail
+          test -d "$NEXT_CACHE" && test ! -L "$NEXT_CACHE"
+          if test -n "$(find "$NEXT_CACHE" -type l -print -quit)"; then
+            printf 'refusing symlinks in the generated Next compiler cache\n' >&2
+            exit 1
+          fi
+          cache_bytes="$(du -sb "$NEXT_CACHE" | cut -f1)"
+          [[ "$cache_bytes" =~ ^[0-9]+$ ]]
+          (( cache_bytes <= MAX_NEXT_CACHE_BYTES )) || {
+            printf 'Next compiler cache exceeds %s bytes: %s\n' "$MAX_NEXT_CACHE_BYTES" "$cache_bytes" >&2
+            exit 1
+          }
+          printf 'next_cache_bytes_after_build=%s\n' "$cache_bytes"
+
+      - name: Save the bounded branch-scoped Next compiler cache
+        if: ${{ success() }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/context/apps/web/.next/cache
+          key: roebel-web-next-${{ runner.os }}-${{ steps.next-cache-scope.outputs.scope }}-${{ env.SOURCE_REVISION }}-node22-nodeimage-sha256-7c269ea419bfbaef1f5eed57e58016395bbe3036176411025a5093e39a948dcf-pnpm9.15.0-${{ hashFiles('.npmrc', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'turbo.json', 'apps/web/package.json', 'apps/web/next.config.mjs', 'apps/web/tsconfig.json', 'apps/web/postcss.config.mjs', 'apps/web/tailwind.config.*', 'scripts/ci/build-staging-web-runtime.sh') }}
 
       - name: Set up isolated Buildx
         uses: docker/setup-buildx-action@v4

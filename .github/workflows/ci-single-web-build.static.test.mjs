@@ -40,8 +40,31 @@ test("the required summary has no publication or deployment authority", () => {
 });
 
 test("PR Web builds once and packages runtime output only", () => {
-  assert.doesNotMatch(web, /staging-web-cache-family|MAX_NEXT_CACHE_BYTES|\.next\/cache/u);
-  assert.doesNotMatch(web, /staging-web-dependency-family|actions\/cache|DEPENDENCY_CACHE_HIT/u);
+  assert.match(web, /MAX_NEXT_CACHE_BYTES: "536870912"/u);
+  assert.match(web, /actions\/cache\/restore@v4/u);
+  assert.match(web, /actions\/cache\/save@v4/u);
+  assert.match(web, /path: \$\{\{ runner\.temp \}\}\/context\/apps\/web\/.next\/cache/u);
+  assert.match(
+    web,
+    /node22-nodeimage-sha256-7c269ea419bfbaef1f5eed57e58016395bbe3036176411025a5093e39a948dcf-pnpm9\.15\.0/u,
+  );
+  assert.match(web, /hashFiles\('\.npmrc', 'package\.json', 'pnpm-lock\.yaml', 'pnpm-workspace\.yaml'/u);
+  assert.match(web, /id: next-cache-scope/u);
+  assert.match(web, /CACHE_SCOPE_REPOSITORY: \$\{\{ github\.event\.pull_request\.head\.repo\.full_name \|\| github\.repository \}\}/u);
+  assert.match(web, /CACHE_SCOPE_REF: \$\{\{ github\.head_ref \|\| github\.ref_name \}\}/u);
+  assert.match(web, /sha256sum/u);
+  assert.match(web, /steps\.next-cache-scope\.outputs\.scope/u);
+  assert.match(web, /find "\$NEXT_CACHE" -type l/u);
+  assert.equal((web.match(/cache_bytes <= MAX_NEXT_CACHE_BYTES/gu) ?? []).length, 2);
+  assert.equal((web.match(/runner\.temp \}\}\/context\/apps\/web\/.next\/cache/gu) ?? []).length, 4);
+  assert.doesNotMatch(web, /web-runtime-context\/[^\n]*\.next\/cache/u);
+  const restore = web.indexOf("Restore the branch-scoped Next compiler cache");
+  const before = web.indexOf("Validate the restored Next compiler cache");
+  const build = web.indexOf("Build the standalone Web runtime once");
+  const after = web.indexOf("Validate the generated Next compiler cache");
+  const save = web.indexOf("Save the bounded branch-scoped Next compiler cache");
+  assert.ok(restore >= 0 && restore < before && before < build && build < after && after < save);
+  assert.doesNotMatch(web, /staging-web-dependency-family|DEPENDENCY_CACHE_HIT|pnpm-cache|node_modules-cache/u);
   assert.match(web, /test ! -e "\$RUNNER_TEMP\/context\/node_modules"/u);
   assert.match(web, /MAX_DEPENDENCY_INSTALL_BYTES: "4294967296"/u);
   assert.match(web, /MAX_RUNTIME_CONTEXT_BYTES: "805306368"/u);

@@ -16,12 +16,20 @@ SBOM attestation and GitHub OIDC build provenance to the immutable digest.
 
 The Web runtime-only packaging path builds once in the exact pinned Node image
 with networking disabled, a read-only offline pnpm store, no Linux capabilities
-and no-new-privileges. The measured warm-cache run took 6m22s versus 6m05s
-cold, so the ineffective 168 MiB compressed / 2.50-2.91 GiB uncompressed cache
-is not restored or retained. A staging-only Turbopack trial was also rejected:
+and no-new-privileges. The reusable Web workflow now restores and saves only
+the Next compiler cache under the runner's temporary pruned context. Its key
+includes the exact source revision, pinned Node image and pnpm toolchain, and
+the Web build's lock and configuration inputs; fallback reuse is restricted to
+the same repository and branch. The cache is rejected if it contains a
+symlink or exceeds 512 MiB both before and after the build. It is never copied
+into the runtime context or OCI artifact. The earlier measured warm-cache run
+took 6m22s versus 6m05s cold for an ineffective 168 MiB compressed /
+2.50-2.91 GiB uncompressed cache, so this bounded cache is an incremental
+optimization rather than a build requirement. A staging-only Turbopack trial
+was also rejected:
 it compiled in 4.7 minutes, slower than Webpack's 3.2 minutes, and then failed
-page-data collection for an existing newsletter route. Any compiler cache
-produced inside the job is disposable and never copied into the runtime image.
+page-data collection for an existing newsletter route. The compiler cache is
+runner-only and never copied into the runtime image.
 
 An exact dependency-cache trial was rejected as well. Its cold job took 7m02s,
 57 seconds slower than the 6m05s runtime-only baseline, including 33 seconds to
@@ -30,7 +38,7 @@ during the frozen offline install: the restored `node_modules` graph was not a
 self-contained pnpm store, the mounted store was empty and read-only, and pnpm
 correctly refused when it needed `/pnpm/store/v3`. The publisher therefore fetches a fresh,
 lockfile-bound offline store on every run and limits the resulting dependency
-installation to 4 GiB. Neither that installation nor a compiler cache is copied
+installation to 4 GiB. The dependency installation is never cached or copied
 into the runtime image.
 
 After the standalone build, a separate runtime context receives only traced

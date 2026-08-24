@@ -73,8 +73,44 @@ test("builds one bounded private OCI artifact remotely without publishing it", (
   );
   assert.match(workflow, /turbo@2\.4\.0 prune @roebel\/web --docker/);
   assert.match(workflow, /pnpm fetch --store-dir/);
-  assert.doesNotMatch(workflow, /staging-web-cache-family|\.next\/cache/);
-  assert.doesNotMatch(workflow, /staging-web-dependency-family|actions\/cache|DEPENDENCY_CACHE_HIT/);
+  assert.match(workflow, /MAX_NEXT_CACHE_BYTES: "536870912"/);
+  assert.match(workflow, /actions\/cache\/restore@v4/);
+  assert.match(workflow, /actions\/cache\/save@v4/);
+  assert.match(
+    workflow,
+    /path: \$\{\{ runner\.temp \}\}\/context\/apps\/web\/.next\/cache/,
+  );
+  assert.match(workflow, /\$\{\{ env\.SOURCE_REVISION \}\}/);
+  assert.match(
+    workflow,
+    /node22-nodeimage-sha256-7c269ea419bfbaef1f5eed57e58016395bbe3036176411025a5093e39a948dcf-pnpm9\.15\.0/,
+  );
+  assert.match(
+    workflow,
+    /hashFiles\('\.npmrc', 'package\.json', 'pnpm-lock\.yaml', 'pnpm-workspace\.yaml'/,
+  );
+  assert.match(workflow, /id: next-cache-scope/);
+  assert.match(workflow, /CACHE_SCOPE_REPOSITORY: \$\{\{ github\.event\.pull_request\.head\.repo\.full_name \|\| github\.repository \}\}/);
+  assert.match(workflow, /CACHE_SCOPE_REF: \$\{\{ github\.head_ref \|\| github\.ref_name \}\}/);
+  assert.match(workflow, /sha256sum/);
+  assert.match(workflow, /steps\.next-cache-scope\.outputs\.scope/);
+  assert.match(workflow, /find "\$NEXT_CACHE" -type l/);
+  assert.equal((workflow.match(/cache_bytes <= MAX_NEXT_CACHE_BYTES/g) ?? []).length, 2);
+  assert.equal(
+    (workflow.match(/runner\.temp \}\}\/context\/apps\/web\/.next\/cache/g) ?? []).length,
+    4,
+  );
+  assert.doesNotMatch(workflow, /web-runtime-context\/[^\n]*\.next\/cache/);
+  const restore = workflow.indexOf("Restore the branch-scoped Next compiler cache");
+  const before = workflow.indexOf("Validate the restored Next compiler cache");
+  const build = workflow.indexOf("Build the standalone Web runtime once");
+  const after = workflow.indexOf("Validate the generated Next compiler cache");
+  const save = workflow.indexOf("Save the bounded branch-scoped Next compiler cache");
+  assert.ok(restore >= 0 && restore < before && before < build && build < after && after < save);
+  assert.doesNotMatch(
+    workflow,
+    /staging-web-dependency-family|DEPENDENCY_CACHE_HIT|pnpm-cache|node_modules-cache/,
+  );
   assert.match(workflow, /test ! -e "\$RUNNER_TEMP\/context\/node_modules"/);
   assert.match(workflow, /Dockerfile\.staging-web-runtime/);
   assert.doesNotMatch(workflow, /pnpm fetch --(?:dev|prod)/);
