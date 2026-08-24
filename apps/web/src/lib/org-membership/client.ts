@@ -7,6 +7,7 @@
 // anything. The verified signer is the actor; no wallet passed in the
 // payload is ever trusted for authorization.
 import { buildOrgMessage, type OrgAction } from "./message";
+import { runStagingOrgAction } from "../stadtstack/profile-write-boundary.mjs";
 
 /**
  * Structural subset of thirdweb's `Account` (thirdweb/wallets) that this
@@ -61,34 +62,49 @@ export async function callOrgMembership<T = unknown>(
   action: OrgAction,
   payload: Record<string, unknown>
 ): Promise<OrgMembershipResponse<T>> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !anonKey) {
+  const guarded = await runStagingOrgAction(
+    process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB,
+    action,
+    async () => {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (!supabaseUrl || !anonKey) {
+        return {
+          ok: false,
+          code: "NOT_CONFIGURED",
+          message: "Supabase ist nicht konfiguriert (NEXT_PUBLIC_SUPABASE_URL/ANON_KEY fehlt).",
+        };
+      }
+
+      const body = await requestBody(account, action, payload);
+
+      try {
+        const res = await fetch(`${supabaseUrl.replace(/\/$/, "")}/functions/v1/org-membership`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${anonKey}`,
+          },
+          body: JSON.stringify(body),
+        });
+        return (await res.json()) as OrgMembershipResponse<T>;
+      } catch (err) {
+        console.error("callOrgMembership network error:", action, err);
+        return {
+          ok: false,
+          code: "NETWORK_ERROR",
+          message: err instanceof Error ? err.message : "Netzwerkfehler",
+        };
+      }
+    },
+  );
+
+  if (!guarded.allowed) {
     return {
       ok: false,
-      code: "NOT_CONFIGURED",
-      message: "Supabase ist nicht konfiguriert (NEXT_PUBLIC_SUPABASE_URL/ANON_KEY fehlt).",
+      code: "STAGING_READ_ONLY",
+      message: guarded.error,
     };
   }
-
-  const body = await requestBody(account, action, payload);
-
-  try {
-    const res = await fetch(`${supabaseUrl.replace(/\/$/, "")}/functions/v1/org-membership`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${anonKey}`,
-      },
-      body: JSON.stringify(body),
-    });
-    return (await res.json()) as OrgMembershipResponse<T>;
-  } catch (err) {
-    console.error("callOrgMembership network error:", action, err);
-    return {
-      ok: false,
-      code: "NETWORK_ERROR",
-      message: err instanceof Error ? err.message : "Netzwerkfehler",
-    };
-  }
+  return guarded.value as OrgMembershipResponse<T>;
 }

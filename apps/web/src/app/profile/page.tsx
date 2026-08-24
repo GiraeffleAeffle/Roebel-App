@@ -9,8 +9,7 @@ import { useActiveAccount } from "thirdweb/react";
 import { formatWalletAddress } from "@/lib/user-types";
 import type { UpdateUserProfileInput, PrivacySettings } from "@/lib/user-types";
 import { DEFAULT_PRIVACY_SETTINGS } from "@/lib/user-types";
-import { updateUserProfile } from "@/lib/supabase-users";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { ProfileForm } from "@/components/profile/ProfileForm";
 import { RoleBadge } from "@/components/profile/RoleBadge";
@@ -19,7 +18,16 @@ import QRCode from "qrcode";
 import { useRequests } from "@/hooks/useRequests";
 
 export default function ProfilePage() {
-  const { user, isLoading, error, refreshUser, isConnected } = useUserProfile();
+  const {
+    user,
+    isLoading,
+    error,
+    refreshUser,
+    updateProfile,
+    isConnected,
+    canPersistProfile,
+    walletAddress,
+  } = useUserProfile();
   const account = useActiveAccount();
   const { isAttester, isCitizen, votingPower } = useVerificationStatus();
 
@@ -37,19 +45,45 @@ export default function ProfilePage() {
   const [privacySettings, setPrivacySettings] = useState<PrivacySettings>(
     user?.privacy_settings || DEFAULT_PRIVACY_SETTINGS
   );
+  const privacyWalletRef = useRef<string | null>(null);
+  const currentWalletRef = useRef<string | null>(walletAddress?.toLowerCase() || null);
+  currentWalletRef.current = walletAddress?.toLowerCase() || null;
+  const hasLoadedUser = user !== null;
+  const profileWallet = user?.wallet_address?.toLowerCase() || null;
+  const loadedPrivacySettings = user?.privacy_settings;
+
+  // Privacy controls belong to the loaded persisted wallet, never to the
+  // component instance. Reset on disconnect/guest mode and rehydrate on a
+  // new persisted wallet before accepting a submission.
+  useEffect(() => {
+    if (!hasLoadedUser || !canPersistProfile || !profileWallet) {
+      privacyWalletRef.current = null;
+      setPrivacySettings(DEFAULT_PRIVACY_SETTINGS);
+      setShowPrivacyModal(false);
+      return;
+    }
+
+    if (privacyWalletRef.current === profileWallet) return;
+    privacyWalletRef.current = profileWallet;
+    setPrivacySettings({
+      ...DEFAULT_PRIVACY_SETTINGS,
+      ...(loadedPrivacySettings || {}),
+    });
+    setShowPrivacyModal(false);
+  }, [canPersistProfile, hasLoadedUser, loadedPrivacySettings, profileWallet]);
 
   const handleSaveProfile = async (updates: Omit<UpdateUserProfileInput, "wallet_address">) => {
-    if (!user) return;
+    if (!user || !canPersistProfile) {
+      setSaveError("Staging-Gastprofile können nicht geändert werden");
+      return;
+    }
 
     setIsSaving(true);
     setSaveError(null);
     setSaveSuccess(false);
 
     try {
-      const result = await updateUserProfile({
-        wallet_address: user.wallet_address,
-        ...updates,
-      });
+      const result = await updateProfile(updates);
 
       if (result.success) {
         setSaveSuccess(true);
@@ -96,13 +130,29 @@ export default function ProfilePage() {
   };
 
   const handleSavePrivacy = async (settings: PrivacySettings) => {
-    if (!user) return;
-    setPrivacySettings(settings);
-    await updateUserProfile({
-      wallet_address: user.wallet_address,
-      privacy_settings: settings,
-    });
-    await refreshUser();
+    const submissionWallet = user?.wallet_address?.toLowerCase() || null;
+    if (
+      !user ||
+      !canPersistProfile ||
+      !submissionWallet ||
+      privacyWalletRef.current !== submissionWallet ||
+      currentWalletRef.current !== submissionWallet
+    ) {
+      setSaveError("Staging-Gastprofile können nicht geändert werden");
+      return;
+    }
+
+    const result = await updateProfile({ privacy_settings: settings });
+    if (
+      result.success &&
+      currentWalletRef.current === submissionWallet &&
+      privacyWalletRef.current === submissionWallet
+    ) {
+      setPrivacySettings(settings);
+      await refreshUser();
+    } else if (!result.success) {
+      setSaveError(result.error || "Fehler beim Speichern");
+    }
   };
 
   if (!isConnected) {
@@ -497,21 +547,25 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {/* Profile Edit Button */}
-          <button
-            onClick={() => setShowEditModal(true)}
-            className="w-full bg-card border border-border hover:bg-accent text-foreground py-2 rounded-md text-xs sm:text-sm font-medium transition-colors mb-3 sm:mb-4 active:scale-95"
-          >
-            Profil bearbeiten
-          </button>
+          {canPersistProfile && (
+            <>
+              {/* Profile Edit Button */}
+              <button
+                onClick={() => setShowEditModal(true)}
+                className="w-full bg-card border border-border hover:bg-accent text-foreground py-2 rounded-md text-xs sm:text-sm font-medium transition-colors mb-3 sm:mb-4 active:scale-95"
+              >
+                Profil bearbeiten
+              </button>
 
-          {/* Privacy Settings Button */}
-          <button
-            onClick={() => setShowPrivacyModal(true)}
-            className="w-full bg-card border border-border hover:bg-accent text-foreground py-2 rounded-md text-xs sm:text-sm font-medium transition-colors mb-3 sm:mb-4 active:scale-95"
-          >
-            Datenschutz-Einstellungen
-          </button>
+              {/* Privacy Settings Button */}
+              <button
+                onClick={() => setShowPrivacyModal(true)}
+                className="w-full bg-card border border-border hover:bg-accent text-foreground py-2 rounded-md text-xs sm:text-sm font-medium transition-colors mb-3 sm:mb-4 active:scale-95"
+              >
+                Datenschutz-Einstellungen
+              </button>
+            </>
+          )}
 
           {/* Quick Actions */}
           <div className="grid grid-cols-3 gap-2 sm:gap-3">
@@ -538,7 +592,7 @@ export default function ProfilePage() {
       </main>
 
       {/* Edit Profile Modal */}
-      {showEditModal && (
+      {canPersistProfile && showEditModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-3 sm:p-4 z-50">
           <div className="bg-card rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="p-3 sm:p-4 border-b border-border flex items-center justify-between sticky top-0 bg-card">
@@ -553,14 +607,19 @@ export default function ProfilePage() {
               </button>
             </div>
             <div className="p-3 sm:p-4">
-              <ProfileForm user={user} onSave={handleSaveProfile} isSaving={isSaving} />
+              <ProfileForm
+                user={user}
+                onSave={handleSaveProfile}
+                isSaving={isSaving}
+                canPersist={canPersistProfile}
+              />
             </div>
           </div>
         </div>
       )}
 
       {/* Privacy Settings Modal */}
-      {showPrivacyModal && (
+      {canPersistProfile && showPrivacyModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-3 sm:p-4 z-50">
           <div className="bg-card rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="p-3 sm:p-4 border-b border-border flex items-center justify-between sticky top-0 bg-card">

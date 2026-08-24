@@ -3,17 +3,23 @@
 import { useState, useRef } from "react";
 import Image from "next/image";
 import { supabase } from "@/lib/supabase";
+import {
+  STAGING_PROFILE_MUTATION_ERROR,
+  runProfileWrite,
+} from "@/lib/stadtstack/profile-write-boundary.mjs";
 
 interface ProfilePictureUploadProps {
   currentPictureUrl: string | null;
   walletAddress: string;
   onUploadComplete: (url: string) => void;
+  canPersist: boolean;
 }
 
 export function ProfilePictureUpload({
   currentPictureUrl,
   walletAddress,
   onUploadComplete,
+  canPersist,
 }: ProfilePictureUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,6 +27,7 @@ export function ProfilePictureUpload({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canPersist) return;
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -54,24 +61,38 @@ export function ProfilePictureUpload({
 
       console.log("📤 Uploading profile picture:", filePath);
 
-      // Upload to Supabase Storage
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from("profile-pictures")
-        .upload(filePath, file, {
-          cacheControl: "3600",
-          upsert: true,
-        });
+      const result = await runProfileWrite(
+        canPersist
+          ? { allowed: true }
+          : { allowed: false, error: STAGING_PROFILE_MUTATION_ERROR },
+        async () => {
+          // Upload to Supabase Storage only inside the canonical capability.
+          const { error: uploadError } = await supabase.storage
+            .from("profile-pictures")
+            .upload(filePath, file, {
+              cacheControl: "3600",
+              upsert: true,
+            });
 
-      if (uploadError) {
-        console.error("❌ Upload error:", uploadError);
-        setError(uploadError.message);
+          if (uploadError) {
+            return { success: false, error: uploadError.message };
+          }
+
+          // Get public URL
+          const {
+            data: { publicUrl },
+          } = supabase.storage.from("profile-pictures").getPublicUrl(filePath);
+
+          return { success: true, data: { publicUrl } };
+        },
+      );
+
+      if (!result.success || !result.data) {
+        setError(result.error || "Upload failed");
         return;
       }
 
-      // Get public URL
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("profile-pictures").getPublicUrl(filePath);
+      const { publicUrl } = result.data;
 
       console.log("✅ Upload complete:", publicUrl);
 
@@ -86,6 +107,7 @@ export function ProfilePictureUpload({
   };
 
   const handleRemove = () => {
+    if (!canPersist) return;
     setPreviewUrl(null);
     onUploadComplete("");
     if (fileInputRef.current) {
@@ -138,7 +160,7 @@ export function ProfilePictureUpload({
             type="file"
             accept="image/*"
             onChange={handleFileSelect}
-            disabled={isUploading}
+            disabled={!canPersist || isUploading}
             className="hidden"
             id="profile-picture-upload"
           />
@@ -146,15 +168,21 @@ export function ProfilePictureUpload({
           <label
             htmlFor="profile-picture-upload"
             className={`inline-block px-4 py-2 rounded-lg font-medium transition-colors cursor-pointer ${
-              isUploading
+              !canPersist || isUploading
                 ? "bg-gray-700 text-muted-foreground cursor-not-allowed"
                 : "bg-blue-600 hover:bg-blue-700 text-white"
             }`}
           >
-            {isUploading ? "Uploading..." : previewUrl ? "Change Picture" : "Upload Picture"}
+            {!canPersist
+              ? "Staging-Gastprofil"
+              : isUploading
+                ? "Uploading..."
+                : previewUrl
+                  ? "Change Picture"
+                  : "Upload Picture"}
           </label>
 
-          {previewUrl && !isUploading && (
+          {canPersist && previewUrl && !isUploading && (
             <button
               onClick={handleRemove}
               className="ml-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"

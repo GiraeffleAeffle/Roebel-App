@@ -12,6 +12,8 @@ interface ImageUploadDropzoneProps {
   bucketName?: string
   folder?: string
   maxSizeMB?: number
+  /** Staging guests may view an image but must never upload or remove one. */
+  canUpload?: boolean
 }
 
 export function ImageUploadDropzone({
@@ -20,6 +22,7 @@ export function ImageUploadDropzone({
   bucketName = "news-images",
   folder = "",
   maxSizeMB = 5,
+  canUpload = true,
 }: ImageUploadDropzoneProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
@@ -32,6 +35,11 @@ export function ImageUploadDropzone({
   }, [currentImageUrl])
 
   const uploadFile = useCallback(async (file: File) => {
+    if (!canUpload) {
+      toast.error("Staging-Gastprofile können keine Bilder hochladen")
+      return
+    }
+
     // Validate file inline
     if (!file.type.startsWith("image/")) {
       toast.error("Bitte wählen Sie eine Bilddatei aus")
@@ -93,7 +101,7 @@ export function ImageUploadDropzone({
     } finally {
       setIsUploading(false)
     }
-  }, [bucketName, folder, currentImageUrl, maxSizeMB, onUploadComplete])
+  }, [bucketName, canUpload, folder, currentImageUrl, maxSizeMB, onUploadComplete])
 
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -123,6 +131,7 @@ export function ImageUploadDropzone({
   }
 
   const handleRemove = () => {
+    if (!canUpload) return
     setPreviewUrl("")
     onUploadComplete("")
     if (fileInputRef.current) {
@@ -132,6 +141,7 @@ export function ImageUploadDropzone({
   }
 
   const handleClick = () => {
+    if (!canUpload) return
     fileInputRef.current?.click()
   }
 
@@ -143,7 +153,7 @@ export function ImageUploadDropzone({
         accept="image/*"
         onChange={handleFileSelect}
         className="hidden"
-        disabled={isUploading}
+        disabled={!canUpload || isUploading}
       />
 
       {previewUrl ? (
@@ -158,7 +168,7 @@ export function ImageUploadDropzone({
             <button
               type="button"
               onClick={handleRemove}
-              disabled={isUploading}
+              disabled={!canUpload || isUploading}
               className="opacity-0 group-hover:opacity-100 transition-opacity bg-card text-foreground rounded-full p-3 hover:bg-accent"
             >
               <X className="h-5 w-5" />
@@ -180,7 +190,7 @@ export function ImageUploadDropzone({
             isDragging
               ? "border-primary bg-primary/10"
               : "border-border hover:border-gray-400 hover:bg-accent"
-          } ${isUploading ? "opacity-50 cursor-not-allowed" : ""}`}
+          } ${!canUpload || isUploading ? "opacity-50 cursor-not-allowed" : ""}`}
         >
           <div className="flex flex-col items-center gap-4">
             {isUploading ? (
@@ -192,11 +202,17 @@ export function ImageUploadDropzone({
             )}
             <div>
               <p className="text-lg font-medium text-foreground mb-1">
-                {isUploading ? "Wird hochgeladen..." : "Bild hochladen"}
+                {isUploading
+                  ? "Wird hochgeladen..."
+                  : canUpload
+                    ? "Bild hochladen"
+                    : "Upload im Gastprofil deaktiviert"}
               </p>
-              <p className="text-sm text-muted-foreground">
-                Ziehen Sie ein Bild hierher oder klicken Sie zum Auswählen
-              </p>
+              {canUpload && (
+                <p className="text-sm text-muted-foreground">
+                  Ziehen Sie ein Bild hierher oder klicken Sie zum Auswählen
+                </p>
+              )}
               <p className="text-xs text-muted-foreground mt-2">
                 PNG, JPG, GIF bis zu {maxSizeMB}MB
               </p>

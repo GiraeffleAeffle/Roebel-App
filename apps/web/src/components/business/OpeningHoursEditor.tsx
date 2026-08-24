@@ -6,10 +6,20 @@ import { DAYS_OF_WEEK } from "@/types/business"
 interface OpeningHoursEditorProps {
   value: OpeningHours
   onChange: (hours: OpeningHours) => void
+  disabled?: boolean
 }
 
-export function OpeningHoursEditor({ value, onChange }: OpeningHoursEditorProps) {
-  const handleTimeChange = (day: string, field: "open" | "close", time: string) => {
+export function OpeningHoursEditor({
+  value,
+  onChange,
+  disabled = false,
+}: OpeningHoursEditorProps) {
+  const handleTimeChange = (
+    day: string,
+    field: "open" | "close",
+    time: string,
+  ) => {
+    if (disabled) return
     onChange({
       ...value,
       [day]: {
@@ -21,6 +31,7 @@ export function OpeningHoursEditor({ value, onChange }: OpeningHoursEditorProps)
   }
 
   const handleClosedToggle = (day: string) => {
+    if (disabled) return
     const current = value[day]
     if (current?.closed) {
       onChange({
@@ -47,11 +58,14 @@ export function OpeningHoursEditor({ value, onChange }: OpeningHoursEditorProps)
             <div key={day.value} className="flex items-center gap-3">
               <span className="w-24 text-sm text-foreground font-medium">{day.label}</span>
 
-              <label className="flex items-center gap-1.5 cursor-pointer">
+              <label
+                className={`flex items-center gap-1.5 ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+              >
                 <input
                   type="checkbox"
                   checked={!isClosed}
                   onChange={() => handleClosedToggle(day.value)}
+                  disabled={disabled}
                   className="rounded border-border text-primary focus:ring-ring"
                 />
                 <span className="text-xs text-muted-foreground">Geöffnet</span>
@@ -63,6 +77,7 @@ export function OpeningHoursEditor({ value, onChange }: OpeningHoursEditorProps)
                     type="time"
                     value={entry?.open || "09:00"}
                     onChange={(e) => handleTimeChange(day.value, "open", e.target.value)}
+                    disabled={disabled}
                     className="px-2 py-1 text-sm border border-border rounded focus:outline-none focus:ring-1 focus:ring-ring"
                   />
                   <span className="text-muted-foreground text-sm">–</span>
@@ -70,6 +85,7 @@ export function OpeningHoursEditor({ value, onChange }: OpeningHoursEditorProps)
                     type="time"
                     value={entry?.close || "18:00"}
                     onChange={(e) => handleTimeChange(day.value, "close", e.target.value)}
+                    disabled={disabled}
                     className="px-2 py-1 text-sm border border-border rounded focus:outline-none focus:ring-1 focus:ring-ring"
                   />
                 </div>

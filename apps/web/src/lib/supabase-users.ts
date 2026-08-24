@@ -122,7 +122,7 @@ export async function createOrUpdateUser(
  */
 export async function getUserByWalletAddress(
   walletAddress: string
-): Promise<{ success: boolean; data?: User; error?: string }> {
+): Promise<{ success: boolean; data?: User; error?: string; notFound?: boolean }> {
   console.log("🔍 [Supabase Users] Fetching user:", walletAddress);
 
   try {
@@ -130,7 +130,7 @@ export async function getUserByWalletAddress(
       .from("users")
       .select("*")
       .eq("wallet_address", walletAddress.toLowerCase())
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error("❌ [Supabase Users] Error fetching user:", error);
@@ -138,7 +138,9 @@ export async function getUserByWalletAddress(
     }
 
     if (!data) {
-      return { success: false, error: "User not found" };
+      // A new wallet is an expected state. `maybeSingle` keeps PostgREST from
+      // turning that normal absence into a 406/error-path in the browser.
+      return { success: false, error: "User not found", notFound: true };
     }
 
     console.log("✅ [Supabase Users] User fetched successfully");
