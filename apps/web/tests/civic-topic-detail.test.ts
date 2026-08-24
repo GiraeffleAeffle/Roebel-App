@@ -58,6 +58,7 @@ function topic(overrides: Partial<StagingTopicPost> = {}): StagingTopicPost {
         meckyAnswered: true,
         suggestionSigned: true,
         caseBinding: null,
+        sourceConversation: null,
         synthetic: false,
       },
       {
@@ -70,6 +71,7 @@ function topic(overrides: Partial<StagingTopicPost> = {}): StagingTopicPost {
         meckyAnswered: false,
         suggestionSigned: false,
         caseBinding: null,
+        sourceConversation: null,
         synthetic: false,
       },
     ],

@@ -1,4 +1,9 @@
-import { verifyEvent, type NostrEvent } from "@netizen-labs/nostr";
+import {
+  verifyCivicTopicPromotionEvent,
+  verifyEvent,
+  type CivicSelectedConversationSource,
+  type NostrEvent,
+} from "@netizen-labs/nostr";
 
 import type {
   CitizenAdmissionProof,
@@ -26,7 +31,10 @@ export interface AppPostPromotionGateway {
   publish(
     intent: "post" | "promotion",
     event: NostrEvent,
-  ): Promise<{ status: "published" | "promoted" }>;
+  ): Promise<
+    | { status: "published" | "promoted"; event?: NostrEvent }
+    | { status: "already_promoted"; event: NostrEvent }
+  >;
 }
 
 export type AppPostPromotionResult = Readonly<{
@@ -34,6 +42,9 @@ export type AppPostPromotionResult = Readonly<{
   discussionId: string;
   topicId: string;
 }>;
+
+export type AppPostPromotionConversationSource =
+  CivicSelectedConversationSource;
 
 const ADDRESS = /^0x[0-9a-f]{40}$/;
 const UUID =
@@ -64,6 +75,7 @@ function validateInput(input: {
   topicTitle: string;
   question: string;
   nowSeconds: number;
+  conversationSource?: AppPostPromotionConversationSource;
 }): { topicTitle: string; question: string; sourceCreatedAt: number } {
   if (
     !UUID.test(input.post.id) ||
@@ -99,6 +111,23 @@ function validateInput(input: {
   ) {
     throw new Error("app_post_promotion_question_invalid");
   }
+  if (
+    input.conversationSource !== undefined &&
+    (input.conversationSource.kind !== "selected_conversation" ||
+      input.conversationSource.sourceAppPostId !== input.post.id ||
+      (input.conversationSource.sourceAppCommentId !== undefined &&
+        !UUID.test(input.conversationSource.sourceAppCommentId)) ||
+      !HEX64.test(input.conversationSource.mentionEventId) ||
+      !HEX64.test(input.conversationSource.replyEventId) ||
+      input.conversationSource.mentionEventId ===
+        input.conversationSource.replyEventId ||
+      (input.conversationSource.receiptId !== undefined &&
+        !/^urn:stadtstack:mecky-answer:[0-9a-f]{64}$/.test(
+          input.conversationSource.receiptId,
+        )))
+  ) {
+    throw new Error("app_post_promotion_conversation_invalid");
+  }
   return {
     topicTitle,
     question,
@@ -121,6 +150,7 @@ export async function promoteAppPostToCivicTopic(input: {
   topicTitle: string;
   question: string;
   nowSeconds: number;
+  conversationSource?: AppPostPromotionConversationSource;
 }): Promise<AppPostPromotionResult> {
   const validated = validateInput(input);
   const [config, feed, admissionProof] = await Promise.all([
@@ -188,12 +218,32 @@ export async function promoteAppPostToCivicTopic(input: {
     topicId,
     topicTitle: validated.topicTitle,
     agentPubkey: config.meckyPubkey,
+    ...(input.conversationSource === undefined
+      ? {}
+      : { conversationSource: input.conversationSource }),
     content: /@mecky\b/i.test(validated.question)
       ? validated.question
       : `@Mecky, ${validated.question}`,
     createdAt: Math.max(input.nowSeconds, sourcePost.created_at + 1),
   });
   const promoted = await input.gateway.publish("promotion", discussion);
+  if (promoted.status === "already_promoted") {
+    const existing = promoted.event;
+    const verifiedExisting = verifyCivicTopicPromotionEvent({
+      event: existing,
+      sourcePost,
+      municipalityId: "roebel-mueritz",
+      agentPubkey: config.meckyPubkey,
+    });
+    if (verifiedExisting === null) {
+      throw new Error("app_post_promotion_existing_invalid");
+    }
+    return Object.freeze({
+      status: "existing" as const,
+      discussionId: existing.id,
+      topicId: verifiedExisting.topicId,
+    });
+  }
   if (promoted.status !== "promoted") {
     throw new Error("app_post_promotion_publish_failed");
   }

@@ -391,6 +391,58 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
 
       {journey && <CivicJourneyRail journey={journey} />}
 
+      {thread.sourceConversation && (
+        <section className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-950">
+          <div className="flex items-start gap-3">
+            <Bot className="mt-0.5 h-5 w-5 shrink-0" />
+            <div className="min-w-0">
+              <h2 className="text-sm font-bold">
+                Aus einem ausdrücklich ausgewählten @Mecky-Austausch
+              </h2>
+              <p className="mt-1 text-xs leading-5 text-blue-900">
+                Die Autorin oder der Autor hat genau diese beantwortete
+                Erwähnung als Kontext übernommen. Sie bleibt Quellenkontext und
+                ist weder die Antwort dieser neuen Diskussion noch ein
+                Vorschlag oder CivicCase.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                <Link
+                  href={`/app/posts/${thread.sourceConversation.sourceAppPostId}`}
+                  className="font-semibold underline underline-offset-2"
+                >
+                  Originalen Verlauf öffnen
+                </Link>
+                <span>
+                  Erwähnung {thread.sourceConversation.mentionId.slice(0, 10)}…
+                </span>
+                <span>
+                  von {thread.sourceConversation.mentionAuthor.name}
+                </span>
+                <span>
+                  Antwort {thread.sourceConversation.replyId.slice(0, 10)}…
+                </span>
+                {thread.sourceConversation.sourceAppCommentId && (
+                  <span>aus einem Kommentar</span>
+                )}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {thread.sourceConversation.evidenceRefs.map((evidence, index) => (
+                  <a
+                    key={evidence.digest}
+                    href={evidence.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-full border border-blue-300 bg-white px-2.5 py-1 text-xs font-semibold text-blue-900"
+                  >
+                    Quelle {index + 1}
+                  </a>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
       {error && <div role="alert" className="flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900"><ShieldAlert className="h-4 w-4" /> {error}</div>}
 
       <section className="rounded-xl border border-border bg-card p-4">

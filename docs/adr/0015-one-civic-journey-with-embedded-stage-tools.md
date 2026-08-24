@@ -47,6 +47,29 @@ Combining every capability into one large page would create the opposite problem
     must survive navigation and reload. A delayed answer stays visible and may
     be checked again; the UI must not fabricate a reply or silently promote the
     post.
+17. The first conversation-to-discussion tracer is **source-post-author-only**.
+    Only the immutable post's author can promote it; that person explicitly
+    chooses either the original post or one completed public `@Mecky` exchange
+    attached to its post/comment thread as source context. The exchange may
+    have been started by another participant and remains attributed to its
+    exact signer. Choosing it binds the exact
+    application post, optional comment, citizen mention event, Mecky reply
+    event, and optional receipt identifier to the new signed discussion root.
+    The selected Mecky answer is contextual provenance; it is not relabelled as
+    the new discussion's answer, a proposal, or accepted evidence. Allowing a
+    different verified resident to promote somebody else's post is a later
+    moderation and anti-spam policy decision.
+18. Promotion is idempotent at the writer, not merely in the browser. One
+    author/source-post claim returns the already signed discussion root on a
+    retry, even when the retry contains a differently worded question. The
+    single staging writer may serialize that claim and restore it from the
+    relay. Production or a multi-replica writer requires a durable atomic claim
+    store/outbox before this boundary is called production-ready.
+19. A source application UUID is not by itself proof of Röbel-row ownership.
+    Before production, a trusted source resolver must compare the canonical
+    post—and, when selected, comment—owner, normalized content and timestamp to
+    the authenticated credential and signed Nostr chain. Client-side `isAuthor`
+    checks remain useful UX but are never the authority boundary.
 
 ## Consequences
 
@@ -66,4 +89,8 @@ Combining every capability into one large page would create the opposite problem
 - Signed-out readers can follow the same public post conversation and are
   invited to authenticate in context; a source-bound Mecky request remains
   attributable while it is pending and after its answer is projected.
+- An explicit promotion can preserve the exact conversation a person meant,
+  while retries cannot create a second discussion root or rewrite the original
+  post. Staging's single-writer guarantee is intentionally weaker than the
+  durable source resolver and claim store required for production.
 - This ADR does not authorize automatic promotion, a formal municipal vote, a treasury payment, or production data migration.

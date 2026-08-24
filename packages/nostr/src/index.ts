@@ -82,10 +82,12 @@ export {
   buildCivicDiscussionEvent,
   buildCivicPromotionEvent,
   buildCivicTopicPromotionEvent,
+  verifyCivicTopicPromotionEvent,
   verifyCitizenSignedTopicSuggestion,
 } from "./civic";
 export type {
   CivicArgumentInput,
+  CivicSelectedConversationSource,
   CitizenSignedTopicSuggestionInput,
   CitizenSignedTopicSuggestionV1,
   CitizenSignedSuggestionInput,
