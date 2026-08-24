@@ -34,6 +34,10 @@ const postPromotion = readFileSync(
   new URL("../src/components/app/StadtstackPostPromotion.tsx", import.meta.url),
   "utf8"
 );
+const commentSection = readFileSync(
+  new URL("../src/components/app/CommentSection.tsx", import.meta.url),
+  "utf8"
+);
 const proposalsPage = readFileSync(
   new URL("../src/app/app/proposals/page.tsx", import.meta.url),
   "utf8"
@@ -121,6 +125,21 @@ test("lets explicit @Mecky mentions answer inside an ordinary app thread without
     ),
     /data-mecky-conversation-reply/
   );
+});
+
+test("invites a signed-out reader into the same public post conversation", () => {
+  assert.match(commentSection, /<ConnectCta/);
+  assert.match(commentSection, /Anmelden und mitreden/);
+  assert.match(
+    commentSection,
+    /Kommentare und Mecky-Antworten bleiben öffentlich lesbar/
+  );
+});
+
+test("restores each source-bound Mecky request after a reload", () => {
+  assert.match(commentSection, /meckyConversation\?\.requests/);
+  assert.match(commentSection, /request\.state === "pending"/);
+  assert.match(commentSection, /Erneut nach Mecky sehen/);
 });
 
 test("lets a signed-in citizen publish their own pro or contra argument", () => {

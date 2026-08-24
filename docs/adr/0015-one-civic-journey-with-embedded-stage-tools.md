@@ -40,6 +40,13 @@ Combining every capability into one large page would create the opposite problem
 13. The journey may enter **Mitmachen readiness** as soon as the current Citizen Brief is public. This stage exposes the reviewed brief and provenance but no input control, option counts, or outcome. An advisory round becomes open or complete only from its own reviewed projection; readiness alone never advances the canonical Stadtstack case stage.
 14. Röbel reads administration progress through a case-bound, GET-only public projection. The response must match the journey's exact canonical case ID. Reviewed department entries retain their public package ID, package checksum, artifact checksum, and review date; conflicting case bindings hide the administration stage until a human resolves them. This reader exposes no case-steward command and grants no administrative authority.
 15. The primary Mitmachen entry point is a link from that exact Civic Journey. The Mitmachen reader reuses the same case-bound GET-only projection and rejects an unbound public profile. It may display the reviewed finance package as budget context beside the Citizen Brief, but the package remains an administrative statement: it is neither a treasury balance nor permission to reserve, transfer, or spend funds.
+16. An ordinary-thread `@Mecky` request remains a signed conversation event,
+    not a civic promotion. Its public projection exposes the exact mention ID,
+    optional source-comment ID, `pending` or `answered` state, and exact reply ID.
+    Aggregate counts alone are insufficient because the same source-bound state
+    must survive navigation and reload. A delayed answer stays visible and may
+    be checked again; the UI must not fabricate a reply or silently promote the
+    post.
 
 ## Consequences
 
@@ -56,4 +63,7 @@ Combining every capability into one large page would create the opposite problem
 - The canonical topic and its discussion render the same checksum-bound public package projection; a detached mini-app or unbound public view is not the primary administration surface.
 - People can see that a reviewed brief is ready for participation without mistaking readiness for an open poll or completed signal.
 - Opening Mitmachen from the journey preserves the canonical case binding, and the reviewed finance response stays visibly connected without becoming a separate treasury mini-app or effect.
+- Signed-out readers can follow the same public post conversation and are
+  invited to authenticate in context; a source-bound Mecky request remains
+  attributable while it is pending and after its answer is projected.
 - This ADR does not authorize automatic promotion, a formal municipal vote, a treasury payment, or production data migration.

@@ -1290,7 +1290,7 @@ export async function startWorkbench(
             entry.pubkey === config.meckyPubkey &&
             isAgentEvent(entry)
         );
-        const replies = [...mentionsBySource.values()].flatMap((mention) => {
+        const requests = [...mentionsBySource.values()].map((mention) => {
           const reply = verifiedAgentEvents
             .filter((candidate) =>
               candidate.tags.some(
@@ -1301,32 +1301,42 @@ export async function startWorkbench(
             .sort(
               (a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id)
             )[0];
-          if (!reply) return [];
-          return [
-            {
-              id: reply.id,
-              mentionId: mention.id,
-              sourceAppCommentId: sourceAppCommentIdFor(mention),
-              content: reply.content,
-              createdAt: new Date(reply.created_at * 1_000).toISOString(),
-              evidenceRefs: reply.tags
-                .filter(
-                  (tag) =>
-                    tag.length === 3 &&
-                    tag[0] === "evidence" &&
-                    /^sha256:[0-9a-f]{64}$/.test(tag[1] ?? "") &&
-                    /^https:\/\//.test(tag[2] ?? "")
-                )
-                .map((tag) => ({ digest: tag[1]!, url: tag[2]! })),
-            },
-          ];
+          return { mention, reply };
         });
+        const replies = requests.flatMap(({ mention, reply }) =>
+          reply
+            ? [
+                {
+                  id: reply.id,
+                  mentionId: mention.id,
+                  sourceAppCommentId: sourceAppCommentIdFor(mention),
+                  content: reply.content,
+                  createdAt: new Date(reply.created_at * 1_000).toISOString(),
+                  evidenceRefs: reply.tags
+                    .filter(
+                      (tag) =>
+                        tag.length === 3 &&
+                        tag[0] === "evidence" &&
+                        /^sha256:[0-9a-f]{64}$/.test(tag[1] ?? "") &&
+                        /^https:\/\//.test(tag[2] ?? "")
+                    )
+                    .map((tag) => ({ digest: tag[1]!, url: tag[2]! })),
+                },
+              ]
+            : []
+        );
         return json(response, 200, {
           schemaVersion: "roebel_app_mecky_conversation_v1",
           postId,
-          requestCount: mentionsBySource.size,
-          mentionIds: [...mentionsBySource.values()].map((entry) => entry.id),
-          pendingCount: mentionsBySource.size - replies.length,
+          requestCount: requests.length,
+          mentionIds: requests.map(({ mention }) => mention.id),
+          pendingCount: requests.filter(({ reply }) => !reply).length,
+          requests: requests.map(({ mention, reply }) => ({
+            mentionId: mention.id,
+            sourceAppCommentId: sourceAppCommentIdFor(mention),
+            state: reply ? "answered" : "pending",
+            replyId: reply?.id ?? null,
+          })),
           replies: replies.sort(
             (a, b) =>
               a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)
