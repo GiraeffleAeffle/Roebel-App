@@ -1,69 +1,195 @@
 import { NextResponse } from "next/server";
 
-/**
- * Server-side proxy to a higher-cap ERC-4337 bundler on Gnosis, used ONLY for
- * creating a governance proposal. `propose()` deploys a MACI Poll inline
- * (~15.7M gas), which exceeds thirdweb's hosted bundler cap of 12M gas/bundle.
- *
- * Why a proxy instead of pointing the client straight at the bundler:
- *  - The bundler API key stays SERVER-side (never shipped in the browser bundle).
- *  - No browser-origin / CORS surprises — the client calls our same-origin route.
- *  - thirdweb sends standard JSON-RPC (eth_estimateUserOperationGas,
- *    eth_sendUserOperation, eth_getUserOperationReceipt, …); we forward verbatim.
- *
- * Configure with a server-only env var (NOT NEXT_PUBLIC_):
- *   GNOSIS_BUNDLER_RPC_URL=https://api.pimlico.io/v2/100/rpc?apikey=YOUR_KEY
- */
-const BUNDLER_RPC_URL = process.env.GNOSIS_BUNDLER_RPC_URL ?? "";
+import { getSession } from "@/lib/auth/session";
+import {
+  BUNDLER_MAX_ACTIVE_REQUESTS,
+  BUNDLER_REQUEST_TIMEOUT_MS,
+  BUNDLER_UPSTREAM_TIMEOUT_MS,
+  GNOSIS_CHAIN_ID,
+  MAX_BUNDLER_BODY_BYTES,
+  createProposalBundlerBudget,
+  hasBoundedJsonShape,
+  isSameOrigin,
+  parseGnosisBundlerConfig,
+  parseProposalBundlerRequest,
+  rpcError,
+  sanitizeBundlerResponse,
+} from "@/lib/server/gnosis-bundler-proxy";
 
+/**
+ * Optional, narrowly scoped bridge to Pimlico for the one self-paying
+ * high-gas proposal operation. It is deliberately closed unless the caller
+ * holds the existing signed dashboard session and makes a same-origin request.
+ * The browser cannot choose a chain, upstream, URL, credentials, or arbitrary
+ * JSON-RPC method; the smart account and Governor retain transaction authority.
+ */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const budget = createProposalBundlerBudget();
+let activeRequests = 0;
+
+function response(
+  id: string | number | null,
+  status: number,
+  code: number,
+  message: string
+) {
+  return NextResponse.json(rpcError(id, code, message), {
+    headers: {
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+    },
+    status,
+  });
+}
+
+async function readBoundedText(request: Request): Promise<string> {
+  const length = request.headers.get("content-length");
+  if (
+    length !== null &&
+    (!/^\d+$/u.test(length) || Number(length) > MAX_BUNDLER_BODY_BYTES)
+  ) {
+    throw new Error("request_too_large");
+  }
+  if (!request.body) throw new Error("request_body_missing");
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    void reader.cancel("request_timeout");
+  }, BUNDLER_REQUEST_TIMEOUT_MS);
+  try {
+    while (true) {
+      const item = await reader.read();
+      if (item.done) break;
+      size += item.value.byteLength;
+      if (size > MAX_BUNDLER_BODY_BYTES) {
+        await reader.cancel("request_too_large");
+        throw new Error("request_too_large");
+      }
+      chunks.push(item.value);
+    }
+  } finally {
+    clearTimeout(timer);
+    reader.releaseLock();
+  }
+  if (timedOut) throw new Error("request_timeout");
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+}
+
+async function readBoundedUpstream(response: Response): Promise<unknown> {
+  const length = response.headers.get("content-length");
+  if (
+    length !== null &&
+    (!/^\d+$/u.test(length) || Number(length) > MAX_BUNDLER_BODY_BYTES)
+  ) {
+    throw new Error("upstream_too_large");
+  }
+  const body = await response.text();
+  if (Buffer.byteLength(body, "utf8") > MAX_BUNDLER_BODY_BYTES) {
+    throw new Error("upstream_too_large");
+  }
+  const parsed: unknown = JSON.parse(body);
+  if (!hasBoundedJsonShape(parsed)) throw new Error("upstream_shape_invalid");
+  return parsed;
+}
+
 export async function POST(request: Request) {
-  if (!BUNDLER_RPC_URL) {
-    return NextResponse.json(
-      {
-        jsonrpc: "2.0",
-        id: null,
-        error: {
-          code: -32000,
-          message: "Bundler proxy not configured (GNOSIS_BUNDLER_RPC_URL is unset).",
+  const configured = parseGnosisBundlerConfig(
+    process.env.GNOSIS_BUNDLER_RPC_URL,
+    process.env.GNOSIS_BUNDLER_GOVERNOR_ADDRESS
+  );
+  if (!configured) {
+    // Do not reveal which configuration field is missing or malformed.
+    return response(null, 503, -32000, "Bundler unavailable.");
+  }
+  if (!isSameOrigin(request.url, request.headers.get("origin"))) {
+    return response(null, 403, -32001, "Bundler request denied.");
+  }
+  const session = await getSession();
+  if (!session) return response(null, 401, -32001, "Bundler request denied.");
+  if (!budget.consume(session.username)) {
+    return response(null, 429, -32005, "Bundler request rate limited.");
+  }
+  if (activeRequests >= BUNDLER_MAX_ACTIVE_REQUESTS) {
+    return response(null, 503, -32000, "Bundler unavailable.");
+  }
+  activeRequests += 1;
+  try {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await readBoundedText(request));
+    } catch {
+      return response(null, 400, -32700, "Invalid JSON-RPC request.");
+    }
+    const rpc = parseProposalBundlerRequest(parsed, configured.governorAddress);
+    if (!rpc)
+      return response(null, 400, -32600, "Unsupported proposal operation.");
+    // Chain identity is a fixed application invariant, not an upstream choice.
+    if (rpc.method === "eth_chainId") {
+      return NextResponse.json(
+        { id: rpc.id, jsonrpc: "2.0", result: GNOSIS_CHAIN_ID },
+        {
+          headers: {
+            "cache-control": "no-store",
+            "x-content-type-options": "nosniff",
+          },
+        }
+      );
+    }
+
+    const controller = new AbortController();
+    const onClientAbort = () => controller.abort();
+    request.signal.addEventListener("abort", onClientAbort, { once: true });
+    const timeout = setTimeout(
+      () => controller.abort(),
+      BUNDLER_UPSTREAM_TIMEOUT_MS
+    );
+    try {
+      const upstream = await fetch(configured.url, {
+        body: JSON.stringify(rpc),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+        redirect: "error",
+        signal: controller.signal,
+      });
+      if (
+        !upstream.ok ||
+        !upstream.headers
+          .get("content-type")
+          ?.toLowerCase()
+          .startsWith("application/json")
+      ) {
+        return response(rpc.id, 502, -32000, "Bundler unavailable.");
+      }
+      const sanitized = sanitizeBundlerResponse(
+        await readBoundedUpstream(upstream),
+        rpc.id
+      );
+      if (!sanitized)
+        return response(rpc.id, 502, -32000, "Bundler unavailable.");
+      return NextResponse.json(sanitized, {
+        headers: {
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
         },
-      },
-      { status: 503 },
-    );
-  }
-
-  let body: string;
-  try {
-    body = await request.text();
-  } catch {
-    return NextResponse.json(
-      { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } },
-      { status: 400 },
-    );
-  }
-
-  try {
-    const upstream = await fetch(BUNDLER_RPC_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-    });
-    const text = await upstream.text();
-    return new NextResponse(text, {
-      status: upstream.status,
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (err) {
-    console.error("[bundler-proxy] upstream request failed:", err);
-    return NextResponse.json(
-      {
-        jsonrpc: "2.0",
-        id: null,
-        error: { code: -32603, message: "Bundler upstream request failed." },
-      },
-      { status: 502 },
-    );
+      });
+    } catch {
+      return response(rpc.id, 502, -32000, "Bundler unavailable.");
+    } finally {
+      clearTimeout(timeout);
+      request.signal.removeEventListener("abort", onClientAbort);
+    }
+  } finally {
+    activeRequests -= 1;
   }
 }

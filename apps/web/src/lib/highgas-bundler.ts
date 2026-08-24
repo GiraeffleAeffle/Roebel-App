@@ -1,4 +1,8 @@
-import { prepareContractCall, sendTransaction, type PreparedTransaction } from "thirdweb";
+import {
+  prepareContractCall,
+  sendTransaction,
+  type PreparedTransaction,
+} from "thirdweb";
 import { smartWallet, type Wallet } from "thirdweb/wallets";
 import { client } from "@/app/client";
 import { gnosis } from "@/lib/gnosis";
@@ -14,7 +18,7 @@ const GAS_PRICE_FLOOR = 1_500_000_000n;
  * back to the floor if the bundler doesn't speak pimlico_getUserOperationGasPrice.
  */
 async function fetchBundlerGasPrice(
-  bundlerUrl: string,
+  bundlerUrl: string
 ): Promise<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }> {
   try {
     const res = await fetch(bundlerUrl, {
@@ -40,7 +44,10 @@ async function fetchBundlerGasPrice(
   } catch (err) {
     console.warn("[highgas] gas-price fetch failed, using floor:", err);
   }
-  return { maxFeePerGas: GAS_PRICE_FLOOR, maxPriorityFeePerGas: GAS_PRICE_FLOOR };
+  return {
+    maxFeePerGas: GAS_PRICE_FLOOR,
+    maxPriorityFeePerGas: GAS_PRICE_FLOOR,
+  };
 }
 
 /**
@@ -51,32 +58,30 @@ async function fetchBundlerGasPrice(
  * sponsored path fails with:
  *   "User operation gas limits exceed the max gas per bundle: 15745022 > 12000000"
  *
- * Recommended: point this at the same-origin server proxy so the bundler API
- * key stays server-side (see app/api/bundler/route.ts):
+ * The only accepted value is the same-origin server proxy. The bundler API key
+ * stays server-side and the route rejects arbitrary provider selection (see
+ * app/api/bundler/route.ts):
  *   NEXT_PUBLIC_GNOSIS_BUNDLER_URL=/api/bundler
  *   GNOSIS_BUNDLER_RPC_URL=https://api.pimlico.io/v2/100/rpc?apikey=YOUR_KEY  (server-only)
- *
- * A relative value (starting with "/") is resolved against the current origin
- * at call time. An absolute http(s) value is used directly (key would then be
- * exposed in the browser — not recommended).
  *
  * When unset, callers fall back to the default thirdweb path (which fails for
  * proposal creation on Gnosis). Only proposal creation uses this; every other
  * tx in the app keeps the default gasless/sponsored bundler.
  */
 const CONFIGURED_BUNDLER = process.env.NEXT_PUBLIC_GNOSIS_BUNDLER_URL ?? "";
+const APPROVED_BUNDLER_PATH = "/api/bundler";
 
 export function hasHighGasBundler(): boolean {
-  return CONFIGURED_BUNDLER.length > 0;
+  return CONFIGURED_BUNDLER === APPROVED_BUNDLER_PATH;
 }
 
 /** Resolve the configured value to an absolute URL at call time (client-side). */
 function resolveBundlerUrl(): string {
-  if (CONFIGURED_BUNDLER.startsWith("/")) {
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
-    return `${origin}${CONFIGURED_BUNDLER}`;
+  if (!hasHighGasBundler()) {
+    throw new Error("high_gas_bundler_not_approved");
   }
-  return CONFIGURED_BUNDLER;
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}${APPROVED_BUNDLER_PATH}`;
 }
 
 /**
@@ -94,23 +99,24 @@ function resolveBundlerUrl(): string {
  */
 export async function sendViaHighGasBundler(
   activeWallet: Wallet,
-  transaction: PreparedTransaction,
+  transaction: PreparedTransaction
 ): Promise<{ transactionHash: `0x${string}` }> {
   if (!hasHighGasBundler()) {
     throw new Error(
-      "NEXT_PUBLIC_GNOSIS_BUNDLER_URL ist nicht gesetzt — kein Bundler mit erhöhtem Gas-Limit konfiguriert.",
+      "NEXT_PUBLIC_GNOSIS_BUNDLER_URL ist nicht gesetzt — kein Bundler mit erhöhtem Gas-Limit konfiguriert."
     );
   }
 
   const adminAccount = activeWallet.getAdminAccount?.();
   if (!adminAccount) {
     throw new Error(
-      "Admin-Signer des Smart Accounts konnte nicht ermittelt werden.",
+      "Admin-Signer des Smart Accounts konnte nicht ermittelt werden."
     );
   }
 
   const bundlerUrl = resolveBundlerUrl();
-  const { maxFeePerGas, maxPriorityFeePerGas } = await fetchBundlerGasPrice(bundlerUrl);
+  const { maxFeePerGas, maxPriorityFeePerGas } =
+    await fetchBundlerGasPrice(bundlerUrl);
 
   const highGasWallet = smartWallet({
     chain: gnosis,
@@ -126,7 +132,11 @@ export async function sendViaHighGasBundler(
           contract: accountContract,
           gas: transaction.gas ? transaction.gas + 21000n : undefined,
           method: "function execute(address, uint256, bytes)",
-          params: [transaction.to || "", transaction.value || 0n, transaction.data || "0x"],
+          params: [
+            transaction.to || "",
+            transaction.value || 0n,
+            transaction.data || "0x",
+          ],
           maxFeePerGas,
           maxPriorityFeePerGas,
         }),

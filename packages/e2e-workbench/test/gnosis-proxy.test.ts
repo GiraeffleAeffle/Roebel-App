@@ -188,9 +188,12 @@ describe("private Gnosis verification proxy", () => {
       if (body.method === "eth_call") return response(body.id, "0x01");
       throw new Error("unexpected_method");
     };
-    const running = await startGnosisProxy(parseGnosisProxyConfig(environment()), {
-      fetch: fakeFetch,
-    });
+    const running = await startGnosisProxy(
+      parseGnosisProxyConfig(environment()),
+      {
+        fetch: fakeFetch,
+      }
+    );
     try {
       const origin = `http://127.0.0.1:${running.port}`;
       assert.equal((await fetch(`${origin}/healthz`)).status, 200);
@@ -207,10 +210,7 @@ describe("private Gnosis verification proxy", () => {
           id: 3,
           jsonrpc: "2.0",
           method: "eth_call",
-          params: [
-            { data: "0x1234", to: `0x${"22".repeat(20)}` },
-            "latest",
-          ],
+          params: [{ data: "0x1234", to: `0x${"22".repeat(20)}` }, "latest"],
         },
       ]) {
         const result = await fetch(origin, {
@@ -232,9 +232,12 @@ describe("private Gnosis verification proxy", () => {
       );
       assert.equal(
         requests.every((request) =>
-          ["eth_chainId", "eth_blockNumber", "eth_getCode", "eth_call"].includes(
-            String(request.method)
-          )
+          [
+            "eth_chainId",
+            "eth_blockNumber",
+            "eth_getCode",
+            "eth_call",
+          ].includes(String(request.method))
         ),
         true
       );
@@ -244,7 +247,10 @@ describe("private Gnosis verification proxy", () => {
   });
 
   it("admits only viem 2.53.1's bounded deployless ERC-6492 verifier shape", async () => {
-    assert.equal((VIEM_2_53_1_ERC6492_VALIDATOR_BYTECODE.length - 2) / 2, 1_684);
+    assert.equal(
+      (VIEM_2_53_1_ERC6492_VALIDATOR_BYTECODE.length - 2) / 2,
+      1_684
+    );
     assert.equal(
       createHash("sha256")
         .update(
@@ -263,9 +269,12 @@ describe("private Gnosis verification proxy", () => {
       if (body.method === "eth_chainId") return response(body.id, "0x64");
       return response(body.id, "0x01");
     };
-    const running = await startGnosisProxy(parseGnosisProxyConfig(environment()), {
-      fetch: fakeFetch,
-    });
+    const running = await startGnosisProxy(
+      parseGnosisProxyConfig(environment()),
+      {
+        fetch: fakeFetch,
+      }
+    );
     try {
       const origin = `http://127.0.0.1:${running.port}`;
       const fixture = {
@@ -287,7 +296,9 @@ describe("private Gnosis verification proxy", () => {
       const mutatedPrefix = `0x${
         deploylessData.slice(2, 4) === "60" ? "61" : "60"
       }${deploylessData.slice(4)}`;
-      const oversized = deploylessVerifierData(`0x${"55".repeat(8 * 1024 + 1)}`);
+      const oversized = deploylessVerifierData(
+        `0x${"55".repeat(8 * 1024 + 1)}`
+      );
       for (const params of [
         [{ data: "0x60006000" }, "latest"],
         [{ data: mutatedPrefix }, "latest"],
@@ -319,14 +330,22 @@ describe("private Gnosis verification proxy", () => {
       unexpectedCalls += 1;
       return response(body.id, "0x");
     };
-    const running = await startGnosisProxy(parseGnosisProxyConfig(environment()), {
-      fetch: fakeFetch,
-    });
+    const running = await startGnosisProxy(
+      parseGnosisProxyConfig(environment()),
+      {
+        fetch: fakeFetch,
+      }
+    );
     try {
       const origin = `http://127.0.0.1:${running.port}`;
       const invalid = [
         [{ id: 1, jsonrpc: "2.0", method: "eth_chainId", params: [] }],
-        { id: 2, jsonrpc: "2.0", method: "eth_sendRawTransaction", params: ["0x00"] },
+        {
+          id: 2,
+          jsonrpc: "2.0",
+          method: "eth_sendRawTransaction",
+          params: ["0x00"],
+        },
         {
           id: 3,
           jsonrpc: "2.0",
@@ -389,9 +408,12 @@ describe("private Gnosis verification proxy", () => {
         { headers: { "content-type": "application/json" } }
       );
     };
-    const running = await startGnosisProxy(parseGnosisProxyConfig(environment()), {
-      fetch: fakeFetch,
-    });
+    const running = await startGnosisProxy(
+      parseGnosisProxyConfig(environment()),
+      {
+        fetch: fakeFetch,
+      }
+    );
     try {
       const result = await fetch(`http://127.0.0.1:${running.port}`, {
         body: JSON.stringify({
@@ -434,15 +456,16 @@ describe("private Gnosis verification proxy", () => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       return response(body.id, "0x64");
     };
-    const running = await startGnosisProxy(parseGnosisProxyConfig(environment()), {
-      fetch: fakeFetch,
-    });
+    const running = await startGnosisProxy(
+      parseGnosisProxyConfig(environment()),
+      {
+        fetch: fakeFetch,
+      }
+    );
     let accepted: Array<Promise<Response>> = [];
     try {
       const origin = `http://127.0.0.1:${running.port}`;
-      accepted = Array.from({ length: 16 }, () =>
-        fetch(`${origin}/readyz`)
-      );
+      accepted = Array.from({ length: 16 }, () => fetch(`${origin}/readyz`));
       await within(allPermitsUsed, 1_000);
       const overflow = await within(fetch(`${origin}/readyz`), 1_000);
       assert.equal(overflow.status, 503);
@@ -450,7 +473,9 @@ describe("private Gnosis verification proxy", () => {
       assert.equal(maximum, 16);
       release();
       assert.deepEqual(
-        await Promise.all(accepted.map(async (result) => (await result).status)),
+        await Promise.all(
+          accepted.map(async (result) => (await result).status)
+        ),
         Array(16).fill(200)
       );
     } finally {
@@ -514,44 +539,55 @@ describe("private Gnosis verification proxy", () => {
 
   it("aborts an active upstream call during deterministic shutdown", async () => {
     let started!: () => void;
-    let upstreamSignal: AbortSignal | null = null;
+    // TypeScript intentionally does not track assignments from an async
+    // callback into a captured local. Keep the observation in a mutable
+    // object so this test also type-checks under strict control-flow analysis.
+    const observed: { upstreamSignal: AbortSignal | null } = {
+      upstreamSignal: null,
+    };
     const upstreamStarted = new Promise<void>((resolve) => {
       started = resolve;
     });
     const fakeFetch: typeof globalThis.fetch = async (_input, init) =>
       new Promise<Response>((_resolve, reject) => {
-        upstreamSignal = init?.signal ?? null;
+        observed.upstreamSignal = init?.signal ?? null;
         started();
-        if (upstreamSignal?.aborted) {
+        if (observed.upstreamSignal?.aborted) {
           reject(new Error("aborted"));
           return;
         }
-        upstreamSignal?.addEventListener(
+        observed.upstreamSignal?.addEventListener(
           "abort",
           () => reject(new Error("aborted")),
           { once: true }
         );
       });
-    const running = await startGnosisProxy(parseGnosisProxyConfig(environment()), {
-      fetch: fakeFetch,
-    });
+    const running = await startGnosisProxy(
+      parseGnosisProxyConfig(environment()),
+      {
+        fetch: fakeFetch,
+      }
+    );
     const client = fetch(`http://127.0.0.1:${running.port}/readyz`).catch(
       () => null
     );
     await within(upstreamStarted, 500);
     await within(running.close(), 500);
-    assert.equal(upstreamSignal?.aborted, true);
+    assert.equal(observed.upstreamSignal?.aborted, true);
     await client;
   });
 
   it("rejects every non-exact raw request target before URL normalization", async () => {
     let upstreamCalls = 0;
-    const running = await startGnosisProxy(parseGnosisProxyConfig(environment()), {
-      fetch: async () => {
-        upstreamCalls += 1;
-        throw new Error("unexpected_upstream_call");
-      },
-    });
+    const running = await startGnosisProxy(
+      parseGnosisProxyConfig(environment()),
+      {
+        fetch: async () => {
+          upstreamCalls += 1;
+          throw new Error("unexpected_upstream_call");
+        },
+      }
+    );
     try {
       for (const target of [
         "http://attacker.invalid/",
