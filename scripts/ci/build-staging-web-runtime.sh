@@ -20,6 +20,7 @@ runtime_context="${RUNTIME_CONTEXT:-}"
 source_revision="${SOURCE_REVISION:-}"
 max_dependency_install_bytes="${MAX_DEPENDENCY_INSTALL_BYTES:-4294967296}"
 max_runtime_context_bytes="${MAX_RUNTIME_CONTEXT_BYTES:-805306368}"
+web_build_timing_path="${WEB_BUILD_TIMING_PATH:-}"
 
 for path in "$source_context" "$pnpm_store" "$corepack_cache"; do
   [[ "$path" == /* && -d "$path" && ! -L "$path" ]] || fail "required absolute input directory differs: $path"
@@ -32,6 +33,27 @@ done
 [[ -f "$source_context/apps/web/package.json" && ! -L "$source_context/apps/web/package.json" ]] || fail 'Web package manifest differs'
 [[ ! -e "$source_context/node_modules" ]] || fail 'source context must begin without node_modules'
 
+timing_args=()
+docker_timing_path=''
+if [[ -n "$web_build_timing_path" ]]; then
+  [[ "$web_build_timing_path" == /* && ! -e "$web_build_timing_path" && ! -L "$web_build_timing_path" ]] || fail 'Web timing output must be an absent absolute file'
+  timing_dir="$(dirname "$web_build_timing_path")"
+  timing_name="$(basename "$web_build_timing_path")"
+  [[ -d "$timing_dir" && ! -L "$timing_dir" ]] || fail 'Web timing output directory differs'
+  docker_timing_path="${web_build_timing_path}.docker"
+  [[ ! -e "$docker_timing_path" && ! -L "$docker_timing_path" ]] || fail 'Web Docker timing output must be absent'
+  timing_args=(
+    --mount "type=bind,src=$timing_dir,dst=/evidence"
+    --env "WEB_BUILD_DOCKER_TIMING_PATH=/evidence/${timing_name}.docker"
+  )
+fi
+
+if [[ -n "$web_build_timing_path" ]]; then
+  docker_host_anchor_ms="$(date +%s%3N)"
+  [[ "$docker_host_anchor_ms" =~ ^[0-9]+$ ]] || fail 'Web Docker timing host anchor differs'
+  timing_args+=(--env "WEB_BUILD_HOST_ANCHOR_MS=$docker_host_anchor_ms")
+fi
+
 docker run --rm \
   --platform linux/amd64 \
   --user "$(id -u):$(id -g)" \
@@ -41,6 +63,7 @@ docker run --rm \
   --mount "type=bind,src=$source_context,dst=/workspace" \
   --mount "type=bind,src=$pnpm_store,dst=/pnpm/store,readonly" \
   --mount "type=bind,src=$corepack_cache,dst=/corepack,readonly" \
+  "${timing_args[@]}" \
   --workdir /workspace \
   --env HOME=/tmp \
   --env COREPACK_HOME=/corepack \
@@ -70,8 +93,40 @@ docker run --rm \
   --env THIRDWEB_CLIENT_ID=placeholder-for-build \
   "$node_image" \
   sh -ceu '
+    now_ms() {
+      node -e "process.stdout.write(String(Date.now()))"
+    }
+    container_clock_origin_ms="$(now_ms)"
+    materialization_started_clock_ms="$(now_ms)"
     corepack pnpm --store-dir /pnpm/store --filter @roebel/web... install --offline --frozen-lockfile --ignore-scripts
+    materialization_finished_clock_ms="$(now_ms)"
+    next_compile_started_clock_ms="$(now_ms)"
     corepack pnpm --filter @roebel/web build
+    next_compile_finished_clock_ms="$(now_ms)"
+    if [ -n "${WEB_BUILD_DOCKER_TIMING_PATH:-}" ]; then
+      for value in \
+        "${WEB_BUILD_HOST_ANCHOR_MS:-}" \
+        "$container_clock_origin_ms" \
+        "$materialization_started_clock_ms" \
+        "$materialization_finished_clock_ms" \
+        "$next_compile_started_clock_ms" \
+        "$next_compile_finished_clock_ms"
+      do
+        case "$value" in
+          ""|*[!0-9]*) exit 1 ;;
+        esac
+      done
+      materialization_started_ms=$((WEB_BUILD_HOST_ANCHOR_MS + materialization_started_clock_ms - container_clock_origin_ms))
+      materialization_finished_ms=$((WEB_BUILD_HOST_ANCHOR_MS + materialization_finished_clock_ms - container_clock_origin_ms))
+      next_compile_started_ms=$((WEB_BUILD_HOST_ANCHOR_MS + next_compile_started_clock_ms - container_clock_origin_ms))
+      next_compile_finished_ms=$((WEB_BUILD_HOST_ANCHOR_MS + next_compile_finished_clock_ms - container_clock_origin_ms))
+      printf "{\"schemaVersion\":\"roebel_staging_web_docker_timing_v1\",\"offlineMaterializationStartedAtMs\":%s,\"offlineMaterializationFinishedAtMs\":%s,\"nextCompileStartedAtMs\":%s,\"nextCompileFinishedAtMs\":%s}\n" \
+        "$materialization_started_ms" \
+        "$materialization_finished_ms" \
+        "$next_compile_started_ms" \
+        "$next_compile_finished_ms" \
+        > "$WEB_BUILD_DOCKER_TIMING_PATH"
+    fi
   '
 
 dependency_install="$source_context/node_modules"
@@ -91,6 +146,7 @@ done
 [[ -f "$standalone/apps/web/server.js" && ! -L "$standalone/apps/web/server.js" ]] || fail 'standalone server differs'
 [[ -f "$entrypoint" && ! -L "$entrypoint" ]] || fail 'runtime entrypoint differs'
 
+assembly_started_ms="$(date +%s%3N)"
 mkdir -p "$runtime_context/apps/web/.next" "$runtime_context/apps/web"
 cp -a "$standalone/." "$runtime_context/"
 cp -a "$static" "$runtime_context/apps/web/.next/static"
@@ -104,6 +160,17 @@ cp "$entrypoint" "$runtime_context/apps/web/runtime-entrypoint.mjs"
 runtime_context_bytes="$(du -sb "$runtime_context" | cut -f1)"
 [[ "$runtime_context_bytes" =~ ^[0-9]+$ ]] || fail 'runtime context measurement differs'
 (( runtime_context_bytes <= max_runtime_context_bytes )) || fail 'runtime context exceeds its packaging budget'
+
+if [[ -n "$web_build_timing_path" ]]; then
+  assembly_finished_ms="$(date +%s%3N)"
+  node scripts/ci/write-staging-web-runtime-timing.mjs \
+    --source-revision "$source_revision" \
+    --docker-timing-path "$docker_timing_path" \
+    --runtime-assembly-started-at-ms "$assembly_started_ms" \
+    --runtime-assembly-finished-at-ms "$assembly_finished_ms" \
+    --output "$web_build_timing_path" >/dev/null
+  [[ -f "$web_build_timing_path" && ! -L "$web_build_timing_path" ]] || fail 'Web timing output differs'
+fi
 
 printf '%s\n' \
   'staging_web_runtime_build=PASS' \

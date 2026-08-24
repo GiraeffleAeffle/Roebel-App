@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { readStableBoundedFile } from "./ci/read-stable-bounded-file.mjs";
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const SOURCE_REVISION = /^[0-9a-f]{40}$/u;
 const SECRET_ENV = /^(?:SUPABASE_SERVICE_ROLE_KEY|STRIPE_SECRET_KEY(?:_CARD)?|RESEND_API_KEY|SESSION_SECRET|THIRDWEB_CLIENT_ID)=/u;
+const MAX_OCI_METADATA_BYTES = 1_048_576;
+const MAX_OCI_LAYER_COMPRESSED_BYTES = 134_217_728;
+export const MAX_STAGING_WEB_OCI_LAYER_COUNT = 64;
 const digest = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 
 const assertExactKeys = (value, expected, label) => {
@@ -15,18 +19,26 @@ const assertExactKeys = (value, expected, label) => {
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) throw new Error(`${label}_shape_invalid`);
 };
 
-export function verifyStagingWebOci(root, sourceRevision) {
+export function verifyStagingWebOci(root, sourceRevision, { deferLayerBlobValidation = false } = {}) {
   if (typeof root !== "string" || !SOURCE_REVISION.test(sourceRevision ?? "")) throw new Error("usage");
-  const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
-  const readBlob = (descriptor, label) => {
+  if (typeof deferLayerBlobValidation !== "boolean") throw new Error("usage");
+  const readJson = (path, label) => JSON.parse(
+    readStableBoundedFile(path, MAX_OCI_METADATA_BYTES, label).toString("utf8"),
+  );
+  const readBlob = (descriptor, label, maxBytes = MAX_OCI_METADATA_BYTES) => {
     if (!descriptor || !SHA256.test(descriptor.digest ?? "") || !Number.isSafeInteger(descriptor.size) || descriptor.size < 1) throw new Error(`${label}_descriptor_invalid`);
-    const bytes = readFileSync(join(root, "blobs", "sha256", descriptor.digest.slice(7)));
+    if (descriptor.size > maxBytes) throw new Error(`${label}_blob_too_large`);
+    const bytes = readStableBoundedFile(
+      join(root, "blobs", "sha256", descriptor.digest.slice(7)),
+      maxBytes,
+      `${label}_blob`,
+    );
     if (bytes.length !== descriptor.size || digest(bytes) !== descriptor.digest) throw new Error(`${label}_blob_invalid`);
     return bytes;
   };
 
-  assertExactKeys(readJson(join(root, "oci-layout")), ["imageLayoutVersion"], "layout");
-  const index = readJson(join(root, "index.json"));
+  assertExactKeys(readJson(join(root, "oci-layout"), "layout"), ["imageLayoutVersion"], "layout");
+  const index = readJson(join(root, "index.json"), "index");
   if (index.schemaVersion !== 2 || !Array.isArray(index.manifests) || index.manifests.length !== 1) throw new Error("index_invalid");
   const descriptor = index.manifests[0];
   // ORAS can omit the optional descriptor platform when it copies one exact
@@ -41,12 +53,26 @@ export function verifyStagingWebOci(root, sourceRevision) {
   const importName = `${repository}:source-${sourceRevision}`;
   if (descriptor.annotations?.["io.containerd.image.name"] !== importName) throw new Error("import_name_invalid");
   const manifest = JSON.parse(readBlob(descriptor, "manifest"));
-  if (manifest.schemaVersion !== 2 || manifest.mediaType !== "application/vnd.oci.image.manifest.v1+json" || !Array.isArray(manifest.layers) || manifest.layers.length < 1) throw new Error("manifest_invalid");
+  if (
+    manifest.schemaVersion !== 2 ||
+    manifest.mediaType !== "application/vnd.oci.image.manifest.v1+json" ||
+    !Array.isArray(manifest.layers) ||
+    manifest.layers.length < 1
+  ) throw new Error("manifest_invalid");
+  // This gate must precede every layer-blob open in both direct and deferred
+  // verification. A repeated descriptor cannot turn a tiny manifest into
+  // unbounded filesystem work.
+  if (manifest.layers.length > MAX_STAGING_WEB_OCI_LAYER_COUNT) {
+    throw new Error("layer_count_invalid");
+  }
   const config = JSON.parse(readBlob(manifest.config, "config"));
   if (config.os !== "linux" || config.architecture !== "amd64") throw new Error("config_platform_invalid");
 
   const layerDigests = manifest.layers.map((layer, index) => {
-    readBlob(layer, `layer_${index}`);
+    if (!layer || !SHA256.test(layer.digest ?? "") || !Number.isSafeInteger(layer.size) || layer.size < 1 || layer.size > MAX_OCI_LAYER_COMPRESSED_BYTES) {
+      throw new Error(`layer_${index}_descriptor_invalid`);
+    }
+    if (!deferLayerBlobValidation) readBlob(layer, `layer_${index}`, MAX_OCI_LAYER_COMPRESSED_BYTES);
     return layer.digest;
   });
   const referenced = new Set([descriptor.digest.slice(7), manifest.config.digest.slice(7), ...layerDigests.map((value) => value.slice(7))]);
