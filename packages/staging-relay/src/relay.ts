@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import {
   createServer,
@@ -18,6 +18,18 @@ const MAX_FILTERS = 8;
 const MAX_QUERY_RESULTS = 500;
 const MAX_ADMISSION_BODY_BYTES = 512;
 const ADMISSION_SCHEMA_VERSION = "roebel_staging_relay_admission_v1";
+const EMPTY_DIR_BYTES = 128 * 1024 * 1024;
+const MAX_RELAY_PERSISTED_BYTES = 112 * 1024 * 1024;
+const MAX_PERSISTED_RECORDS = 100_000;
+const DEFAULT_EVENT_STORE_BYTES = 96 * 1024 * 1024;
+const DEFAULT_EVENT_COUNT = 50_000;
+const DEFAULT_ADMISSION_STORE_BYTES = 16 * 1024 * 1024;
+const DEFAULT_ADMISSION_COUNT = 10_000;
+
+type StoreLimits = {
+  maxBytes: number;
+  maxRecords: number;
+};
 
 export interface RelayConfig {
   admissionStorePath?: string;
@@ -25,9 +37,30 @@ export interface RelayConfig {
   allowedPubkeys: readonly string[];
   bindHost: "127.0.0.1" | "0.0.0.0";
   name: string;
+  maxAdmissionCount?: number;
+  maxAdmissionStoreBytes?: number;
+  maxEventCount?: number;
+  maxEventStoreBytes?: number;
   port: number;
   storePath: string;
   websocketPath?: string;
+}
+
+function boundedLimit(
+  value: number | undefined,
+  fallback: number,
+  label: string
+): number {
+  const resolved = value ?? fallback;
+  if (
+    !Number.isSafeInteger(resolved) ||
+    resolved < 1 ||
+    resolved >
+      (label.endsWith("bytes") ? EMPTY_DIR_BYTES : MAX_PERSISTED_RECORDS)
+  ) {
+    throw new Error(`relay_${label}_invalid`);
+  }
+  return resolved;
 }
 
 interface AdmissionRecord {
@@ -65,22 +98,32 @@ function admissionRecord(value: unknown): AdmissionRecord | null {
 
 class AdmissionStore {
   private writeQueue: Promise<void> = Promise.resolve();
+  private storedBytes = 0;
+  private storedRecords = 0;
 
   constructor(
     private readonly storePath: string,
-    private readonly allowedPubkeys: Set<string>
+    private readonly allowedPubkeys: Set<string>,
+    private readonly limits: StoreLimits
   ) {}
 
   async open(): Promise<void> {
     await mkdir(dirname(this.storePath), { recursive: true });
     let text = "";
     try {
+      const metadata = await stat(this.storePath);
+      if (metadata.size > this.limits.maxBytes)
+        throw new Error("relay_admission_store_capacity_exceeded");
       text = await readFile(this.storePath, "utf8");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
+    this.storedBytes = Buffer.byteLength(text, "utf8");
     for (const line of text.split("\n")) {
       if (!line) continue;
+      this.storedRecords += 1;
+      if (this.storedRecords > this.limits.maxRecords)
+        throw new Error("relay_admission_store_capacity_exceeded");
       try {
         const record = admissionRecord(JSON.parse(line));
         if (!record) throw new Error("admission_record_invalid");
@@ -92,19 +135,33 @@ class AdmissionStore {
   }
 
   async allow(pubkey: string): Promise<void> {
-    this.writeQueue = this.writeQueue.then(async () => {
+    const write = this.writeQueue.then(async () => {
       if (this.allowedPubkeys.has(pubkey)) return;
       const record: AdmissionRecord = {
         schemaVersion: ADMISSION_SCHEMA_VERSION,
         pubkey,
       };
-      await appendFile(this.storePath, `${JSON.stringify(record)}\n`, {
+      const line = `${JSON.stringify(record)}\n`;
+      const lineBytes = Buffer.byteLength(line, "utf8");
+      if (
+        this.storedRecords >= this.limits.maxRecords ||
+        this.storedBytes + lineBytes > this.limits.maxBytes
+      ) {
+        throw new Error("relay_admission_store_capacity_exceeded");
+      }
+      await appendFile(this.storePath, line, {
         encoding: "utf8",
         mode: 0o600,
       });
+      this.storedBytes += lineBytes;
+      this.storedRecords += 1;
       this.allowedPubkeys.add(pubkey);
     });
-    await this.writeQueue;
+    this.writeQueue = write.then(
+      () => undefined,
+      () => undefined
+    );
+    await write;
   }
 }
 
@@ -278,22 +335,49 @@ export class PersistentEventStore {
   private readonly events = new Map<string, NostrEvent>();
   private readonly replacements = new Map<string, NostrEvent>();
   private writeQueue: Promise<void> = Promise.resolve();
+  private storedBytes = 0;
+  private storedRecords = 0;
+  private readonly limits: StoreLimits;
 
   constructor(
     private readonly storePath: string,
-    private readonly allowedPubkeys: ReadonlySet<string>
-  ) {}
+    private readonly allowedPubkeys: ReadonlySet<string>,
+    limits: StoreLimits = {
+      maxBytes: DEFAULT_EVENT_STORE_BYTES,
+      maxRecords: DEFAULT_EVENT_COUNT,
+    }
+  ) {
+    this.limits = {
+      maxBytes: boundedLimit(
+        limits.maxBytes,
+        DEFAULT_EVENT_STORE_BYTES,
+        "event_store_bytes"
+      ),
+      maxRecords: boundedLimit(
+        limits.maxRecords,
+        DEFAULT_EVENT_COUNT,
+        "event_count"
+      ),
+    };
+  }
 
   async open(): Promise<void> {
     await mkdir(dirname(this.storePath), { recursive: true });
     let text = "";
     try {
+      const metadata = await stat(this.storePath);
+      if (metadata.size > this.limits.maxBytes)
+        throw new Error("relay_event_store_capacity_exceeded");
       text = await readFile(this.storePath, "utf8");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
+    this.storedBytes = Buffer.byteLength(text, "utf8");
     for (const line of text.split("\n")) {
       if (!line) continue;
+      this.storedRecords += 1;
+      if (this.storedRecords > this.limits.maxRecords)
+        throw new Error("relay_event_store_capacity_exceeded");
       try {
         const event: unknown = JSON.parse(line);
         if (
@@ -335,21 +419,32 @@ export class PersistentEventStore {
       return { ok: false, message: "invalid: signature" };
     if (!this.allowedPubkeys.has(value.pubkey))
       return { ok: false, message: "blocked: author not allowed" };
-    if (this.events.has(value.id))
-      return { ok: true, message: "duplicate: already stored" };
-
-    const key = replacementKey(value);
-    const current = key ? this.replacements.get(key) : undefined;
-    if (current && !newerThan(value, current))
-      return { ok: true, message: "duplicate: superseded" };
-
-    this.index(value);
     const line = `${JSON.stringify(value)}\n`;
-    this.writeQueue = this.writeQueue.then(() =>
-      appendFile(this.storePath, line, { encoding: "utf8", mode: 0o600 })
+    const lineBytes = Buffer.byteLength(line, "utf8");
+    const write = this.writeQueue.then(async (): Promise<PublishDecision> => {
+      if (this.events.has(value.id))
+        return { ok: true, message: "duplicate: already stored" };
+      const key = replacementKey(value);
+      const current = key ? this.replacements.get(key) : undefined;
+      if (current && !newerThan(value, current))
+        return { ok: true, message: "duplicate: superseded" };
+      if (
+        this.storedRecords >= this.limits.maxRecords ||
+        this.storedBytes + lineBytes > this.limits.maxBytes
+      ) {
+        return { ok: false, message: "blocked: store capacity" };
+      }
+      await appendFile(this.storePath, line, { encoding: "utf8", mode: 0o600 });
+      this.storedBytes += lineBytes;
+      this.storedRecords += 1;
+      this.index(value);
+      return { ok: true, message: "stored" };
+    });
+    this.writeQueue = write.then(
+      () => undefined,
+      () => undefined
     );
-    await this.writeQueue;
-    return { ok: true, message: "stored" };
+    return write;
   }
 
   query(filters: readonly Filter[]): NostrEvent[] {
@@ -405,6 +500,30 @@ export async function startRelay(config: RelayConfig): Promise<RunningRelay> {
   if (allowed.size === 0 || [...allowed].some((value) => !HEX_64.test(value)))
     throw new Error("relay_allowlist_invalid");
   const storePath = resolve(config.storePath);
+  const eventLimits: StoreLimits = {
+    maxBytes: boundedLimit(
+      config.maxEventStoreBytes,
+      DEFAULT_EVENT_STORE_BYTES,
+      "event_store_bytes"
+    ),
+    maxRecords: boundedLimit(
+      config.maxEventCount,
+      DEFAULT_EVENT_COUNT,
+      "event_count"
+    ),
+  };
+  const admissionLimits: StoreLimits = {
+    maxBytes: boundedLimit(
+      config.maxAdmissionStoreBytes,
+      DEFAULT_ADMISSION_STORE_BYTES,
+      "admission_store_bytes"
+    ),
+    maxRecords: boundedLimit(
+      config.maxAdmissionCount,
+      DEFAULT_ADMISSION_COUNT,
+      "admission_count"
+    ),
+  };
   const admissionConfigured =
     config.admissionStorePath !== undefined ||
     config.admissionToken !== undefined;
@@ -414,6 +533,13 @@ export async function startRelay(config: RelayConfig): Promise<RunningRelay> {
       config.admissionToken === undefined)
   ) {
     throw new Error("relay_admission_config_incomplete");
+  }
+  if (
+    eventLimits.maxBytes +
+      (admissionConfigured ? admissionLimits.maxBytes : 0) >
+    MAX_RELAY_PERSISTED_BYTES
+  ) {
+    throw new Error("relay_persisted_budget_exceeded");
   }
   if (
     config.admissionToken !== undefined &&
@@ -431,9 +557,9 @@ export async function startRelay(config: RelayConfig): Promise<RunningRelay> {
   const admissions =
     admissionStorePath === undefined
       ? undefined
-      : new AdmissionStore(admissionStorePath, allowed);
+      : new AdmissionStore(admissionStorePath, allowed, admissionLimits);
   await admissions?.open();
-  const store = new PersistentEventStore(storePath, allowed);
+  const store = new PersistentEventStore(storePath, allowed, eventLimits);
   await store.open();
   const websocketPath = config.websocketPath ?? "/";
   if (!/^\/[a-z0-9-]*$/.test(websocketPath))
@@ -472,9 +598,17 @@ export async function startRelay(config: RelayConfig): Promise<RunningRelay> {
             pubkey: record.pubkey,
           });
         })
-        .catch(() =>
-          json(response, 400, { ok: false, error: "admission_invalid" })
-        );
+        .catch((error: unknown) => {
+          const capacityExceeded =
+            error instanceof Error &&
+            error.message === "relay_admission_store_capacity_exceeded";
+          return json(response, capacityExceeded ? 503 : 400, {
+            ok: false,
+            error: capacityExceeded
+              ? "admission_capacity_exceeded"
+              : "admission_invalid",
+          });
+        });
       return;
     }
     if (request.method === "GET" && request.url === "/healthz") {

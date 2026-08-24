@@ -13,6 +13,14 @@ function port(value: string | undefined): number {
   return parsed;
 }
 
+function limit(name: string, value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!/^[1-9][0-9]*$/.test(value)) throw new Error(`${name}_invalid`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) throw new Error(`${name}_invalid`);
+  return parsed;
+}
+
 async function main(): Promise<void> {
   const bindHost = process.env.RELAY_BIND_HOST ?? "0.0.0.0";
   if (bindHost !== "0.0.0.0" && bindHost !== "127.0.0.1")
@@ -30,6 +38,22 @@ async function main(): Promise<void> {
       .map((value) => value.trim())
       .filter(Boolean),
     bindHost,
+    maxAdmissionCount: limit(
+      "RELAY_MAX_ADMISSION_COUNT",
+      process.env.RELAY_MAX_ADMISSION_COUNT
+    ),
+    maxAdmissionStoreBytes: limit(
+      "RELAY_MAX_ADMISSION_STORE_BYTES",
+      process.env.RELAY_MAX_ADMISSION_STORE_BYTES
+    ),
+    maxEventCount: limit(
+      "RELAY_MAX_EVENT_COUNT",
+      process.env.RELAY_MAX_EVENT_COUNT
+    ),
+    maxEventStoreBytes: limit(
+      "RELAY_MAX_EVENT_STORE_BYTES",
+      process.env.RELAY_MAX_EVENT_STORE_BYTES
+    ),
     name: required("RELAY_NAME"),
     port: port(process.env.RELAY_PORT),
     storePath: required("RELAY_EVENT_STORE"),

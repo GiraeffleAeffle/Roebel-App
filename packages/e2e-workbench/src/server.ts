@@ -91,6 +91,12 @@ const PUBLIC_BRIEF_KEYS = [
   "correctionState",
   "authorityBinding",
 ];
+const PUBLIC_SIGNED_FORBIDDEN_INPUTS = [
+  "CASE_STEWARD_TOKEN",
+  "STADTSTACK_CONTROL_BASE_URL",
+  "STADTSTACK_PUBLIC_BASE_URL",
+  "SYNTHETIC_CITIZENS_JSON",
+] as const;
 
 type Persona = {
   id: string;
@@ -118,15 +124,17 @@ type PublicArgument = {
 export interface WorkbenchConfig {
   agentRelayUrl: string;
   bindHost: "127.0.0.1" | "0.0.0.0";
-  caseStewardToken: string;
   citizenRelayAdmissionToken: string;
   citizenRelayUrl: string;
-  controlBaseUrl: string;
   gnosisRpcUrl: string;
   meckyPubkey: string;
+  mode: "isolated-fixture" | "public-signed-only";
   personas: Persona[];
   port: number;
-  publicBaseUrl: string;
+  /** Present only in the fixture lane. Never mounted in public-signed mode. */
+  caseStewardToken?: string;
+  /** Present only in the fixture lane. Never mounted in public-signed mode. */
+  controlBaseUrl?: string;
 }
 
 type RelayPort = Pick<RelayClient, "publish" | "query" | "close">;
@@ -223,14 +231,29 @@ function externalHttpsUrl(value: string, name: string): string {
 export function parseWorkbenchConfig(
   environment: Record<string, string | undefined>
 ): WorkbenchConfig {
+  const mode = environment.WORKBENCH_MODE ?? "isolated-fixture";
+  if (mode !== "isolated-fixture" && mode !== "public-signed-only")
+    throw new Error("workbench_mode_invalid");
+  if (
+    mode === "public-signed-only" &&
+    PUBLIC_SIGNED_FORBIDDEN_INPUTS.some((name) =>
+      Object.prototype.hasOwnProperty.call(environment, name)
+    )
+  ) {
+    throw new Error("workbench_public_signed_forbidden_input");
+  }
   const rawPersonas = environment.SYNTHETIC_CITIZENS_JSON;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(rawPersonas ?? "");
+    parsed = rawPersonas === undefined ? [] : JSON.parse(rawPersonas);
   } catch {
     throw new Error("workbench_personas_invalid");
   }
-  if (!Array.isArray(parsed) || parsed.length !== 2)
+  if (
+    !Array.isArray(parsed) ||
+    (mode === "isolated-fixture" && parsed.length !== 2) ||
+    (mode === "public-signed-only" && parsed.length !== 0)
+  )
     throw new Error("workbench_personas_invalid");
   const ids = new Set<string>();
   const publicKeys = new Set<string>();
@@ -268,12 +291,16 @@ export function parseWorkbenchConfig(
   if (
     !HEX64.test(meckyPubkey) ||
     publicKeys.has(meckyPubkey) ||
-    caseStewardToken.length < 32 ||
-    /\s/.test(caseStewardToken) ||
     citizenRelayAdmissionToken.length < 32 ||
     /\s/.test(citizenRelayAdmissionToken)
   )
     throw new Error("workbench_identity_invalid");
+  if (
+    mode === "isolated-fixture" &&
+    (caseStewardToken.length < 32 || /\s/.test(caseStewardToken))
+  ) {
+    throw new Error("workbench_identity_invalid");
+  }
   if (
     (bindHost !== "0.0.0.0" && bindHost !== "127.0.0.1") ||
     !Number.isSafeInteger(port) ||
@@ -284,29 +311,29 @@ export function parseWorkbenchConfig(
   return {
     agentRelayUrl: relayUrl(environment.AGENT_RELAY_URL ?? "", "agent-relay"),
     bindHost,
-    caseStewardToken,
     citizenRelayAdmissionToken,
     citizenRelayUrl: relayUrl(
       environment.CITIZEN_RELAY_URL ?? "",
       "citizen-relay"
     ),
-    controlBaseUrl: serviceUrl(
-      environment.STADTSTACK_CONTROL_BASE_URL ?? "",
-      "stadtstack-control",
-      18081
-    ),
+    ...(mode === "isolated-fixture"
+      ? {
+          caseStewardToken,
+          controlBaseUrl: serviceUrl(
+            environment.STADTSTACK_CONTROL_BASE_URL ?? "",
+            "stadtstack-control",
+            18081
+          ),
+        }
+      : {}),
     gnosisRpcUrl: externalHttpsUrl(
       environment.GNOSIS_RPC_URL ?? "",
       "gnosis_rpc_url"
     ),
     meckyPubkey,
+    mode,
     personas,
     port,
-    publicBaseUrl: serviceUrl(
-      environment.STADTSTACK_PUBLIC_BASE_URL ?? "",
-      "stadtstack-public",
-      18080
-    ),
   };
 }
 
@@ -317,7 +344,12 @@ function nodeRelay(url: string): RelayPort {
   });
 }
 
-function json(response: ServerResponse, status: number, value: unknown): void {
+function json(
+  response: ServerResponse,
+  status: number,
+  value: unknown,
+  omitBody = false
+): void {
   const body = JSON.stringify(value);
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -325,7 +357,7 @@ function json(response: ServerResponse, status: number, value: unknown): void {
     "content-length": Buffer.byteLength(body),
     "x-content-type-options": "nosniff",
   });
-  response.end(body);
+  response.end(omitBody ? undefined : body);
 }
 
 async function readBody(request: IncomingMessage): Promise<unknown> {
@@ -993,6 +1025,8 @@ async function control(
   path: string,
   value: unknown
 ): Promise<unknown> {
+  if (!config.controlBaseUrl || !config.caseStewardToken)
+    throw new Error("administration_disabled");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
   try {
@@ -1263,6 +1297,13 @@ $('poll').onclick=async()=>{try{if(!state.discussion)throw new Error('Zuerst Dis
 $('sign').onclick=async()=>{try{if(!state.discussion||!state.answer)throw new Error('Diskussion und Mecky-Antwort fehlen.');state.suggestion=await api(base+'/api/suggestion',{personaId:$('persona').value,discussion:state.discussion.event,answer:state.answer.event,title:$('title').value,summary:$('summary').value});show('suggestion',state.suggestion)}catch(error){show('suggestion',error.message)}};
 </script></body></html>`;
 
+const PUBLIC_SIGNED_HTML = `<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Röbel × Stadtstack</title></head><body><main><h1>Röbel × Stadtstack</h1>
+<p>Öffentliche, signierte Staging-Diskussion. Diese Laufzeit nimmt ausschließlich browser-signierte Nostr-Ereignisse entgegen.</p>
+<p>Keine synthetischen Profile, keine Verwaltungszugänge, keine Abstimmung und keine Treasury-Aktion.</p>
+</main></body></html>`;
+
 export async function startWorkbench(
   config: WorkbenchConfig,
   dependencies: WorkbenchDependencies = {}
@@ -1371,7 +1412,8 @@ export async function startWorkbench(
         signedPromotionWrites.delete(claimKey);
     }
   };
-  await publishSeed(config, citizenRelay);
+  if (config.mode === "isolated-fixture")
+    await publishSeed(config, citizenRelay);
   const server: Server = createServer((request, response) => {
     void (async () => {
       const requestedPath = request.url ?? "";
@@ -1381,6 +1423,9 @@ export async function startWorkbench(
       const path = prefixed
         ? requestedPath.slice(STAGING_PREFIX.length) || "/"
         : requestedPath;
+      const publicReadHead =
+        config.mode === "public-signed-only" && request.method === "HEAD";
+      const publicReadMethod = request.method === "GET" || publicReadHead;
       if (request.method === "GET" && (path === "/" || path === "")) {
         response.writeHead(200, {
           "content-type": "text/html; charset=utf-8",
@@ -1388,15 +1433,17 @@ export async function startWorkbench(
           "content-security-policy":
             "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'",
         });
-        response.end(HTML);
+        response.end(
+          config.mode === "public-signed-only" ? PUBLIC_SIGNED_HTML : HTML
+        );
         return;
       }
-      if (request.method === "GET" && path === "/healthz")
+      if (publicReadMethod && path === "/healthz")
         return json(response, 200, {
           status: "ok",
           mode: "isolated-staging-e2e",
-        });
-      if (request.method === "GET" && path === "/api/config")
+        }, publicReadHead);
+      if (publicReadMethod && path === "/api/config")
         return json(response, 200, {
           schemaVersion: "roebel_e2e_workbench_config_v1",
           personas: config.personas.map(({ id, name, publicKey }) => ({
@@ -1405,17 +1452,36 @@ export async function startWorkbench(
             publicKey,
           })),
           meckyPubkey: config.meckyPubkey,
+          mode: config.mode,
           authorityBinding: "none",
-        });
+        }, publicReadHead);
+      if (config.mode === "public-signed-only" && path.startsWith("/api/")) {
+        const publicRead =
+          publicReadMethod &&
+          (path.startsWith("/api/feed") ||
+            path.startsWith("/api/thread?") ||
+            path.startsWith("/api/conversation?"));
+        const publicWrite =
+          request.method === "POST" &&
+          request.headers["x-stadtstack-e2e"] === "1" &&
+          (path === "/api/session/admit" || path === "/api/signed-event");
+        if (!publicRead && !publicWrite)
+          return json(response, 404, { error: "not_found" });
+      }
       const feedUrl = new URL(path, "http://workbench");
-      if (request.method === "GET" && feedUrl.pathname === "/api/feed") {
+      if (publicReadMethod && feedUrl.pathname === "/api/feed") {
         const profileValues = feedUrl.searchParams.getAll("profile");
         if (
           [...feedUrl.searchParams.keys()].some((key) => key !== "profile") ||
           profileValues.length > 1 ||
           (profileValues.length === 1 && profileValues[0] !== "public")
         )
-          return json(response, 400, { error: "feed_profile_invalid" });
+          return json(
+            response,
+            400,
+            { error: "feed_profile_invalid" },
+            publicReadHead
+          );
         const publicProfile = profileValues[0] === "public";
         const [events, recentAgentEvents] = await Promise.all([
           citizenRelay
@@ -1749,16 +1815,21 @@ export async function startWorkbench(
             )
           ),
           authorityBinding: "none",
-        });
+        }, publicReadHead);
       }
       if (
-        request.method === "GET" &&
+        publicReadMethod &&
         path.startsWith("/api/conversation?post=")
       ) {
         const postId =
           new URL(path, "http://workbench").searchParams.get("post") ?? "";
         if (!UUID.test(postId))
-          return json(response, 400, { error: "conversation_post_invalid" });
+          return json(
+            response,
+            400,
+            { error: "conversation_post_invalid" },
+            publicReadHead
+          );
         const [citizenEvents, agentEvents] = await Promise.all([
           citizenRelay.query([{ kinds: [1], limit: 300 }]),
           agentRelay.query([
@@ -1841,13 +1912,13 @@ export async function startWorkbench(
               a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)
           ),
           authorityBinding: "none",
-        });
+        }, publicReadHead);
       }
-      if (request.method === "GET" && path.startsWith("/api/thread?root=")) {
+      if (publicReadMethod && path.startsWith("/api/thread?root=")) {
         const rootId =
           new URL(path, "http://workbench").searchParams.get("root") ?? "";
         if (!HEX64.test(rootId))
-          return json(response, 400, { error: "root_invalid" });
+          return json(response, 400, { error: "root_invalid" }, publicReadHead);
         const rootCandidate = (
           await citizenRelay.query([{ ids: [rootId], kinds: [1], limit: 1 }])
         )
@@ -2017,7 +2088,7 @@ export async function startWorkbench(
             : null,
           suggestion,
           authorityBinding: "none",
-        });
+        }, publicReadHead);
       }
       if (request.method === "GET" && path.startsWith("/api/reply?parent=")) {
         const parent =
@@ -2047,6 +2118,8 @@ export async function startWorkbench(
         request.method === "GET" &&
         administrationUrl.pathname === "/api/administration"
       ) {
+        if (config.mode === "public-signed-only")
+          return json(response, 404, { error: "not_found" });
         const caseValues = administrationUrl.searchParams.getAll("case");
         if (
           [...administrationUrl.searchParams.keys()].some(

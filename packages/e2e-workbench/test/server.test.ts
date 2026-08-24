@@ -50,7 +50,102 @@ function environment() {
   };
 }
 
+function publicSignedEnvironment() {
+  const {
+    CASE_STEWARD_TOKEN: _caseStewardToken,
+    STADTSTACK_CONTROL_BASE_URL: _controlBaseUrl,
+    STADTSTACK_PUBLIC_BASE_URL: _publicBaseUrl,
+    SYNTHETIC_CITIZENS_JSON: _syntheticCitizens,
+    ...publicEnvironment
+  } = environment();
+  return {
+    ...publicEnvironment,
+    WORKBENCH_MODE: "public-signed-only",
+  };
+}
+
 describe("Röbel E2E workbench boundary", () => {
+  it("boots the public signed-only lane without Case Steward or public-projection credentials", async () => {
+    const config = parseWorkbenchConfig(publicSignedEnvironment());
+    assert.equal(config.mode, "public-signed-only");
+    assert.equal(config.caseStewardToken, undefined);
+    assert.equal(config.controlBaseUrl, undefined);
+    assert.deepEqual(config.personas, []);
+    for (const [name, value] of [
+      ["CASE_STEWARD_TOKEN", ""],
+      ["STADTSTACK_CONTROL_BASE_URL", ""],
+      ["STADTSTACK_PUBLIC_BASE_URL", ""],
+      ["SYNTHETIC_CITIZENS_JSON", "[]"],
+    ] as const) {
+      assert.throws(
+        () => parseWorkbenchConfig({ ...publicSignedEnvironment(), [name]: value }),
+        /workbench_public_signed_forbidden_input/
+      );
+    }
+
+    let publishCount = 0;
+    const relay = {
+      query: async () => [],
+      publish: async () => {
+        publishCount += 1;
+        return { ok: true, message: "stored" };
+      },
+      close: () => {},
+    };
+    const running = await startWorkbench(config, {
+      agentRelay: relay,
+      citizenRelay: relay,
+    });
+    try {
+      const origin = `http://127.0.0.1:${running.port}`;
+      assert.equal(publishCount, 0);
+      const settings = (await fetch(`${origin}/api/config`).then(
+        (response) => response.json()
+      )) as { mode: string; personas: unknown[] };
+      assert.deepEqual(settings, {
+        schemaVersion: "roebel_e2e_workbench_config_v1",
+        personas: [],
+        meckyPubkey: mecky,
+        mode: "public-signed-only",
+        authorityBinding: "none",
+      });
+      assert.equal(
+        (await fetch(`${origin}/api/administration?case=${encodeURIComponent("urn:stadtstack:case:municipality:roebel-mueritz:018f0000-0000-7000-8000-000000000001")}`)).status,
+        404
+      );
+      assert.equal(
+        (await fetch(`${origin}/api/post`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-stadtstack-e2e": "1",
+          },
+          body: JSON.stringify({ personaId: "citizen-anna", content: "x" }),
+        })).status,
+        404
+      );
+      assert.equal(
+        (await fetch(`${origin}/api/feed?profile=public`)).status,
+        200
+      );
+      for (const path of [
+        "/healthz",
+        "/api/config",
+        "/api/feed?profile=public",
+        `/api/thread?root=${"a".repeat(64)}`,
+        "/api/conversation?post=00000000-0000-4000-8000-000000000001",
+      ]) {
+        const get = await fetch(`${origin}${path}`);
+        const head = await fetch(`${origin}${path}`, { method: "HEAD" });
+        assert.equal(head.status, get.status);
+        assert.equal(head.headers.get("content-length"), get.headers.get("content-length"));
+        assert.equal(await head.text(), "");
+      }
+    } finally {
+      await running.close();
+    }
+  });
+
   it("accepts only the exact isolated service topology and two synthetic citizens", () => {
     const config = parseWorkbenchConfig(environment());
     assert.equal(config.personas.length, 2);
@@ -123,7 +218,7 @@ describe("Röbel E2E workbench boundary", () => {
       true
     );
     assert.equal(
-      parsed.controlBaseUrl.includes("stadtstack-roebel-staging-lab"),
+      parsed.controlBaseUrl?.includes("stadtstack-roebel-staging-lab"),
       true
     );
   });
