@@ -64,6 +64,10 @@ test("PR Web builds once and packages runtime output only", () => {
   const after = web.indexOf("Validate the generated Next compiler cache");
   const save = web.indexOf("Save the bounded branch-scoped Next compiler cache");
   assert.ok(restore >= 0 && restore < before && before < build && build < after && after < save);
+  assert.match(
+    web.slice(after, save),
+    /test ! -L "\$RUNNER_TEMP\/context\/apps\/web\/\.next"/u,
+  );
   assert.doesNotMatch(web, /staging-web-dependency-family|DEPENDENCY_CACHE_HIT|pnpm-cache|node_modules-cache/u);
   assert.match(web, /test ! -e "\$RUNNER_TEMP\/context\/node_modules"/u);
   assert.match(web, /MAX_DEPENDENCY_INSTALL_BYTES: "4294967296"/u);

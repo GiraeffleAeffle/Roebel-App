@@ -107,6 +107,10 @@ test("builds one bounded private OCI artifact remotely without publishing it", (
   const after = workflow.indexOf("Validate the generated Next compiler cache");
   const save = workflow.indexOf("Save the bounded branch-scoped Next compiler cache");
   assert.ok(restore >= 0 && restore < before && before < build && build < after && after < save);
+  assert.match(
+    workflow.slice(after, save),
+    /test ! -L "\$RUNNER_TEMP\/context\/apps\/web\/\.next"/,
+  );
   assert.doesNotMatch(
     workflow,
     /staging-web-dependency-family|DEPENDENCY_CACHE_HIT|pnpm-cache|node_modules-cache/,

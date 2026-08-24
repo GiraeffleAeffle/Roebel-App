@@ -161,6 +161,10 @@ jobs:
           NEXT_CACHE: ${{ runner.temp }}/context/apps/web/.next/cache
         run: |
           set -euo pipefail
+          test ! -L "$RUNNER_TEMP/context/apps/web/.next" || {
+            printf 'refusing a symlinked Next cache parent after build\n' >&2
+            exit 1
+          }
           test -d "$NEXT_CACHE" && test ! -L "$NEXT_CACHE"
           if test -n "$(find "$NEXT_CACHE" -type l -print -quit)"; then
             printf 'refusing symlinks in the generated Next compiler cache\n' >&2
