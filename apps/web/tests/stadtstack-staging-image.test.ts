@@ -73,17 +73,7 @@ test("builds one bounded private OCI artifact remotely without publishing it", (
   );
   assert.match(workflow, /turbo@2\.4\.0 prune @roebel\/web --docker/);
   assert.match(workflow, /pnpm fetch --store-dir/);
-  assert.equal(
-    (workflow.match(/uses: actions\/cache\/(?:restore|save)@0400d5f644dc74513175e3cd8d07132dd4860809/g) ?? []).length,
-    2
-  );
-  assert.match(workflow, /roebel-web-pr-webpack-server-v1-/);
-  assert.match(workflow, /github\.event\.pull_request\.head\.sha/);
-  assert.match(workflow, /cache\/webpack\/server-production/);
-  assert.match(workflow, /cache\/webpack\/edge-server-production/);
-  const cacheActionBlocks = workflow.match(/- name: (?:Restore|Save) the exact-head PR server compiler cache[\s\S]*?(?=\n      - name:)/g) ?? [];
-  assert.equal(cacheActionBlocks.length, 2);
-  assert.doesNotMatch(cacheActionBlocks.join("\n"), /client-production|restore-keys|node_modules|pnpm-store|runtime-context|\.oci/i);
+  assert.doesNotMatch(workflow, /actions\/cache|MAX_NEXT_CACHE_BYTES/);
   assert.match(
     workflow,
     /runner\.temp \}\}\/context\/apps\/web\/\.next\/cache/
@@ -101,10 +91,6 @@ test("builds one bounded private OCI artifact remotely without publishing it", (
     /next_cache_compression_v1 compressed_bytes=%s elapsed_seconds=%s/
   );
   assert.match(workflow, /archive_deleted=true upload=false save=false/);
-  assert.match(workflow, /next_cache_selected_v1/);
-  assert.match(workflow, /next_cache_restore_v1/);
-  assert.match(workflow, /next_cache_save_v1/);
-  assert.match(workflow, /selected_apparent_bytes < MAX_SELECTED_CACHE_BYTES/);
   assert.match(workflow, /find "\$NEXT_CACHE_PATH" -type l -print -quit/);
   assert.doesNotMatch(
     workflow,

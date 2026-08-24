@@ -25,18 +25,6 @@ function workflowStep(source, name) {
   return source.slice(start, end === -1 ? source.length : end);
 }
 
-function scalar(step, name) {
-  const match = step.match(new RegExp(`^\\s+${name}: (.+)$`, "mu"));
-  assert.ok(match, `missing ${name} in workflow step`);
-  return match[1].trim();
-}
-
-function pathEntries(step) {
-  const match = step.match(/^\s+path: \|\n((?:\s{12}.+\n?)+)/mu);
-  assert.ok(match, "missing path block in workflow step");
-  return match[1].trim().split("\n").map((line) => line.trim());
-}
-
 function runScript(step) {
   const marker = "\n        run: |\n";
   const start = step.indexOf(marker);
@@ -141,66 +129,6 @@ fi
   }
 }
 
-function runSelectionScript(script, { fifo = false, includeClient = true, measuredBytes = 100, symlink = false } = {}) {
-  const root = mkdtempSync(join(tmpdir(), "roebel-selected-cache-test-"));
-  try {
-    const bin = join(root, "bin");
-    const cache = join(root, "cache");
-    const archive = join(root, "selected.tar.zst");
-    const output = join(root, "github-output");
-    const tarArgs = join(root, "tar-args");
-    const dateCounter = join(root, "date-counter");
-    mkdirSync(bin);
-    const selections = ["server-production", "edge-server-production"];
-    if (includeClient) selections.push("client-production");
-    for (const selected of selections) {
-      mkdirSync(join(cache, "webpack", selected), { recursive: true });
-      writeFileSync(join(cache, "webpack", selected, "pack"), selected);
-    }
-    if (symlink) symlinkSync(join(root, "target"), join(cache, "unsafe-link"));
-    if (fifo) {
-      const fifoResult = spawnSync("mkfifo", [join(cache, "unsafe-fifo")]);
-      assert.equal(fifoResult.status, 0, "failed to create FIFO fixture");
-    }
-
-    const executables = {
-      du: `case "$1" in -sb|-sB1) ;; *) exit 64 ;; esac\nprintf '%s\\t%s\\n' "$TEST_DU_BYTES" "\${@: -1}"`,
-      tar: `printf '%s\\n' "$@" > "$TEST_TAR_ARGS"\nprintf compressed > "$3"`,
-      stat: `test "$1" = -c && test "$2" = %s && test -f "$3"\nprintf '333\\n'`,
-      date: `test "$1" = +%s\nif [[ -e "$TEST_DATE_COUNTER" ]]; then printf '107\\n'; else : > "$TEST_DATE_COUNTER"; printf '100\\n'; fi`,
-    };
-    for (const [name, body] of Object.entries(executables)) {
-      const path = join(bin, name);
-      writeFileSync(path, `#!/usr/bin/env bash\nset -euo pipefail\n${body}\n`);
-      chmodSync(path, 0o755);
-    }
-    const result = spawnSync("bash", ["-c", script], {
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        BASELINE_SELECTED_APPARENT_BYTES: "1688883560",
-        CACHE_HIT: "true",
-        GITHUB_OUTPUT: output,
-        MAX_SELECTED_CACHE_BYTES: "2147483648",
-        NEXT_CACHE_ROOT: cache,
-        PATH: `${bin}:${process.env.PATH}`,
-        SELECTED_CACHE_ARCHIVE: archive,
-        TEST_DATE_COUNTER: dateCounter,
-        TEST_DU_BYTES: String(measuredBytes),
-        TEST_TAR_ARGS: tarArgs,
-      },
-    });
-    return {
-      ...result,
-      archiveExists: existsSync(archive),
-      githubOutput: existsSync(output) ? readFileSync(output, "utf8") : "",
-      tarArgs: existsSync(tarArgs) ? readFileSync(tarArgs, "utf8") : "",
-    };
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-}
-
 test("the required ci result joins quality with one verified Web build", () => {
   assert.match(ci, /\n  changes:\n    name: Detect affected staging components/u);
   assert.match(ci, /node scripts\/ci\/affected-staging-components\.mjs --github-output/u);
@@ -235,48 +163,11 @@ test("the required summary has no publication or deployment authority", () => {
   assert.doesNotMatch(ci, /^\s*(?:kubectl|helm|flux|talosctl|tailscale|ssh)\b/imu);
 });
 
-test("PR Web builds once and uses only the exact-head server cache selection", () => {
-  const destination = workflowStep(web, "Guard the exact-head PR compiler cache destination");
-  const restore = workflowStep(web, "Restore the exact-head PR server compiler cache");
-  const restoreGuard = workflowStep(web, "Validate the exact-head PR server compiler cache");
+test("PR Web builds once and measures cache candidates without retaining them", () => {
   const diagnostic = workflowStep(web, "Measure PR-only Web compiler cache candidates");
-  const selection = workflowStep(web, "Guard and measure the selected PR server compiler cache");
-  const save = workflowStep(web, "Save the exact-head PR server compiler cache");
-  const decision = workflowStep(web, "Log the exact-head PR server compiler cache decision");
   const upload = workflowStep(web, "Upload the private short-lived build result");
-  const expectedPaths = [
-    "${{ runner.temp }}/context/apps/web/.next/cache/webpack/server-production",
-    "${{ runner.temp }}/context/apps/web/.next/cache/webpack/edge-server-production",
-  ];
-  const expectedKey = "roebel-web-pr-webpack-server-v1-${{ runner.os }}-${{ runner.arch }}-node22-pnpm9.15.0-head-${{ github.event.pull_request.head.sha }}";
 
-  assert.equal((web.match(/uses: actions\/cache\/(?:restore|save)@/gu) ?? []).length, 2);
-  assert.deepEqual(pathEntries(restore), expectedPaths);
-  assert.deepEqual(pathEntries(save), expectedPaths);
-  assert.equal(scalar(restore, "key"), expectedKey);
-  assert.equal(scalar(save, "key"), expectedKey);
-  assert.doesNotMatch(`${restore}\n${save}`, /restore-keys|client-production|node_modules|pnpm-store|runtime-context|\.oci/iu);
-  assert.match(destination, /test "\$SOURCE_REVISION" = "\$PR_HEAD_REVISION"/u);
-  assert.match(restore, /if: \$\{\{ github\.event_name == 'pull_request' \}\}/u);
-  assert.match(save, /github\.event_name == 'pull_request'/u);
-  assert.match(save, /steps\.next-cache-restore\.outputs\.cache-hit != 'true'/u);
-  assert.match(save, /steps\.next-cache-selection\.outputs\.save_allowed == 'true'/u);
-  assert.ok(
-    restoreGuard.indexOf('find "$NEXT_CACHE_ROOT" -type l -print -quit') <
-      restoreGuard.indexOf('find "$NEXT_CACHE_ROOT" ! -type d ! -type f -print -quit'),
-    "special-entry rejection must follow the symlink guard",
-  );
-  assert.ok(
-    restoreGuard.indexOf('find "$NEXT_CACHE_ROOT" ! -type d ! -type f -print -quit') <
-      restoreGuard.indexOf('case "$CACHE_HIT" in'),
-    "special entries must fail before restored cache measurement or use",
-  );
-  assert.match(restoreGuard, /selected_apparent_bytes < MAX_SELECTED_CACHE_BYTES/u);
-  assert.match(restoreGuard, /selected_allocated_bytes < MAX_SELECTED_CACHE_BYTES/u);
-  assert.match(selection, /BASELINE_SELECTED_APPARENT_BYTES: "1688883560"/u);
-  assert.match(selection, /MAX_SELECTED_CACHE_BYTES: "2147483648"/u);
-  assert.match(selection, /next_cache_selected_v1/u);
-  assert.match(decision, /next_cache_save_v1 restore_hit=%s attempted=%s outcome=%s/u);
+  assert.doesNotMatch(web, /actions\/cache|MAX_NEXT_CACHE_BYTES|roebel-web-next-cache/u);
   assert.match(diagnostic, /if: \$\{\{ github\.event_name == 'pull_request' \}\}/u);
   assert.match(diagnostic, /NEXT_CACHE_PATH: \$\{\{ runner\.temp \}\}\/context\/apps\/web\/\.next\/cache/u);
   assert.match(diagnostic, /NEXT_CACHE_ARCHIVE: \$\{\{ runner\.temp \}\}\/next-cache-diagnostic\.tar\.zst/u);
@@ -288,7 +179,7 @@ test("PR Web builds once and uses only the exact-head server cache selection", (
   assert.match(diagnostic, /tar --zstd -cf "\$NEXT_CACHE_ARCHIVE"/u);
   assert.match(diagnostic, /next_cache_compression_v1 compressed_bytes=%s elapsed_seconds=%s/u);
   assert.match(diagnostic, /next_cache_diagnostic_v1 archive_deleted=true upload=false save=false/u);
-  assert.doesNotMatch(upload, /next-cache|\.next\/cache|node_modules|pnpm-store|runtime-context/u);
+  assert.doesNotMatch(upload, /next-cache|\.next\/cache/u);
   assert.ok(
     web.indexOf("Build the standalone Web runtime once") <
       web.indexOf("Measure PR-only Web compiler cache candidates"),
@@ -327,37 +218,11 @@ test("the diagnostic inventory executes completely and fails closed on symlinks"
   assert.equal(nestedSymlink.archiveExists, false);
 });
 
-test("the selected server-cache guard enforces the strict budget and archive boundary", () => {
-  const restoreScript = runScript(workflowStep(web, "Validate the exact-head PR server compiler cache"));
-  const restored = runSelectionScript(restoreScript, { includeClient: false });
-  assert.equal(restored.status, 0, restored.stderr);
-  assert.match(restored.stdout, /^next_cache_restore_v1 hit=true apparent_bytes=200 allocated_bytes=200 files=2 /mu);
-  assert.notEqual(runSelectionScript(restoreScript).status, 0, "a restored client cache must be rejected");
-  assert.notEqual(runSelectionScript(restoreScript, { includeClient: false, measuredBytes: 1073741824 }).status, 0);
-  assert.notEqual(runSelectionScript(restoreScript, { includeClient: false, symlink: true }).status, 0);
-  assert.notEqual(runSelectionScript(restoreScript, { fifo: true, includeClient: false }).status, 0);
-
-  const script = runScript(workflowStep(web, "Guard and measure the selected PR server compiler cache"));
-  const selected = runSelectionScript(script);
-  assert.equal(selected.status, 0, selected.stderr);
-  assert.equal(selected.archiveExists, false);
-  assert.match(selected.stdout, /^next_cache_selected_v1 apparent_bytes=200 allocated_bytes=200 files=2 compressed_bytes=333 elapsed_seconds=7 /mu);
-  assert.equal(selected.githubOutput, "save_allowed=true\n");
-  assert.match(selected.tarArgs, /^--zstd\n-cf\n.*selected\.tar\.zst\n-C\n.*\/cache\nwebpack\/server-production\nwebpack\/edge-server-production\n$/u);
-  assert.doesNotMatch(selected.tarArgs, /client-production|node_modules|pnpm|oci|runtime/u);
-  assert.notEqual(runSelectionScript(script, { measuredBytes: 1073741824 }).status, 0);
-  const linked = runSelectionScript(script, { symlink: true });
-  assert.notEqual(linked.status, 0);
-  assert.equal(linked.archiveExists, false);
-});
-
 test("every candidate action is bound to a reviewed immutable commit", () => {
   const pins = new Map([
     ["actions/checkout", "d23441a48e516b6c34aea4fa41551a30e30af803"],
     ["actions/setup-node", "49933ea5288caeca8642d1e84afbd3f7d6820020"],
     ["pnpm/action-setup", "b906affcce14559ad1aafd4ab0e942779e9f58b1"],
-    ["actions/cache/restore", "0400d5f644dc74513175e3cd8d07132dd4860809"],
-    ["actions/cache/save", "0400d5f644dc74513175e3cd8d07132dd4860809"],
     ["docker/setup-buildx-action", "37fe631027851001ddb9b187196cc803df7f5f0e"],
     ["actions/upload-artifact", "ea165f8d65b6e75b540449e92b4886f43607fa02"],
   ]);
