@@ -37,8 +37,12 @@ function response(id: unknown, result: unknown) {
 
 function lockImporter(lock: string, name: string): string {
   const importerStart = lock.indexOf(`  packages/${name}:`);
-  const importerEnd = lock.indexOf("\n  packages/", importerStart + 1);
   assert.notEqual(importerStart, -1);
+  const nextPackageImporter = lock.indexOf("\n  packages/", importerStart + 1);
+  const packagesSection = lock.indexOf("\npackages:", importerStart + 1);
+  const importerEnd = [nextPackageImporter, packagesSection]
+    .filter((offset) => offset !== -1)
+    .sort((left, right) => left - right)[0];
   assert.notEqual(importerEnd, -1);
   return lock.slice(importerStart, importerEnd);
 }
@@ -77,6 +81,24 @@ it("pins the verifier and transport fixture to exact viem 2.53.1", () => {
   assertExactViemPins();
 });
 
+it("reads the final package importer from a pruned lockfile", () => {
+  const prunedLock =
+    "lockfileVersion: '9.0'\n\n" +
+    "importers:\n\n" +
+    "  packages/relay-sync:\n" +
+    "    dependencies:\n" +
+    "      viem:\n" +
+    "        specifier: 2.53.1\n" +
+    "        version: 2.53.1(zod@3.25.76)\n\n" +
+    "packages:\n\n" +
+    "  viem@2.53.1:\n" +
+    "    resolution: {integrity: pinned}\n";
+  assert.match(
+    lockImporter(prunedLock, "relay-sync"),
+    /specifier: 2\.53\.1\n\s+version: 2\.53\.1\(/u
+  );
+});
+
 it("drives relay-sync's real viem 2.53.1 ERC-6492 transport through the proxy", async () => {
   assertExactViemPins();
   assert.equal(
@@ -85,12 +107,7 @@ it("drives relay-sync's real viem 2.53.1 ERC-6492 transport through the proxy", 
   );
   assert.equal(
     createHash("sha256")
-      .update(
-        Buffer.from(
-          erc6492SignatureValidatorByteCode.slice(2),
-          "hex"
-        )
-      )
+      .update(Buffer.from(erc6492SignatureValidatorByteCode.slice(2), "hex"))
       .digest("hex"),
     "d46b6085a6558eb925573e4e395ccbc669a1db1b7aa49196cbb1a7540db6a470"
   );
@@ -104,9 +121,12 @@ it("drives relay-sync's real viem 2.53.1 ERC-6492 transport through the proxy", 
     if (body.method === "eth_blockNumber") return response(body.id, "0x1");
     throw new Error("unexpected_upstream_method");
   };
-  const running = await startGnosisProxy(parseGnosisProxyConfig(environment()), {
-    fetch: fakeFetch,
-  });
+  const running = await startGnosisProxy(
+    parseGnosisProxyConfig(environment()),
+    {
+      fetch: fakeFetch,
+    }
+  );
   try {
     const signature = serializeErc6492Signature({
       address: `0x${"33".repeat(20)}` as `0x${string}`,
