@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type ExtendedModeContextType = {
@@ -28,7 +28,7 @@ export function ExtendedModeProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const toggleExtendedMode = async () => {
+  const toggleExtendedMode = useCallback(async () => {
     try {
       const newValue = !isExtendedMode;
       await AsyncStorage.setItem(EXTENDED_MODE_KEY, String(newValue));
@@ -36,10 +36,15 @@ export function ExtendedModeProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('Error toggling extended mode state:', error);
     }
-  };
+  }, [isExtendedMode]);
+
+  const value = useMemo<ExtendedModeContextType>(
+    () => ({ isExtendedMode, toggleExtendedMode }),
+    [isExtendedMode, toggleExtendedMode]
+  );
 
   return (
-    <ExtendedModeContext.Provider value={{ isExtendedMode, toggleExtendedMode }}>
+    <ExtendedModeContext.Provider value={value}>
       {children}
     </ExtendedModeContext.Provider>
   );

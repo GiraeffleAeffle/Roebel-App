@@ -95,7 +95,6 @@ must be byte-for-byte equivalent in behavior after this slice.** This makes the
 later cutover a one-file change and is valuable even if Slice 0 picks (c).
 
 ADR 0014 now fixes this as the first implementation slice. The seam represents a stable member and selected app account in addition to signing/transaction capabilities; it must not expose a wallet address as the canonical person identifier.
-
 ### Slice 2 — Netizen Accounts parity (Netizen-Labs repo)
 
 Close blocker C-1 (contract sender / Kernel v3 or the equivalent the memo picks),

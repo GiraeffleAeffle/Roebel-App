@@ -1,5 +1,7 @@
 import React from 'react';
 import { View, Pressable, StyleSheet, Text } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/context/ThemeContext';
 import { useExploreDot } from '@/context/ExploreDotContext';
 import { fontFamily } from '@/constants/theme';
@@ -14,6 +16,7 @@ import UserFilled from '../assets/icons/bottom-nav/user-circle-filled.svg';
 
 export type TabKey = 'home' | 'explore' | 'profile';
 
+// Content height only — the rendered bar adds Math.max(insets.bottom, 8) bottom padding, so on home-indicator devices the total is taller.
 export const BOTTOM_NAV_HEIGHT = 72;
 
 const ICON_SIZE = 24;
@@ -21,6 +24,8 @@ const ICON_SIZE = 24;
 type Props = {
   activeTab: TabKey;
   onTabPress: (tab: TabKey) => void;
+  /** Skip the solid fill — for hosts that paint their own (glass) surface. */
+  transparent?: boolean;
 };
 
 const TABS: { key: TabKey; stroke: any; filled: any; label: string }[] = [
@@ -29,14 +34,16 @@ const TABS: { key: TabKey; stroke: any; filled: any; label: string }[] = [
   { key: 'profile', stroke: UserStroke, filled: UserFilled, label: 'Profil' },
 ];
 
-export default function BottomNavigation({ activeTab, onTabPress }: Props) {
+export default function BottomNavigation({ activeTab, onTabPress, transparent = false }: Props) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const { visible: exploreDotVisible, dismiss: dismissExploreDot } = useExploreDot();
 
   const activeColor = colors.textPrimary;
   const inactiveColor = colors.textPrimary;
 
   const handlePress = (key: TabKey) => {
+    Haptics.selectionAsync().catch(() => {});
     if (key === 'explore' && exploreDotVisible) {
       dismissExploreDot();
     }
@@ -44,7 +51,13 @@ export default function BottomNavigation({ activeTab, onTabPress }: Props) {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View
+      style={[
+        styles.container,
+        !transparent && { backgroundColor: colors.background },
+        { paddingBottom: Math.max(insets.bottom, 8) },
+      ]}
+    >
       <View style={styles.tabsContainer}>
         {TABS.map((tab) => {
           const isActive = activeTab === tab.key;
@@ -55,7 +68,7 @@ export default function BottomNavigation({ activeTab, onTabPress }: Props) {
             <Pressable
               key={tab.key}
               onPress={() => handlePress(tab.key)}
-              style={styles.tab}
+              style={({ pressed }) => [styles.tab, pressed && styles.tabPressed]}
               hitSlop={8}
             >
               <View style={styles.iconBox}>
@@ -89,11 +102,8 @@ export default function BottomNavigation({ activeTab, onTabPress }: Props) {
 const styles = StyleSheet.create({
   container: {
     paddingTop: 8,
-    paddingBottom: 8,
-    height: BOTTOM_NAV_HEIGHT,
   },
   tabsContainer: {
-    flex: 1,
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
@@ -105,6 +115,9 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 8,
     minWidth: 64,
+  },
+  tabPressed: {
+    opacity: 0.7,
   },
   iconBox: {
     width: 28,

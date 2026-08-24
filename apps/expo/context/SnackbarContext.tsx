@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import Snackbar from '@/components/Snackbar';
 
 type SnackbarConfig = {
@@ -31,8 +31,13 @@ export function SnackbarProvider({ children }: { children: React.ReactNode }) {
     setVisible(false);
   }, []);
 
+  const value = useMemo<SnackbarContextValue>(
+    () => ({ showSnackbar, hideSnackbar }),
+    [showSnackbar, hideSnackbar]
+  );
+
   return (
-    <SnackbarContext.Provider value={{ showSnackbar, hideSnackbar }}>
+    <SnackbarContext.Provider value={value}>
       {children}
       <Snackbar
         visible={visible}

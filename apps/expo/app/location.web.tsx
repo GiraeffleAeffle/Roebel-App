@@ -18,7 +18,10 @@ export default function LocationScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top', 'left', 'right']}
+    >
       <View style={styles.content}>
         <Text style={styles.emoji}>🗺️</Text>
         <Text style={[styles.title, { color: colors.textPrimary }]}>Karte nicht verfügbar</Text>

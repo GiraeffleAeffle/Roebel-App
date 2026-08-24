@@ -1,7 +1,6 @@
 import React, { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react';
 import {
   View,
-  FlatList,
   StyleSheet,
   RefreshControl,
   ViewToken,
@@ -106,6 +105,65 @@ type Props = {
 
 const PROPOSAL_HERO_ID = '__proposal_hero';
 
+// Resolves the record a feed row actually acts on: repost rows act on the
+// quoted original, everything else acts on itself. Pure/side-effect-free so
+// it can live at module scope and be shared by renderItem and the stable
+// per-cell callback lookups below.
+function resolveRepostTarget(post: PostRecord): PostRecord {
+  return post.post_type === 'repost' && post.quoted_post ? post.quoted_post : post;
+}
+
+// Hoisted to module scope so FlatList sees the SAME component reference on
+// every render — an inline `() => <View .../>` recreates a brand-new function
+// component every render, which React treats as a type change and remounts.
+// Reads the theme itself, so it needs no props from the list.
+const FeedSeparator = React.memo(function FeedSeparator() {
+  const { colors } = useTheme();
+  return <View style={[styles.separator, { backgroundColor: colors.border }]} />;
+});
+
+type FeedListFooterProps = {
+  isLoadingMore: boolean;
+  bottomPadding: number;
+};
+
+const FeedListFooter = React.memo(function FeedListFooter({
+  isLoadingMore,
+  bottomPadding,
+}: FeedListFooterProps) {
+  return isLoadingMore ? (
+    <View style={styles.footerLoader}>
+      <FeedPostSkeleton />
+    </View>
+  ) : (
+    <View style={{ height: bottomPadding + 40 }} />
+  );
+});
+
+type FeedListEmptyProps = {
+  isLoading: boolean;
+  feedType: FeedType;
+  isCitizen: boolean;
+  onCompose: () => void;
+};
+
+const FeedListEmpty = React.memo(function FeedListEmpty({
+  isLoading,
+  feedType,
+  isCitizen,
+  onCompose,
+}: FeedListEmptyProps) {
+  return isLoading ? (
+    <View style={styles.skeletonList}>
+      {[1, 2, 3, 4].map((i) => (
+        <FeedPostSkeleton key={i} />
+      ))}
+    </View>
+  ) : (
+    <FeedEmptyState feedType={feedType} isCitizen={isCitizen} onCompose={onCompose} />
+  );
+});
+
 const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
   {
     feedType,
@@ -153,6 +211,12 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
 
   const visibleDeals = useRef(new Set<string>());
   const [visibleVideoIds, setVisibleVideoIds] = useState<Set<string>>(new Set());
+  // Latest-ref mirror of visibleVideoIds: renderItem reads this instead of
+  // the state directly so a visibility flip doesn't force renderItem itself
+  // to be recreated. `extraData` below is what actually tells FlatList to
+  // re-render the currently mounted cells when this set changes.
+  const visibleVideoIdsRef = useRef(visibleVideoIds);
+  visibleVideoIdsRef.current = visibleVideoIds;
 
   React.useEffect(() => {
     setViewTrackerWallet(walletAddress);
@@ -236,6 +300,107 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
     minimumViewTime: 200,
   });
 
+  // --- Stable per-cell callbacks for FeedPostCard --------------------------
+  // FeedPostCard is React.memo'd; its default shallow-prop-compare only pays
+  // off if the onLike/onShare/onMore/onRepost props it receives keep a
+  // stable identity across renders. usePostActions re-derives toggleLike /
+  // sharePost / isReposted etc. whenever ANY post's like/repost state
+  // changes anywhere in the feed, so handing those straight through as
+  // per-item closures would recreate every mounted cell's callbacks on every
+  // like. Instead: keep "latest" refs to the volatile bits, and cache one
+  // bound handler per post id (created once, reused forever) that reads the
+  // refs at call time — liking post A never changes the onLike reference
+  // held by post B, C, D...
+  const toggleLikeRef = useRef(toggleLike);
+  toggleLikeRef.current = toggleLike;
+  const sharePostRef = useRef(sharePost);
+  sharePostRef.current = sharePost;
+  const onMorePropRef = useRef(onMore);
+  onMorePropRef.current = onMore;
+  const onRepostPropRef = useRef(onRepost);
+  onRepostPropRef.current = onRepost;
+  const isRepostedRef = useRef(isReposted);
+  isRepostedRef.current = isReposted;
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
+  const likeHandlersRef = useRef(new Map<string, () => void>());
+  const shareHandlersRef = useRef(new Map<string, () => void>());
+  const moreHandlersRef = useRef(new Map<string, () => void>());
+
+  // Look up the freshest post data by id at CALL time (via itemsRef), not at
+  // cache-creation time — so the cached handlers below never act on stale
+  // counts/content even though each one is created once and reused.
+  const findTargetById = useCallback((id: string): PostRecord | undefined => {
+    for (const it of itemsRef.current) {
+      if (it.type !== 'post' && it.type !== 'mecky') continue;
+      const resolved = resolveRepostTarget(it.data as PostRecord);
+      if (resolved.id === id) return resolved;
+    }
+    return undefined;
+  }, []);
+
+  const findRowById = useCallback((id: string): PostRecord | undefined => {
+    for (const it of itemsRef.current) {
+      if (it.type !== 'post' && it.type !== 'mecky') continue;
+      const p = it.data as PostRecord;
+      if (p.id === id) return p;
+    }
+    return undefined;
+  }, []);
+
+  const getLikeHandler = useCallback(
+    (id: string) => {
+      let fn = likeHandlersRef.current.get(id);
+      if (!fn) {
+        fn = () => {
+          const target = findTargetById(id);
+          toggleLikeRef.current(id, target?.likes_count ?? 0);
+        };
+        likeHandlersRef.current.set(id, fn);
+      }
+      return fn;
+    },
+    [findTargetById],
+  );
+
+  const getShareHandler = useCallback(
+    (id: string) => {
+      let fn = shareHandlersRef.current.get(id);
+      if (!fn) {
+        fn = () => {
+          const target = findTargetById(id);
+          sharePostRef.current(id, target?.content ?? '');
+        };
+        shareHandlersRef.current.set(id, fn);
+      }
+      return fn;
+    },
+    [findTargetById],
+  );
+
+  const getMoreHandler = useCallback(
+    (id: string) => {
+      let fn = moreHandlersRef.current.get(id);
+      if (!fn) {
+        fn = () => {
+          const row = findRowById(id);
+          if (row) onMorePropRef.current(row);
+        };
+        moreHandlersRef.current.set(id, fn);
+      }
+      return fn;
+    },
+    [findRowById],
+  );
+
+  // onRepost already receives its target as a call-time argument (from
+  // FeedPostCard), so unlike like/share/more it needs no per-id cache — one
+  // stable function works for every cell.
+  const handleRepost = useCallback((target: PostRecord) => {
+    onRepostPropRef.current?.(target, isRepostedRef.current(target.id));
+  }, []);
+
   const renderItem = useCallback(
     ({ item }: { item: FeedItem }) => {
       switch (item.type) {
@@ -262,20 +427,20 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
               </View>
             );
           }
-          const target = post.post_type === 'repost' && post.quoted_post ? post.quoted_post : post;
+          const target = resolveRepostTarget(post);
           return (
             <FeedPostCard
               post={post}
               isLiked={isLiked(target.id)}
               displayLikeCount={getLikeCount(target.id, target.likes_count)}
               walletAddress={walletAddress}
-              isVisible={active && visibleVideoIds.has(post.id)}
-              onLike={() => toggleLike(target.id, target.likes_count)}
-              onShare={() => sharePost(target.id, target.content)}
-              onMore={() => onMore(post)}
+              isVisible={active && visibleVideoIdsRef.current.has(post.id)}
+              onLike={getLikeHandler(target.id)}
+              onShare={getShareHandler(target.id)}
+              onMore={getMoreHandler(post.id)}
               isReposted={isReposted(target.id)}
               displayRepostCount={getRepostCount(target.id, target.reposts_count ?? 0)}
-              onRepost={onRepost ? (t) => onRepost(t, isReposted(t.id)) : undefined}
+              onRepost={onRepost ? handleRepost : undefined}
             />
           );
         }
@@ -288,7 +453,7 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
               isLiked={isLiked(post.id)}
               displayLikeCount={getLikeCount(post.id, post.likes_count)}
               walletAddress={walletAddress}
-              isVisible={active && visibleVideoIds.has(post.id)}
+              isVisible={active && visibleVideoIdsRef.current.has(post.id)}
               onLike={() => toggleLike(post.id, post.likes_count)}
               onShare={() => sharePost(post.id, post.content)}
               onMore={() => onMore(post)}
@@ -404,7 +569,22 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
           return null;
       }
     },
-    [walletAddress, isLiked, getLikeCount, toggleLike, sharePost, onMore, onRepost, isReposted, getRepostCount, visibleVideoIds, active],
+    [
+      walletAddress,
+      isLiked,
+      getLikeCount,
+      toggleLike,
+      sharePost,
+      onMore,
+      onRepost,
+      isReposted,
+      getRepostCount,
+      active,
+      getLikeHandler,
+      getShareHandler,
+      getMoreHandler,
+      handleRepost,
+    ],
   );
 
   const keyExtractor = useCallback((item: FeedItem) => item.id, []);
@@ -429,12 +609,27 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
     return [hero, ...visible];
   }, [items, showProposalHero]);
 
-  // Direction-aware chrome visibility: hide on scroll down, reveal on scroll up.
-  // Always force visible at the top / on overscroll. Only triggers a new timing
-  // animation when the target state actually flips, so scroll frames don't spawn
-  // overlapping animations.
+  // X-style parallax chrome: the header physically tracks the scroll instead
+  // of flipping between shown/hidden. Collapsing runs at PARALLAX_RATE (< 1)
+  // so the feed body visibly overtakes and slides above the retreating
+  // header; revealing runs at full finger speed so chrome comes back
+  // instantly on scroll-up. When the gesture ends mid-way the header snaps
+  // to the nearest edge so it never parks half-visible.
+  const PARALLAX_RATE = 0.55;
   const prevScrollY = useSharedValue(0);
-  const collapsed = useSharedValue(false);
+  // Guards the reset-at-top timing so bounce frames don't restart it.
+  const resettingAtTop = useSharedValue(false);
+
+  const snapToNearestEdge = () => {
+    'worklet';
+    if (!headerTranslateY || headerHeight <= 0) return;
+    const v = headerTranslateY.value;
+    if (v > -headerHeight && v < 0) {
+      headerTranslateY.value = withTiming(v < -headerHeight / 2 ? -headerHeight : 0, {
+        duration: 180,
+      });
+    }
+  };
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (e) => {
@@ -444,22 +639,32 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
       prevScrollY.value = y;
 
       if (y <= 0) {
-        if (collapsed.value) {
-          collapsed.value = false;
-          headerTranslateY.value = withTiming(0, { duration: 180 });
+        // At the top / overscroll: chrome always fully visible.
+        if (headerTranslateY.value !== 0 && !resettingAtTop.value) {
+          resettingAtTop.value = true;
+          headerTranslateY.value = withTiming(0, { duration: 160 });
         }
         return;
       }
+      resettingAtTop.value = false;
 
-      if (Math.abs(dy) < 2) return;
-
-      if (dy > 0 && !collapsed.value) {
-        collapsed.value = true;
-        headerTranslateY.value = withTiming(-headerHeight, { duration: 180 });
-      } else if (dy < 0 && collapsed.value) {
-        collapsed.value = false;
-        headerTranslateY.value = withTiming(0, { duration: 180 });
+      if (dy > 0) {
+        // Never collapse further than the content above the fold allows —
+        // prevents the header vanishing on a tiny first scroll.
+        const limit = Math.min(headerHeight, y);
+        headerTranslateY.value = Math.max(
+          -limit,
+          headerTranslateY.value - dy * PARALLAX_RATE,
+        );
+      } else if (dy < 0) {
+        headerTranslateY.value = Math.min(0, headerTranslateY.value - dy);
       }
+    },
+    onEndDrag: () => {
+      snapToNearestEdge();
+    },
+    onMomentumEnd: () => {
+      snapToNearestEdge();
     },
   });
 
@@ -468,10 +673,12 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
       data={displayData}
       keyExtractor={keyExtractor}
       renderItem={renderItem}
+      // Forces the (memoized) cells that FlatList currently has mounted to
+      // re-render when video visibility changes, since renderItem no longer
+      // depends on visibleVideoIds directly (see visibleVideoIdsRef above).
+      extraData={visibleVideoIds}
       ListHeaderComponent={listHeader ? <>{listHeader}</> : undefined}
-      ItemSeparatorComponent={() => (
-        <View style={[styles.separator, { backgroundColor: colors.border }]} />
-      )}
+      ItemSeparatorComponent={FeedSeparator}
       style={{ backgroundColor: colors.background }}
       refreshControl={
         <RefreshControl
@@ -488,25 +695,18 @@ const FeedList = forwardRef<FeedListHandle, Props>(function FeedList(
       onViewableItemsChanged={onViewableItemsChanged}
       viewabilityConfig={viewabilityConfig.current}
       scrollIndicatorInsets={{ top: topPadding, bottom: bottomPadding }}
+      windowSize={7}
+      maxToRenderPerBatch={5}
       ListEmptyComponent={
-        isLoading ? (
-          <View style={styles.skeletonList}>
-            {[1, 2, 3, 4].map((i) => (
-              <FeedPostSkeleton key={i} />
-            ))}
-          </View>
-        ) : (
-          <FeedEmptyState feedType={feedType} isCitizen={isCitizen} onCompose={onCompose} />
-        )
+        <FeedListEmpty
+          isLoading={isLoading}
+          feedType={feedType}
+          isCitizen={isCitizen}
+          onCompose={onCompose}
+        />
       }
       ListFooterComponent={
-        isLoadingMore ? (
-          <View style={styles.footerLoader}>
-            <FeedPostSkeleton />
-          </View>
-        ) : (
-          <View style={{ height: bottomPadding + 40 }} />
-        )
+        <FeedListFooter isLoadingMore={isLoadingMore} bottomPadding={bottomPadding} />
       }
       contentContainerStyle={[
         styles.feedContent,

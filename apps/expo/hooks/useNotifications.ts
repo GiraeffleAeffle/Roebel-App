@@ -4,7 +4,7 @@
  * Manages push notification registration, permissions, and preferences
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Platform, AppState, AppStateStatus } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
@@ -585,24 +585,48 @@ export function useNotifications(): UseNotificationsReturn {
     };
   }, []);
 
-  return {
-    expoPushToken,
-    permissionStatus,
-    preferences,
-    isLoading,
-    error,
-    deviceId,
-    hasSeenPrompt,
-    hasDismissedPrompt,
-    requestPermission,
-    refreshPreferences,
-    updatePreference,
-    toggleCategory,
-    disableNotifications,
-    markPromptAsSeen,
-    markPromptAsDismissed,
-    enableAllNotifications,
-  };
+  // Memoized so consumers (NotificationsContext) get a stable identity
+  // between renders where none of these fields actually changed — the
+  // notification-poll cascade otherwise re-renders every consumer even when
+  // nothing here is new.
+  return useMemo<UseNotificationsReturn>(
+    () => ({
+      expoPushToken,
+      permissionStatus,
+      preferences,
+      isLoading,
+      error,
+      deviceId,
+      hasSeenPrompt,
+      hasDismissedPrompt,
+      requestPermission,
+      refreshPreferences,
+      updatePreference,
+      toggleCategory,
+      disableNotifications,
+      markPromptAsSeen,
+      markPromptAsDismissed,
+      enableAllNotifications,
+    }),
+    [
+      expoPushToken,
+      permissionStatus,
+      preferences,
+      isLoading,
+      error,
+      deviceId,
+      hasSeenPrompt,
+      hasDismissedPrompt,
+      requestPermission,
+      refreshPreferences,
+      updatePreference,
+      toggleCategory,
+      disableNotifications,
+      markPromptAsSeen,
+      markPromptAsDismissed,
+      enableAllNotifications,
+    ]
+  );
 }
 
 export default useNotifications;

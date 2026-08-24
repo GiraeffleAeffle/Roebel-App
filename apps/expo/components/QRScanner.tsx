@@ -8,6 +8,7 @@ import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter, useFocusEffect } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import ErrorDrawer from './ErrorDrawer';
 
 // Module-level constant so CameraView doesn't see a new object on every
@@ -158,6 +159,11 @@ export default function QRScanner({ onScan, allowedTypes }: QRScannerProps) {
       setScanned(false);
       return;
     }
+
+    // Recognized + allowed QR code — successful scan, once per scan (guarded
+    // by the `scanned` early-return above and the unknown/allowedTypes checks
+    // above, which reset `scanned` back to false on a rejected code).
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
     if (onScan) {
       onScan(result);

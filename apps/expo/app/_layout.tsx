@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -34,7 +34,7 @@ import { RewardCelebrationProvider } from '@/context/RewardCelebrationContext';
 import { RoebelTalerProvider } from '@/context/RoebelTalerProvider';
 import { MaciProvider } from '@/context/MaciContext';
 import { useDeferredTaskTriggers } from '@/hooks/useDeferredTaskTriggers';
-import { StatusBar, View, StyleSheet, Text, Platform } from 'react-native';
+import { StatusBar, View, StyleSheet, Text, Platform, InteractionManager } from 'react-native';
 import '@/lib/patch-text';
 import useAppFonts from '@/hooks/useFonts';
 import * as SplashScreen from 'expo-splash-screen';
@@ -49,25 +49,12 @@ import { ConsentGate } from '@/components/consent/ConsentGate';
 import { PostHogTelemetry } from '@/components/consent/PostHogTelemetry';
 import { AppUpdateGate } from '@/components/AppUpdateGate';
 import AnimatedSplash from '@/components/AnimatedSplash';
+import { bootState } from '@/lib/navigation/bootPathname';
 // DISABLED — debug-log FAB kept for later (also re-enable the capture in index.js):
 // import DebugLogOverlay from '@/components/DebugLogOverlay';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
-
-// Check for OTA updates on native platforms
-if (Platform.OS !== 'web') {
-  const Updates = require('expo-updates');
-  Updates.checkForUpdateAsync()
-    .then((update: any) => {
-      if (update.isAvailable) {
-        return Updates.fetchUpdateAsync().then(() => Updates.reloadAsync());
-      }
-    })
-    .catch(() => {
-      // silently fail — user continues with current version
-    });
-}
 
 // Native-only: lock orientation. The notification foreground handler is set
 // in hooks/useNotifications.ts — do NOT set another one here: this module
@@ -147,6 +134,82 @@ function NotificationHandler() {
   return null;
 }
 
+// True once some `DeferredUpdateCheck` instance has scheduled the OTA check.
+// Module scope, shared across every mount site (the `fontError` branch, the
+// `!fontsLoaded` branch, and the steady-state instance inside `ThemedLayout`
+// — see `Layout()` below) so only the FIRST instance whose effect actually
+// runs schedules the network call; every later instance is a no-op. Without
+// this, an ordinary cold start double-fires the check: the `!fontsLoaded`
+// instance's `runAfterInteractions` callback typically fires within a frame
+// (nothing else registers an interaction handle that early), well before
+// fonts finish loading and `ThemedLayout` mounts its own fresh instance.
+// Checked-and-spent INSIDE the effect (not during render) so it's only
+// flipped once a render has actually committed and its effect has run — the
+// same reasoning as the `hasRedirectedFromRoot` guard in `app/index.tsx`.
+let hasScheduledUpdateCheck = false;
+
+/**
+ * Checks for and applies OTA updates (native only). This used to run at
+ * module scope — network on the JS critical path, with `Updates.reloadAsync()`
+ * able to restart the app mid-boot. Now it waits until the first screen has
+ * mounted and interactions have settled (`InteractionManager`), so the check
+ * still runs — and still applies + reloads — on every launch, just off the
+ * cold-start path. Runs once per app process (see `hasScheduledUpdateCheck`
+ * above — this component can mount more than once per process across
+ * `Layout()`'s branches, but only the first mount's effect schedules
+ * anything). Error handling unchanged: failures are swallowed and the user
+ * continues on the current version.
+ */
+function DeferredUpdateCheck() {
+  useEffect(() => {
+    if (Platform.OS === 'web') return undefined;
+    if (hasScheduledUpdateCheck) return undefined;
+    hasScheduledUpdateCheck = true;
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      const Updates = require('expo-updates');
+      Updates.checkForUpdateAsync()
+        .then((update: any) => {
+          if (update.isAvailable) {
+            return Updates.fetchUpdateAsync().then(() => Updates.reloadAsync());
+          }
+        })
+        .catch(() => {
+          // silently fail — user continues with current version
+        });
+    });
+
+    return () => task.cancel();
+  }, []);
+
+  return null;
+}
+
+/**
+ * Captures the cold-boot pathname exactly once, during this component's own
+ * render. Rendered as `ThemedLayout`'s FIRST child, so — siblings render in
+ * declaration order, depth-first — it always runs before React descends into
+ * the Stack's matched screen (the same tree position the old
+ * `InitialRouteRedirect` occupied). `app/index.tsx` reads
+ * `bootState.pathname` to tell "cold start resolved to `/`" apart from "the
+ * user navigated back to `/` later in the session" without ever mounting the
+ * feed screen on the former. See `lib/navigation/bootPathname.ts`.
+ *
+ * Deliberately kept OUT of `ThemedLayout` itself: `usePathname()` subscribes
+ * to every navigation, and `ThemedLayout` is the ancestor of the entire
+ * 24-screen `TransitionStack` — calling the hook there would re-render that
+ * whole subtree on every route change. As a null-rendering leaf sibling, its
+ * own re-renders never cascade into the Stack.
+ */
+function BootPathnameCapture() {
+  const pathname = usePathname();
+  if (!bootState.captured) {
+    bootState.captured = true;
+    bootState.pathname = pathname;
+  }
+  return null;
+}
+
 /**
  * Component to handle Firebase Analytics screen tracking
  */
@@ -205,13 +268,15 @@ function ThemedLayout() {
 
   return (
     <>
+      <BootPathnameCapture />
+      <DeferredUpdateCheck />
       <NotificationHandler />
       <AnalyticsTracker />
       <PostHogTelemetry />
       <RewardsTaskTriggers />
       <ReferralDeepLinkHandler />
       <View style={[styles.gradientContainer, { backgroundColor: colors.background }]}>
-        <TransitionStack screenOptions={{ headerShown: false, animation: 'none' }}>
+        <TransitionStack screenOptions={{ headerShown: false }}>
           <TransitionStack.Screen
             name="submit"
             options={{ headerShown: true, title: 'Veranstaltung einreichen', animation: 'none' }}
@@ -220,6 +285,20 @@ function ThemedLayout() {
           <TransitionStack.Screen name="games/mecky-portal" options={noTransition()} />
           <TransitionStack.Screen name="games/speedrun" options={noTransition()} />
           <TransitionStack.Screen name="games/fortune-cards" options={noTransition()} />
+          {/* Pseudo-tab routes reachable from components/BottomNavigation.tsx — no tab
+              navigator exists, so these switches must stay instant cuts instead of
+              sliding sideways like a real push. */}
+          <TransitionStack.Screen name="index" options={noTransition()} />
+          <TransitionStack.Screen name="explore" options={noTransition()} />
+          <TransitionStack.Screen name="profile" options={noTransition()} />
+          <TransitionStack.Screen name="events" options={noTransition()} />
+          <TransitionStack.Screen name="calendar" options={noTransition()} />
+          <TransitionStack.Screen name="governance" options={noTransition()} />
+          <TransitionStack.Screen name="tours/index" options={noTransition()} />
+          <TransitionStack.Screen name="transit/index" options={noTransition()} />
+          <TransitionStack.Screen name="blog/index" options={noTransition()} />
+          <TransitionStack.Screen name="wildlife/index" options={noTransition()} />
+          <TransitionStack.Screen name="news/index" options={noTransition()} />
           <TransitionStack.Screen
             name="welcome"
             options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }}
@@ -269,23 +348,33 @@ function Layout() {
     }
   }, [fontsLoaded]);
 
-  // Show error state if fonts fail to load
+  // Show error state if fonts fail to load. The OTA update check is mounted
+  // here too — not just inside `ThemedLayout` below — so a broken update that
+  // breaks font loading can still be superseded by the next OTA instead of
+  // stranding the device until a store update. `DeferredUpdateCheck` renders
+  // null; mounting it costs nothing.
   if (fontError) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#ffffff' }}>
-        <Text style={{ fontSize: 20, fontWeight: '600', marginBottom: 16, color: '#000000' }}>Font Loading Error</Text>
-        <Text style={{ fontSize: 14, color: '#6b7280', textAlign: 'center' }}>
-          Die Schriftarten konnten nicht geladen werden. Bitte versuchen Sie es später erneut.
-        </Text>
-        <Text style={{ fontSize: 12, color: '#dc2626', marginTop: 16, textAlign: 'center' }}>
-          {fontError.message}
-        </Text>
-      </View>
+      <>
+        <DeferredUpdateCheck />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#ffffff' }}>
+          <Text style={{ fontSize: 20, fontWeight: '600', marginBottom: 16, color: '#000000' }}>Font Loading Error</Text>
+          <Text style={{ fontSize: 14, color: '#6b7280', textAlign: 'center' }}>
+            Die Schriftarten konnten nicht geladen werden. Bitte versuchen Sie es später erneut.
+          </Text>
+          <Text style={{ fontSize: 12, color: '#dc2626', marginTop: 16, textAlign: 'center' }}>
+            {fontError.message}
+          </Text>
+        </View>
+      </>
     );
   }
 
   if (!fontsLoaded) {
-    return null;
+    // Same reasoning as the fontError branch above: keep the update check
+    // alive even while fonts are still loading, so a hang here doesn't also
+    // block the OTA path that could fix it.
+    return <DeferredUpdateCheck />;
   }
 
   return (

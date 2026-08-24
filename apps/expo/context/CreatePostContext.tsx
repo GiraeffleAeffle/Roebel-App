@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadMediaFile } from '@/lib/upload-media';
 import { probeStreamConfigured, uploadVideoToStream } from '@/lib/stream-upload';
@@ -260,30 +260,53 @@ export function CreatePostProvider({ children }: { children: React.ReactNode }) 
     setState(initialState);
   }, []);
 
+  const value = useMemo<CreatePostContextType>(
+    () => ({
+      ...state,
+      setContent,
+      setCategory,
+      setFeedType,
+      addImages,
+      removeImage,
+      pickVideo,
+      removeVideo,
+      setIsPoll,
+      setPollOptions,
+      setPollType,
+      setLinkedEvent,
+      setLinkedMarketplace,
+      setLinkedMiniApp,
+      clearLinkedItem,
+      setSticker,
+      setStadtkasseSnapshot,
+      setQuotedPost,
+      reset,
+    }),
+    [
+      state,
+      setContent,
+      setCategory,
+      setFeedType,
+      addImages,
+      removeImage,
+      pickVideo,
+      removeVideo,
+      setIsPoll,
+      setPollOptions,
+      setPollType,
+      setLinkedEvent,
+      setLinkedMarketplace,
+      setLinkedMiniApp,
+      clearLinkedItem,
+      setSticker,
+      setStadtkasseSnapshot,
+      setQuotedPost,
+      reset,
+    ]
+  );
+
   return (
-    <CreatePostContext.Provider
-      value={{
-        ...state,
-        setContent,
-        setCategory,
-        setFeedType,
-        addImages,
-        removeImage,
-        pickVideo,
-        removeVideo,
-        setIsPoll,
-        setPollOptions,
-        setPollType,
-        setLinkedEvent,
-        setLinkedMarketplace,
-        setLinkedMiniApp,
-        clearLinkedItem,
-        setSticker,
-        setStadtkasseSnapshot,
-        setQuotedPost,
-        reset,
-      }}
-    >
+    <CreatePostContext.Provider value={value}>
       {children}
     </CreatePostContext.Provider>
   );

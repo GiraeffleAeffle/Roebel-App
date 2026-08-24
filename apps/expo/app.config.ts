@@ -35,7 +35,8 @@ const config: ExpoConfig = {
     sentryDsn: process.env.EXPO_PUBLIC_SENTRY_DSN || ''
   },
   experiments: {
-    typedRoutes: true
+    typedRoutes: true,
+    reactCompiler: true
   },
   plugins: [
     [

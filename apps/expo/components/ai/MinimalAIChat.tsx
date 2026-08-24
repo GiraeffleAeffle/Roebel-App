@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -31,6 +31,7 @@ import FlyerIcon from '@/assets/icons/flyer.svg';
 import UploadIcon from '@/assets/icons/profile/upload.svg';
 import CheckIcon from '@/assets/icons/check.svg';
 import { useTheme } from '@/context/ThemeContext';
+import type { ColorTokens } from '@/constants/theme';
 import { useAccount } from '@/context/AccountContext';
 import { useUser } from '@/context/UserContext';
 
@@ -234,25 +235,11 @@ async function imageToBase64(uri: string): Promise<{ base64: string; mediaType: 
   }
 }
 
-// Message bubble component with image and markdown support
-function MessageBubbleInner({
-  role,
-  content,
-  imageUrl,
-  localUri,
-  isLoading
-}: {
-  role: 'user' | 'assistant';
-  content: string;
-  imageUrl?: string;
-  localUri?: string;
-  isLoading?: boolean;
-}) {
-  const { colors } = useTheme();
-  const isUser = role === 'user';
-  const displayUri = localUri || imageUrl;
-
-  const markdownStyles = StyleSheet.create({
+// Hoisted out of MessageBubbleInner so this style object isn't rebuilt on
+// every render (this bubble is re-rendered per streamed token while the AI
+// response is typing out).
+function createMarkdownStyles(colors: ColorTokens) {
+  return StyleSheet.create({
     body: {
       color: colors.textPrimary,
       fontSize: 15,
@@ -278,6 +265,27 @@ function MessageBubbleInner({
       marginVertical: 2,
     },
   });
+}
+
+// Message bubble component with image and markdown support
+function MessageBubbleInner({
+  role,
+  content,
+  imageUrl,
+  localUri,
+  isLoading
+}: {
+  role: 'user' | 'assistant';
+  content: string;
+  imageUrl?: string;
+  localUri?: string;
+  isLoading?: boolean;
+}) {
+  const { colors } = useTheme();
+  const isUser = role === 'user';
+  const displayUri = localUri || imageUrl;
+
+  const markdownStyles = useMemo(() => createMarkdownStyles(colors), [colors]);
 
   return (
     <View style={[

@@ -9,6 +9,7 @@ import {
   Image as RNImage,
 } from 'react-native';
 import { Image } from 'expo-image';
+import * as Haptics from 'expo-haptics';
 
 // Standard Röbel Münzen coin used across the Belohnungen screens (balance
 // badge, tasks, Schatzkammer). require()'d + rendered with RN's Image so it
@@ -38,6 +39,7 @@ export default function ChatInput({ onSend, isSending, onOpenPayment }: Props) {
 
   const handleSend = () => {
     if (!canSend) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     onSend(text.trim(), pendingSticker?.id ?? null);
     setText('');
     setPendingSticker(null);
