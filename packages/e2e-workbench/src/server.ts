@@ -2393,12 +2393,7 @@ export async function startWorkbench(
         if (!published.ok)
           throw new Error(`citizen_relay_${published.message}`);
         return json(response, 200, {
-          status:
-            body.intent === "promotion"
-              ? "promoted"
-              : body.intent === "suggestion"
-                ? "signed"
-                : "published",
+          status: body.intent === "suggestion" ? "signed" : "published",
           event: signed,
           ...(signedSuggestion === null
             ? {}
