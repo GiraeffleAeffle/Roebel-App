@@ -91,7 +91,7 @@ jobs:
   web-oci:
     name: Verified Web build
     needs: changes
-    if: ${{ needs.changes.outputs.web == 'true' }}
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.web == 'true' }}
     permissions:
       contents: read
     uses: ./.github/workflows/staging-web-oci.yml
@@ -113,7 +113,7 @@ jobs:
           QUALITY_RESULT: ${{ needs.quality.result }}
           QUALITY_REQUIRED: ${{ needs.changes.outputs.quality_required }}
           WEB_OCI_RESULT: ${{ needs.web-oci.result }}
-          WEB_REQUIRED: ${{ needs.changes.outputs.web }}
+          WEB_REQUIRED: ${{ github.event_name == 'pull_request' && needs.changes.outputs.web == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
