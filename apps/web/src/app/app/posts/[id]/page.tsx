@@ -30,8 +30,10 @@ export default function PostDetailPage({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
-  const stagingEnabled = resolveStadtstackStagingLab(
-    process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB
+  const stagingEnabled = Boolean(
+    resolveStadtstackStagingLab(
+      process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB
+    )
   );
 
   useEffect(() => {

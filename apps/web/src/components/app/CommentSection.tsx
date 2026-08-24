@@ -304,8 +304,10 @@ export function CommentSection({
     null
   );
   const [conversationPollVersion, setConversationPollVersion] = useState(0);
-  const stagingEnabled = resolveStadtstackStagingLab(
-    process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB
+  const stagingEnabled = Boolean(
+    resolveStadtstackStagingLab(
+      process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB
+    )
   );
 
   // Media state
