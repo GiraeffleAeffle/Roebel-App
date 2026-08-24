@@ -7,14 +7,20 @@ Proposed; no route extraction or deployment split is authorized yet.
 ## Context
 
 The current `apps/web` image compiles the public Röbel experience and the
-operator product as one Next application. Of 226 page routes, 75 live below
-`/admin` (one login page and 74 dashboard pages) and 36 below `/dashboard`:
-111 routes, almost half of the page graph, belong to administration,
-publishing, partner and builder workflows rather than the public feed and
-civic journey. The protected staging publisher spends about six minutes on
-the verified Web job; the standalone Next build is its dominant step.
+operator product as one Next application. The reviewed 2026-08-24 route
+inventory contains 300 page files: 76 below `/admin`, 111 below `/dashboard`,
+and 113 other pages. The 187 operator-shaped pages dominate a build that still
+ships as one public artifact. The protected staging publisher spends about six
+and a half minutes on the verified Web job; the standalone Next build is its
+dominant step.
 Increasing webpack parallelism from two to four changed the exact Next build
 from 363.5 seconds to 358.5 seconds, so runner slots are not the limiting seam.
+The current measured build spends about 29 seconds fetching the scoped offline
+inputs, 33 seconds materializing a 2.33 GB install, 4 minutes 12 seconds in
+Next (about 3.6 minutes compiling and 31 seconds collecting page/static data),
+and about 39 seconds packaging, publishing, producing the SBOM and recording
+provenance. Compiler-cache, dependency-cache and Turbopack trials were slower,
+larger or failed existing page-data gates and remain rejected.
 
 These surfaces also have different authority. The public app owns ordinary
 posts, profiles, topics, discussions and the visible civic journey. The
@@ -90,6 +96,9 @@ advance either component without rebuilding the unaffected one.
 The extraction begins only after the first complete Thirdweb-backed civic
 journey passes staging. Until then, measured reversible compiler changes may be
 accepted independently; they do not count as implementing this ADR.
+Hosted builds record stage timing and route-count regression evidence during
+that period. Those measurements protect the budget but do not pretend to be a
+latency improvement.
 
 ## Acceptance gates
 

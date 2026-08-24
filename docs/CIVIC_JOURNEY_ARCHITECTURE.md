@@ -2,7 +2,7 @@
 
 This is the navigation page for the discussion-to-outcome work. It records where the durable language, decisions, implementation specification, code, and operations live so a future slice extends the same journey instead of creating another parallel demo.
 
-## Testability checkpoint at 2026-08-23
+## Testability checkpoint at 2026-08-24
 
 The complete journey is **not yet accepted end to end in Talos staging**. The
 code candidates and authority boundaries are substantially ahead of the live
@@ -126,10 +126,11 @@ local-development concerns.
 
 ## Delivery performance seam
 
-The current public image compiles 226 Next pages, including 111 `admin` or
-`dashboard` pages. A measured two-to-four webpack-parallelism change saved only
-five seconds across the exact Next build, while the experimental Turbopack
-candidate failed page-data collection. [ADR 0018](adr/0018-separate-public-journey-and-operator-console-build-boundaries.md)
+The current public image compiles a 300-page source inventory, including 76
+`admin` and 111 `dashboard` pages. A measured two-to-four
+webpack-parallelism change saved only five seconds across the exact Next build,
+while compiler-cache and Turbopack candidates were slower, materially larger,
+or failed page-data collection. [ADR 0018](adr/0018-separate-public-journey-and-operator-console-build-boundaries.md)
 therefore records the proposed durable boundary: keep one repository and one
 domain model, but extract the privileged operator console into its own
 least-privilege deployable after the first complete civic tracer passes.
@@ -159,7 +160,7 @@ No public application repository receives cluster-admin credentials or secret va
 | 0. Vocabulary and boundaries         | One reviewed definition of post, topic, discussion, proposal, case, vote, and treasury state                                                       | documented in this branch                                                                                                                                                                          |
 | 1. General signed feed               | A real staging account publishes an ordinary signed Nostr post in the normal feed                                                                  | Thirdweb-backed `CitizenSession`, dual-proof admission and pre-signed event path implemented; immutable deployment and browser E2E pending                                                         |
 | 2. Explicit civic promotion          | The user attaches that post to a topic or creates a discussion; the source remains attributable                                                    | browser-signed promotion, grouped feed activity, and a canonical topic hub with source/discussion provenance implemented; deployment E2E pending                                                   |
-| 3. Real Mecky loop                   | The user tags Mecky and receives one evidence-bound signed reply in the same thread                                                                | signed source-bound direct mentions, reviewed Civic Cases, and explicitly enabled checksum-bound news/RIS projections now compose into one catalog; real corpus deployment and browser E2E remain |
+| 3. Real Mecky loop                   | The user tags Mecky and receives one evidence-bound signed reply in the same thread                                                                | signed source-bound direct mentions, per-request pending/answered projections, reviewed Civic Cases, and explicitly enabled checksum-bound news/RIS projections compose into one catalog; the durable request UI is a source candidate and connected-account browser E2E remains |
 | 4. Proposal and admission            | A human signs a proposal candidate; a separately authenticated Case Steward admits one idempotent civic case and the public journey reads its binding receipt | citizen signing and the Stadtstack atomic admission kernel exist; the role-isolated control service, staff console, public receipt projection, GitOps resources and deployed browser E2E remain |
 | 5. Administration round trip         | One exact openDesk package returns reviewed feedback to the same journey                                                                           | public-read candidate now binds reviewed package IDs and checksums to the exact case on its discussion and canonical topic; a real openDesk return receipt and deployed browser E2E remain pending |
 | 6. Brief, participation, and finance | Citizen Brief, advisory Mitmachen, and treasury review are visible together without implying authority                                             | exact case-bound Mitmachen reader and reviewed finance context implemented; participation input/result and deployed browser proof remain                                                           |

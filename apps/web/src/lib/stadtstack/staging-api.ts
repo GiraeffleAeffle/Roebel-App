@@ -148,12 +148,20 @@ export type StagingMeckyConversationReply = {
   evidenceRefs: { digest: string; url: string }[];
 };
 
+export type StagingMeckyConversationRequest = {
+  mentionId: string;
+  sourceAppCommentId: string | null;
+  state: "pending" | "answered";
+  replyId: string | null;
+};
+
 export type StagingMeckyConversationResponse = {
   schemaVersion: "roebel_app_mecky_conversation_v1";
   postId: string;
   requestCount: number;
   mentionIds: string[];
   pendingCount: number;
+  requests: StagingMeckyConversationRequest[];
   replies: StagingMeckyConversationReply[];
   authorityBinding: "none";
 };

@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/client";
 import { uploadResumable } from "@/lib/storage/resumable-upload";
 import { PostMediaGrid } from "@/components/app/PostMediaGrid";
 import { VideoPlayer } from "@/components/app/VideoPlayer";
+import { ConnectCta } from "@/components/unternehmen/ConnectCta";
 import { useAccount } from "@/lib/context/AccountContext";
 import { isOrgAccount, ACCOUNT_TYPE_LABELS } from "@/types/account";
 import type { PostComment } from "@/types/post";
@@ -304,6 +305,7 @@ export function CommentSection({
     null
   );
   const [conversationPollVersion, setConversationPollVersion] = useState(0);
+  const [meckyPollingPaused, setMeckyPollingPaused] = useState(false);
   const stagingEnabled = Boolean(
     resolveStadtstackStagingLab(
       process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB
@@ -334,6 +336,10 @@ export function CommentSection({
       (reply) => !projectedReplyIds.has(reply.id)
     ) ?? [];
   const visibleCommentCount = totalCount + transitionalReplies.length;
+  const pendingMeckyRequests =
+    meckyConversation?.requests?.filter(
+      (request) => request.state === "pending"
+    ) ?? [];
 
   const refreshMeckyConversation = useCallback(async () => {
     if (!stagingEnabled) return null;
@@ -368,6 +374,7 @@ export function CommentSection({
 
   useEffect(() => {
     if (!stagingEnabled || !isExpanded) return;
+    setMeckyPollingPaused(false);
     const expectsTopLevelMention = containsExplicitMeckyMention(
       postSource.content
     );
@@ -383,12 +390,23 @@ export function CommentSection({
         // A transient projection failure must not affect the ordinary thread.
       }
       if (cancelled) return;
+      const trackedRequest = waitingForMentionId
+        ? result?.requests?.find(
+            (request) => request.mentionId === waitingForMentionId
+          )
+        : undefined;
       const expectedRequestVisible = waitingForMentionId
-        ? result?.mentionIds.includes(waitingForMentionId) === true
+        ? trackedRequest !== undefined ||
+          result?.mentionIds.includes(waitingForMentionId) === true
         : !expectsTopLevelMention || (result?.requestCount ?? 0) > 0;
-      const settled =
-        expectedRequestVisible && (result?.pendingCount ?? 0) === 0;
-      if (!settled && attempts < 40) timer = setTimeout(poll, 3_000);
+      const settled = waitingForMentionId
+        ? trackedRequest?.state === "answered"
+        : expectedRequestVisible && (result?.pendingCount ?? 0) === 0;
+      if (!settled && attempts < 40) {
+        timer = setTimeout(poll, 3_000);
+      } else if (!settled) {
+        setMeckyPollingPaused(true);
+      }
       if (settled && waitingForMentionId) setWaitingForMentionId(null);
     };
     void poll();
@@ -612,14 +630,31 @@ export function CommentSection({
               <MeckyCommentItem key={reply.id} reply={reply} />
             ))}
           {!isLoading &&
-            ((meckyConversation?.pendingCount ?? 0) > 0 ||
+            (pendingMeckyRequests.length > 0 ||
+              (meckyConversation?.pendingCount ?? 0) > 0 ||
               waitingForMentionId !== null) && (
               <div
-                className="my-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"
+                className="my-2 flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"
                 aria-live="polite"
               >
-                <Bot className="h-4 w-4" />
-                Mecky prüft die verfügbaren öffentlichen Nachweise …
+                <span className="flex items-center gap-2">
+                  <Bot className="h-4 w-4" />
+                  {meckyPollingPaused
+                    ? "Mecky wurde gefragt. Die Antwort ist noch ausstehend."
+                    : "Mecky prüft die verfügbaren öffentlichen Nachweise …"}
+                </span>
+                {meckyPollingPaused && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMeckyPollingPaused(false);
+                      setConversationPollVersion((value) => value + 1);
+                    }}
+                    className="shrink-0 font-semibold underline underline-offset-2"
+                  >
+                    Erneut nach Mecky sehen
+                  </button>
+                )}
               </div>
             )}
         </div>
@@ -786,7 +821,18 @@ export function CommentSection({
             Nur verifizierte Bürger können kommentieren
           </p>
         </div>
-      ) : null}
+      ) : (
+        <div className="flex flex-col items-center gap-2 border-t border-border px-4 py-3 text-center">
+          <p className="text-xs text-muted-foreground">
+            Kommentare und Mecky-Antworten bleiben öffentlich lesbar.
+          </p>
+          <ConnectCta
+            label="Anmelden und mitreden"
+            title="Bei Röbel anmelden und mitreden"
+            className="min-h-9 rounded-full px-4 py-2"
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -1267,11 +1267,25 @@ describe("Röbel E2E workbench boundary", () => {
         requestCount: number;
         mentionIds: string[];
         pendingCount: number;
+        requests: Array<{
+          mentionId: string;
+          sourceAppCommentId: string | null;
+          state: "pending" | "answered";
+          replyId: string | null;
+        }>;
         replies: Array<{ id: string }>;
       };
       assert.equal(projection.requestCount, 1);
       assert.deepEqual(projection.mentionIds, [mention.id]);
       assert.equal(projection.pendingCount, 1);
+      assert.deepEqual(projection.requests, [
+        {
+          mentionId: mention.id,
+          sourceAppCommentId: commentId,
+          state: "pending",
+          replyId: null,
+        },
+      ]);
 
       const answer = buildAgentNoteEvent(signedMecky, "Geprüfte Antwort.", {
         createdAt: mention.created_at + 1,
@@ -1285,6 +1299,14 @@ describe("Röbel E2E workbench boundary", () => {
         `${origin}/api/conversation?post=${postId}`
       ).then((response) => response.json())) as typeof projection;
       assert.equal(projection.pendingCount, 0);
+      assert.deepEqual(projection.requests, [
+        {
+          mentionId: mention.id,
+          sourceAppCommentId: commentId,
+          state: "answered",
+          replyId: answer.id,
+        },
+      ]);
       assert.deepEqual(
         projection.replies.map((entry) => entry.id),
         [answer.id]
