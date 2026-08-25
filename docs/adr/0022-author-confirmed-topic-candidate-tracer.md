@@ -1,6 +1,6 @@
 # ADR 0022: Author-confirmed source-post promotion and participant suggestion tracer
 
-- Status: Accepted boundary for staging; implementation pending
+- Status: Accepted boundary for staging; protocol kernel implemented, gateway/UI pending
 - Date: 2026-08-25
 
 ## Context
