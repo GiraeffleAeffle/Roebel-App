@@ -144,6 +144,26 @@ describe("staging component change detection", () => {
     assert.deepEqual(result.quality_packages, ["@netizen-labs/agent-watcher"]);
   });
 
+  it("selects the participant gateway as a scoped quality package without widening images", () => {
+    const result = affectedStagingComponents([
+      "packages/staging-participant-gateway/src/http.ts",
+    ]);
+    assert.deepEqual(selection(["packages/staging-participant-gateway/src/http.ts"]), {
+      web: false,
+      public_mecky: false,
+      e2e_workbench: false,
+      staging_relay: false,
+      any_service: false,
+      any_publish: false,
+    });
+    assert.equal(result.quality_required, true);
+    assert.equal(result.quality_full, false);
+    assert.equal(result.quality_web_tests, false);
+    assert.deepEqual(result.quality_packages, [
+      "@roebel/staging-participant-gateway",
+    ]);
+  });
+
   it("selects changed workspaces without widening to the whole monorepo", () => {
     const result = affectedStagingComponents([
       "packages/protocol/src/manifest.ts",
