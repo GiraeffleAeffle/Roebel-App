@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createGnosisWalletVerifier } from "@netizen-labs/relay-sync";
-import { readFileSync } from "node:fs";
 
+import { COMPILED_SOURCE_REVISION } from "./build-constants.ts";
 import { resolveProductionGatewayConfig } from "./config.ts";
 import {
   createStagingParticipantGatewayServer,
@@ -11,13 +11,7 @@ import { createRestrictedSupabaseDataAdapter, createStagingParticipantReadinessA
 import { createPrivateWorkbenchMeckyMirrorAdapter } from "./workbench-adapter.ts";
 
 async function main(): Promise<void> {
-  let bakedSourceRevision: string;
-  try {
-    bakedSourceRevision = readFileSync("/app/source-revision", "utf8").trim();
-  } catch {
-    throw new Error("staging_participant_gateway_baked_source_missing");
-  }
-  const config = resolveProductionGatewayConfig(process.env, bakedSourceRevision);
+  const config = resolveProductionGatewayConfig(process.env, COMPILED_SOURCE_REVISION);
   if (!config) {
     throw new Error("staging_participant_gateway_not_explicitly_configured");
   }

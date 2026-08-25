@@ -20,7 +20,7 @@ RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/core
     pnpm --filter @roebel/staging-participant-gateway... install --frozen-lockfile --offline --ignore-scripts
 COPY . .
 RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
-    pnpm --filter @roebel/staging-participant-gateway build
+    SOURCE_REVISION="$SOURCE_REVISION" pnpm --filter @roebel/staging-participant-gateway build
 
 FROM --platform=linux/amd64 docker.io/library/node@sha256:a17d50af28002a160548bd4225b3cfcb12c5efcb171f79e68758f2885fb1b066 AS runtime
 
@@ -37,9 +37,6 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 COPY --from=builder --chown=65532:65532 /workspace/packages/staging-participant-gateway/dist/staging-participant-gateway.cjs /app/staging-participant-gateway.cjs
-RUN printf '%s\n' "$SOURCE_REVISION" > /app/source-revision \
-    && chown 65532:65532 /app/source-revision \
-    && chmod 0444 /app/source-revision
 
 USER 65532:65532
 STOPSIGNAL SIGTERM

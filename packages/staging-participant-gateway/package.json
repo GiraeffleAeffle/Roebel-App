@@ -18,7 +18,7 @@
   "files": ["src"],
   "scripts": {
     "start": "tsx src/cli.ts",
-    "build": "esbuild src/cli.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/staging-participant-gateway.cjs",
+    "build": "node scripts/build.mjs",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

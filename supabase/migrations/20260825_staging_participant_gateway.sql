@@ -158,16 +158,33 @@ create table staging_participant_private.staging_participant_schema_contract (
   singleton boolean primary key default true check (singleton),
   migration_id text not null,
   canonical_contract text not null,
+  prior_function_definitions_sha256 text,
+  prior_privileges_sha256 text,
   database_schema_sha256 text not null check (database_schema_sha256 ~ '^sha256:[0-9a-f]{64}$')
+);
+
+-- Captured at activation from the then-trusted staging catalog. Preflight
+-- compares these values with the current catalog; this proves current
+-- executable identity, not unverifiable historic SQL-file bytes.
+create table staging_participant_private.staging_participant_catalog_contract (
+  object_identity text primary key,
+  owner_name text not null,
+  language_name text not null,
+  return_type text not null,
+  volatility "char" not null,
+  security_definer boolean not null,
+  search_path text not null,
+  definition_sha256 text not null check (definition_sha256 ~ '^[0-9a-f]{64}$'),
+  source_sha256 text not null check (source_sha256 ~ '^[0-9a-f]{64}$')
 );
 insert into staging_participant_private.staging_participant_schema_contract
   (singleton, migration_id, canonical_contract, database_schema_sha256)
 values (
   true,
   '20260825_staging_participant_gateway',
-  $contract${"assertions":{"acl":{"anonExecute":["public.staging_participant_gateway_create_main_text_post(text,text,uuid)","public.staging_participant_gateway_create_main_text_comment(text,uuid,text,uuid)","public.staging_participant_gateway_read_owned_main_text_post(text,uuid)","public.staging_participant_gateway_reserve_nostr_post_mirror(text,uuid,uuid,text,bigint,text)","public.staging_participant_gateway_complete_nostr_post_mirror(text,uuid,uuid,text,text)","public.staging_participant_gateway_preflight()"],"directWritesClosed":["public.posts","public.post_comments","public.post_likes","public.app_settings"],"publicExecuteRevoked":true},"functions":{"preflight":{"language":"plpgsql","searchPath":"pg_catalog, public, staging_participant_private","securityDefiner":true,"stable":true},"privateRequired":["staging_participant_private.require_staging_participant_gateway()","staging_participant_private.staging_participant_rpc_secret()","staging_participant_private.ensure_active_staging_participant(text)","staging_participant_private.consume_staging_post_reservation(public.posts)"],"publicSecurityDefiner":true},"marker":{"canonicalTextBound":true,"migrationId":"20260825_staging_participant_gateway","singleton":true},"privateTables":["staging_participant_private.staging_participant_environment","staging_participant_private.staging_participant_admissions","staging_participant_private.staging_participant_write_reservations","staging_participant_private.staging_participant_write_audit","staging_participant_private.staging_participant_nostr_post_mirror_receipts","staging_participant_private.staging_participant_schema_contract"],"trigger":{"function":"public.enforce_posting_rules()","table":"public.posts"}},"migrationId":"20260825_staging_participant_gateway","schemaVersion":"roebel_staging_participant_gateway_schema_contract_v1"}
+  $contract${"assertions":{"catalog":{"capturedDefinitionAndSourceDigests":true,"capturedOwnerLanguageReturnVolatilitySecuritySearchPath":true,"priorRollbackEvidenceDigests":true},"deniedExecute":["public.delete_owned_post(uuid,text)","public.delete_owned_post_comment(uuid,text)","public.delete_owned_experience(uuid,text)","public.pin_own_post(uuid,text,boolean)"],"privateTables":["staging_participant_private.staging_participant_environment","staging_participant_private.staging_participant_admissions","staging_participant_private.staging_participant_write_reservations","staging_participant_private.staging_participant_write_audit","staging_participant_private.staging_participant_nostr_post_mirror_receipts","staging_participant_private.staging_participant_schema_contract","staging_participant_private.staging_participant_catalog_contract","staging_participant_private.staging_participant_prior_function_definitions","staging_participant_private.staging_participant_prior_privileges"],"publicRpc":["public.staging_participant_gateway_create_main_text_post(text,text,uuid)","public.staging_participant_gateway_create_main_text_comment(text,uuid,text,uuid)","public.staging_participant_gateway_read_owned_main_text_post(text,uuid)","public.staging_participant_gateway_reserve_nostr_post_mirror(text,uuid,uuid,text,bigint,text)","public.staging_participant_gateway_complete_nostr_post_mirror(text,uuid,uuid,text,text)","public.staging_participant_gateway_preflight()"],"triggers":{"commentCount":{"function":"public.post_comment_counts_sync()","name":"trg_post_comment_counts","noArgs":true,"noWhen":true,"table":"public.post_comments","tgtype":13},"posting":{"function":"public.enforce_posting_rules()","name":"enforce_posting_rules_trg","noArgs":true,"noWhen":true,"table":"public.posts","tgtype":7}}},"migrationId":"20260825_staging_participant_gateway","schemaVersion":"roebel_staging_participant_gateway_schema_contract_v1"}
 $contract$,
-  'sha256:8da97930b98d4d8437aef8c4038cc72b3d38ccd7ac9f972741b69c1cf1b3d012'
+  'sha256:a540591c718d4b2c74f56fe7310baf5b522ac6541384223a5263079e207f3d5d'
 )
 on conflict (singleton) do update
   set migration_id = excluded.migration_id,
@@ -268,6 +285,8 @@ create table staging_participant_private.staging_participant_prior_privileges (
 alter table staging_participant_private.staging_participant_environment
   enable row level security;
 alter table staging_participant_private.staging_participant_schema_contract
+  enable row level security;
+alter table staging_participant_private.staging_participant_catalog_contract
   enable row level security;
 alter table staging_participant_private.staging_participant_admissions
   enable row level security;
@@ -733,6 +752,12 @@ begin
 end;
 $$;
 
+drop trigger if exists enforce_posting_rules_trg on public.posts;
+create trigger enforce_posting_rules_trg
+before insert on public.posts
+for each row
+execute function public.enforce_posting_rules();
+
 create or replace function public.staging_participant_gateway_create_main_text_post(
   p_wallet_address text,
   p_content text,
@@ -1163,10 +1188,10 @@ begin
     from staging_participant_private.staging_participant_schema_contract
    where singleton;
   if v_marker.migration_id <> '20260825_staging_participant_gateway'
-     or v_marker.canonical_contract <> $contract${"assertions":{"acl":{"anonExecute":["public.staging_participant_gateway_create_main_text_post(text,text,uuid)","public.staging_participant_gateway_create_main_text_comment(text,uuid,text,uuid)","public.staging_participant_gateway_read_owned_main_text_post(text,uuid)","public.staging_participant_gateway_reserve_nostr_post_mirror(text,uuid,uuid,text,bigint,text)","public.staging_participant_gateway_complete_nostr_post_mirror(text,uuid,uuid,text,text)","public.staging_participant_gateway_preflight()"],"directWritesClosed":["public.posts","public.post_comments","public.post_likes","public.app_settings"],"publicExecuteRevoked":true},"functions":{"preflight":{"language":"plpgsql","searchPath":"pg_catalog, public, staging_participant_private","securityDefiner":true,"stable":true},"privateRequired":["staging_participant_private.require_staging_participant_gateway()","staging_participant_private.staging_participant_rpc_secret()","staging_participant_private.ensure_active_staging_participant(text)","staging_participant_private.consume_staging_post_reservation(public.posts)"],"publicSecurityDefiner":true},"marker":{"canonicalTextBound":true,"migrationId":"20260825_staging_participant_gateway","singleton":true},"privateTables":["staging_participant_private.staging_participant_environment","staging_participant_private.staging_participant_admissions","staging_participant_private.staging_participant_write_reservations","staging_participant_private.staging_participant_write_audit","staging_participant_private.staging_participant_nostr_post_mirror_receipts","staging_participant_private.staging_participant_schema_contract"],"trigger":{"function":"public.enforce_posting_rules()","table":"public.posts"}},"migrationId":"20260825_staging_participant_gateway","schemaVersion":"roebel_staging_participant_gateway_schema_contract_v1"}
+     or v_marker.canonical_contract <> $contract${"assertions":{"catalog":{"capturedDefinitionAndSourceDigests":true,"capturedOwnerLanguageReturnVolatilitySecuritySearchPath":true,"priorRollbackEvidenceDigests":true},"deniedExecute":["public.delete_owned_post(uuid,text)","public.delete_owned_post_comment(uuid,text)","public.delete_owned_experience(uuid,text)","public.pin_own_post(uuid,text,boolean)"],"privateTables":["staging_participant_private.staging_participant_environment","staging_participant_private.staging_participant_admissions","staging_participant_private.staging_participant_write_reservations","staging_participant_private.staging_participant_write_audit","staging_participant_private.staging_participant_nostr_post_mirror_receipts","staging_participant_private.staging_participant_schema_contract","staging_participant_private.staging_participant_catalog_contract","staging_participant_private.staging_participant_prior_function_definitions","staging_participant_private.staging_participant_prior_privileges"],"publicRpc":["public.staging_participant_gateway_create_main_text_post(text,text,uuid)","public.staging_participant_gateway_create_main_text_comment(text,uuid,text,uuid)","public.staging_participant_gateway_read_owned_main_text_post(text,uuid)","public.staging_participant_gateway_reserve_nostr_post_mirror(text,uuid,uuid,text,bigint,text)","public.staging_participant_gateway_complete_nostr_post_mirror(text,uuid,uuid,text,text)","public.staging_participant_gateway_preflight()"],"triggers":{"commentCount":{"function":"public.post_comment_counts_sync()","name":"trg_post_comment_counts","noArgs":true,"noWhen":true,"table":"public.post_comments","tgtype":13},"posting":{"function":"public.enforce_posting_rules()","name":"enforce_posting_rules_trg","noArgs":true,"noWhen":true,"table":"public.posts","tgtype":7}}},"migrationId":"20260825_staging_participant_gateway","schemaVersion":"roebel_staging_participant_gateway_schema_contract_v1"}
 $contract$
-     or v_marker.database_schema_sha256 <> 'sha256:8da97930b98d4d8437aef8c4038cc72b3d38ccd7ac9f972741b69c1cf1b3d012'
-     or extensions.digest(v_marker.canonical_contract, 'sha256') <> decode('8da97930b98d4d8437aef8c4038cc72b3d38ccd7ac9f972741b69c1cf1b3d012', 'hex') then
+     or v_marker.database_schema_sha256 <> 'sha256:a540591c718d4b2c74f56fe7310baf5b522ac6541384223a5263079e207f3d5d'
+     or extensions.digest(v_marker.canonical_contract, 'sha256') <> decode('a540591c718d4b2c74f56fe7310baf5b522ac6541384223a5263079e207f3d5d', 'hex') then
     raise exception 'STAGING_PARTICIPANT_SCHEMA_MARKER_INVALID' using errcode = 'P0001';
   end if;
   if not exists (
@@ -1264,18 +1289,141 @@ $contract$
     'staging_participant_private.staging_participant_write_reservations',
     'staging_participant_private.staging_participant_write_audit',
     'staging_participant_private.staging_participant_nostr_post_mirror_receipts',
-    'staging_participant_private.staging_participant_schema_contract'
+    'staging_participant_private.staging_participant_schema_contract',
+    'staging_participant_private.staging_participant_catalog_contract',
+    'staging_participant_private.staging_participant_prior_function_definitions',
+    'staging_participant_private.staging_participant_prior_privileges'
   ] loop
     if not exists (select 1 from pg_catalog.pg_class where oid = to_regclass(v_table) and relrowsecurity) then
       raise exception 'STAGING_PARTICIPANT_SCHEMA_PRIVATE_TABLE_INVALID:%', v_table using errcode = 'P0001';
     end if;
   end loop;
+  if (select count(*) from staging_participant_private.staging_participant_catalog_contract) <> 11
+     or exists (
+       select 1
+         from staging_participant_private.staging_participant_catalog_contract contract
+         left join pg_catalog.pg_proc proc on proc.oid = to_regprocedure(contract.object_identity)
+         left join pg_catalog.pg_roles owner_role on owner_role.oid = proc.proowner
+         left join pg_catalog.pg_language language on language.oid = proc.prolang
+        where proc.oid is null
+           or owner_role.rolname <> contract.owner_name
+           or language.lanname <> contract.language_name
+           or pg_catalog.pg_get_function_result(proc.oid) <> contract.return_type
+           or proc.provolatile <> contract.volatility
+           or proc.prosecdef <> contract.security_definer
+           or coalesce(array_to_string(proc.proconfig, E'\n'), '') <> contract.search_path
+           or encode(extensions.digest(pg_catalog.pg_get_functiondef(proc.oid), 'sha256'), 'hex') <> contract.definition_sha256
+           or encode(extensions.digest(proc.prosrc, 'sha256'), 'hex') <> contract.source_sha256
+     ) then
+    raise exception 'STAGING_PARTICIPANT_SCHEMA_EXECUTABLE_CATALOG_INVALID' using errcode = 'P0001';
+  end if;
+  if not exists (
+    select 1 from pg_catalog.pg_trigger trigger
+     where trigger.tgrelid = 'public.posts'::pg_catalog.regclass
+       and trigger.tgname = 'enforce_posting_rules_trg'
+       and trigger.tgfoid = 'public.enforce_posting_rules()'::pg_catalog.regprocedure
+       and trigger.tgtype = 7 and trigger.tgenabled in ('O', 'A')
+       and trigger.tgargs = ''::bytea and trigger.tgqual is null
+       and not trigger.tgisinternal
+  ) or not exists (
+    select 1 from pg_catalog.pg_trigger trigger
+     where trigger.tgrelid = 'public.post_comments'::pg_catalog.regclass
+       and trigger.tgname = 'trg_post_comment_counts'
+       and trigger.tgfoid = 'public.post_comment_counts_sync()'::pg_catalog.regprocedure
+       and trigger.tgtype = 13 and trigger.tgenabled in ('O', 'A')
+       and trigger.tgargs = ''::bytea and trigger.tgqual is null
+       and not trigger.tgisinternal
+  ) then
+    raise exception 'STAGING_PARTICIPANT_SCHEMA_TRIGGER_INVALID' using errcode = 'P0001';
+  end if;
+  foreach v_function in array array[
+    'public.delete_owned_post(uuid,text)',
+    'public.delete_owned_post_comment(uuid,text)',
+    'public.delete_owned_experience(uuid,text)',
+    'public.pin_own_post(uuid,text,boolean)'
+  ] loop
+    if to_regprocedure(v_function) is null
+       or has_function_privilege('anon', to_regprocedure(v_function), 'EXECUTE')
+       or has_function_privilege('authenticated', to_regprocedure(v_function), 'EXECUTE')
+       or exists (
+         select 1 from pg_catalog.pg_proc proc
+         cross join lateral pg_catalog.aclexplode(coalesce(proc.proacl, pg_catalog.acldefault('f', proc.proowner))) acl
+          where proc.oid = to_regprocedure(v_function)
+            and acl.grantee = 0 and acl.privilege_type = 'EXECUTE'
+       ) then
+      raise exception 'STAGING_PARTICIPANT_SCHEMA_LEGACY_EXECUTE_INVALID:%', v_function using errcode = 'P0001';
+    end if;
+  end loop;
+  if v_marker.prior_function_definitions_sha256 is null
+     or v_marker.prior_privileges_sha256 is null
+     or v_marker.prior_function_definitions_sha256 <> (
+       select encode(extensions.digest(coalesce(string_agg(
+         object_identity || E'\x1f' || definition, E'\x1e' order by object_identity
+       ), ''), 'sha256'), 'hex')
+         from staging_participant_private.staging_participant_prior_function_definitions
+     ) or v_marker.prior_privileges_sha256 <> (
+       select encode(extensions.digest(coalesce(string_agg(
+         object_kind || E'\x1f' || object_identity || E'\x1f' || column_name || E'\x1f' ||
+         grantee || E'\x1f' || privilege_type || E'\x1f' || is_grantable::text,
+         E'\x1e' order by object_kind, object_identity, column_name, grantee, privilege_type
+       ), ''), 'sha256'), 'hex')
+         from staging_participant_private.staging_participant_prior_privileges
+     ) then
+    raise exception 'STAGING_PARTICIPANT_SCHEMA_ROLLBACK_EVIDENCE_INVALID' using errcode = 'P0001';
+  end if;
   return jsonb_build_object(
     'migration_id', v_marker.migration_id,
     'database_schema_sha256', v_marker.database_schema_sha256
   );
 end;
 $$;
+
+-- Freeze the activation-trusted executable catalog after every owned helper
+-- and RPC exists. The status RPC compares the live catalog to these rows.
+insert into staging_participant_private.staging_participant_catalog_contract (
+  object_identity, owner_name, language_name, return_type, volatility,
+  security_definer, search_path, definition_sha256, source_sha256
+)
+select target.object_identity, owner_role.rolname, language.lanname,
+       pg_catalog.pg_get_function_result(proc.oid), proc.provolatile,
+       proc.prosecdef, coalesce(array_to_string(proc.proconfig, E'\n'), ''),
+       encode(extensions.digest(pg_catalog.pg_get_functiondef(proc.oid), 'sha256'), 'hex'),
+       encode(extensions.digest(proc.prosrc, 'sha256'), 'hex')
+  from (values
+    ('public.enforce_posting_rules()'),
+    ('public.staging_participant_gateway_create_main_text_post(text,text,uuid)'),
+    ('public.staging_participant_gateway_create_main_text_comment(text,uuid,text,uuid)'),
+    ('public.staging_participant_gateway_read_owned_main_text_post(text,uuid)'),
+    ('public.staging_participant_gateway_reserve_nostr_post_mirror(text,uuid,uuid,text,bigint,text)'),
+    ('public.staging_participant_gateway_complete_nostr_post_mirror(text,uuid,uuid,text,text)'),
+    ('public.staging_participant_gateway_preflight()'),
+    ('staging_participant_private.staging_participant_rpc_secret()'),
+    ('staging_participant_private.require_staging_participant_gateway()'),
+    ('staging_participant_private.ensure_active_staging_participant(text)'),
+    ('staging_participant_private.consume_staging_post_reservation(public.posts)')
+  ) target(object_identity)
+  join pg_catalog.pg_proc proc on proc.oid = pg_catalog.to_regprocedure(target.object_identity)
+  join pg_catalog.pg_roles owner_role on owner_role.oid = proc.proowner
+  join pg_catalog.pg_language language on language.oid = proc.prolang;
+
+-- These rollback records are deactivation evidence. Store deterministic raw
+-- snapshots so missing or edited compatibility rows fail the readiness proof.
+update staging_participant_private.staging_participant_schema_contract marker
+   set prior_function_definitions_sha256 = (
+         select encode(extensions.digest(coalesce(string_agg(
+           object_identity || E'\x1f' || definition, E'\x1e' order by object_identity
+         ), ''), 'sha256'), 'hex')
+           from staging_participant_private.staging_participant_prior_function_definitions
+       ),
+       prior_privileges_sha256 = (
+         select encode(extensions.digest(coalesce(string_agg(
+           object_kind || E'\x1f' || object_identity || E'\x1f' || column_name || E'\x1f' ||
+           grantee || E'\x1f' || privilege_type || E'\x1f' || is_grantable::text,
+           E'\x1e' order by object_kind, object_identity, column_name, grantee, privilege_type
+         ), ''), 'sha256'), 'hex')
+           from staging_participant_private.staging_participant_prior_privileges
+       )
+ where singleton;
 
 revoke all on function public.staging_participant_gateway_create_main_text_post(text, text, uuid)
   from public, anon, authenticated;

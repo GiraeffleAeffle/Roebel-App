@@ -35,6 +35,8 @@ const BAKED_SOURCE_REVISION = "a".repeat(40);
 const productionConfig = (input: Record<string, string | undefined>) =>
   resolveProductionGatewayConfig(input, BAKED_SOURCE_REVISION);
 const dockerfile = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
+const buildScript = readFileSync(new URL("../scripts/build.mjs", import.meta.url), "utf8");
+const buildConfig = await import("../scripts/build-config.mjs");
 
 function jwt(payload: Record<string, unknown>): string {
   return [
@@ -113,12 +115,21 @@ test("production configuration fails closed unless explicit staging mode and eve
   assert.equal(productionConfig({
     ...env,
     // A Deployment can provide this variable, but it cannot substitute the
-    // immutable revision read from /app/source-revision by the CLI.
+    // A Deployment pin cannot substitute the compiled source constant.
     ROEBEL_STAGING_PARTICIPANT_GATEWAY_SOURCE_REVISION: "e".repeat(40),
   }), null);
   assert.equal(resolveProductionGatewayConfig(env, "e".repeat(40)), null);
-  assert.match(dockerfile, /\/app\/source-revision/u);
-  assert.doesNotMatch(dockerfile, /ROEBEL_STAGING_PARTICIPANT_GATEWAY_BAKED_SOURCE_REVISION/u);
+  assert.match(dockerfile, /SOURCE_REVISION="\$SOURCE_REVISION" pnpm/u);
+  assert.doesNotMatch(dockerfile, /\/app\/source-revision|ROEBEL_STAGING_PARTICIPANT_GATEWAY_BAKED_SOURCE_REVISION/u);
+  assert.doesNotMatch(readFileSync(new URL("../src/cli.ts", import.meta.url), "utf8"), /process\.env\.[A-Z_]*SOURCE_REVISION|source-revision/u);
+  assert.match(readFileSync(new URL("../scripts/build-config.mjs", import.meta.url), "utf8"), /SOURCE_REVISION/u);
+  assert.match(buildScript, /git", \["rev-parse", "HEAD"\]/u);
+  assert.match(buildScript, /JSON\.stringify\(revision\)/u);
+  assert.match(readFileSync(new URL("../src/cli.ts", import.meta.url), "utf8"), /COMPILED_SOURCE_REVISION/u);
+  assert.match(readFileSync(new URL("../src/build-constants.ts", import.meta.url), "utf8"), /__ROEBEL_STAGING_PARTICIPANT_GATEWAY_SOURCE_REVISION__/u);
+  assert.equal(buildConfig.resolveSourceRevision({ SOURCE_REVISION: "b".repeat(40) }, () => "a".repeat(40)), "b".repeat(40));
+  assert.equal(buildConfig.resolveSourceRevision({}, () => "a".repeat(40)), "a".repeat(40));
+  assert.throws(() => buildConfig.resolveSourceRevision({ SOURCE_REVISION: "" }, () => "a".repeat(40)));
 });
 
 test("Supabase adapter rejects a valid-looking row that is not correlated to its request", async () => {

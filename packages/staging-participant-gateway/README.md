@@ -37,10 +37,14 @@ The process fails closed unless all of these are present:
 | `ROEBEL_STAGING_PARTICIPANT_GATEWAY_MECKY_PUBKEY` | exact 64-hex public key allowed in the only `p` tag |
 | `ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_URL` | exact cluster-local HTTP workbench URL; public URLs fail closed |
 | `ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_ADMISSION_HEADER` | fixed existing gate: `x-stadtstack-e2e:1` |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_SOURCE_REVISION` | exact 40-hex deployment pin; must equal the revision compiled into the image |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_MANIFEST_DIGEST` | immutable `sha256:<64 hex>` OCI manifest pin |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_MIGRATION_SHA256` | raw source SHA-256 of the reviewed migration, bound by release evidence |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_DATABASE_SCHEMA_SHA256` | raw SHA-256 of the canonical catalog-contract JSON |
 
 The RPC secret is sent only to two write functions, one exact
 participant-owned-source read, and the two durable mirror-receipt transitions
-as a private header.
+and one no-argument catalog preflight as a private header.
 It is not a Supabase service-role key, custom database JWT, citizen credential,
 or cluster credential. Do not log request headers.
 
@@ -83,6 +87,23 @@ the pinned workbench Service on TCP 18083, and a reciprocal workbench ingress
 allowance only from the gateway's exact ServiceAccount/pod selector on TCP
 18083. DNS, Gnosis RPC and staging Supabase remain separately constrained.
 Without both directions, leave `nostr-post` disabled.
+
+## Internal readiness
+
+`GET /status` is an internal Service-only probe and is deliberately absent from
+Ingress. It rejects query strings, every non-GET method, `Origin`, and cookies.
+It returns `503` with only `schemaVersion` and `not_ready` unless the fixed
+Supabase preflight verifies the armed Vault gate, migration marker, current
+catalog/ACL/trigger facts, captured rollback evidence, and the canonical schema
+hash. A ready response additionally reports the compiled source revision and
+the three immutable deployment pins. It grants no civic, Case, vote, treasury,
+or administration authority.
+
+The source revision is compiled into the esbuild bundle with JSON escaping. A
+full checkout quality build may derive it from `git rev-parse HEAD`; the pruned
+OCI build passes the exact Docker `SOURCE_REVISION` explicitly and fails closed
+if it is not a 40-character lowercase Git revision. No runtime environment
+variable or writable file supplies that compiled value.
 
 ## Source verification
 

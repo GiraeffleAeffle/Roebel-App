@@ -81,6 +81,15 @@ test("readiness binds canonical source bytes to an honest current-catalog marker
   assert.match(migration, /has_column_privilege\('authenticated', v_table, v_column, 'UPDATE'\)/u);
   assert.match(migration, /p\.prosecdef and p\.provolatile = v_expected_volatility/u);
   assert.match(migration, /STAGING_PARTICIPANT_SCHEMA_COLUMN_ACL_INVALID/u);
+  assert.match(migration, /if to_regprocedure\(v_function\) is null\s+or has_function_privilege\('anon'/u);
+  assert.match(migration, /staging_participant_catalog_contract/u);
+  assert.match(migration, /pg_get_functiondef\(proc\.oid\)/u);
+  assert.match(migration, /extensions\.digest\(proc\.prosrc, 'sha256'\)/u);
+  assert.match(migration, /STAGING_PARTICIPANT_SCHEMA_EXECUTABLE_CATALOG_INVALID/u);
+  assert.match(migration, /enforce_posting_rules_trg/u);
+  assert.match(migration, /trigger\.tgtype = 7/u);
+  assert.match(migration, /STAGING_PARTICIPANT_SCHEMA_LEGACY_EXECUTE_INVALID/u);
+  assert.match(migration, /STAGING_PARTICIPANT_SCHEMA_ROLLBACK_EVIDENCE_INVALID/u);
   assert.match(migration, /grant execute on function public\.staging_participant_gateway_preflight\(\)\s+to anon;/u);
   assert.match(deactivation, /revoke all on function public\.staging_participant_gateway_preflight\(\)/u);
   // The preflight proves marker + live catalog facts, not unavailable historic
@@ -195,6 +204,7 @@ test("every private capability and audit table has RLS enabled with no public po
     "staging_participant_write_audit",
     "staging_participant_nostr_post_mirror_receipts",
     "staging_participant_schema_contract",
+    "staging_participant_catalog_contract",
     "staging_participant_prior_function_definitions",
     "staging_participant_prior_privileges",
   ]) {
