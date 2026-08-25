@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "roebel_documented_staging_release_publication_v1",
+  "documentedAt": "2026-08-25T17:34:25Z",
+  "sourceRevision": "7cb7e5b7b0f71c8072aefbec900cd229847d6dea",
+  "operationsRepository": "https://github.com/GiraeffleAeffle/roebel-staging-operations",
+  "operationsPromotionCommit": "https://github.com/GiraeffleAeffle/roebel-staging-operations/commit/9760c5d9e9f25a9791ccadd4929d3a5476cdd1a7",
+  "releaseSet": {
+    "artifactDigest": "sha256:6308933f9aeb505bce606d746ada06791308fb574c50ff6f541dba52e26c8566",
+    "candidatePayloadDigest": "sha256:1228cda03576923e41d67ef0e10adef0c7d085cccce49f76691634b29031a6b3",
+    "publicationRun": "https://github.com/GiraeffleAeffle/Roebel-App/actions/runs/32875970829"
+  },
+  "components": [
+    {
+      "component": "roebel-web-staging",
+      "image": "ghcr.io/giraeffleaeffle/roebel-web-staging",
+      "manifestDigest": "sha256:362771c950a9616dbc41dadef35dac43625e36a4fa085d5e33c02fc5ef277a04",
+      "provenance": "https://github.com/GiraeffleAeffle/Roebel-App/attestations/42916744",
+      "sbomAttestation": "https://github.com/GiraeffleAeffle/Roebel-App/attestations/42916758",
+      "promotionCommit": "9760c5d9e9f25a9791ccadd4929d3a5476cdd1a7"
+    },
+    {
+      "component": "public-mecky",
+      "image": "ghcr.io/giraeffleaeffle/public-mecky",
+      "manifestDigest": "sha256:73394072819d22f6dc3cb2cbb1c2291383e1f36b37d6c7d752cfe7c6a73ea4d9",
+      "provenance": "https://github.com/GiraeffleAeffle/Roebel-App/attestations/42915942",
+      "sbomAttestation": "https://github.com/GiraeffleAeffle/Roebel-App/attestations/42915960",
+      "promotionCommit": "9760c5d9e9f25a9791ccadd4929d3a5476cdd1a7"
+    },
+    {
+      "component": "staging-participant-gateway",
+      "image": "ghcr.io/giraeffleaeffle/roebel-staging-participant-gateway",
+      "manifestDigest": "sha256:23243a09a9035f10540e4612c481a188750c8a5d9006062a60423c1850b7d45f",
+      "migrationSha256": "sha256:ad050047a71bf2cc82361c16169627dc0a0a66a7982db804b1612624f0f97eab",
+      "databaseSchemaSha256": "sha256:a540591c718d4b2c74f56fe7310baf5b522ac6541384223a5263079e207f3d5d",
+      "deactivationSha256": "sha256:777926a55e3f3b57f515d774d03999a646ddca07a06ec98d0202733276f6fdd5",
+      "provenance": "https://github.com/GiraeffleAeffle/Roebel-App/attestations/42915804",
+      "sbomAttestation": "https://github.com/GiraeffleAeffle/Roebel-App/attestations/42915817",
+      "publicationRun": "https://github.com/GiraeffleAeffle/Roebel-App/actions/runs/32875970813",
+      "activated": false
+    }
+  ],
+  "civicAuthority": "none"
+}
