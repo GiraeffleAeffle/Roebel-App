@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "roebel_gnosis_contract_observation_v1",
+  "observedAt": "2026-08-25T17:34:25Z",
+  "rpcEndpoint": "https://rpc.gnosischain.com",
+  "chainId": 100,
+  "block": {
+    "tagAtObservation": "finalized",
+    "number": 47910475,
+    "numberHex": "0x2db0e4b",
+    "hash": "0x3468a22b57b382bd62602f79fef42201bca2e99573526d7d542b5b2115d7c9e1",
+    "timestamp": "2026-08-25T17:27:40Z"
+  },
+  "codeHashAlgorithm": "keccak256(eth_getCode bytes at the exact block)",
+  "contracts": [
+    {
+      "component": "CitizenNFTv2",
+      "address": "0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5",
+      "runtimeCodeHash": "0x952276d2d6da4bfe3ed3dbc39f6745f2421b01ad476c286cb7a6fa166c7e4218",
+      "calls": {
+        "owner()": "0x3A08c86Efc5ff38CC35d850F1D4d564e497bFDEa",
+        "citizenCount()": 52,
+        "migrationFinalized()": true,
+        "attestationValidityPeriod()": 0
+      }
+    },
+    {
+      "component": "MaciAttesterGovernor",
+      "address": "0x5F5e499Dc1872c2Ce19a4b50cd10f680e78E3Ba3",
+      "runtimeCodeHash": "0x8d5baa0a2cb4aebc276e50ac8d0cd3f55d70824793e6fa2c00cdb481e118bced",
+      "calls": {
+        "citizenNFT()": "0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5",
+        "quorumPercentage()": 10,
+        "timelock()": "0x5b358A77E89FF3d699607b4fC235b381d67f3d05",
+        "maci()": "0x6663eDC8650276fe264710B1A2ba46eB8bd0bF1D"
+      }
+    },
+    {
+      "component": "TimelockController",
+      "address": "0x5b358A77E89FF3d699607b4fC235b381d67f3d05",
+      "runtimeCodeHash": "0xdeee4292fad711cffdb1f73802306ce861eb353d64b7936c451f2562909fb111"
+    },
+    {
+      "component": "MACI",
+      "address": "0x6663eDC8650276fe264710B1A2ba46eB8bd0bF1D",
+      "runtimeCodeHash": "0x420cd79e395a2642e624be2482367d2fcaa98bb8b502bac897d04d6977c2acdb"
+    }
+  ],
+  "effect": "read_only_observation",
+  "limitations": "This receipt proves state only at the named finalized block. It is not a current authorization, eligibility decision, ballot, or deployment instruction."
+}
