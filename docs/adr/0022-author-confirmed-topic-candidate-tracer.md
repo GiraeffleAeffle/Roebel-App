@@ -31,6 +31,12 @@ The protocol must also work for another municipality. Röbel is the first
 staging instance and its configured topic and Mecky values are test fixtures,
 not global constants.
 
+ADR 0021 already creates the immutable signed source note used by this tracer:
+the app-post mirror carrying the exact same-thread `@Mecky` mention. ADR 0022
+does not invent or republish a second "ordinary post" Nostr event. It promotes
+that existing source note while preserving the application post ID and the
+complete conversation provenance.
+
 ## Decision
 
 Add exactly two closed operations to the separately deployed participant
@@ -105,8 +111,8 @@ the topic-root envelope, in this order:
 
 ```text
 ["p", meckyPubkey]
-["q", sourceNostrEventId, "", sourceAuthorPubkey]
-["source-post", sourceNostrEventId]
+["q", sourceNoteEventId, "", sourceAuthorPubkey]
+["source-post", sourceNoteEventId]
   // when the author selects the completed same-thread exchange:
   ["source-app-post", sourcePostId]
   ["source-app-comment", commentId]                 // optional
@@ -124,9 +130,12 @@ the topic-root envelope, in this order:
 The conversation block is either absent in full or present in full (apart from
 its two explicitly optional values). In the accepted browser tracer it is
 present and points to the already verified same-thread Mecky answer from
-ADR 0021. The root content is the human-confirmed question, trimmed and
-bounded; it must mention `@Mecky`. No `case`, `stadtstack-case`, argument,
-pro, con, vote, or treasury tag is permitted.
+ADR 0021. `sourceNoteEventId` is therefore the immutable signed app-post mirror
+for the selected source; in the first tracer it is the exact same-thread
+`@Mecky` mention event. It is not a newly generated duplicate of the ordinary
+post. The root content is the human-confirmed question, trimmed and bounded;
+it must mention `@Mecky`. No `case`, `stadtstack-case`, argument, pro, con,
+vote, or treasury tag is permitted.
 
 ```text
 signTopicSuggestion({

@@ -1,6 +1,11 @@
-# Röbel Civic Journey architecture map
+# City-neutral civic journey architecture map
 
-This is the navigation page for the discussion-to-outcome work. It records where the durable language, decisions, implementation specification, code, and operations live so a future slice extends the same journey instead of creating another parallel demo.
+This is the navigation page for the discussion-to-outcome work. It records
+where the durable language, decisions, implementation specification, code,
+and operations live so a future slice extends the same journey instead of
+creating another parallel demo. Röbel is the first concrete application and
+staging tracer; municipalities, application frontends, Kair/openDesk, and
+publication adapters remain deployment choices around a city-neutral protocol.
 
 ## Testability checkpoint at 2026-08-25
 
@@ -68,6 +73,7 @@ Stages are connected through identifiers and receipts, not collapsed into one re
 | [ADR 0019](adr/0019-role-isolated-case-steward-admission-and-public-binding-receipts.md) | accepted boundary; deployment pending | Keep Civic Case admission out of the public Web and advance the journey through a public-safe binding receipt. |
 | [ADR 0020](adr/0020-event-driven-attested-release-handoff.md)                         | proposed; bootstrap pending | Replace cron-only staging promotion latency with an exact, attested event handoff while retaining protected human review and recovery paths. |
 | [ADR 0021](adr/0021-bounded-staging-participant-gateway.md)                           | accepted boundary; deployment pending | Let an invited real account exercise the staging feed without putting write authority or citizen claims in the public Web. |
+| [ADR 0022](adr/0022-author-confirmed-topic-candidate-tracer.md)                       | accepted boundary; implementation pending | Promote one existing signed source note through two closed author-only operations into a topic root and candidate without creating municipal authority. |
 
 Canonical terms live in [`CONTEXT.md`](../CONTEXT.md). The integrated staging contract lives in [`2026-08-13-real-staging-topic-identity-and-administration-flow.md`](superpowers/specs/2026-08-13-real-staging-topic-identity-and-administration-flow.md).
 
@@ -168,7 +174,7 @@ No public application repository receives cluster-admin credentials or secret va
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0. Vocabulary and boundaries         | One reviewed definition of post, topic, discussion, proposal, case, vote, and treasury state                                                       | documented in this branch                                                                                                                                                                          |
 | 1. General signed feed               | A real staging account publishes an ordinary signed Nostr post in the normal feed                                                                  | real Thirdweb login is live; bounded Supabase post/comment gateway is the active tracer seam, followed by wallet-to-Nostr binding and deployed browser E2E                                         |
-| 2. Explicit civic promotion          | The user attaches that post to a topic or creates a discussion; the source remains attributable                                                    | browser-signed author-only promotion, grouped feed activity, and a canonical topic hub are implemented; the writer-side one-source/one-root retry claim and optional exact conversation provenance are the active tracer, while a trusted Röbel-row resolver remains a production gate |
+| 2. Explicit civic promotion          | The user attaches that post to a topic or creates a discussion; the source remains attributable                                                    | browser-signed author-only promotion, grouped feed activity, and a canonical topic hub are implemented; ADR 0022's two closed writer operations, one-source/one-root retry claim, exact conversation provenance, and a deployment-configured source-row resolver remain the active tracer |
 | 3. Real Mecky loop                   | The user tags Mecky and receives one evidence-bound signed reply in the same thread                                                                | signed source-bound direct mentions, per-request pending/answered projections, reviewed Civic Cases, and explicitly enabled checksum-bound news/RIS projections compose into one catalog; the durable request UI is merged and publishing, while connected-account browser E2E remains |
 | 4. Proposal and admission            | A human signs a proposal candidate; a separately authenticated Case Steward admits one idempotent civic case and the public journey reads its binding receipt | citizen signing and the Stadtstack atomic admission kernel exist; the role-isolated control service, staff console, public receipt projection, GitOps resources and deployed browser E2E remain |
 | 5. Administration round trip         | One exact municipal work package returns reviewed feedback and an attributable publication receipt to the same journey | public-read candidate now binds reviewed package IDs and checksums to the exact case on its discussion and canonical topic; a real Kair/openDesk-equivalent return receipt and deployed browser E2E remain pending |
