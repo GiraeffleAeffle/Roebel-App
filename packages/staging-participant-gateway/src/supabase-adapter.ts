@@ -6,6 +6,7 @@ import type {
 
 const POST_RPC = "staging_participant_gateway_create_main_text_post";
 const COMMENT_RPC = "staging_participant_gateway_create_main_text_comment";
+const OWNED_POST_RPC = "staging_participant_gateway_read_owned_main_text_post";
 
 export type RestrictedSupabaseRpcConfig = Readonly<{
   url: string;
@@ -52,9 +53,9 @@ function validateConfig(config: RestrictedSupabaseRpcConfig): URL {
 }
 
 /**
- * Calls only the two named, restricted RPCs that the staging migration exposes
- * to anon. The anon key is already browser-public; the additional header is a
- * gateway-only capability that those two functions compare to Supabase Vault.
+ * Calls only the two write RPCs and one exact owned-source read that the
+ * staging migration exposes to anon. The anon key is already browser-public;
+ * the additional header is a gateway-only capability checked against Vault.
  * No service-role or custom-role bearer exists in this process.
  */
 export function createRestrictedSupabaseDataAdapter(
@@ -109,6 +110,23 @@ export function createRestrictedSupabaseDataAdapter(
       }
       return value;
     },
+    async readOwnedMainTextPost({ walletAddress, postId }): Promise<StagingParticipantPost | null> {
+      const value = await invoke(OWNED_POST_RPC, {
+        p_wallet_address: walletAddress,
+        p_post_id: postId,
+      });
+      if (value === null) return null;
+      if (!isStagingParticipantPost(value)) {
+        throw new Error("staging_participant_restricted_rpc_response_invalid");
+      }
+      if (
+        value.wallet_address.toLowerCase() !== walletAddress.toLowerCase() ||
+        value.id.toLowerCase() !== postId.toLowerCase()
+      ) {
+        throw new Error("staging_participant_restricted_rpc_response_mismatch");
+      }
+      return value;
+    },
   };
 }
 
@@ -137,4 +155,5 @@ function isStagingParticipantComment(value: unknown): value is StagingParticipan
 export const restrictedStagingParticipantRpcNames = {
   createMainTextPost: POST_RPC,
   createMainTextComment: COMMENT_RPC,
+  readOwnedMainTextPost: OWNED_POST_RPC,
 } as const;

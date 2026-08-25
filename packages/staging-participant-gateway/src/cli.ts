@@ -7,6 +7,7 @@ import {
   listenStagingParticipantGatewayServer,
 } from "./http.ts";
 import { createRestrictedSupabaseDataAdapter } from "./supabase-adapter.ts";
+import { createPrivateWorkbenchMeckyMirrorAdapter } from "./workbench-adapter.ts";
 
 async function main(): Promise<void> {
   const config = resolveProductionGatewayConfig();
@@ -21,6 +22,7 @@ async function main(): Promise<void> {
       anonKey: config.supabaseAnonKey,
       rpcSecret: config.supabaseRpcSecret,
     }),
+    mirror: createPrivateWorkbenchMeckyMirrorAdapter(config.workbench),
   });
   await listenStagingParticipantGatewayServer({
     server,

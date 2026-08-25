@@ -6,6 +6,7 @@ import {
   createStagingParticipantPost,
   createStagingParticipantSession,
   getStagingParticipantStatus,
+  mirrorStagingParticipantMeckyPost,
   requestStagingParticipantChallenge,
 } from "../src/lib/staging-participant/client.ts";
 
@@ -121,6 +122,40 @@ test("participant post retries a lost response with the same idempotency key", a
   assert.equal(bodies[0], bodies[1]);
 });
 
+test("a successful participant post can produce only one post-only Mecky mirror body", async () => {
+  let call: { path: string; body: Record<string, unknown> } | undefined;
+  globalThis.fetch = async (input, init) => {
+    call = { path: String(input), body: JSON.parse(String(init?.body)) };
+    return new Response(JSON.stringify({ status: "published", eventId: "a".repeat(64) }), {
+      status: 201, headers: { "content-type": "application/json" },
+    });
+  };
+  const session = {
+    async createAdmissionProof() {
+      return { schemaVersion: "roebel_citizen_admission_proof_v1" };
+    },
+    async signPublicPost(input: { content: string; mentionPubkeys?: readonly string[]; sourceAppPostId?: string }) {
+      return {
+        id: "a".repeat(64), pubkey: "b".repeat(64), created_at: 1, kind: 1,
+        tags: [["p", input.mentionPubkeys?.[0] ?? ""], ["source-app-post", input.sourceAppPostId ?? ""]],
+        content: input.content, sig: "c".repeat(128),
+      };
+    },
+  } as never;
+  const result = await mirrorStagingParticipantMeckyPost({
+    sourcePost: { id: "11111111-1111-4111-8111-111111111111", content: "@Mecky, bitte einordnen" },
+    session,
+    meckyPubkey: "d".repeat(64),
+  });
+  assert.equal(result.success, true);
+  assert.equal(call?.path, "/api/staging-participant/v1/nostr-post");
+  assert.deepEqual(Object.keys(call?.body ?? {}).sort(), [
+    "admissionProof", "event", "requestId", "schemaVersion", "sourcePostId",
+  ]);
+  assert.equal(call?.body.schemaVersion, "staging_participant_nostr_post_request_v1");
+  assert.doesNotMatch(JSON.stringify(call?.body), /promotion|argument|case|vote|treasury/u);
+});
+
 test("participant UI never sends its writes through the public Web server actions", () => {
   const composer = readFileSync(
     new URL("../src/components/app/PostComposer.tsx", import.meta.url),
@@ -153,4 +188,5 @@ test("participant UI never sends its writes through the public Web server action
   assert.match(hook, /checkedWalletAddress === currentWalletAddress/u);
   assert.match(hook, /Wallet wurde während der Anmeldung gewechselt/u);
   assert.match(composer, /submitLockRef\.current/u);
+  assert.match(composer, /mirrorStagingParticipantMeckyPost/u);
 });

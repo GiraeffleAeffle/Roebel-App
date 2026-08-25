@@ -1260,6 +1260,9 @@ importers:
 
   packages/staging-participant-gateway:
     dependencies:
+      '@netizen-labs/nostr':
+        specifier: workspace:*
+        version: link:../nostr
       '@netizen-labs/relay-sync':
         specifier: workspace:*
         version: link:../relay-sync

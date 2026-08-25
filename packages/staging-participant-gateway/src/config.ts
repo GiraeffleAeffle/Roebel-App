@@ -1,4 +1,5 @@
 import type { StagingParticipantGatewayConfig } from "./types.ts";
+import type { PrivateWorkbenchMirrorConfig } from "./workbench-adapter.ts";
 
 export type ProductionGatewayConfig = Readonly<{
   gateway: StagingParticipantGatewayConfig;
@@ -8,6 +9,7 @@ export type ProductionGatewayConfig = Readonly<{
   supabaseRpcSecret: string;
   host: string;
   port: number;
+  workbench: PrivateWorkbenchMirrorConfig;
 }>;
 
 function nonEmpty(value: string | undefined): string | null {
@@ -29,6 +31,19 @@ function walletAllowlist(value: string | undefined): readonly string[] | null {
     : null;
 }
 
+function meckyPubkey(value: string | undefined): string | null {
+  const pubkey = nonEmpty(value)?.toLowerCase() ?? null;
+  return pubkey && /^[a-f0-9]{64}$/u.test(pubkey) ? pubkey : null;
+}
+
+function workbenchAdmissionHeader(value: string | undefined): PrivateWorkbenchMirrorConfig["admissionHeader"] | null {
+  // Keep the existing workbench gate fixed. An arbitrary header would turn
+  // this resolver into a generic internal request capability.
+  return value === "x-stadtstack-e2e:1"
+    ? { name: "x-stadtstack-e2e", value: "1" }
+    : null;
+}
+
 /** Fail closed unless the dedicated staging gateway is explicitly enabled. */
 export function resolveProductionGatewayConfig(
   env: Record<string, string | undefined> = process.env,
@@ -46,23 +61,35 @@ export function resolveProductionGatewayConfig(
   const supabaseRpcSecret = nonEmpty(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET);
   const host = nonEmpty(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_HOST) ?? "127.0.0.1";
   const port = integerPort(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_PORT);
+  const configuredMeckyPubkey = meckyPubkey(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_MECKY_PUBKEY);
+  const workbenchUrl = nonEmpty(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_URL);
+  const admissionHeader = workbenchAdmissionHeader(
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_ADMISSION_HEADER,
+  );
   if (!origin || !sessionHmacKey || sessionHmacKey.length < 32 || !inviteSha256 ||
     !allowedWallets ||
     !/^[a-f0-9]{64}$/iu.test(inviteSha256) || !gnosisRpcUrl || !supabaseUrl ||
     !supabaseAnonKey || supabaseAnonKey.length < 16 || !supabaseRpcSecret ||
-    supabaseRpcSecret.length < 32 || !port) return null;
+    supabaseRpcSecret.length < 32 || !port || !configuredMeckyPubkey || !workbenchUrl ||
+    !admissionHeader) return null;
   let originUrl: URL;
   let gnosisUrl: URL;
   let supabaseUrlValue: URL;
+  let workbenchUrlValue: URL;
   try {
     originUrl = new URL(origin);
     gnosisUrl = new URL(gnosisRpcUrl);
     supabaseUrlValue = new URL(supabaseUrl);
+    workbenchUrlValue = new URL(workbenchUrl);
   } catch {
     return null;
   }
   if (originUrl.origin !== origin || originUrl.protocol !== "https:" ||
     gnosisUrl.protocol !== "https:" || supabaseUrlValue.protocol !== "https:" ||
+    workbenchUrlValue.protocol !== "http:" ||
+    !workbenchUrlValue.hostname.endsWith(".svc.cluster.local") ||
+    Boolean(workbenchUrlValue.username) || Boolean(workbenchUrlValue.password) ||
+    workbenchUrlValue.pathname !== "/" || Boolean(workbenchUrlValue.search) || Boolean(workbenchUrlValue.hash) ||
     !["127.0.0.1", "0.0.0.0"].includes(host)) return null;
   return {
     gateway: {
@@ -71,6 +98,7 @@ export function resolveProductionGatewayConfig(
       inviteSha256: inviteSha256.toLowerCase(),
       allowedWallets,
       cookieSecure: true,
+      meckyPubkey: configuredMeckyPubkey,
     },
     gnosisRpcUrl,
     supabaseUrl,
@@ -78,5 +106,6 @@ export function resolveProductionGatewayConfig(
     supabaseRpcSecret,
     host,
     port,
+    workbench: { url: workbenchUrl, admissionHeader },
   };
 }

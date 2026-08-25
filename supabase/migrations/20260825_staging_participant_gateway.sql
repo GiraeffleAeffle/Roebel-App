@@ -808,18 +808,69 @@ begin
 end;
 $$;
 
+-- This read is intentionally narrower than a feed API. It returns only the
+-- exact source post produced by this gateway for the session wallet, so a
+-- signed Nostr mention cannot be pointed at a different user's or legacy row.
+create or replace function public.staging_participant_gateway_read_owned_main_text_post(
+  p_wallet_address text,
+  p_post_id uuid
+) returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public, staging_participant_private
+as $$
+declare
+  v_wallet text := lower(p_wallet_address);
+  v_post public.posts%rowtype;
+begin
+  perform staging_participant_private.require_staging_participant_gateway();
+  if p_wallet_address is null
+     or v_wallet !~ '^0x[0-9a-f]{40}$'
+     or p_post_id is null then
+    raise exception 'STAGING_PARTICIPANT_SOURCE_INVALID'
+      using errcode = 'P0001';
+  end if;
+  select p.* into v_post
+    from public.posts p
+    join staging_participant_private.staging_participant_write_audit a
+      on a.result_id = p.id
+     and a.action = 'post'
+     and a.wallet_address = v_wallet
+   where p.id = p_post_id
+     and lower(p.wallet_address) = v_wallet
+     and p.account_id is null
+     and p.feed_type = 'main'
+     and p.post_type = 'user'
+     and p.category = 'generell'
+     and p.status = 'published'
+     and coalesce(cardinality(p.media_urls), 0) = 0
+     and p.video_url is null
+     and p.linked_event_id is null
+     and p.linked_experience_id is null
+   limit 1;
+  if not found then return null; end if;
+  return to_jsonb(v_post);
+end;
+$$;
+
 revoke all on function public.staging_participant_gateway_create_main_text_post(text, text, uuid)
   from public, anon, authenticated;
 revoke all on function public.staging_participant_gateway_create_main_text_comment(text, uuid, text, uuid)
   from public, anon, authenticated;
+revoke all on function public.staging_participant_gateway_read_owned_main_text_post(text, uuid)
+  from public, anon, authenticated;
 grant execute on function public.staging_participant_gateway_create_main_text_post(text, text, uuid)
   to anon;
 grant execute on function public.staging_participant_gateway_create_main_text_comment(text, uuid, text, uuid)
+  to anon;
+grant execute on function public.staging_participant_gateway_read_owned_main_text_post(text, uuid)
   to anon;
 
 comment on function public.staging_participant_gateway_create_main_text_post(text, text, uuid)
   is 'STAGING ONLY: exact text-only main-feed post capability for ADR 0021.';
 comment on function public.staging_participant_gateway_create_main_text_comment(text, uuid, text, uuid)
   is 'STAGING ONLY: exact text-only main-feed comment capability for ADR 0021.';
+comment on function public.staging_participant_gateway_read_owned_main_text_post(text, uuid)
+  is 'STAGING ONLY: exact participant-owned source row for a post-only Nostr Mecky mirror.';
 
 commit;

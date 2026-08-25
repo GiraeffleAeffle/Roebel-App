@@ -12,6 +12,7 @@ POST /api/staging-participant/v1/challenge
 POST /api/staging-participant/v1/session
 POST /api/staging-participant/v1/posts
 POST /api/staging-participant/v1/comments
+POST /api/staging-participant/v1/nostr-post
 ```
 
 Case, vote, treasury, administration, municipal publication and arbitrary
@@ -33,13 +34,31 @@ The process fails closed unless all of these are present:
 | `ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_ANON_KEY` | browser-public PostgREST routing key |
 | `ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET` | 32+ byte capability also stored in Supabase Vault |
 | `ROEBEL_STAGING_PARTICIPANT_GATEWAY_PORT` | listener port |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_MECKY_PUBKEY` | exact 64-hex public key allowed in the only `p` tag |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_URL` | exact cluster-local HTTP workbench URL; public URLs fail closed |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_ADMISSION_HEADER` | fixed existing gate: `x-stadtstack-e2e:1` |
 
-The RPC secret is sent only to the two named functions as a private header.
+The RPC secret is sent only to the two write functions and one exact
+participant-owned-source read function as a private header.
 It is not a Supabase service-role key, custom database JWT, citizen credential,
 or cluster credential. Do not log request headers.
 
 Challenge issuance requires both a matching invite and membership in the
 configured wallet allowlist. The invite alone can never enroll another wallet.
+
+`nostr-post` is not a generic signed-event proxy. It accepts one closed body
+only after the normal participant post exists: session wallet, wallet↔Nostr
+binding plus Gnosis wallet signature, Nostr kind/signature/fresh timestamp,
+exact source ownership/content and exactly these tags must agree:
+
+```text
+["p", configuredMeckyPubkey]
+["source-app-post", sourcePostId]
+```
+
+The private adapter first calls the existing workbench admission endpoint and
+then its fixed `intent: "post"` endpoint. It cannot select a workbench method,
+event intent, conversation, promotion, argument, case, vote or treasury action.
 
 Session cookies are always `Secure`, `HttpOnly`, and `SameSite=Strict`; no
 runtime flag can weaken that production resolver. The first deployment must
@@ -47,7 +66,7 @@ run exactly one replica. Challenge consumption is atomic inside that process
 but intentionally in-memory; restart invalidates outstanding challenges. The
 store prunes stale/consumed entries, replaces an older challenge for the same
 wallet, and has a hard capacity. Ingress must additionally rate-limit these
-five paths. A multi-replica deployment requires a durable atomic
+six paths. A multi-replica deployment requires a durable atomic
 `ChallengeStore` implementation and corresponding replay tests first.
 
 ## Source verification

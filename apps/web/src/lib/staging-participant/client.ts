@@ -1,10 +1,12 @@
 import type { Post, PostComment } from "@/types/post";
+import type { CitizenSession } from "@/lib/citizen-session/session";
 
 const API_ROOT = "/api/staging-participant/v1";
 const CHALLENGE_SCHEMA = "staging_participant_challenge_request_v1";
 const SESSION_SCHEMA = "staging_participant_session_request_v1";
 const POST_SCHEMA = "staging_participant_post_request_v1";
 const COMMENT_SCHEMA = "staging_participant_comment_request_v1";
+const NOSTR_POST_SCHEMA = "staging_participant_nostr_post_request_v1";
 
 export const STAGING_PARTICIPANT_LABEL =
   "Staging-Testteilnahme – keine Bürgerverifikation, kein Stimmrecht";
@@ -43,7 +45,7 @@ async function readJson(response: Response): Promise<unknown> {
 }
 
 async function request<T>(
-  path: "challenge" | "session" | "posts" | "comments",
+  path: "challenge" | "session" | "posts" | "comments" | "nostr-post",
   body: Record<string, unknown>,
   fallback: string,
   retryTransient = false,
@@ -151,4 +153,41 @@ export function createStagingParticipantComment(
     "Kommentar konnte nicht veröffentlicht werden",
     true,
   );
+}
+
+export async function mirrorStagingParticipantMeckyPost(input: Readonly<{
+  sourcePost: Pick<Post, "id" | "content">;
+  session: CitizenSession;
+  meckyPubkey?: string;
+}>): Promise<StagingParticipantResult<{ status: "published"; eventId: string }>> {
+  const meckyPubkey = (input.meckyPubkey ?? process.env.NEXT_PUBLIC_STAGING_PARTICIPANT_MECKY_PUBKEY ?? "").toLowerCase();
+  if (!/^[0-9a-f]{64}$/u.test(meckyPubkey)) {
+    return { success: false, error: "Mecky ist für diese Staging-Teilnahme noch nicht konfiguriert" };
+  }
+  try {
+    // The source row already exists at this point. The gateway independently
+    // proves ownership/content before it is allowed to forward either proof.
+    const [admissionProof, event] = await Promise.all([
+      input.session.createAdmissionProof(),
+      input.session.signPublicPost({
+        content: input.sourcePost.content,
+        mentionPubkeys: [meckyPubkey],
+        sourceAppPostId: input.sourcePost.id,
+      }),
+    ]);
+    return await request(
+      "nostr-post",
+      {
+        schemaVersion: NOSTR_POST_SCHEMA,
+        requestId: newRequestId(),
+        sourcePostId: input.sourcePost.id,
+        admissionProof,
+        event,
+      },
+      "Der Beitrag ist veröffentlicht, aber Mecky konnte noch nicht sicher erreicht werden",
+      true,
+    );
+  } catch {
+    return { success: false, error: "Der Beitrag ist veröffentlicht, aber Mecky konnte noch nicht sicher erreicht werden" };
+  }
 }

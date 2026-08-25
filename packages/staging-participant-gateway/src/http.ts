@@ -1,4 +1,10 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
+import {
+  bindingStatement,
+  verifyBindingEvent,
+  verifyEvent,
+  type NostrEvent,
+} from "@netizen-labs/nostr";
 
 import {
   CHALLENGE_COOKIE,
@@ -19,6 +25,7 @@ import {
   validInvite,
 } from "./protocol.ts";
 import type {
+  MeckyMirrorAdapter,
   StagingParticipantDataAdapter,
   StagingParticipantGatewayConfig,
   WalletSignatureVerifier,
@@ -32,12 +39,14 @@ const CHALLENGE_SCHEMA = "staging_participant_challenge_request_v1";
 const SESSION_SCHEMA = "staging_participant_session_request_v1";
 const POST_SCHEMA = "staging_participant_post_request_v1";
 const COMMENT_SCHEMA = "staging_participant_comment_request_v1";
+const NOSTR_POST_SCHEMA = "staging_participant_nostr_post_request_v1";
 
 const STATUS_PATH = "/api/staging-participant/v1/status";
 const CHALLENGE_PATH = "/api/staging-participant/v1/challenge";
 const SESSION_PATH = "/api/staging-participant/v1/session";
 const POSTS_PATH = "/api/staging-participant/v1/posts";
 const COMMENTS_PATH = "/api/staging-participant/v1/comments";
+const NOSTR_POST_PATH = "/api/staging-participant/v1/nostr-post";
 const AUTHORITY_PATHS = new Set([
   "/api/staging-participant/v1/cases",
   "/api/staging-participant/v1/votes",
@@ -49,6 +58,7 @@ export type StagingParticipantGatewayDependencies = Readonly<{
   config: StagingParticipantGatewayConfig;
   verifier: WalletSignatureVerifier;
   data: StagingParticipantDataAdapter;
+  mirror: MeckyMirrorAdapter;
   now?: () => Date;
   randomId?: () => string;
   /**
@@ -57,6 +67,11 @@ export type StagingParticipantGatewayDependencies = Readonly<{
    * atomically-consuming store before it is enabled.
    */
   challengeStore?: ChallengeStore;
+}>;
+
+type MirroredRequest = Readonly<{
+  fingerprint: string;
+  result: Promise<Readonly<{ status: "published"; eventId: string }>>;
 }>;
 
 function json(value: unknown, status = 200, origin?: string): Response {
@@ -112,6 +127,68 @@ function validRequestId(value: unknown): string | null {
     : null;
 }
 
+function validNostrEvent(value: unknown): NostrEvent | null {
+  const record = parsedObject(value, ["id", "pubkey", "created_at", "kind", "tags", "content", "sig"]);
+  if (!record || typeof record.id !== "string" || !/^[a-f0-9]{64}$/iu.test(record.id) ||
+    typeof record.pubkey !== "string" || !/^[a-f0-9]{64}$/iu.test(record.pubkey) ||
+    typeof record.created_at !== "number" || !Number.isSafeInteger(record.created_at) || record.created_at < 0 ||
+    typeof record.kind !== "number" || !Number.isSafeInteger(record.kind) || record.kind < 0 ||
+    typeof record.content !== "string" || typeof record.sig !== "string" ||
+    !/^[a-f0-9]{128}$/iu.test(record.sig) || !Array.isArray(record.tags) ||
+    record.tags.some((tag) => !Array.isArray(tag) || tag.some((item) => typeof item !== "string"))) return null;
+  const event = {
+    id: record.id.toLowerCase(), pubkey: record.pubkey.toLowerCase(), created_at: record.created_at,
+    kind: record.kind, tags: record.tags.map((tag) => [...tag]), content: record.content, sig: record.sig.toLowerCase(),
+  } as NostrEvent;
+  return verifyEvent(event) ? event : null;
+}
+
+function exactMeckyTags(event: NostrEvent, meckyPubkey: string, sourcePostId: string): boolean {
+  return event.tags.length === 2 &&
+    event.tags[0]?.length === 2 && event.tags[0]?.[0] === "p" && event.tags[0]?.[1] === meckyPubkey &&
+    event.tags[1]?.length === 2 && event.tags[1]?.[0] === "source-app-post" && event.tags[1]?.[1] === sourcePostId;
+}
+
+function containsExplicitMeckyMention(content: string): boolean {
+  return /(?:^|\s)@mecky\b/iu.test(content);
+}
+
+function admissionProof(value: unknown, walletAddress: string): Readonly<{
+  credential: { kind: "thirdweb_smart_account" | "passkey_safe"; address: string; chainId: 100 };
+  statement: string;
+  walletSignature: string;
+  bindingEvent: NostrEvent;
+  nostrPubkey: string;
+  workbenchProof: unknown;
+}> | null {
+  const record = parsedObject(value, ["schemaVersion", "credential", "statement", "walletSignature", "bindingEvent"]);
+  const credential = record && parsedObject(record.credential, ["kind", "address", "chainId"]);
+  if (!record || record.schemaVersion !== "roebel_citizen_admission_proof_v1" || !credential ||
+    (credential.kind !== "thirdweb_smart_account" && credential.kind !== "passkey_safe") ||
+    normalizeWallet(credential.address) !== walletAddress || credential.chainId !== 100 ||
+    typeof record.statement !== "string" || typeof record.walletSignature !== "string" ||
+    !/^0x[0-9a-f]+$/iu.test(record.walletSignature) || (record.walletSignature.length - 2) % 2 !== 0) return null;
+  const bindingEvent = validNostrEvent(record.bindingEvent);
+  if (!bindingEvent) return null;
+  const binding = verifyBindingEvent(bindingEvent, walletAddress);
+  if (!binding.valid || bindingEvent.content !== record.statement ||
+    record.statement !== bindingStatement({ account: walletAddress, npub: binding.npub })) return null;
+  return {
+    credential: { kind: credential.kind, address: walletAddress, chainId: 100 },
+    statement: record.statement,
+    walletSignature: record.walletSignature,
+    bindingEvent,
+    nostrPubkey: binding.pubkey,
+    workbenchProof: {
+      schemaVersion: "roebel_citizen_admission_proof_v1",
+      credential: { kind: credential.kind, address: walletAddress, chainId: 100 },
+      statement: record.statement,
+      walletSignature: record.walletSignature,
+      bindingEvent,
+    },
+  };
+}
+
 function nodeResponseHeaders(headers: Headers): Record<string, string | string[]> {
   const result: Record<string, string | string[]> = {};
   headers.forEach((value, name) => { result[name] = value; });
@@ -159,7 +236,8 @@ export function createStagingParticipantGatewayHandler(
   if (config.sessionHmacKey.length < 32 ||
     !/^[a-f0-9]{64}$/iu.test(config.inviteSha256) ||
     config.allowedWallets.length < 1 || config.allowedWallets.length > 8 ||
-    config.allowedWallets.some((wallet) => !/^0x[0-9a-f]{40}$/u.test(wallet))) {
+    config.allowedWallets.some((wallet) => !/^0x[0-9a-f]{40}$/u.test(wallet)) ||
+    !/^[0-9a-f]{64}$/u.test(config.meckyPubkey)) {
     throw new Error("staging_participant_gateway_config_invalid");
   }
   let origin: string;
@@ -171,6 +249,8 @@ export function createStagingParticipantGatewayHandler(
   if (origin !== config.origin) throw new Error("staging_participant_gateway_origin_invalid");
   const now = dependencies.now ?? (() => new Date());
   const store = dependencies.challengeStore ?? new Map();
+  const mirroredRequests = new Map<string, MirroredRequest>();
+  const mirroredSources = new Map<string, Readonly<{ eventId: string; result: Promise<Readonly<{ status: "published"; eventId: string }>> }>>();
 
   return async (request) => {
     const url = new URL(request.url);
@@ -184,7 +264,7 @@ export function createStagingParticipantGatewayHandler(
       return json({ error: "authority_action_forbidden" }, 403, origin);
     }
     if (request.method === "OPTIONS" &&
-      [STATUS_PATH, CHALLENGE_PATH, SESSION_PATH, POSTS_PATH, COMMENTS_PATH].includes(url.pathname)) {
+      [STATUS_PATH, CHALLENGE_PATH, SESSION_PATH, POSTS_PATH, COMMENTS_PATH, NOSTR_POST_PATH].includes(url.pathname)) {
       const response = new Response(null, {
         status: 204,
         headers: {
@@ -216,7 +296,7 @@ export function createStagingParticipantGatewayHandler(
       }, 200, origin);
     }
     if (url.pathname !== CHALLENGE_PATH && url.pathname !== SESSION_PATH &&
-      url.pathname !== POSTS_PATH && url.pathname !== COMMENTS_PATH) {
+      url.pathname !== POSTS_PATH && url.pathname !== COMMENTS_PATH && url.pathname !== NOSTR_POST_PATH) {
       return json({ error: "not_found" }, 404, origin);
     }
     // Same-origin browser GET requests commonly omit Origin. Every mutating
@@ -306,6 +386,70 @@ export function createStagingParticipantGatewayHandler(
       Math.floor(nowMs / 1_000),
     );
     if (!session) return json({ error: "session_required" }, 401, origin);
+
+    if (url.pathname === NOSTR_POST_PATH) {
+      const record = parsedObject(body, ["schemaVersion", "requestId", "sourcePostId", "admissionProof", "event"]);
+      const requestId = record && record.schemaVersion === NOSTR_POST_SCHEMA
+        ? validRequestId(record.requestId) : null;
+      const sourcePostId = record && record.schemaVersion === NOSTR_POST_SCHEMA
+        ? validPostId(record.sourcePostId) : null;
+      const proof = record && record.schemaVersion === NOSTR_POST_SCHEMA
+        ? admissionProof(record.admissionProof, session.walletAddress) : null;
+      const event = record && record.schemaVersion === NOSTR_POST_SCHEMA
+        ? validNostrEvent(record.event) : null;
+      const nowSeconds = Math.floor(nowMs / 1_000);
+      if (!requestId || !sourcePostId || !proof || !event || event.kind !== 1 ||
+        Math.abs(event.created_at - nowSeconds) > 300 || event.pubkey !== proof.nostrPubkey ||
+        !exactMeckyTags(event, config.meckyPubkey, sourcePostId)) {
+        return json({ error: "nostr_post_invalid" }, 400, origin);
+      }
+      const fingerprint = JSON.stringify({ sourcePostId, admissionProof: proof.workbenchProof, event });
+      const requestKey = `${session.walletAddress}:${requestId}`;
+      const previousRequest = mirroredRequests.get(requestKey);
+      if (previousRequest) {
+        if (previousRequest.fingerprint !== fingerprint) return json({ error: "request_reused" }, 409, origin);
+        try {
+          return json({ status: "published", eventId: (await previousRequest.result).eventId, authority: "none" }, 200, origin);
+        } catch {
+          return json({ error: "mirror_unavailable" }, 503, origin);
+        }
+      }
+      let source;
+      try {
+        source = await dependencies.data.readOwnedMainTextPost({ walletAddress: session.walletAddress, postId: sourcePostId });
+      } catch {
+        return json({ error: "source_unavailable" }, 503, origin);
+      }
+      if (!source || source.content !== event.content || !containsExplicitMeckyMention(source.content) ||
+        source.wallet_address.toLowerCase() !== session.walletAddress) {
+        return json({ error: "source_mismatch" }, 409, origin);
+      }
+      let walletSignatureValid = false;
+      try {
+        walletSignatureValid = await dependencies.verifier.verifyWalletSignature({
+          address: session.walletAddress, message: proof.statement, signature: proof.walletSignature,
+        });
+      } catch {
+        return json({ error: "verification_unavailable" }, 503, origin);
+      }
+      if (!walletSignatureValid) return json({ error: "wallet_signature_invalid" }, 401, origin);
+      const sourceKey = `${event.pubkey}:${sourcePostId}`;
+      const previousSource = mirroredSources.get(sourceKey);
+      if (previousSource && previousSource.eventId !== event.id) return json({ error: "source_already_mirrored" }, 409, origin);
+      const result = previousSource?.result ?? dependencies.mirror.mirrorPost({ admissionProof: proof.workbenchProof, event });
+      mirroredRequests.set(requestKey, { fingerprint, result });
+      mirroredSources.set(sourceKey, { eventId: event.id, result });
+      try {
+        const published = await result;
+        return json({ status: published.status, eventId: published.eventId, authority: "none" }, previousSource ? 200 : 201, origin);
+      } catch {
+        // A failed upstream result is never retained as an idempotency success;
+        // allow the identical bounded request to be attempted again.
+        mirroredRequests.delete(requestKey);
+        if (!previousSource) mirroredSources.delete(sourceKey);
+        return json({ error: "mirror_unavailable" }, 503, origin);
+      }
+    }
 
     if (url.pathname === POSTS_PATH) {
       const record = parsedObject(body, ["schemaVersion", "requestId", "content"]);

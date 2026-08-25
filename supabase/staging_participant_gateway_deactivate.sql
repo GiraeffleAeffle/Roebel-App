@@ -29,6 +29,8 @@ begin
     from public, anon, authenticated;
   revoke all on function public.staging_participant_gateway_create_main_text_comment(text, uuid, text, uuid)
     from public, anon, authenticated;
+  revoke all on function public.staging_participant_gateway_read_owned_main_text_post(text, uuid)
+    from public, anon, authenticated;
 
   -- Normalize the exact activation-owned privilege surface before restoring
   -- the captured baseline, so grants added during the activation window do not

@@ -23,6 +23,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@netizen-labs/nostr": "workspace:*",
     "@netizen-labs/relay-sync": "workspace:*"
   },
   "devDependencies": {

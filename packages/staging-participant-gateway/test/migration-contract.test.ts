@@ -18,13 +18,17 @@ const deactivation = readFileSync(
   "utf8",
 );
 
-test("migration exposes exactly two Vault-checked anon RPCs without a service/custom writer role", () => {
+test("migration exposes only the two write RPCs plus one exact owned-source read RPC", () => {
   assert.match(migration, /vault\.decrypted_secrets/u);
   assert.match(migration, /roebel_staging_participant_environment_arm/u);
   assert.match(migration, /x-staging-participant-rpc-secret/u);
   assert.match(
     migration,
     /grant execute on function public\.staging_participant_gateway_create_main_text_post[\s\S]*to anon;/u,
+  );
+  assert.match(
+    migration,
+    /grant execute on function public\.staging_participant_gateway_read_owned_main_text_post[\s\S]*to anon;/u,
   );
   assert.match(
     migration,
@@ -35,6 +39,14 @@ test("migration exposes exactly two Vault-checked anon RPCs without a service/cu
   assert.doesNotMatch(adapter, /service_role|writerToken|staging_participant_writer/u);
   assert.match(adapter, /authorization: `Bearer \$\{config\.anonKey\}`/u);
   assert.match(adapter, /"x-staging-participant-rpc-secret": config\.rpcSecret/u);
+});
+
+test("the source read can return only an exact participant-created ordinary post", () => {
+  assert.match(migration, /staging_participant_gateway_read_owned_main_text_post/u);
+  assert.match(migration, /a\.action = 'post'/u);
+  assert.match(migration, /lower\(p\.wallet_address\) = v_wallet/u);
+  assert.match(migration, /p\.feed_type = 'main'/u);
+  assert.doesNotMatch(migration, /staging_participant_gateway_read_owned_main_text_post[\s\S]{0,1800}\b(proposals|civic_cases|votes|treasury)\b/iu);
 });
 
 test("post bypass needs a secret-derived, one-time exact-shape reservation", () => {
@@ -98,6 +110,7 @@ test("activation captures and deactivation restores compatibility state without 
   assert.match(deactivation, /grant %s on table %s/u);
   assert.match(deactivation, /grant %s on function %s/u);
   assert.match(deactivation, /revoke all on function public\.pin_own_post/u);
+  assert.match(deactivation, /revoke all on function public\.staging_participant_gateway_read_owned_main_text_post/u);
   assert.doesNotMatch(deactivation, /drop schema|delete from public\.(posts|post_comments)/iu);
 });
 

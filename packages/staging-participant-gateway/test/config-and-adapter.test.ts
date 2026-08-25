@@ -19,6 +19,10 @@ const env = {
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_ANON_KEY: "public-anon-key-which-is-long-enough",
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET: "r".repeat(32),
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_PORT: "18085",
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_MECKY_PUBKEY: "a".repeat(64),
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_URL:
+    "http://stadtstack-roebel-e2e.stadtstack-roebel-web-preview.svc.cluster.local:18083",
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_ADMISSION_HEADER: "x-stadtstack-e2e:1",
 };
 
 function jwt(payload: Record<string, unknown>): string {
@@ -72,6 +76,14 @@ test("production configuration fails closed unless explicit staging mode and eve
   assert.equal(resolveProductionGatewayConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_ORIGIN: "http://app.example" }), null);
   assert.equal(resolveProductionGatewayConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_COOKIE_SECURE: "false" })?.gateway.cookieSecure, true);
   assert.equal(resolveProductionGatewayConfig(env)?.port, 18085);
+  assert.equal(resolveProductionGatewayConfig({
+    ...env,
+    ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_URL: "https://public.example",
+  }), null);
+  assert.equal(resolveProductionGatewayConfig({
+    ...env,
+    ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_ADMISSION_HEADER: "authorization:Bearer any",
+  }), null);
 });
 
 test("Supabase adapter rejects a valid-looking row that is not correlated to its request", async () => {
@@ -112,9 +124,14 @@ test("Supabase adapter invokes only named Vault-checked RPCs and never a service
     content: "Kommentar",
     requestId: "20000000-0000-4000-8000-000000000002",
   });
+  await adapter.readOwnedMainTextPost({
+    walletAddress: "0x1111111111111111111111111111111111111111",
+    postId: "10000000-0000-4000-8000-000000000001",
+  });
   assert.deepEqual(calls.map((call) => call.url), [
     `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.createMainTextPost}`,
     `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.createMainTextComment}`,
+    `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.readOwnedMainTextPost}`,
   ]);
   assert.equal(calls[0]?.headers.get("apikey"), env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_ANON_KEY);
   assert.equal(calls[0]?.headers.get("authorization"), `Bearer ${env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_ANON_KEY}`);

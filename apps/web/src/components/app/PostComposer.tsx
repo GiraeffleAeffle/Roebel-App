@@ -51,6 +51,7 @@ import {
 import { appMeckyConversationGateway } from "@/lib/stadtstack/app-mecky-gateway";
 import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
 import { useStagingTestParticipant } from "@/hooks/useStagingTestParticipant";
+import { mirrorStagingParticipantMeckyPost } from "@/lib/staging-participant/client";
 
 const MAX_CHARS = 500;
 const MAX_IMAGES = 10;
@@ -382,6 +383,8 @@ export function PostComposer({
 
       if (result.success && result.data) {
         let meckyRequested = false;
+        let participantMeckyMirrored = false;
+        let participantMeckyDeferred = false;
         if (
           !isStagingParticipant &&
           citizenSession &&
@@ -409,8 +412,21 @@ export function PostComposer({
             );
           }
         }
-        const participantMeckyDeferred =
-          isStagingParticipant && containsExplicitMeckyMention(submittedContent);
+        if (
+          isStagingParticipant &&
+          containsExplicitMeckyMention(submittedContent)
+        ) {
+          if (!citizenSession) {
+            participantMeckyDeferred = true;
+          } else {
+            const mirrored = await mirrorStagingParticipantMeckyPost({
+              sourcePost: result.data,
+              session: citizenSession,
+            });
+            participantMeckyMirrored = mirrored.success;
+            participantMeckyDeferred = !mirrored.success;
+          }
+        }
         // Reset form
         setContent("");
         setImageFiles([]);
@@ -424,17 +440,19 @@ export function PostComposer({
         setIsExpanded(false);
         if (participantMeckyDeferred) {
           toast.warning(
-            "Beitrag veröffentlicht. Die signierte Mecky-Antwort wird mit dem nächsten, getrennt geprüften Diskussionsschritt aktiviert."
+            "Beitrag veröffentlicht. Mecky konnte noch nicht sicher erreicht werden; es wurde keine Ersatzantwort erzeugt."
           );
         } else {
           toast.success(
-            meckyRequested
+            participantMeckyMirrored
+              ? "Beitrag veröffentlicht – Mecky wurde signiert gefragt."
+              : meckyRequested
               ? "Beitrag veröffentlicht – Mecky antwortet im Gespräch."
               : "Beitrag veröffentlicht!"
           );
         }
         onPostCreated?.();
-        if (meckyRequested) router.push(`/app/posts/${result.data.id}`);
+        if (meckyRequested || participantMeckyMirrored) router.push(`/app/posts/${result.data.id}`);
       } else {
         toast.error(result.error || "Fehler beim Veröffentlichen");
       }

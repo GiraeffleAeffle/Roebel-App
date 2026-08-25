@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
+import {
+  buildBindingEvent,
+  buildNoteEvent,
+  deriveNostrIdentity,
+} from "@netizen-labs/nostr";
 
 import { createStagingParticipantGatewayHandler } from "../src/http.ts";
 import {
@@ -11,7 +16,11 @@ import {
   prepareChallengeStore,
   type ChallengeStore,
 } from "../src/protocol.ts";
-import type { StagingParticipantDataAdapter, WalletSignatureVerifier } from "../src/types.ts";
+import type {
+  MeckyMirrorAdapter,
+  StagingParticipantDataAdapter,
+  WalletSignatureVerifier,
+} from "../src/types.ts";
 
 const ORIGIN = "https://roebel-web.staging.agentcart.eu";
 const WALLET = "0x1111111111111111111111111111111111111111";
@@ -19,6 +28,7 @@ const OTHER_WALLET = "0x2222222222222222222222222222222222222222";
 const INVITE = "bounded-test-invite";
 const INVITE_SHA256 = createHash("sha256").update(INVITE).digest("hex");
 const KEY = "k".repeat(32);
+const MECKY_PUBKEY = "a".repeat(64);
 const POST_REQUEST_ID = "20000000-0000-4000-8000-000000000001";
 const COMMENT_REQUEST_ID = "20000000-0000-4000-8000-000000000002";
 
@@ -55,6 +65,7 @@ function jsonRequest(path: string, body: unknown, cookie?: string): Request {
 function fixture(input: Partial<{
   verify: boolean;
   nowMs: number;
+  mirrorFails: boolean;
 }> = {}) {
   let nowMs = input.nowMs ?? Date.parse("2026-08-25T12:00:00.000Z");
   const calls: Array<{ kind: "post" | "comment"; walletAddress: string; content: string; postId?: string }> = [];
@@ -84,6 +95,26 @@ function fixture(input: Partial<{
         created_at: "2026-08-25T12:00:00.000Z", author_username: null, author_profile_picture_url: null,
       };
     },
+    async readOwnedMainTextPost({ walletAddress, postId }) {
+      if (walletAddress !== WALLET || postId !== "10000000-0000-4000-8000-000000000001") {
+        return null;
+      }
+      return {
+        id: postId, wallet_address: walletAddress,
+        account_id: null, content: "@Mecky, was ist der nächste sinnvolle Schritt?", media_urls: [], video_url: null,
+        category: "generell", status: "published", likes_count: 0, comments_count: 0,
+        created_at: "2026-08-25T12:00:00.000Z", updated_at: "2026-08-25T12:00:00.000Z",
+        post_type: "user", feed_type: "main", linked_event_id: null, linked_experience_id: null,
+      };
+    },
+  };
+  const mirrored: unknown[] = [];
+  const mirror: MeckyMirrorAdapter = {
+    async mirrorPost(mirrorInput) {
+      mirrored.push(mirrorInput);
+      if (input.mirrorFails) throw new Error("upstream unavailable");
+      return { status: "published", eventId: mirrorInput.event.id };
+    },
   };
   let count = 0;
   const handler = createStagingParticipantGatewayHandler({
@@ -93,13 +124,15 @@ function fixture(input: Partial<{
       inviteSha256: INVITE_SHA256,
       allowedWallets: [WALLET],
       cookieSecure: true,
+      meckyPubkey: MECKY_PUBKEY,
     },
     verifier,
     data,
+    mirror,
     now: () => new Date(nowMs),
     randomId: () => (++count).toString(16).padStart(32, "0"),
   });
-  return { handler, calls, setNow: (value: number) => { nowMs = value; } };
+  return { handler, calls, mirrored, setNow: (value: number) => { nowMs = value; } };
 }
 
 async function enrolledSession() {
@@ -213,6 +246,134 @@ test("allows only a short-lived session to create personal main-feed text posts 
       content: "Ich habe die Stelle ebenfalls beobachtet.",
     },
   ]);
+});
+
+test("mirrors only the exact owner-signed @Mecky post after its source row exists", async () => {
+  const { handler, mirrored, sessionCookie } = await enrolledSession();
+  const identity = deriveNostrIdentity("0x" + "1".repeat(130));
+  const bindingEvent = buildBindingEvent(identity.secretKey, WALLET, { createdAt: 1_787_659_199 });
+  const event = buildNoteEvent(
+    identity.secretKey,
+    "@Mecky, was ist der nächste sinnvolle Schritt?",
+    {
+      createdAt: 1_787_659_200,
+      tags: [
+        ["p", MECKY_PUBKEY],
+        ["source-app-post", "10000000-0000-4000-8000-000000000001"],
+      ],
+    },
+  );
+  const response = await handler(jsonRequest("/api/staging-participant/v1/nostr-post", {
+    schemaVersion: "staging_participant_nostr_post_request_v1",
+    requestId: "20000000-0000-4000-8000-000000000003",
+    sourcePostId: "10000000-0000-4000-8000-000000000001",
+    admissionProof: {
+      schemaVersion: "roebel_citizen_admission_proof_v1",
+      credential: { kind: "thirdweb_smart_account", address: WALLET, chainId: 100 },
+      statement: bindingEvent.content,
+      walletSignature: "0xaaaa",
+      bindingEvent,
+    },
+    event,
+  }, sessionCookie));
+  assert.equal(response.status, 201);
+  assert.equal(mirrored.length, 1);
+  assert.equal((mirrored[0] as { event: { id: string } }).event.id, event.id);
+  assert.equal((await handler(jsonRequest("/api/staging-participant/v1/nostr-post", {
+    schemaVersion: "staging_participant_nostr_post_request_v1",
+    requestId: "20000000-0000-4000-8000-000000000003",
+    sourcePostId: "10000000-0000-4000-8000-000000000001",
+    admissionProof: {
+      schemaVersion: "roebel_citizen_admission_proof_v1",
+      credential: { kind: "thirdweb_smart_account", address: WALLET, chainId: 100 },
+      statement: bindingEvent.content, walletSignature: "0xaaaa", bindingEvent,
+    }, event,
+  }, sessionCookie))).status, 200);
+  assert.equal(mirrored.length, 1);
+
+  const tagDrift = buildNoteEvent(identity.secretKey, event.content, {
+    createdAt: 1_787_659_201,
+    tags: [["p", "b".repeat(64)], ["source-app-post", "10000000-0000-4000-8000-000000000001"]],
+  });
+  assert.equal((await handler(jsonRequest("/api/staging-participant/v1/nostr-post", {
+    schemaVersion: "staging_participant_nostr_post_request_v1",
+    requestId: "20000000-0000-4000-8000-000000000004",
+    sourcePostId: "10000000-0000-4000-8000-000000000001",
+    admissionProof: {
+      schemaVersion: "roebel_citizen_admission_proof_v1",
+      credential: { kind: "thirdweb_smart_account", address: WALLET, chainId: 100 },
+      statement: bindingEvent.content, walletSignature: "0xaaaa", bindingEvent,
+    }, event: tagDrift,
+  }, sessionCookie))).status, 400);
+
+  const sourceDrift = buildNoteEvent(identity.secretKey, "@Mecky, anderer Quelltext", {
+    createdAt: 1_787_659_202,
+    tags: [["p", MECKY_PUBKEY], ["source-app-post", "10000000-0000-4000-8000-000000000001"]],
+  });
+  assert.equal((await handler(jsonRequest("/api/staging-participant/v1/nostr-post", {
+    schemaVersion: "staging_participant_nostr_post_request_v1",
+    requestId: "20000000-0000-4000-8000-000000000005",
+    sourcePostId: "10000000-0000-4000-8000-000000000001",
+    admissionProof: {
+      schemaVersion: "roebel_citizen_admission_proof_v1",
+      credential: { kind: "thirdweb_smart_account", address: WALLET, chainId: 100 },
+      statement: bindingEvent.content, walletSignature: "0xaaaa", bindingEvent,
+    }, event: sourceDrift,
+  }, sessionCookie))).status, 409);
+});
+
+test("refuses cross-wallet and malformed participant Mecky mirrors before their upstream", async () => {
+  const { handler, mirrored, sessionCookie } = await enrolledSession();
+  const identity = deriveNostrIdentity("0x" + "2".repeat(130));
+  const bindingEvent = buildBindingEvent(identity.secretKey, OTHER_WALLET, { createdAt: 1_787_659_199 });
+  const event = buildNoteEvent(identity.secretKey, "@Mecky, bitte einordnen", {
+    createdAt: 1_787_659_200,
+    tags: [["p", MECKY_PUBKEY], ["source-app-post", "10000000-0000-4000-8000-000000000001"]],
+  });
+  const response = await handler(jsonRequest("/api/staging-participant/v1/nostr-post", {
+    schemaVersion: "staging_participant_nostr_post_request_v1",
+    requestId: "20000000-0000-4000-8000-000000000006",
+    sourcePostId: "10000000-0000-4000-8000-000000000001",
+    admissionProof: {
+      schemaVersion: "roebel_citizen_admission_proof_v1",
+      credential: { kind: "thirdweb_smart_account", address: OTHER_WALLET, chainId: 100 },
+      statement: bindingEvent.content, walletSignature: "0xaaaa", bindingEvent,
+    }, event,
+  }, sessionCookie));
+  assert.equal(response.status, 400);
+  assert.equal((await handler(jsonRequest("/api/staging-participant/v1/nostr-post", {
+    schemaVersion: "staging_participant_nostr_post_request_v1",
+  }, sessionCookie))).status, 400);
+  assert.equal(mirrored.length, 0);
+});
+
+test("returns an honest failure without recording a successful mirror when the private adapter is unavailable", async () => {
+  const setup = fixture({ mirrorFails: true });
+  const challenge = await setup.handler(jsonRequest("/api/staging-participant/v1/challenge", {
+    schemaVersion: "staging_participant_challenge_request_v1", walletAddress: WALLET, inviteToken: INVITE,
+  }));
+  const session = await setup.handler(jsonRequest("/api/staging-participant/v1/session", {
+    schemaVersion: "staging_participant_session_request_v1", signature: "0xaaaa",
+  }, cookieValue(challenge, CHALLENGE_COOKIE)));
+  const identity = deriveNostrIdentity("0x" + "3".repeat(130));
+  const bindingEvent = buildBindingEvent(identity.secretKey, WALLET, { createdAt: 1_787_659_199 });
+  const event = buildNoteEvent(identity.secretKey, "@Mecky, was ist der nächste sinnvolle Schritt?", {
+    createdAt: 1_787_659_200,
+    tags: [["p", MECKY_PUBKEY], ["source-app-post", "10000000-0000-4000-8000-000000000001"]],
+  });
+  const body = {
+    schemaVersion: "staging_participant_nostr_post_request_v1",
+    requestId: "20000000-0000-4000-8000-000000000007",
+    sourcePostId: "10000000-0000-4000-8000-000000000001",
+    admissionProof: {
+      schemaVersion: "roebel_citizen_admission_proof_v1",
+      credential: { kind: "thirdweb_smart_account", address: WALLET, chainId: 100 },
+      statement: bindingEvent.content, walletSignature: "0xaaaa", bindingEvent,
+    }, event,
+  };
+  assert.equal((await setup.handler(jsonRequest("/api/staging-participant/v1/nostr-post", body, cookieValue(session, SESSION_COOKIE)))).status, 503);
+  assert.equal((await setup.handler(jsonRequest("/api/staging-participant/v1/nostr-post", body, cookieValue(session, SESSION_COOKIE)))).status, 503);
+  assert.equal(setup.mirrored.length, 2);
 });
 
 test("fails before the data adapter for missing session, non-text payloads, and civic-authority paths", async () => {
