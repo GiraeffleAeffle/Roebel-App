@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
@@ -15,6 +16,10 @@ const adapter = readFileSync(
 );
 const deactivation = readFileSync(
   new URL("../../../supabase/staging_participant_gateway_deactivate.sql", import.meta.url),
+  "utf8",
+);
+const schemaContract = readFileSync(
+  new URL("../../../supabase/staging-participant-gateway-schema-contract-v1.json", import.meta.url),
   "utf8",
 );
 
@@ -47,6 +52,40 @@ test("migration exposes only two writes, one exact source read, and two durable 
   assert.doesNotMatch(adapter, /service_role|writerToken|staging_participant_writer/u);
   assert.match(adapter, /authorization: `Bearer \$\{config\.anonKey\}`/u);
   assert.match(adapter, /"x-staging-participant-rpc-secret": config\.rpcSecret/u);
+});
+
+test("readiness binds canonical source bytes to an honest current-catalog marker", () => {
+  const digest = `sha256:${createHash("sha256").update(schemaContract, "utf8").digest("hex")}`;
+  assert.equal(schemaContract, `${JSON.stringify(JSON.parse(schemaContract))}\n`);
+  assert.notEqual(
+    `sha256:${createHash("sha256").update(`${schemaContract} `, "utf8").digest("hex")}`,
+    digest,
+  );
+  assert.match(migration, /staging_participant_schema_contract/u);
+  assert.match(migration, /canonical_contract text not null/u);
+  assert.match(migration, new RegExp(digest, "u"));
+  assert.match(migration, /extensions\.digest\(v_marker\.canonical_contract, 'sha256'\)/u);
+  assert.match(migration, /v_marker\.canonical_contract <> \$contract\$/u);
+  const quotedPayloads = [...migration.matchAll(/\$contract\$([\s\S]*?)\$contract\$/gu)]
+    .map((match) => match[1]);
+  assert.equal(quotedPayloads.length, 2);
+  for (const payload of quotedPayloads) {
+    assert.equal(payload, schemaContract);
+    assert.equal(`sha256:${createHash("sha256").update(payload, "utf8").digest("hex")}`, digest);
+  }
+  assert.match(migration, /create or replace function public\.staging_participant_gateway_preflight\(\)/u);
+  assert.match(migration, /stable\s+security definer/u);
+  assert.match(migration, /to_regprocedure\(v_function\)/u);
+  assert.match(migration, /relrowsecurity/u);
+  assert.match(migration, /has_column_privilege\('anon', v_table, v_column, 'INSERT'\)/u);
+  assert.match(migration, /has_column_privilege\('authenticated', v_table, v_column, 'UPDATE'\)/u);
+  assert.match(migration, /p\.prosecdef and p\.provolatile = v_expected_volatility/u);
+  assert.match(migration, /STAGING_PARTICIPANT_SCHEMA_COLUMN_ACL_INVALID/u);
+  assert.match(migration, /grant execute on function public\.staging_participant_gateway_preflight\(\)\s+to anon;/u);
+  assert.match(deactivation, /revoke all on function public\.staging_participant_gateway_preflight\(\)/u);
+  // The preflight proves marker + live catalog facts, not unavailable historic
+  // raw SQL bytes. The workflow binds the migration source SHA separately.
+  assert.match(migration, /does not claim to know the raw historical migration bytes/u);
 });
 
 test("mirror receipt is durable, source-bound, and cannot authorize replacement after a crash", () => {
@@ -155,6 +194,7 @@ test("every private capability and audit table has RLS enabled with no public po
     "staging_participant_write_reservations",
     "staging_participant_write_audit",
     "staging_participant_nostr_post_mirror_receipts",
+    "staging_participant_schema_contract",
     "staging_participant_prior_function_definitions",
     "staging_participant_prior_privileges",
   ]) {

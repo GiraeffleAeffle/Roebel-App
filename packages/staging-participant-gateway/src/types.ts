@@ -53,6 +53,18 @@ export type StagingParticipantDataAdapter = Readonly<{
   }>): Promise<StagingParticipantMirrorReceipt>;
 }>;
 
+/** A single catalog-bound readiness capability; it cannot select any RPC. */
+export type StagingParticipantReadinessAdapter = Readonly<{
+  preflight(): Promise<Readonly<{ migrationId: string; databaseSchemaSha256: string }>>;
+}>;
+
+export type StagingParticipantReadinessPins = Readonly<{
+  sourceRevision: string;
+  manifestDigest: string;
+  migrationSha256: string;
+  databaseSchemaSha256: string;
+}>;
+
 /**
  * A private, capability-contained adapter for the already-deployed signed
  * Nostr workbench. It receives no caller-selected URL, method or intent.

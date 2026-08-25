@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { resolveProductionGatewayConfig } from "../src/config.ts";
 import {
   createRestrictedSupabaseDataAdapter,
+  createStagingParticipantReadinessAdapter,
   restrictedStagingParticipantRpcNames,
 } from "../src/supabase-adapter.ts";
 
@@ -23,7 +25,16 @@ const env = {
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_URL:
     "http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/",
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_ADMISSION_HEADER: "x-stadtstack-e2e:1",
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_SOURCE_REVISION: "a".repeat(40),
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_MANIFEST_DIGEST: `sha256:${"b".repeat(64)}`,
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_MIGRATION_SHA256: `sha256:${"c".repeat(64)}`,
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_DATABASE_SCHEMA_SHA256: `sha256:${"d".repeat(64)}`,
 };
+
+const BAKED_SOURCE_REVISION = "a".repeat(40);
+const productionConfig = (input: Record<string, string | undefined>) =>
+  resolveProductionGatewayConfig(input, BAKED_SOURCE_REVISION);
+const dockerfile = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
 
 function jwt(payload: Record<string, unknown>): string {
   return [
@@ -77,28 +88,37 @@ const MIRROR_RECEIPT = {
 };
 
 test("production configuration fails closed unless explicit staging mode and every dedicated input is present", () => {
-  assert.equal(resolveProductionGatewayConfig({}), null);
-  assert.equal(resolveProductionGatewayConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY: "true" }), null);
-  assert.equal(resolveProductionGatewayConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_SESSION_KEY: "short" }), null);
-  assert.equal(resolveProductionGatewayConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_ALLOWED_WALLETS: "" }), null);
-  assert.equal(resolveProductionGatewayConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_ALLOWED_WALLETS: "0xABC" }), null);
-  assert.equal(resolveProductionGatewayConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_ORIGIN: "https://app.example/path" }), null);
-  assert.equal(resolveProductionGatewayConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_ORIGIN: "http://app.example" }), null);
-  assert.equal(resolveProductionGatewayConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_COOKIE_SECURE: "false" })?.gateway.cookieSecure, true);
-  assert.equal(resolveProductionGatewayConfig(env)?.port, 18085);
-  assert.equal(resolveProductionGatewayConfig({
+  assert.equal(productionConfig({}), null);
+  assert.equal(productionConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY: "true" }), null);
+  assert.equal(productionConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_SESSION_KEY: "short" }), null);
+  assert.equal(productionConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_ALLOWED_WALLETS: "" }), null);
+  assert.equal(productionConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_ALLOWED_WALLETS: "0xABC" }), null);
+  assert.equal(productionConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_ORIGIN: "https://app.example/path" }), null);
+  assert.equal(productionConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_ORIGIN: "http://app.example" }), null);
+  assert.equal(productionConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_COOKIE_SECURE: "false" })?.gateway.cookieSecure, true);
+  assert.equal(productionConfig(env)?.port, 18085);
+  assert.equal(productionConfig({
     ...env,
     ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_URL: "https://public.example",
   }), null);
-  assert.equal(resolveProductionGatewayConfig({
+  assert.equal(productionConfig({
     ...env,
     ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_URL:
       "http://e2e-workbench.other.svc.cluster.local:18083/",
   }), null);
-  assert.equal(resolveProductionGatewayConfig({
+  assert.equal(productionConfig({
     ...env,
     ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_ADMISSION_HEADER: "authorization:Bearer any",
   }), null);
+  assert.equal(productionConfig({
+    ...env,
+    // A Deployment can provide this variable, but it cannot substitute the
+    // immutable revision read from /app/source-revision by the CLI.
+    ROEBEL_STAGING_PARTICIPANT_GATEWAY_SOURCE_REVISION: "e".repeat(40),
+  }), null);
+  assert.equal(resolveProductionGatewayConfig(env, "e".repeat(40)), null);
+  assert.match(dockerfile, /\/app\/source-revision/u);
+  assert.doesNotMatch(dockerfile, /ROEBEL_STAGING_PARTICIPANT_GATEWAY_BAKED_SOURCE_REVISION/u);
 });
 
 test("Supabase adapter rejects a valid-looking row that is not correlated to its request", async () => {
@@ -185,4 +205,35 @@ test("Supabase adapter invokes only named Vault-checked RPCs and never a service
     anonKey: "sb_secret_this-is-not-a-public-key",
     rpcSecret: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET,
   }));
+});
+
+test("readiness adapter can call only the fixed empty preflight RPC and rejects drifted rows", async () => {
+  const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+  const adapter = createStagingParticipantReadinessAdapter({
+    url: "https://example.supabase.co",
+    anonKey: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_ANON_KEY,
+    rpcSecret: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET,
+    fetch: async (url, init) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({
+        migration_id: "20260825_staging_participant_gateway",
+        database_schema_sha256: `sha256:${"d".repeat(64)}`,
+      }), { status: 200 });
+    },
+  });
+  assert.deepEqual(await adapter.preflight(), {
+    migrationId: "20260825_staging_participant_gateway",
+    databaseSchemaSha256: `sha256:${"d".repeat(64)}`,
+  });
+  assert.equal(calls[0]?.url, `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.preflight}`);
+  assert.equal(calls[0]?.init?.method, "POST");
+  assert.equal(calls[0]?.init?.body, "{}");
+  assert.equal(new Headers(calls[0]?.init?.headers).get("x-staging-participant-rpc-secret"), env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET);
+  const malformed = createStagingParticipantReadinessAdapter({
+    url: "https://example.supabase.co",
+    anonKey: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_ANON_KEY,
+    rpcSecret: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET,
+    fetch: async () => new Response(JSON.stringify({ migration_id: "unexpected" }), { status: 200 }),
+  });
+  await assert.rejects(malformed.preflight(), /preflight_response_invalid/u);
 });

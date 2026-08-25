@@ -1,4 +1,4 @@
-import type { StagingParticipantGatewayConfig } from "./types.ts";
+import type { StagingParticipantGatewayConfig, StagingParticipantReadinessPins } from "./types.ts";
 import { PRIVATE_WORKBENCH_URL, type PrivateWorkbenchMirrorConfig } from "./workbench-adapter.ts";
 
 export type ProductionGatewayConfig = Readonly<{
@@ -10,6 +10,7 @@ export type ProductionGatewayConfig = Readonly<{
   host: string;
   port: number;
   workbench: PrivateWorkbenchMirrorConfig;
+  readinessPins: StagingParticipantReadinessPins;
 }>;
 
 function nonEmpty(value: string | undefined): string | null {
@@ -44,9 +45,20 @@ function workbenchAdmissionHeader(value: string | undefined): PrivateWorkbenchMi
     : null;
 }
 
+function sourceRevision(value: string | undefined): string | null {
+  const revision = nonEmpty(value);
+  return revision && /^[0-9a-f]{40}$/u.test(revision) ? revision : null;
+}
+
+function sha256Digest(value: string | undefined): string | null {
+  const digest = nonEmpty(value);
+  return digest && /^sha256:[0-9a-f]{64}$/u.test(digest) ? digest : null;
+}
+
 /** Fail closed unless the dedicated staging gateway is explicitly enabled. */
 export function resolveProductionGatewayConfig(
   env: Record<string, string | undefined> = process.env,
+  bakedSourceRevision: string | undefined,
 ): ProductionGatewayConfig | null {
   if (env.ROEBEL_STAGING_PARTICIPANT_GATEWAY !== "enabled") return null;
   const origin = nonEmpty(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_ORIGIN);
@@ -66,12 +78,21 @@ export function resolveProductionGatewayConfig(
   const admissionHeader = workbenchAdmissionHeader(
     env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_ADMISSION_HEADER,
   );
+  // Read by the CLI from an image-owned, read-only file. It is deliberately
+  // not an environment variable, which a Deployment could override.
+  const immutableSourceRevision = sourceRevision(bakedSourceRevision);
+  const deployedSourceRevision = sourceRevision(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SOURCE_REVISION);
+  const manifestDigest = sha256Digest(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_MANIFEST_DIGEST);
+  const migrationSha256 = sha256Digest(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_MIGRATION_SHA256);
+  const databaseSchemaSha256 = sha256Digest(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_DATABASE_SCHEMA_SHA256);
   if (!origin || !sessionHmacKey || sessionHmacKey.length < 32 || !inviteSha256 ||
     !allowedWallets ||
     !/^[a-f0-9]{64}$/iu.test(inviteSha256) || !gnosisRpcUrl || !supabaseUrl ||
     !supabaseAnonKey || supabaseAnonKey.length < 16 || !supabaseRpcSecret ||
     supabaseRpcSecret.length < 32 || !port || !configuredMeckyPubkey || !workbenchUrl ||
-    !admissionHeader) return null;
+    !admissionHeader || !immutableSourceRevision || !deployedSourceRevision ||
+    immutableSourceRevision !== deployedSourceRevision || !manifestDigest || !migrationSha256 ||
+    !databaseSchemaSha256) return null;
   let originUrl: URL;
   let gnosisUrl: URL;
   let supabaseUrlValue: URL;
@@ -108,5 +129,6 @@ export function resolveProductionGatewayConfig(
     host,
     port,
     workbench: { url: workbenchUrl, admissionHeader },
+    readinessPins: { sourceRevision: immutableSourceRevision, manifestDigest, migrationSha256, databaseSchemaSha256 },
   };
 }

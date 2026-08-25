@@ -37,6 +37,9 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 COPY --from=builder --chown=65532:65532 /workspace/packages/staging-participant-gateway/dist/staging-participant-gateway.cjs /app/staging-participant-gateway.cjs
+RUN printf '%s\n' "$SOURCE_REVISION" > /app/source-revision \
+    && chown 65532:65532 /app/source-revision \
+    && chmod 0444 /app/source-revision
 
 USER 65532:65532
 STOPSIGNAL SIGTERM

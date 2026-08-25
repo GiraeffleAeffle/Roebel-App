@@ -151,6 +151,29 @@ insert into staging_participant_private.staging_participant_environment (singlet
 values (true, 'staging')
 on conflict (singleton) do nothing;
 
+-- The database attests only to this marker and fixed catalog facts. It does
+-- not claim to know the raw historical migration bytes; source/GitOps pins
+-- bind those separately as release evidence.
+create table staging_participant_private.staging_participant_schema_contract (
+  singleton boolean primary key default true check (singleton),
+  migration_id text not null,
+  canonical_contract text not null,
+  database_schema_sha256 text not null check (database_schema_sha256 ~ '^sha256:[0-9a-f]{64}$')
+);
+insert into staging_participant_private.staging_participant_schema_contract
+  (singleton, migration_id, canonical_contract, database_schema_sha256)
+values (
+  true,
+  '20260825_staging_participant_gateway',
+  $contract${"assertions":{"acl":{"anonExecute":["public.staging_participant_gateway_create_main_text_post(text,text,uuid)","public.staging_participant_gateway_create_main_text_comment(text,uuid,text,uuid)","public.staging_participant_gateway_read_owned_main_text_post(text,uuid)","public.staging_participant_gateway_reserve_nostr_post_mirror(text,uuid,uuid,text,bigint,text)","public.staging_participant_gateway_complete_nostr_post_mirror(text,uuid,uuid,text,text)","public.staging_participant_gateway_preflight()"],"directWritesClosed":["public.posts","public.post_comments","public.post_likes","public.app_settings"],"publicExecuteRevoked":true},"functions":{"preflight":{"language":"plpgsql","searchPath":"pg_catalog, public, staging_participant_private","securityDefiner":true,"stable":true},"privateRequired":["staging_participant_private.require_staging_participant_gateway()","staging_participant_private.staging_participant_rpc_secret()","staging_participant_private.ensure_active_staging_participant(text)","staging_participant_private.consume_staging_post_reservation(public.posts)"],"publicSecurityDefiner":true},"marker":{"canonicalTextBound":true,"migrationId":"20260825_staging_participant_gateway","singleton":true},"privateTables":["staging_participant_private.staging_participant_environment","staging_participant_private.staging_participant_admissions","staging_participant_private.staging_participant_write_reservations","staging_participant_private.staging_participant_write_audit","staging_participant_private.staging_participant_nostr_post_mirror_receipts","staging_participant_private.staging_participant_schema_contract"],"trigger":{"function":"public.enforce_posting_rules()","table":"public.posts"}},"migrationId":"20260825_staging_participant_gateway","schemaVersion":"roebel_staging_participant_gateway_schema_contract_v1"}
+$contract$,
+  'sha256:8da97930b98d4d8437aef8c4038cc72b3d38ccd7ac9f972741b69c1cf1b3d012'
+)
+on conflict (singleton) do update
+  set migration_id = excluded.migration_id,
+      canonical_contract = excluded.canonical_contract,
+      database_schema_sha256 = excluded.database_schema_sha256;
+
 create table staging_participant_private.staging_participant_admissions (
   wallet_address text primary key,
   issued_at timestamptz not null default now(),
@@ -243,6 +266,8 @@ create table staging_participant_private.staging_participant_prior_privileges (
 -- Defense in depth for the private capability/audit catalog. No public policy
 -- is created; only the owning SECURITY DEFINER functions may use these rows.
 alter table staging_participant_private.staging_participant_environment
+  enable row level security;
+alter table staging_participant_private.staging_participant_schema_contract
   enable row level security;
 alter table staging_participant_private.staging_participant_admissions
   enable row level security;
@@ -1115,6 +1140,143 @@ begin
 end;
 $$;
 
+-- Exact no-argument readiness RPC. It is intentionally not a generic
+-- diagnostics endpoint: fixed catalog checks, no DML, no dynamic object
+-- selection, and a two-field response only.
+create or replace function public.staging_participant_gateway_preflight()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = pg_catalog, public, staging_participant_private
+as $$
+declare
+  v_marker staging_participant_private.staging_participant_schema_contract%rowtype;
+  v_table text;
+  v_column text;
+  v_function text;
+  v_expected_search_path text;
+  v_expected_volatility "char";
+begin
+  perform staging_participant_private.require_staging_participant_gateway();
+  select * into strict v_marker
+    from staging_participant_private.staging_participant_schema_contract
+   where singleton;
+  if v_marker.migration_id <> '20260825_staging_participant_gateway'
+     or v_marker.canonical_contract <> $contract${"assertions":{"acl":{"anonExecute":["public.staging_participant_gateway_create_main_text_post(text,text,uuid)","public.staging_participant_gateway_create_main_text_comment(text,uuid,text,uuid)","public.staging_participant_gateway_read_owned_main_text_post(text,uuid)","public.staging_participant_gateway_reserve_nostr_post_mirror(text,uuid,uuid,text,bigint,text)","public.staging_participant_gateway_complete_nostr_post_mirror(text,uuid,uuid,text,text)","public.staging_participant_gateway_preflight()"],"directWritesClosed":["public.posts","public.post_comments","public.post_likes","public.app_settings"],"publicExecuteRevoked":true},"functions":{"preflight":{"language":"plpgsql","searchPath":"pg_catalog, public, staging_participant_private","securityDefiner":true,"stable":true},"privateRequired":["staging_participant_private.require_staging_participant_gateway()","staging_participant_private.staging_participant_rpc_secret()","staging_participant_private.ensure_active_staging_participant(text)","staging_participant_private.consume_staging_post_reservation(public.posts)"],"publicSecurityDefiner":true},"marker":{"canonicalTextBound":true,"migrationId":"20260825_staging_participant_gateway","singleton":true},"privateTables":["staging_participant_private.staging_participant_environment","staging_participant_private.staging_participant_admissions","staging_participant_private.staging_participant_write_reservations","staging_participant_private.staging_participant_write_audit","staging_participant_private.staging_participant_nostr_post_mirror_receipts","staging_participant_private.staging_participant_schema_contract"],"trigger":{"function":"public.enforce_posting_rules()","table":"public.posts"}},"migrationId":"20260825_staging_participant_gateway","schemaVersion":"roebel_staging_participant_gateway_schema_contract_v1"}
+$contract$
+     or v_marker.database_schema_sha256 <> 'sha256:8da97930b98d4d8437aef8c4038cc72b3d38ccd7ac9f972741b69c1cf1b3d012'
+     or extensions.digest(v_marker.canonical_contract, 'sha256') <> decode('8da97930b98d4d8437aef8c4038cc72b3d38ccd7ac9f972741b69c1cf1b3d012', 'hex') then
+    raise exception 'STAGING_PARTICIPANT_SCHEMA_MARKER_INVALID' using errcode = 'P0001';
+  end if;
+  if not exists (
+    select 1 from pg_catalog.pg_proc p
+     where p.oid = 'public.staging_participant_gateway_preflight()'::pg_catalog.regprocedure
+       and p.prosecdef and p.provolatile = 's'::"char" and p.pronargs = 0
+  ) or not exists (
+    select 1 from pg_catalog.pg_trigger t
+     where t.tgrelid = 'public.posts'::pg_catalog.regclass
+       and t.tgfoid = 'public.enforce_posting_rules()'::pg_catalog.regprocedure
+       and not t.tgisinternal and t.tgenabled <> 'D'
+  ) then
+    raise exception 'STAGING_PARTICIPANT_SCHEMA_CATALOG_INVALID' using errcode = 'P0001';
+  end if;
+  foreach v_table in array array['public.posts', 'public.post_comments', 'public.post_likes', 'public.app_settings'] loop
+    if has_table_privilege('anon', v_table, 'INSERT')
+       or has_table_privilege('anon', v_table, 'UPDATE')
+       or has_table_privilege('anon', v_table, 'DELETE')
+       or has_table_privilege('authenticated', v_table, 'INSERT')
+       or has_table_privilege('authenticated', v_table, 'UPDATE')
+       or has_table_privilege('authenticated', v_table, 'DELETE') then
+      raise exception 'STAGING_PARTICIPANT_SCHEMA_ACL_INVALID:%', v_table using errcode = 'P0001';
+    end if;
+    for v_column in
+      select a.attname
+        from pg_catalog.pg_attribute a
+       where a.attrelid = to_regclass(v_table)
+         and a.attnum > 0 and not a.attisdropped
+    loop
+      if has_column_privilege('anon', v_table, v_column, 'INSERT')
+         or has_column_privilege('anon', v_table, v_column, 'UPDATE')
+         or has_column_privilege('authenticated', v_table, v_column, 'INSERT')
+         or has_column_privilege('authenticated', v_table, v_column, 'UPDATE') then
+        raise exception 'STAGING_PARTICIPANT_SCHEMA_COLUMN_ACL_INVALID:%.%', v_table, v_column using errcode = 'P0001';
+      end if;
+    end loop;
+  end loop;
+  foreach v_function in array array[
+    'public.staging_participant_gateway_create_main_text_post(text,text,uuid)',
+    'public.staging_participant_gateway_create_main_text_comment(text,uuid,text,uuid)',
+    'public.staging_participant_gateway_read_owned_main_text_post(text,uuid)',
+    'public.staging_participant_gateway_reserve_nostr_post_mirror(text,uuid,uuid,text,bigint,text)',
+    'public.staging_participant_gateway_complete_nostr_post_mirror(text,uuid,uuid,text,text)',
+    'public.staging_participant_gateway_preflight()'
+  ] loop
+    if not exists (
+      select 1 from pg_catalog.pg_proc p
+       where p.oid = to_regprocedure(v_function)
+         and p.prosecdef
+         and p.proconfig @> array['search_path=pg_catalog, public, staging_participant_private']
+    ) or has_function_privilege('authenticated', to_regprocedure(v_function), 'EXECUTE')
+       or not has_function_privilege('anon', to_regprocedure(v_function), 'EXECUTE')
+       or exists (
+         select 1 from pg_catalog.pg_proc p
+         cross join lateral pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) acl
+          where p.oid = to_regprocedure(v_function)
+            and acl.grantee = 0 and acl.privilege_type = 'EXECUTE'
+       ) then
+      raise exception 'STAGING_PARTICIPANT_SCHEMA_FUNCTION_INVALID:%', v_function using errcode = 'P0001';
+    end if;
+  end loop;
+  foreach v_function in array array[
+    'staging_participant_private.require_staging_participant_gateway()',
+    'staging_participant_private.staging_participant_rpc_secret()',
+    'staging_participant_private.ensure_active_staging_participant(text)',
+    'staging_participant_private.consume_staging_post_reservation(public.posts)'
+  ] loop
+    v_expected_search_path := case v_function
+      when 'staging_participant_private.staging_participant_rpc_secret()' then 'search_path=pg_catalog, vault'
+      else 'search_path=pg_catalog, staging_participant_private'
+    end;
+    v_expected_volatility := case v_function
+      when 'staging_participant_private.staging_participant_rpc_secret()' then 's'::"char"
+      else 'v'::"char"
+    end;
+    if not exists (
+      select 1 from pg_catalog.pg_proc p
+       where p.oid = to_regprocedure(v_function)
+         and p.prosecdef and p.provolatile = v_expected_volatility
+         and p.proconfig @> array[v_expected_search_path]
+    ) or has_function_privilege('anon', to_regprocedure(v_function), 'EXECUTE')
+       or has_function_privilege('authenticated', to_regprocedure(v_function), 'EXECUTE')
+       or exists (
+         select 1 from pg_catalog.pg_proc p
+         cross join lateral pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) acl
+          where p.oid = to_regprocedure(v_function)
+            and acl.grantee = 0 and acl.privilege_type = 'EXECUTE'
+       ) then
+      raise exception 'STAGING_PARTICIPANT_SCHEMA_PRIVATE_FUNCTION_INVALID:%', v_function using errcode = 'P0001';
+    end if;
+  end loop;
+  foreach v_table in array array[
+    'staging_participant_private.staging_participant_environment',
+    'staging_participant_private.staging_participant_admissions',
+    'staging_participant_private.staging_participant_write_reservations',
+    'staging_participant_private.staging_participant_write_audit',
+    'staging_participant_private.staging_participant_nostr_post_mirror_receipts',
+    'staging_participant_private.staging_participant_schema_contract'
+  ] loop
+    if not exists (select 1 from pg_catalog.pg_class where oid = to_regclass(v_table) and relrowsecurity) then
+      raise exception 'STAGING_PARTICIPANT_SCHEMA_PRIVATE_TABLE_INVALID:%', v_table using errcode = 'P0001';
+    end if;
+  end loop;
+  return jsonb_build_object(
+    'migration_id', v_marker.migration_id,
+    'database_schema_sha256', v_marker.database_schema_sha256
+  );
+end;
+$$;
+
 revoke all on function public.staging_participant_gateway_create_main_text_post(text, text, uuid)
   from public, anon, authenticated;
 revoke all on function public.staging_participant_gateway_create_main_text_comment(text, uuid, text, uuid)
@@ -1125,6 +1287,8 @@ revoke all on function public.staging_participant_gateway_reserve_nostr_post_mir
   from public, anon, authenticated;
 revoke all on function public.staging_participant_gateway_complete_nostr_post_mirror(text, uuid, uuid, text, text)
   from public, anon, authenticated;
+revoke all on function public.staging_participant_gateway_preflight()
+  from public, anon, authenticated;
 grant execute on function public.staging_participant_gateway_create_main_text_post(text, text, uuid)
   to anon;
 grant execute on function public.staging_participant_gateway_create_main_text_comment(text, uuid, text, uuid)
@@ -1134,6 +1298,8 @@ grant execute on function public.staging_participant_gateway_read_owned_main_tex
 grant execute on function public.staging_participant_gateway_reserve_nostr_post_mirror(text, uuid, uuid, text, bigint, text)
   to anon;
 grant execute on function public.staging_participant_gateway_complete_nostr_post_mirror(text, uuid, uuid, text, text)
+  to anon;
+grant execute on function public.staging_participant_gateway_preflight()
   to anon;
 
 comment on function public.staging_participant_gateway_create_main_text_post(text, text, uuid)
@@ -1146,5 +1312,7 @@ comment on function public.staging_participant_gateway_reserve_nostr_post_mirror
   is 'STAGING ONLY: fresh-first durable immutable post-to-Nostr conversation receipt reservation for ADR 0021.';
 comment on function public.staging_participant_gateway_complete_nostr_post_mirror(text, uuid, uuid, text, text)
   is 'STAGING ONLY: completes only the exact durable post-to-Nostr receipt for ADR 0021.';
+comment on function public.staging_participant_gateway_preflight()
+  is 'STAGING ONLY: catalog-bound readiness proof for the exact ADR 0021 gateway migration.';
 
 commit;

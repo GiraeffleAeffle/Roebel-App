@@ -67,6 +67,7 @@ function fixture(input: Partial<{
   verify: boolean;
   nowMs: number;
   mirrorFails: boolean;
+  ready: boolean;
   mirrorReceipts: Map<string, StagingParticipantMirrorReceipt>;
 }> = {}) {
   let nowMs = input.nowMs ?? Date.parse("2026-08-25T12:00:00.000Z");
@@ -180,6 +181,22 @@ function fixture(input: Partial<{
     mirror,
     now: () => new Date(nowMs),
     randomId: () => (++count).toString(16).padStart(32, "0"),
+    ...(input.ready === true ? {
+      readiness: {
+        async preflight() {
+          return {
+            migrationId: "20260825_staging_participant_gateway",
+            databaseSchemaSha256: `sha256:${"d".repeat(64)}`,
+          };
+        },
+      },
+      readinessPins: {
+        sourceRevision: "a".repeat(40),
+        manifestDigest: `sha256:${"b".repeat(64)}`,
+        migrationSha256: `sha256:${"c".repeat(64)}`,
+        databaseSchemaSha256: `sha256:${"d".repeat(64)}`,
+      },
+    } : {}),
   });
   return {
     handler,
@@ -572,6 +589,37 @@ test("expires sessions and exposes only the exact status route", async () => {
   assert.equal(expired.status, 401);
   assert.equal((await handler(request("/api/staging-participant/v1/anything"))).status, 404);
   assert.equal((await handler(request("/api/staging-participant/v1/posts"))).status, 405);
+});
+
+test("internal readiness stays non-ingressed, rejects browser-shaped requests, and returns only bound pins", async () => {
+  const closed = fixture();
+  assert.equal((await closed.handler(new Request("http://gateway.internal/status"))).status, 503);
+  const { handler } = fixture({ ready: true });
+  const ready = await handler(new Request("http://gateway.internal/status"));
+  assert.equal(ready.status, 200);
+  assert.deepEqual(await ready.json(), {
+    schemaVersion: "roebel_staging_participant_gateway_status_v1",
+    status: "ready",
+    sourceRevision: "a".repeat(40),
+    manifestDigest: `sha256:${"b".repeat(64)}`,
+    migrationSha256: `sha256:${"c".repeat(64)}`,
+    databaseSchemaSha256: `sha256:${"d".repeat(64)}`,
+  });
+  for (const request of [
+    new Request("http://gateway.internal/status?x=1"),
+    new Request("http://gateway.internal/status", { method: "POST" }),
+    new Request("http://gateway.internal/status", { headers: { origin: ORIGIN } }),
+    new Request("http://gateway.internal/status", { headers: { cookie: "x=y" } }),
+  ]) {
+    const response = await handler(request);
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), {
+      schemaVersion: "roebel_staging_participant_gateway_status_v1",
+      status: "not_ready",
+    });
+    assert.equal(response.headers.get("access-control-allow-origin"), null);
+    assert.equal(response.headers.get("set-cookie"), null);
+  }
 });
 
 test("prunes stale challenges and caps a leaked invite's in-memory footprint", () => {

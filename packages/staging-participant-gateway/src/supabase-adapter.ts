@@ -3,6 +3,7 @@ import type {
   StagingParticipantDataAdapter,
   StagingParticipantMirrorReceipt,
   StagingParticipantPost,
+  StagingParticipantReadinessAdapter,
 } from "./types.ts";
 
 const POST_RPC = "staging_participant_gateway_create_main_text_post";
@@ -10,6 +11,7 @@ const COMMENT_RPC = "staging_participant_gateway_create_main_text_comment";
 const OWNED_POST_RPC = "staging_participant_gateway_read_owned_main_text_post";
 const RESERVE_MIRROR_RPC = "staging_participant_gateway_reserve_nostr_post_mirror";
 const COMPLETE_MIRROR_RPC = "staging_participant_gateway_complete_nostr_post_mirror";
+const PREFLIGHT_RPC = "staging_participant_gateway_preflight";
 
 export type RestrictedSupabaseRpcConfig = Readonly<{
   url: string;
@@ -22,6 +24,12 @@ export type RestrictedSupabaseRpcConfig = Readonly<{
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function exactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  return actual.length === wanted.length && actual.every((key, index) => key === wanted[index]);
 }
 
 function decodeJwtPayload(value: string): Record<string, unknown> | null {
@@ -153,6 +161,43 @@ export function createRestrictedSupabaseDataAdapter(
   };
 }
 
+/**
+ * Readiness has a separate adapter so it holds exactly one empty-POST
+ * capability. It has no caller-selected RPC, table, URL, or service role.
+ */
+export function createStagingParticipantReadinessAdapter(
+  config: RestrictedSupabaseRpcConfig,
+): StagingParticipantReadinessAdapter {
+  const base = validateConfig(config);
+  const request = config.fetch ?? globalThis.fetch;
+  if (typeof request !== "function") throw new Error("staging_participant_fetch_unavailable");
+  return {
+    async preflight() {
+      const response = await request(new URL(`/rest/v1/rpc/${PREFLIGHT_RPC}`, base), {
+        method: "POST",
+        headers: {
+          apikey: config.anonKey,
+          authorization: `Bearer ${config.anonKey}`,
+          "x-staging-participant-rpc-secret": config.rpcSecret,
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: "{}",
+        signal: AbortSignal.timeout(4_000),
+      });
+      if (!response.ok) throw new Error("staging_participant_preflight_failed");
+      const value = await response.json() as unknown;
+      if (!isRecord(value) || !exactKeys(value, ["migration_id", "database_schema_sha256"]) ||
+        typeof value.migration_id !== "string" ||
+        typeof value.database_schema_sha256 !== "string" ||
+        !/^sha256:[0-9a-f]{64}$/u.test(value.database_schema_sha256)) {
+        throw new Error("staging_participant_preflight_response_invalid");
+      }
+      return { migrationId: value.migration_id, databaseSchemaSha256: value.database_schema_sha256 };
+    },
+  };
+}
+
 function mirrorBody(input: Readonly<{
   walletAddress: string; sourcePostId: string; requestId: string; eventId: string; contentSha256: string;
 }>): Record<string, string> {
@@ -224,4 +269,5 @@ export const restrictedStagingParticipantRpcNames = {
   readOwnedMainTextPost: OWNED_POST_RPC,
   reserveNostrPostMirror: RESERVE_MIRROR_RPC,
   completeNostrPostMirror: COMPLETE_MIRROR_RPC,
+  preflight: PREFLIGHT_RPC,
 } as const;

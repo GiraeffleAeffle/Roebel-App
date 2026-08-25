@@ -31,6 +31,8 @@ import type {
   StagingParticipantDataAdapter,
   StagingParticipantGatewayConfig,
   StagingParticipantMirrorReceipt,
+  StagingParticipantReadinessAdapter,
+  StagingParticipantReadinessPins,
   WalletSignatureVerifier,
 } from "./types.ts";
 
@@ -45,6 +47,8 @@ const COMMENT_SCHEMA = "staging_participant_comment_request_v1";
 const NOSTR_POST_SCHEMA = "staging_participant_nostr_post_request_v1";
 
 const STATUS_PATH = "/api/staging-participant/v1/status";
+const INTERNAL_STATUS_PATH = "/status";
+const INTERNAL_STATUS_SCHEMA = "roebel_staging_participant_gateway_status_v1";
 const CHALLENGE_PATH = "/api/staging-participant/v1/challenge";
 const SESSION_PATH = "/api/staging-participant/v1/session";
 const POSTS_PATH = "/api/staging-participant/v1/posts";
@@ -70,6 +74,9 @@ export type StagingParticipantGatewayDependencies = Readonly<{
    * atomically-consuming store before it is enabled.
    */
   challengeStore?: ChallengeStore;
+  /** Omitted by unit-only embeddings; that leaves the private probe closed. */
+  readiness?: StagingParticipantReadinessAdapter;
+  readinessPins?: StagingParticipantReadinessPins;
 }>;
 
 function json(value: unknown, status = 200, origin?: string): Response {
@@ -229,6 +236,18 @@ function clearChallenge(response: Response, secure: boolean): Response {
   return response;
 }
 
+function internalStatus(value: unknown, status: number): Response {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "no-referrer",
+    },
+  });
+}
+
 /**
  * Exact, staging-only write surface. This handler has no generic proxy, no
  * caller-selected table/RPC, and no civic-authority verbs. It is designed to
@@ -258,6 +277,34 @@ export function createStagingParticipantGatewayHandler(
 
   return async (request) => {
     const url = new URL(request.url);
+    if (url.pathname === INTERNAL_STATUS_PATH) {
+      // No CORS, browser origin or cookies are accepted on this non-ingressed
+      // probe. A network policy/service boundary is still required in deploy.
+      if (url.search || request.method !== "GET" || request.headers.has("origin") || request.headers.has("cookie")) {
+        return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
+      }
+      const pins = dependencies.readinessPins;
+      if (!dependencies.readiness || !pins) {
+        return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
+      }
+      try {
+        const preflight = await dependencies.readiness.preflight();
+        if (preflight.migrationId !== "20260825_staging_participant_gateway" ||
+          preflight.databaseSchemaSha256 !== pins.databaseSchemaSha256) {
+          return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
+        }
+        return internalStatus({
+          schemaVersion: INTERNAL_STATUS_SCHEMA,
+          status: "ready",
+          sourceRevision: pins.sourceRevision,
+          manifestDigest: pins.manifestDigest,
+          migrationSha256: pins.migrationSha256,
+          databaseSchemaSha256: pins.databaseSchemaSha256,
+        }, 200);
+      } catch {
+        return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
+      }
+    }
     if (url.search) return json({ error: "not_found" }, 404);
     const requestOrigin = request.headers.get("origin");
     if (requestOrigin !== null && !isAllowedOrigin(request, config)) {

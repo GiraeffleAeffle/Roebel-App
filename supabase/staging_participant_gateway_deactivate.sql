@@ -35,6 +35,8 @@ begin
     from public, anon, authenticated;
   revoke all on function public.staging_participant_gateway_complete_nostr_post_mirror(text, uuid, uuid, text, text)
     from public, anon, authenticated;
+  revoke all on function public.staging_participant_gateway_preflight()
+    from public, anon, authenticated;
 
   -- Normalize the exact activation-owned privilege surface before restoring
   -- the captured baseline, so grants added during the activation window do not

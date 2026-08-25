@@ -23,6 +23,7 @@ on:
       - "scripts/verify-staging-service-oci.test.mjs"
       - "supabase/migrations/20260825_staging_participant_gateway.sql"
       - "supabase/staging_participant_gateway_deactivate.sql"
+      - "supabase/staging-participant-gateway-schema-contract-v1.json"
       - ".github/workflows/staging-participant-gateway-publish.yml"
   push:
     branches: [main]
@@ -42,6 +43,7 @@ on:
       - "scripts/verify-staging-service-oci.test.mjs"
       - "supabase/migrations/20260825_staging_participant_gateway.sql"
       - "supabase/staging_participant_gateway_deactivate.sql"
+      - "supabase/staging-participant-gateway-schema-contract-v1.json"
       - ".github/workflows/staging-participant-gateway-publish.yml"
   workflow_dispatch:
     inputs:
@@ -151,6 +153,18 @@ jobs:
             "$RUNNER_TEMP/test-context/supabase/migrations/"
           cp supabase/staging_participant_gateway_deactivate.sql \
             "$RUNNER_TEMP/test-context/supabase/"
+          cp supabase/staging-participant-gateway-schema-contract-v1.json \
+            "$RUNNER_TEMP/test-context/supabase/"
+          schema_contract="$RUNNER_TEMP/test-context/supabase/staging-participant-gateway-schema-contract-v1.json"
+          migration_source="supabase/migrations/20260825_staging_participant_gateway.sql"
+          test "$(jq -cS . "$schema_contract")" = "$(tr -d '\n' < "$schema_contract")"
+          schema_sha256="sha256:$(sha256sum "$schema_contract" | cut -d' ' -f1)"
+          migration_sha256="sha256:$(sha256sum "$migration_source" | cut -d' ' -f1)"
+          jq -n --arg migrationSha256 "$migration_sha256" --arg databaseSchemaSha256 "$schema_sha256" \
+            '{schemaVersion:"roebel_staging_participant_gateway_release_pins_v1",migrationSha256:$migrationSha256,databaseSchemaSha256:$databaseSchemaSha256}' \
+            > "$RUNNER_TEMP/staging-participant-gateway.release-pins.json"
+          jq -e '(.migrationSha256 | test("^sha256:[0-9a-f]{64}$")) and (.databaseSchemaSha256 | test("^sha256:[0-9a-f]{64}$"))' \
+            "$RUNNER_TEMP/staging-participant-gateway.release-pins.json" >/dev/null
           pnpm --dir "$RUNNER_TEMP/test-context" --store-dir "$RUNNER_TEMP/pnpm-store" --offline install --frozen-lockfile --ignore-scripts
           pnpm --dir "$RUNNER_TEMP/test-context" --filter "$PACKAGE" test
           pnpm --dir "$RUNNER_TEMP/test-context" --filter "$PACKAGE" typecheck
@@ -208,6 +222,7 @@ jobs:
           path: |
             ${{ runner.temp }}/staging-participant-gateway.oci.tar
             ${{ runner.temp }}/staging-participant-gateway.source-receipt.json
+            ${{ runner.temp }}/staging-participant-gateway.release-pins.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
@@ -230,6 +245,7 @@ jobs:
       SOURCE_RECEIPT: publication-input/staging-participant-gateway.source-receipt.json
       LAYOUT: publication-output/staging-participant-gateway-oci
       SBOM: publication-output/staging-participant-gateway.spdx.json
+      RELEASE_PINS: publication-input/staging-participant-gateway.release-pins.json
       PUBLICATION_RECEIPT: publication-output/staging-participant-gateway.publication-receipt.json
     steps:
       - name: Check out the exact verifier source
@@ -252,6 +268,11 @@ jobs:
           set -euo pipefail
           test -f "$ARCHIVE"
           test -f "$SOURCE_RECEIPT"
+          test -f "$RELEASE_PINS"
+          jq -e '(.migrationSha256 | test("^sha256:[0-9a-f]{64}$")) and (.databaseSchemaSha256 | test("^sha256:[0-9a-f]{64}$"))' "$RELEASE_PINS" >/dev/null
+          test "$(jq -r .migrationSha256 "$RELEASE_PINS")" = "sha256:$(sha256sum source/supabase/migrations/20260825_staging_participant_gateway.sql | cut -d' ' -f1)"
+          test "$(jq -cS . source/supabase/staging-participant-gateway-schema-contract-v1.json)" = "$(tr -d '\n' < source/supabase/staging-participant-gateway-schema-contract-v1.json)"
+          test "$(jq -r .databaseSchemaSha256 "$RELEASE_PINS")" = "sha256:$(sha256sum source/supabase/staging-participant-gateway-schema-contract-v1.json | cut -d' ' -f1)"
           mkdir -p "$(dirname "$LAYOUT")"
           mkdir "$LAYOUT"
           tar -xf "$ARCHIVE" -C "$LAYOUT"
@@ -339,6 +360,8 @@ jobs:
           archive_sha256="sha256:$(sha256sum "$ARCHIVE" | cut -d' ' -f1)"
           source_receipt_sha256="sha256:$(sha256sum "$SOURCE_RECEIPT" | cut -d' ' -f1)"
           sbom_sha256="sha256:$(sha256sum "$SBOM" | cut -d' ' -f1)"
+          migration_sha256="$(jq -er .migrationSha256 "$RELEASE_PINS")"
+          database_schema_sha256="$(jq -er .databaseSchemaSha256 "$RELEASE_PINS")"
           jq -n \
             --arg component "$COMPONENT" \
             --arg sourceRevision "$SOURCE_REVISION" \
@@ -348,15 +371,17 @@ jobs:
             --arg archiveSha256 "$archive_sha256" \
             --arg sourceReceiptSha256 "$source_receipt_sha256" \
             --arg sbomSha256 "$sbom_sha256" \
+            --arg migrationSha256 "$migration_sha256" \
+            --arg databaseSchemaSha256 "$database_schema_sha256" \
             --arg provenanceId "$PROVENANCE_ID" \
             --arg provenanceUrl "$PROVENANCE_URL" \
             --arg sbomAttestationId "$SBOM_ATTESTATION_ID" \
             --arg sbomAttestationUrl "$SBOM_ATTESTATION_URL" \
             --arg workflowIdentity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/staging-participant-gateway-publish.yml@refs/heads/main" \
             --arg runId "$GITHUB_RUN_ID" \
-            '{schemaVersion:"roebel_staging_publication_receipt_v1",component:$component,sourceRevision:$sourceRevision,image:$image,tag:$tag,manifestDigest:$manifestDigest,archiveSha256:$archiveSha256,sourceReceiptSha256:$sourceReceiptSha256,sbomSha256:$sbomSha256,provenance:{id:$provenanceId,url:$provenanceUrl},sbomAttestation:{id:$sbomAttestationId,url:$sbomAttestationUrl},workflowIdentity:$workflowIdentity,runId:$runId,civicAuthority:"none",deploymentEffect:false}' \
+            '{schemaVersion:"roebel_staging_publication_receipt_v1",component:$component,sourceRevision:$sourceRevision,image:$image,tag:$tag,manifestDigest:$manifestDigest,archiveSha256:$archiveSha256,sourceReceiptSha256:$sourceReceiptSha256,sbomSha256:$sbomSha256,migrationSha256:$migrationSha256,databaseSchemaSha256:$databaseSchemaSha256,provenance:{id:$provenanceId,url:$provenanceUrl},sbomAttestation:{id:$sbomAttestationId,url:$sbomAttestationUrl},workflowIdentity:$workflowIdentity,runId:$runId,civicAuthority:"none",deploymentEffect:false}' \
             > "$PUBLICATION_RECEIPT"
-          jq -e '.schemaVersion == "roebel_staging_publication_receipt_v1" and (.manifestDigest | test("^sha256:[0-9a-f]{64}$")) and .civicAuthority == "none" and .deploymentEffect == false' "$PUBLICATION_RECEIPT" >/dev/null
+          jq -e '.schemaVersion == "roebel_staging_publication_receipt_v1" and (.manifestDigest | test("^sha256:[0-9a-f]{64}$")) and (.migrationSha256 | test("^sha256:[0-9a-f]{64}$")) and (.databaseSchemaSha256 | test("^sha256:[0-9a-f]{64}$")) and .civicAuthority == "none" and .deploymentEffect == false' "$PUBLICATION_RECEIPT" >/dev/null
 
       - name: Upload digest-only publication evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -364,6 +389,7 @@ jobs:
           name: staging-participant-gateway-publication-${{ env.SOURCE_REVISION }}
           path: |
             ${{ env.SOURCE_RECEIPT }}
+            ${{ env.RELEASE_PINS }}
             ${{ env.SBOM }}
             ${{ env.PUBLICATION_RECEIPT }}
           if-no-files-found: error
