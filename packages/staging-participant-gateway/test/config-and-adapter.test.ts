@@ -152,6 +152,7 @@ test("Supabase adapter invokes only named Vault-checked RPCs and never a service
   await adapter.reserveNostrPostMirror({
     walletAddress: POST.wallet_address, sourcePostId: POST.id,
     requestId: MIRROR_RECEIPT.request_id, eventId: MIRROR_RECEIPT.event_id,
+    eventCreatedAt: 1_787_659_200,
     contentSha256: MIRROR_RECEIPT.content_sha256,
   });
   await adapter.completeNostrPostMirror({
@@ -172,6 +173,7 @@ test("Supabase adapter invokes only named Vault-checked RPCs and never a service
     calls[0]?.headers.get("x-staging-participant-rpc-secret"),
     env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET,
   );
+  assert.equal((calls[3]?.body as { p_event_created_at?: unknown }).p_event_created_at, "1787659200");
   assert.throws(() => createRestrictedSupabaseDataAdapter({
     url: "https://example.supabase.co",
     anonKey: jwt({ role: "service_role" }),

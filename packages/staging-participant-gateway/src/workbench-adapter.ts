@@ -57,7 +57,7 @@ async function post(
 
 /**
  * The adapter has exactly two immutable requests: admit the already-verified
- * credential binding, then submit its exact signed ordinary-post event. It
+ * credential binding, then submit its exact signed app-conversation mention. It
  * cannot publish an arbitrary event intent or call a public workbench origin.
  */
 export function createPrivateWorkbenchMeckyMirrorAdapter(
@@ -73,7 +73,7 @@ export function createPrivateWorkbenchMeckyMirrorAdapter(
         throw new Error("staging_participant_workbench_admission_invalid");
       }
       const published = await post(fetcher, base, POST_PATH, config.admissionHeader, {
-        intent: "post",
+        intent: "conversation",
         event,
       });
       if (

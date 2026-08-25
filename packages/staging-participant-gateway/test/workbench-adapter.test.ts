@@ -5,11 +5,11 @@ import { createPrivateWorkbenchMeckyMirrorAdapter } from "../src/workbench-adapt
 
 const EVENT = {
   id: "1".repeat(64), pubkey: "2".repeat(64), created_at: 1_756_124_701,
-  kind: 1, tags: [["p", "a".repeat(64)], ["source-app-post", "10000000-0000-4000-8000-000000000001"]],
+  kind: 1, tags: [["p", "a".repeat(64)], ["source-app-post", "10000000-0000-4000-8000-000000000001"], ["t", "roebel-app-conversation"]],
   content: "@Mecky, was ist der nächste sinnvolle Schritt?", sig: "3".repeat(128),
 };
 
-test("private mirror has only the workbench admission then exact ordinary-post publication", async () => {
+test("private mirror has only the workbench admission then exact conversation publication", async () => {
   const calls: Array<{ url: string; headers: Headers; body: unknown }> = [];
   const adapter = createPrivateWorkbenchMeckyMirrorAdapter({
     url: "http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/",
@@ -30,7 +30,7 @@ test("private mirror has only the workbench admission then exact ordinary-post p
     "http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/api/signed-event",
   ]);
   assert.equal(calls[0]?.headers.get("x-stadtstack-e2e"), "1");
-  assert.deepEqual(calls[1]?.body, { intent: "post", event: EVENT });
+  assert.deepEqual(calls[1]?.body, { intent: "conversation", event: EVENT });
 });
 
 test("private mirror rejects public URLs and arbitrary workbench capability headers", () => {

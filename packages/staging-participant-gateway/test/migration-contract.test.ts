@@ -53,6 +53,8 @@ test("mirror receipt is durable, source-bound, and cannot authorize replacement 
   assert.match(migration, /staging_participant_nostr_post_mirror_receipts/u);
   assert.match(migration, /primary key \(wallet_address, source_post_id\)/u);
   assert.match(migration, /request_id uuid not null unique/u);
+  assert.match(migration, /event_created_at bigint not null/u);
+  assert.match(migration, /p_event_created_at bigint/u);
   assert.match(migration, /pg_advisory_xact_lock\(hashtextextended\(v_wallet \|\| ':' \|\| p_source_post_id::text/u);
   assert.match(migration, /STAGING_PARTICIPANT_MIRROR_SOURCE_REUSED/u);
   assert.match(migration, /STAGING_PARTICIPANT_MIRROR_REQUEST_REUSED/u);
@@ -61,6 +63,8 @@ test("mirror receipt is durable, source-bound, and cannot authorize replacement 
   assert.match(adapter, /reserveNostrPostMirror/u);
   assert.match(adapter, /completeNostrPostMirror/u);
   assert.match(adapter, /staging_participant_mirror_conflict/u);
+  assert.match(adapter, /p_event_created_at/u);
+  assert.match(migration, /STAGING_PARTICIPANT_MIRROR_EVENT_STALE/u);
 });
 
 test("the source read can return only an exact participant-created ordinary post", () => {
@@ -95,6 +99,10 @@ test("staging closes direct feed writes and relies on the exact preflighted comm
     migration,
     /revoke insert, update, delete on table public\.posts[\s\S]*from public, anon, authenticated;/u,
   );
+  assert.match(migration, /staging_participant_prior_privileges[\s\S]*table_column/u);
+  assert.match(migration, /revoke insert \(%I\), update \(%I\) on table/u);
+  assert.match(migration, /has_column_privilege\('anon'/u);
+  assert.match(migration, /STAGING_PARTICIPANT_DIRECT_COLUMN_WRITE_PRIVILEGE_REMAINS/u);
   assert.match(
     migration,
     /revoke insert, update, delete on table public\.post_comments[\s\S]*from public, anon, authenticated;/u,
@@ -130,6 +138,7 @@ test("activation captures and deactivation restores compatibility state without 
   assert.match(migration, /staging_participant_prior_privileges/u);
   assert.match(deactivation, /execute v_definition/u);
   assert.match(deactivation, /grant %s on table %s/u);
+  assert.match(deactivation, /grant %s \(%I\) on table %s/u);
   assert.match(deactivation, /grant %s on function %s/u);
   assert.match(deactivation, /revoke all on function public\.pin_own_post/u);
   assert.match(deactivation, /revoke all on function public\.staging_participant_gateway_read_owned_main_text_post/u);

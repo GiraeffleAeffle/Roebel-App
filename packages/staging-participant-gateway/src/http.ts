@@ -141,9 +141,13 @@ function validNostrEvent(value: unknown): NostrEvent | null {
 }
 
 function exactMeckyTags(event: NostrEvent, meckyPubkey: string, sourcePostId: string): boolean {
-  return event.tags.length === 2 &&
+  // This is intentionally byte-for-byte the app conversation contract. A
+  // participant mention must be visible through /api/conversation, not merely
+  // appear as a loose Nostr feed note.
+  return event.tags.length === 3 &&
     event.tags[0]?.length === 2 && event.tags[0]?.[0] === "p" && event.tags[0]?.[1] === meckyPubkey &&
-    event.tags[1]?.length === 2 && event.tags[1]?.[0] === "source-app-post" && event.tags[1]?.[1] === sourcePostId;
+    event.tags[1]?.length === 2 && event.tags[1]?.[0] === "source-app-post" && event.tags[1]?.[1] === sourcePostId &&
+    event.tags[2]?.length === 2 && event.tags[2]?.[0] === "t" && event.tags[2]?.[1] === "roebel-app-conversation";
 }
 
 function containsExplicitMeckyMention(content: string): boolean {
@@ -399,9 +403,8 @@ export function createStagingParticipantGatewayHandler(
         ? admissionProof(record.admissionProof, session.walletAddress) : null;
       const event = record && record.schemaVersion === NOSTR_POST_SCHEMA
         ? validNostrEvent(record.event) : null;
-      const nowSeconds = Math.floor(nowMs / 1_000);
       if (!requestId || !sourcePostId || !proof || !event || event.kind !== 1 ||
-        Math.abs(event.created_at - nowSeconds) > 300 || event.pubkey !== proof.nostrPubkey ||
+        event.pubkey !== proof.nostrPubkey ||
         !exactMeckyTags(event, config.meckyPubkey, sourcePostId)) {
         return json({ error: "nostr_post_invalid" }, 400, origin);
       }
@@ -429,12 +432,16 @@ export function createStagingParticipantGatewayHandler(
         sourcePostId,
         requestId,
         eventId: event.id,
+        eventCreatedAt: event.created_at,
         contentSha256: sha256Hex(source.content),
       };
       let receipt: StagingParticipantMirrorReceipt;
       try {
         receipt = await dependencies.data.reserveNostrPostMirror(receiptInput);
       } catch (error) {
+        if (error instanceof Error && error.message === "staging_participant_mirror_stale") {
+          return json({ error: "nostr_post_stale" }, 400, origin);
+        }
         if (error instanceof Error && error.message === "staging_participant_mirror_conflict") {
           return json({ error: "source_already_mirrored" }, 409, origin);
         }

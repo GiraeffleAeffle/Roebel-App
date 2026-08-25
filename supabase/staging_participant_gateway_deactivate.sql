@@ -31,7 +31,7 @@ begin
     from public, anon, authenticated;
   revoke all on function public.staging_participant_gateway_read_owned_main_text_post(text, uuid)
     from public, anon, authenticated;
-  revoke all on function public.staging_participant_gateway_reserve_nostr_post_mirror(text, uuid, uuid, text, text)
+  revoke all on function public.staging_participant_gateway_reserve_nostr_post_mirror(text, uuid, uuid, text, bigint, text)
     from public, anon, authenticated;
   revoke all on function public.staging_participant_gateway_complete_nostr_post_mirror(text, uuid, uuid, text, text)
     from public, anon, authenticated;
@@ -56,6 +56,23 @@ begin
   revoke all on function public.pin_own_post(uuid, text, boolean)
     from public, anon, authenticated;
 
+  -- Activation closed explicit INSERT/UPDATE column grants as well as table
+  -- grants. Normalize those columns before replaying the captured baseline.
+  for v_grant in
+    select n.nspname, c.relname, a.attname
+      from pg_catalog.pg_class c
+      join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+      join pg_catalog.pg_attribute a on a.attrelid = c.oid
+        and a.attnum > 0 and not a.attisdropped
+     where n.nspname = 'public'
+       and c.relname in ('posts', 'post_comments', 'post_likes', 'app_settings')
+  loop
+    execute pg_catalog.format(
+      'revoke insert (%I), update (%I) on table %I.%I from public, anon, authenticated',
+      v_grant.attname, v_grant.attname, v_grant.nspname, v_grant.relname
+    );
+  end loop;
+
   select definition into strict v_definition
     from staging_participant_private.staging_participant_prior_function_definitions
    where object_identity = 'public.enforce_posting_rules()';
@@ -74,6 +91,15 @@ begin
       execute pg_catalog.format(
         'grant %s on table %s to %s%s',
         v_grant.privilege_type,
+        v_grant.object_identity,
+        v_grantee,
+        case when v_grant.is_grantable then ' with grant option' else '' end
+      );
+    elsif v_grant.object_kind = 'table_column' then
+      execute pg_catalog.format(
+        'grant %s (%I) on table %s to %s%s',
+        v_grant.privilege_type,
+        v_grant.column_name,
         v_grant.object_identity,
         v_grantee,
         case when v_grant.is_grantable then ' with grant option' else '' end

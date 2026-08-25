@@ -200,6 +200,7 @@ create table staging_participant_private.staging_participant_nostr_post_mirror_r
   source_post_id uuid not null,
   request_id uuid not null unique,
   event_id text not null,
+  event_created_at bigint not null check (event_created_at >= 0),
   content_sha256 bytea not null,
   state text not null default 'reserved' check (state in ('reserved', 'published')),
   created_at timestamptz not null default now(),
@@ -230,12 +231,13 @@ select 'public.enforce_posting_rules()',
        );
 
 create table staging_participant_private.staging_participant_prior_privileges (
-  object_kind text not null check (object_kind in ('table', 'function')),
+  object_kind text not null check (object_kind in ('table', 'table_column', 'function')),
   object_identity text not null,
+  column_name text not null default '',
   grantee text not null,
   privilege_type text not null,
   is_grantable boolean not null,
-  primary key (object_kind, object_identity, grantee, privilege_type)
+  primary key (object_kind, object_identity, column_name, grantee, privilege_type)
 );
 
 -- Defense in depth for the private capability/audit catalog. No public policy
@@ -256,8 +258,8 @@ alter table staging_participant_private.staging_participant_prior_privileges
   enable row level security;
 
 insert into staging_participant_private.staging_participant_prior_privileges
-  (object_kind, object_identity, grantee, privilege_type, is_grantable)
-select 'table', pg_catalog.format('%I.%I', n.nspname, c.relname),
+  (object_kind, object_identity, column_name, grantee, privilege_type, is_grantable)
+select 'table', pg_catalog.format('%I.%I', n.nspname, c.relname), '',
        case when acl.grantee = 0 then 'PUBLIC' else grantee_role.rolname end,
        acl.privilege_type, acl.is_grantable
   from pg_catalog.pg_class c
@@ -272,8 +274,8 @@ select 'table', pg_catalog.format('%I.%I', n.nspname, c.relname),
    and acl.privilege_type in ('INSERT', 'UPDATE', 'DELETE');
 
 insert into staging_participant_private.staging_participant_prior_privileges
-  (object_kind, object_identity, grantee, privilege_type, is_grantable)
-select 'function', target.object_identity,
+  (object_kind, object_identity, column_name, grantee, privilege_type, is_grantable)
+select 'function', target.object_identity, '',
        case when acl.grantee = 0 then 'PUBLIC' else grantee_role.rolname end,
        acl.privilege_type, acl.is_grantable
   from (values
@@ -290,6 +292,27 @@ select 'function', target.object_identity,
   left join pg_catalog.pg_roles grantee_role on grantee_role.oid = acl.grantee
  where (acl.grantee = 0 or grantee_role.rolname in ('anon', 'authenticated'))
    and acl.privilege_type = 'EXECUTE';
+
+-- Table-level REVOKE does not remove explicit column ACLs. Capture any
+-- existing INSERT/UPDATE column grants so deactivation can restore precisely
+-- the catalog baseline, then close them below. Effective privileges are
+-- asserted after revocation to catch role membership or inherited grants that
+-- a migration cannot safely guess away.
+insert into staging_participant_private.staging_participant_prior_privileges
+  (object_kind, object_identity, column_name, grantee, privilege_type, is_grantable)
+select 'table_column', pg_catalog.format('%I.%I', n.nspname, c.relname), a.attname,
+       case when acl.grantee = 0 then 'PUBLIC' else grantee_role.rolname end,
+       acl.privilege_type, acl.is_grantable
+  from pg_catalog.pg_class c
+  join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+  join pg_catalog.pg_attribute a on a.attrelid = c.oid
+    and a.attnum > 0 and not a.attisdropped
+  cross join lateral pg_catalog.aclexplode(coalesce(a.attacl, '{}'::pg_catalog.aclitem[])) acl
+  left join pg_catalog.pg_roles grantee_role on grantee_role.oid = acl.grantee
+ where n.nspname = 'public'
+   and c.relname in ('posts', 'post_comments', 'post_likes', 'app_settings')
+   and (acl.grantee = 0 or grantee_role.rolname in ('anon', 'authenticated'))
+   and acl.privilege_type in ('INSERT', 'UPDATE');
 
 create index if not exists staging_participant_write_audit_rate_idx
   on staging_participant_private.staging_participant_write_audit
@@ -317,6 +340,63 @@ revoke all on function public.delete_owned_experience(uuid, text)
   from public, anon, authenticated;
 revoke all on function public.pin_own_post(uuid, text, boolean)
   from public, anon, authenticated;
+
+-- Remove explicit column ACLs too, then assert the effective privilege result
+-- for each browser role. If a parent role still grants a direct mutation, stop
+-- rather than silently leaving a bypass beside the gateway RPCs.
+do $$
+declare
+  v_column record;
+  v_table text;
+begin
+  for v_column in
+    select n.nspname, c.relname, a.attname
+      from pg_catalog.pg_class c
+      join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+      join pg_catalog.pg_attribute a on a.attrelid = c.oid
+        and a.attnum > 0 and not a.attisdropped
+     where n.nspname = 'public'
+       and c.relname in ('posts', 'post_comments', 'post_likes', 'app_settings')
+  loop
+    execute pg_catalog.format(
+      'revoke insert (%I), update (%I) on table %I.%I from public, anon, authenticated',
+      v_column.attname, v_column.attname, v_column.nspname, v_column.relname
+    );
+  end loop;
+
+  foreach v_table in array array[
+    'public.posts', 'public.post_comments', 'public.post_likes', 'public.app_settings'
+  ] loop
+    if has_table_privilege('anon', v_table, 'INSERT')
+       or has_table_privilege('anon', v_table, 'UPDATE')
+       or has_table_privilege('anon', v_table, 'DELETE')
+       or has_table_privilege('authenticated', v_table, 'INSERT')
+       or has_table_privilege('authenticated', v_table, 'UPDATE')
+       or has_table_privilege('authenticated', v_table, 'DELETE') then
+      raise exception 'STAGING_PARTICIPANT_DIRECT_WRITE_PRIVILEGE_REMAINS:%', v_table
+        using errcode = 'P0001';
+    end if;
+  end loop;
+  for v_column in
+    select n.nspname, c.relname, a.attname
+      from pg_catalog.pg_class c
+      join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+      join pg_catalog.pg_attribute a on a.attrelid = c.oid
+        and a.attnum > 0 and not a.attisdropped
+     where n.nspname = 'public'
+       and c.relname in ('posts', 'post_comments', 'post_likes', 'app_settings')
+  loop
+    v_table := pg_catalog.format('%I.%I', v_column.nspname, v_column.relname);
+    if has_column_privilege('anon', v_table, v_column.attname, 'INSERT')
+       or has_column_privilege('anon', v_table, v_column.attname, 'UPDATE')
+       or has_column_privilege('authenticated', v_table, v_column.attname, 'INSERT')
+       or has_column_privilege('authenticated', v_table, v_column.attname, 'UPDATE') then
+      raise exception 'STAGING_PARTICIPANT_DIRECT_COLUMN_WRITE_PRIVILEGE_REMAINS:%.%',
+        v_table, v_column.attname using errcode = 'P0001';
+    end if;
+  end loop;
+end;
+$$;
 
 create or replace function staging_participant_private.staging_participant_rpc_secret()
 returns text
@@ -885,6 +965,7 @@ create or replace function public.staging_participant_gateway_reserve_nostr_post
   p_source_post_id uuid,
   p_request_id uuid,
   p_event_id text,
+  p_event_created_at bigint,
   p_content_sha256 text
 ) returns jsonb
 language plpgsql
@@ -901,6 +982,7 @@ begin
   if p_wallet_address is null or v_wallet !~ '^0x[0-9a-f]{40}$'
      or p_source_post_id is null or p_request_id is null
      or p_event_id is null or v_event_id !~ '^[0-9a-f]{64}$'
+     or p_event_created_at is null or p_event_created_at < 0
      or p_content_sha256 is null or lower(p_content_sha256) !~ '^[0-9a-f]{64}$' then
     raise exception 'STAGING_PARTICIPANT_MIRROR_INVALID' using errcode = 'P0001';
   end if;
@@ -913,6 +995,7 @@ begin
    where wallet_address = v_wallet and source_post_id = p_source_post_id;
   if found then
     if v_receipt.request_id <> p_request_id or v_receipt.event_id <> v_event_id
+       or v_receipt.event_created_at <> p_event_created_at
        or v_receipt.content_sha256 <> v_content_sha then
       raise exception 'STAGING_PARTICIPANT_MIRROR_SOURCE_REUSED' using errcode = 'P0001';
     end if;
@@ -933,6 +1016,14 @@ begin
     raise exception 'STAGING_PARTICIPANT_MIRROR_REQUEST_REUSED' using errcode = 'P0001';
   end if;
 
+  -- Freshness is an admission condition for the first durable reservation
+  -- only. Once the exact signed event has a receipt, its immutable identity
+  -- is the replay guard and a recovery retry must not be rejected merely
+  -- because five minutes elapsed while the relay was unavailable.
+  if abs(p_event_created_at - extract(epoch from clock_timestamp())::bigint) > 300 then
+    raise exception 'STAGING_PARTICIPANT_MIRROR_EVENT_STALE' using errcode = 'P0001';
+  end if;
+
   if not exists (
     select 1
       from public.posts p
@@ -950,8 +1041,8 @@ begin
   end if;
 
   insert into staging_participant_private.staging_participant_nostr_post_mirror_receipts (
-    wallet_address, source_post_id, request_id, event_id, content_sha256
-  ) values (v_wallet, p_source_post_id, p_request_id, v_event_id, v_content_sha)
+    wallet_address, source_post_id, request_id, event_id, event_created_at, content_sha256
+  ) values (v_wallet, p_source_post_id, p_request_id, v_event_id, p_event_created_at, v_content_sha)
   returning * into v_receipt;
   return jsonb_build_object(
     'wallet_address', v_receipt.wallet_address,
@@ -1027,7 +1118,7 @@ revoke all on function public.staging_participant_gateway_create_main_text_comme
   from public, anon, authenticated;
 revoke all on function public.staging_participant_gateway_read_owned_main_text_post(text, uuid)
   from public, anon, authenticated;
-revoke all on function public.staging_participant_gateway_reserve_nostr_post_mirror(text, uuid, uuid, text, text)
+revoke all on function public.staging_participant_gateway_reserve_nostr_post_mirror(text, uuid, uuid, text, bigint, text)
   from public, anon, authenticated;
 revoke all on function public.staging_participant_gateway_complete_nostr_post_mirror(text, uuid, uuid, text, text)
   from public, anon, authenticated;
@@ -1037,7 +1128,7 @@ grant execute on function public.staging_participant_gateway_create_main_text_co
   to anon;
 grant execute on function public.staging_participant_gateway_read_owned_main_text_post(text, uuid)
   to anon;
-grant execute on function public.staging_participant_gateway_reserve_nostr_post_mirror(text, uuid, uuid, text, text)
+grant execute on function public.staging_participant_gateway_reserve_nostr_post_mirror(text, uuid, uuid, text, bigint, text)
   to anon;
 grant execute on function public.staging_participant_gateway_complete_nostr_post_mirror(text, uuid, uuid, text, text)
   to anon;
@@ -1048,8 +1139,8 @@ comment on function public.staging_participant_gateway_create_main_text_comment(
   is 'STAGING ONLY: exact text-only main-feed comment capability for ADR 0021.';
 comment on function public.staging_participant_gateway_read_owned_main_text_post(text, uuid)
   is 'STAGING ONLY: exact participant-owned source row for a post-only Nostr Mecky mirror.';
-comment on function public.staging_participant_gateway_reserve_nostr_post_mirror(text, uuid, uuid, text, text)
-  is 'STAGING ONLY: durable immutable post-to-Nostr receipt reservation for ADR 0021.';
+comment on function public.staging_participant_gateway_reserve_nostr_post_mirror(text, uuid, uuid, text, bigint, text)
+  is 'STAGING ONLY: fresh-first durable immutable post-to-Nostr conversation receipt reservation for ADR 0021.';
 comment on function public.staging_participant_gateway_complete_nostr_post_mirror(text, uuid, uuid, text, text)
   is 'STAGING ONLY: completes only the exact durable post-to-Nostr receipt for ADR 0021.';
 

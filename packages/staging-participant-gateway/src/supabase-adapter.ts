@@ -83,6 +83,9 @@ export function createRestrictedSupabaseDataAdapter(
     });
     if (!response.ok) {
       const failure = await response.text();
+      if (rpc === RESERVE_MIRROR_RPC && /STAGING_PARTICIPANT_MIRROR_EVENT_STALE/u.test(failure)) {
+        throw new Error("staging_participant_mirror_stale");
+      }
       if ((rpc === RESERVE_MIRROR_RPC || rpc === COMPLETE_MIRROR_RPC) &&
         /STAGING_PARTICIPANT_MIRROR_(?:SOURCE|REQUEST|RECEIPT)_/u.test(failure)) {
         throw new Error("staging_participant_mirror_conflict");
@@ -138,7 +141,7 @@ export function createRestrictedSupabaseDataAdapter(
       return value;
     },
     async reserveNostrPostMirror(input): Promise<StagingParticipantMirrorReceipt> {
-      return readMirrorReceipt(await invoke(RESERVE_MIRROR_RPC, mirrorBody(input)), input);
+      return readMirrorReceipt(await invoke(RESERVE_MIRROR_RPC, reserveMirrorBody(input)), input);
     },
     async completeNostrPostMirror(input): Promise<StagingParticipantMirrorReceipt> {
       const receipt = readMirrorReceipt(await invoke(COMPLETE_MIRROR_RPC, mirrorBody(input)), input);
@@ -160,6 +163,12 @@ function mirrorBody(input: Readonly<{
     p_event_id: input.eventId,
     p_content_sha256: input.contentSha256,
   };
+}
+
+function reserveMirrorBody(input: Readonly<{
+  walletAddress: string; sourcePostId: string; requestId: string; eventId: string; eventCreatedAt: number; contentSha256: string;
+}>): Record<string, string> {
+  return { ...mirrorBody(input), p_event_created_at: String(input.eventCreatedAt) };
 }
 
 function readMirrorReceipt(

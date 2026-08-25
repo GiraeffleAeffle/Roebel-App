@@ -101,7 +101,10 @@ function fixture(input: Partial<{
       };
     },
     async readOwnedMainTextPost({ walletAddress, postId }) {
-      if (walletAddress !== WALLET || postId !== "10000000-0000-4000-8000-000000000001") {
+      if (walletAddress !== WALLET || ![
+        "10000000-0000-4000-8000-000000000001",
+        "10000000-0000-4000-8000-000000000003",
+      ].includes(postId)) {
         return null;
       }
       return {
@@ -124,6 +127,9 @@ function fixture(input: Partial<{
       }
       if ([...mirrorReceipts.values()].some((receipt) => receipt.request_id === mirrorInput.requestId)) {
         throw new Error("staging_participant_mirror_conflict");
+      }
+      if (Math.abs(mirrorInput.eventCreatedAt - Math.floor(nowMs / 1_000)) > 300) {
+        throw new Error("staging_participant_mirror_stale");
       }
       const receipt: StagingParticipantMirrorReceipt = {
         wallet_address: mirrorInput.walletAddress,
@@ -300,6 +306,7 @@ test("mirrors only the exact owner-signed @Mecky post after its source row exist
       tags: [
         ["p", MECKY_PUBKEY],
         ["source-app-post", "10000000-0000-4000-8000-000000000001"],
+        ["t", "roebel-app-conversation"],
       ],
     },
   );
@@ -348,7 +355,7 @@ test("mirrors only the exact owner-signed @Mecky post after its source row exist
 
   const sourceDrift = buildNoteEvent(identity.secretKey, "@Mecky, anderer Quelltext", {
     createdAt: 1_787_659_202,
-    tags: [["p", MECKY_PUBKEY], ["source-app-post", "10000000-0000-4000-8000-000000000001"]],
+    tags: [["p", MECKY_PUBKEY], ["source-app-post", "10000000-0000-4000-8000-000000000001"], ["t", "roebel-app-conversation"]],
   });
   assert.equal((await handler(jsonRequest("/api/staging-participant/v1/nostr-post", {
     schemaVersion: "staging_participant_nostr_post_request_v1",
@@ -368,7 +375,7 @@ test("refuses cross-wallet and malformed participant Mecky mirrors before their 
   const bindingEvent = buildBindingEvent(identity.secretKey, OTHER_WALLET, { createdAt: 1_787_659_199 });
   const event = buildNoteEvent(identity.secretKey, "@Mecky, bitte einordnen", {
     createdAt: 1_787_659_200,
-    tags: [["p", MECKY_PUBKEY], ["source-app-post", "10000000-0000-4000-8000-000000000001"]],
+    tags: [["p", MECKY_PUBKEY], ["source-app-post", "10000000-0000-4000-8000-000000000001"], ["t", "roebel-app-conversation"]],
   });
   const response = await handler(jsonRequest("/api/staging-participant/v1/nostr-post", {
     schemaVersion: "staging_participant_nostr_post_request_v1",
@@ -395,7 +402,7 @@ test("durably reserves one source event across concurrent gateway handlers and r
   const sourcePostId = "10000000-0000-4000-8000-000000000001";
   const event = buildNoteEvent(identity.secretKey, "@Mecky, was ist der nächste sinnvolle Schritt?", {
     createdAt: 1_787_659_200,
-    tags: [["p", MECKY_PUBKEY], ["source-app-post", sourcePostId]],
+    tags: [["p", MECKY_PUBKEY], ["source-app-post", sourcePostId], ["t", "roebel-app-conversation"]],
   });
   const body = {
     schemaVersion: "staging_participant_nostr_post_request_v1",
@@ -420,13 +427,54 @@ test("durably reserves one source event across concurrent gateway handlers and r
 
   const replacement = buildNoteEvent(identity.secretKey, event.content, {
     createdAt: 1_787_659_201,
-    tags: [["p", MECKY_PUBKEY], ["source-app-post", sourcePostId]],
+    tags: [["p", MECKY_PUBKEY], ["source-app-post", sourcePostId], ["t", "roebel-app-conversation"]],
   });
   assert.equal((await resumed.handler(jsonRequest("/api/staging-participant/v1/nostr-post", {
     ...body,
     requestId: "20000000-0000-4000-8000-000000000009",
     event: replacement,
   }, setup.sessionCookie))).status, 409);
+});
+
+test("permits an old exact retry only after its first durable reservation", async () => {
+  const setup = await enrolledSession();
+  const identity = deriveNostrIdentity("0x" + "6".repeat(130));
+  const bindingEvent = buildBindingEvent(identity.secretKey, WALLET, { createdAt: 1_787_659_199 });
+  const event = buildNoteEvent(identity.secretKey, "@Mecky, was ist der nächste sinnvolle Schritt?", {
+    createdAt: 1_787_659_200,
+    tags: [["p", MECKY_PUBKEY], ["source-app-post", "10000000-0000-4000-8000-000000000001"], ["t", "roebel-app-conversation"]],
+  });
+  const body = {
+    schemaVersion: "staging_participant_nostr_post_request_v1",
+    requestId: "20000000-0000-4000-8000-000000000006",
+    sourcePostId: "10000000-0000-4000-8000-000000000001",
+    admissionProof: {
+      schemaVersion: "roebel_citizen_admission_proof_v1",
+      credential: { kind: "thirdweb_smart_account", address: WALLET, chainId: 100 },
+      statement: bindingEvent.content, walletSignature: "0xaaaa", bindingEvent,
+    },
+    event,
+  };
+  assert.equal(
+    (await setup.handler(jsonRequest("/api/staging-participant/v1/nostr-post", body, setup.sessionCookie))).status,
+    201,
+  );
+  setup.setNow(Date.parse("2026-08-25T12:11:00.000Z"));
+  assert.equal(
+    (await setup.handler(jsonRequest("/api/staging-participant/v1/nostr-post", body, setup.sessionCookie))).status,
+    200,
+  );
+
+  const firstOldEvent = buildNoteEvent(identity.secretKey, "@Mecky, was ist der nächste sinnvolle Schritt?", {
+    createdAt: event.created_at,
+    tags: [["p", MECKY_PUBKEY], ["source-app-post", "10000000-0000-4000-8000-000000000003"], ["t", "roebel-app-conversation"]],
+  });
+  assert.equal((await setup.handler(jsonRequest("/api/staging-participant/v1/nostr-post", {
+    ...body,
+    requestId: "20000000-0000-4000-8000-000000000007",
+    sourcePostId: "10000000-0000-4000-8000-000000000003",
+    event: firstOldEvent,
+  }, setup.sessionCookie))).status, 400);
 });
 
 test("returns an honest failure without recording a successful mirror when the private adapter is unavailable", async () => {
@@ -441,7 +489,7 @@ test("returns an honest failure without recording a successful mirror when the p
   const bindingEvent = buildBindingEvent(identity.secretKey, WALLET, { createdAt: 1_787_659_199 });
   const event = buildNoteEvent(identity.secretKey, "@Mecky, was ist der nächste sinnvolle Schritt?", {
     createdAt: 1_787_659_200,
-    tags: [["p", MECKY_PUBKEY], ["source-app-post", "10000000-0000-4000-8000-000000000001"]],
+    tags: [["p", MECKY_PUBKEY], ["source-app-post", "10000000-0000-4000-8000-000000000001"], ["t", "roebel-app-conversation"]],
   });
   const body = {
     schemaVersion: "staging_participant_nostr_post_request_v1",

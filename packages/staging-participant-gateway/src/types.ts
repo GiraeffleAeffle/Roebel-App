@@ -38,6 +38,8 @@ export type StagingParticipantDataAdapter = Readonly<{
     sourcePostId: string;
     requestId: string;
     eventId: string;
+    /** Unix seconds from the signed event; checked only for first reservation. */
+    eventCreatedAt: number;
     contentSha256: string;
   }>): Promise<StagingParticipantMirrorReceipt>;
   /** Marks only the already-reserved exact event as published. */
