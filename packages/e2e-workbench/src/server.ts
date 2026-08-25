@@ -13,6 +13,7 @@ import {
   buildProfileEvent,
   getPublicKeyHex,
   isAgentEvent,
+  isAppConversationMentionEvent,
   RelayClient,
   verifyCitizenSignedTopicSuggestion,
   verifyCivicTopicPromotionEvent,
@@ -636,20 +637,13 @@ function isAppConversationMention(
 ): boolean {
   const postId = sourceAppPostIdFor(candidate);
   const commentId = sourceAppCommentIdFor(candidate);
-  const expectedTags = [
-    ["p", config.meckyPubkey],
-    ["source-app-post", postId],
-    ...(commentId === null ? [] : [["source-app-comment", commentId]]),
-    ["t", "roebel-app-conversation"],
-  ];
   return (
-    candidate.kind === 1 &&
-    verifyEvent(candidate) &&
     postId !== null &&
-    candidate.content === candidate.content.trim() &&
-    candidate.content.length > 0 &&
-    candidate.content.length <= 2_000 &&
-    JSON.stringify(candidate.tags) === JSON.stringify(expectedTags)
+    isAppConversationMentionEvent(candidate, {
+      agentPubkey: config.meckyPubkey,
+      sourceAppPostId: postId,
+      sourceAppCommentId: commentId,
+    })
   );
 }
 

@@ -56,6 +56,11 @@ export {
 export type { AgentIdentity } from "./agent";
 
 export {
+  APP_CONVERSATION_TOPIC,
+  isAppConversationMentionEvent,
+} from "./conversation";
+
+export {
   KIND_DATE_BASED_EVENT,
   KIND_TIME_BASED_EVENT,
   buildCalendarEvent,

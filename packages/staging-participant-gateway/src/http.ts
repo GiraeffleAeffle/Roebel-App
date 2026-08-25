@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import { createHash } from "node:crypto";
 import {
   bindingStatement,
+  isAppConversationMentionEvent,
   verifyBindingEvent,
   verifyEvent,
   type NostrEvent,
@@ -140,14 +141,11 @@ function validNostrEvent(value: unknown): NostrEvent | null {
   return verifyEvent(event) ? event : null;
 }
 
-function exactMeckyTags(event: NostrEvent, meckyPubkey: string, sourcePostId: string): boolean {
-  // This is intentionally byte-for-byte the app conversation contract. A
-  // participant mention must be visible through /api/conversation, not merely
-  // appear as a loose Nostr feed note.
-  return event.tags.length === 3 &&
-    event.tags[0]?.length === 2 && event.tags[0]?.[0] === "p" && event.tags[0]?.[1] === meckyPubkey &&
-    event.tags[1]?.length === 2 && event.tags[1]?.[0] === "source-app-post" && event.tags[1]?.[1] === sourcePostId &&
-    event.tags[2]?.length === 2 && event.tags[2]?.[0] === "t" && event.tags[2]?.[1] === "roebel-app-conversation";
+function exactMeckyConversationEvent(event: NostrEvent, meckyPubkey: string, sourcePostId: string): boolean {
+  return isAppConversationMentionEvent(event, {
+    agentPubkey: meckyPubkey,
+    sourceAppPostId: sourcePostId,
+  });
 }
 
 function containsExplicitMeckyMention(content: string): boolean {
@@ -405,7 +403,7 @@ export function createStagingParticipantGatewayHandler(
         ? validNostrEvent(record.event) : null;
       if (!requestId || !sourcePostId || !proof || !event || event.kind !== 1 ||
         event.pubkey !== proof.nostrPubkey ||
-        !exactMeckyTags(event, config.meckyPubkey, sourcePostId)) {
+        !exactMeckyConversationEvent(event, config.meckyPubkey, sourcePostId)) {
         return json({ error: "nostr_post_invalid" }, 400, origin);
       }
       let source;

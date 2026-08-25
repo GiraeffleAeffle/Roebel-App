@@ -10,6 +10,7 @@ import {
   requestStagingParticipantChallenge,
 } from "../src/lib/staging-participant/client.ts";
 import { createCitizenSession } from "../src/lib/citizen-session/session.ts";
+import { isAppConversationMentionEvent, type NostrEvent } from "@netizen-labs/nostr";
 
 const originalFetch = globalThis.fetch;
 
@@ -80,6 +81,13 @@ test("participant mutations send closed versioned bodies to the six-route gatewa
       "/api/staging-participant/v1/posts",
       "/api/staging-participant/v1/comments",
     ],
+  );
+  assert.equal(
+    isAppConversationMentionEvent(call?.body.event as NostrEvent, {
+      agentPubkey: "d".repeat(64),
+      sourceAppPostId: "11111111-1111-4111-8111-111111111111",
+    }),
+    true,
   );
   for (const call of calls) {
     assert.equal(call.init.method, "POST");
