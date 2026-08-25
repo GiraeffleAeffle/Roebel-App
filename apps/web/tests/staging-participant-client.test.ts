@@ -326,5 +326,5 @@ test("participant UI never sends its writes through the public Web server action
   assert.match(composer, /submitLockRef\.current/u);
   assert.match(composer, /mirrorStagingParticipantMeckyPost/u);
   assert.match(composer, /loadPendingStagingParticipantMeckyMirror/u);
-  assert.match(composer, /Erneut senden/u);
+  assert.match(composer, /Mecky-Anfrage erneut senden/u);
 });
