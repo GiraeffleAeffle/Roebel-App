@@ -109,23 +109,34 @@ test("a participant signed post reaches the real workbench, watcher, and cited c
     ).then((response) => response.json()) as {
       requestCount: number;
       pendingCount: number;
-      requests: Array<{ mentionId: string; state: string; replyId: string | null }>;
-      replies: Array<{ mentionId: string; evidenceRefs: Array<{ digest: string; url: string }> }>;
+      requests: Array<{
+        mentionId: string;
+        sourceAppCommentId: string | null;
+        state: string;
+        replyId: string | null;
+      }>;
+      replies: Array<{
+        mentionId: string;
+        sourceAppCommentId: string | null;
+        evidenceRefs: Array<{ digest: string; url: string }>;
+      }>;
     };
     assert.equal(conversation.requestCount, 1);
     assert.equal(conversation.pendingCount, 0);
-    assert.deepEqual(conversation.requests, [{
-      mentionId: event.id,
-      state: "answered",
-      replyId: agentEvents[0]?.id ?? null,
-    }]);
-    assert.deepEqual(conversation.replies, [{
-      mentionId: event.id,
-      evidenceRefs: [{
+    assert.equal(conversation.requests.length, 1);
+    assert.equal(conversation.requests[0]?.mentionId, event.id);
+    assert.equal(conversation.requests[0]?.sourceAppCommentId, null);
+    assert.equal(conversation.requests[0]?.state, "answered");
+    assert.equal(conversation.requests[0]?.replyId, agentEvents[0]?.id ?? null);
+    assert.equal(conversation.replies.length, 1);
+    assert.equal(conversation.replies[0]?.mentionId, event.id);
+    assert.equal(conversation.replies[0]?.sourceAppCommentId, null);
+    assert.deepEqual(conversation.replies[0]?.evidenceRefs, [
+      {
         digest: `sha256:${"b".repeat(64)}`,
         url: "https://roebel.example/evidence/participant-conversation",
-      }],
-    }]);
+      },
+    ]);
   } finally {
     await running.close();
   }
