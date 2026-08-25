@@ -71,6 +71,7 @@ const MIRROR_RECEIPT = {
   source_post_id: POST.id,
   request_id: "20000000-0000-4000-8000-000000000003",
   event_id: "a".repeat(64),
+  event_created_at: 1_787_659_200,
   content_sha256: "b".repeat(64),
   state: "reserved",
 };

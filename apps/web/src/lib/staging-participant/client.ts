@@ -325,8 +325,16 @@ export async function mirrorStagingParticipantMeckyPost(input: Readonly<{
   }
   let pendingForRetry: PendingStagingParticipantMeckyMirror | undefined;
   try {
-    const walletAddress = input.session?.snapshot.credential.address.toLowerCase();
-    if (!walletAddress || !WALLET.test(walletAddress)) {
+    const session = input.session;
+    if (!session) {
+      return {
+        success: false,
+        error: "Die aktuelle Testteilnahme kann nicht sicher bestätigt werden",
+        pending: input.retry,
+      };
+    }
+    const walletAddress = session.snapshot.credential.address.toLowerCase();
+    if (!WALLET.test(walletAddress)) {
       return {
         success: false,
         error: "Die aktuelle Testteilnahme kann nicht sicher bestätigt werden",
@@ -338,7 +346,7 @@ export async function mirrorStagingParticipantMeckyPost(input: Readonly<{
       // proves ownership/content before it is allowed to forward either proof.
       // Save the public event before requesting the wallet-bound admission proof
       // so a rejected signature still leaves a safe, exact retry available.
-      const event = await input.session!.signConversationMention({
+      const event = await session.signConversationMention({
         content: input.sourcePost.content,
         createdAt: Math.floor(Date.now() / 1_000),
         agentPubkey: meckyPubkey,
@@ -369,7 +377,7 @@ export async function mirrorStagingParticipantMeckyPost(input: Readonly<{
     }
     // The proof is intentionally ephemeral. A retry uses the exact public
     // event/request while asking the current session to sign a fresh proof.
-    const admissionProof = await input.session.createAdmissionProof();
+    const admissionProof = await session.createAdmissionProof();
     const result = await request(
       "nostr-post",
       {

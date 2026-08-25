@@ -64,7 +64,9 @@ test("mirror receipt is durable, source-bound, and cannot authorize replacement 
   assert.match(adapter, /completeNostrPostMirror/u);
   assert.match(adapter, /staging_participant_mirror_conflict/u);
   assert.match(adapter, /p_event_created_at/u);
+  assert.match(adapter, /value\.event_created_at !== expected\.eventCreatedAt/u);
   assert.match(migration, /STAGING_PARTICIPANT_MIRROR_EVENT_STALE/u);
+  assert.match(migration, /'event_created_at', v_receipt\.event_created_at/u);
 });
 
 test("the source read can return only an exact participant-created ordinary post", () => {

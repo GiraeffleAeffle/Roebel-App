@@ -957,7 +957,7 @@ begin
 end;
 $$;
 
--- Claim one immutable ordinary-post Nostr mirror. This is the durable replay
+-- Claim one immutable ordinary-post conversation mention. This is the durable replay
 -- authority: request id, source row, event id, and content digest are bound
 -- together before the gateway ever calls the private workbench.
 create or replace function public.staging_participant_gateway_reserve_nostr_post_mirror(
@@ -1004,6 +1004,7 @@ begin
       'source_post_id', v_receipt.source_post_id,
       'request_id', v_receipt.request_id,
       'event_id', v_receipt.event_id,
+      'event_created_at', v_receipt.event_created_at,
       'content_sha256', encode(v_receipt.content_sha256, 'hex'),
       'state', v_receipt.state
     );
@@ -1049,6 +1050,7 @@ begin
     'source_post_id', v_receipt.source_post_id,
     'request_id', v_receipt.request_id,
     'event_id', v_receipt.event_id,
+    'event_created_at', v_receipt.event_created_at,
     'content_sha256', encode(v_receipt.content_sha256, 'hex'),
     'state', v_receipt.state
   );
@@ -1106,6 +1108,7 @@ begin
     'source_post_id', v_receipt.source_post_id,
     'request_id', v_receipt.request_id,
     'event_id', v_receipt.event_id,
+    'event_created_at', v_receipt.event_created_at,
     'content_sha256', encode(v_receipt.content_sha256, 'hex'),
     'state', v_receipt.state
   );
@@ -1138,7 +1141,7 @@ comment on function public.staging_participant_gateway_create_main_text_post(tex
 comment on function public.staging_participant_gateway_create_main_text_comment(text, uuid, text, uuid)
   is 'STAGING ONLY: exact text-only main-feed comment capability for ADR 0021.';
 comment on function public.staging_participant_gateway_read_owned_main_text_post(text, uuid)
-  is 'STAGING ONLY: exact participant-owned source row for a post-only Nostr Mecky mirror.';
+  is 'STAGING ONLY: exact participant-owned source row for a same-thread Nostr Mecky mention.';
 comment on function public.staging_participant_gateway_reserve_nostr_post_mirror(text, uuid, uuid, text, bigint, text)
   is 'STAGING ONLY: fresh-first durable immutable post-to-Nostr conversation receipt reservation for ADR 0021.';
 comment on function public.staging_participant_gateway_complete_nostr_post_mirror(text, uuid, uuid, text, text)

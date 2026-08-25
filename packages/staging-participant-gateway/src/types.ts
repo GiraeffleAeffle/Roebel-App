@@ -26,13 +26,14 @@ export type StagingParticipantDataAdapter = Readonly<{
   /**
    * Read exactly one ordinary, published main-feed post owned by the session
    * wallet. This is deliberately not a generic feed/read RPC: it exists only
-   * to bind a later Nostr mirror to the post just admitted by this gateway.
+   * to bind a later signed conversation mention to the post just admitted by
+   * this gateway.
    */
   readOwnedMainTextPost(input: Readonly<{
     walletAddress: string;
     postId: string;
   }>): Promise<StagingParticipantPost | null>;
-  /** Atomically reserves (or re-reads) one immutable post→Nostr mirror. */
+  /** Atomically reserves (or re-reads) one immutable post→conversation mention. */
   reserveNostrPostMirror(input: Readonly<{
     walletAddress: string;
     sourcePostId: string;
@@ -110,6 +111,7 @@ export type StagingParticipantMirrorReceipt = Readonly<{
   source_post_id: string;
   request_id: string;
   event_id: string;
+  event_created_at: number;
   content_sha256: string;
   state: "reserved" | "published";
 }>;
@@ -120,6 +122,6 @@ export type StagingParticipantGatewayConfig = Readonly<{
   inviteSha256: string;
   allowedWallets: readonly string[];
   cookieSecure: boolean;
-  /** The only p-tag that the post-only mirror may carry. */
+  /** The only agent p-tag that the same-thread mirror may carry. */
   meckyPubkey: string;
 }>;

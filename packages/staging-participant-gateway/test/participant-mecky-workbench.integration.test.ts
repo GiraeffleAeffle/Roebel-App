@@ -17,7 +17,7 @@ import {
   PRIVATE_WORKBENCH_URL,
 } from "../src/workbench-adapter.ts";
 
-test("a participant signed post reaches the real workbench, watcher, and ordinary feed projection", async () => {
+test("a participant signed post reaches the real workbench, watcher, and cited conversation projection", async () => {
   const agent = deriveAgentIdentity(
     "participant-mirror-real-workbench-watcher-test-entropy-0123456789",
     "roebel-staging",

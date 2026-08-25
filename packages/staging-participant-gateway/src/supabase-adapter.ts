@@ -173,13 +173,15 @@ function reserveMirrorBody(input: Readonly<{
 
 function readMirrorReceipt(
   value: unknown,
-  expected: Readonly<{ walletAddress: string; sourcePostId: string; requestId: string; eventId: string; contentSha256: string }>,
+  expected: Readonly<{ walletAddress: string; sourcePostId: string; requestId: string; eventId: string; eventCreatedAt?: number; contentSha256: string }>,
 ): StagingParticipantMirrorReceipt {
   if (!isStagingParticipantMirrorReceipt(value) ||
     value.wallet_address.toLowerCase() !== expected.walletAddress.toLowerCase() ||
     value.source_post_id.toLowerCase() !== expected.sourcePostId.toLowerCase() ||
     value.request_id.toLowerCase() !== expected.requestId.toLowerCase() ||
-    value.event_id !== expected.eventId.toLowerCase() || value.content_sha256 !== expected.contentSha256.toLowerCase()) {
+    value.event_id !== expected.eventId.toLowerCase() ||
+    (expected.eventCreatedAt !== undefined && value.event_created_at !== expected.eventCreatedAt) ||
+    value.content_sha256 !== expected.contentSha256.toLowerCase()) {
     throw new Error("staging_participant_mirror_receipt_mismatch");
   }
   return value;
@@ -211,6 +213,7 @@ function isStagingParticipantMirrorReceipt(value: unknown): value is StagingPart
   if (!isRecord(value)) return false;
   return stringField(value, "wallet_address") && stringField(value, "source_post_id") &&
     stringField(value, "request_id") && typeof value.event_id === "string" && /^[a-f0-9]{64}$/u.test(value.event_id) &&
+    typeof value.event_created_at === "number" && Number.isSafeInteger(value.event_created_at) && value.event_created_at >= 0 &&
     typeof value.content_sha256 === "string" && /^[a-f0-9]{64}$/u.test(value.content_sha256) &&
     (value.state === "reserved" || value.state === "published");
 }

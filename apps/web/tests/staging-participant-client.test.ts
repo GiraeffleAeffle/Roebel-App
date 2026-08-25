@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { afterEach, test } from "node:test";
 import {
+  clearPendingStagingParticipantMeckyMirror,
   createStagingParticipantComment,
   createStagingParticipantPost,
   createStagingParticipantSession,
   getStagingParticipantStatus,
+  loadPendingStagingParticipantMeckyMirror,
   mirrorStagingParticipantMeckyPost,
   requestStagingParticipantChallenge,
+  savePendingStagingParticipantMeckyMirror,
 } from "../src/lib/staging-participant/client.ts";
 import { createCitizenSession } from "../src/lib/citizen-session/session.ts";
 import { isAppConversationMentionEvent, type NostrEvent } from "@netizen-labs/nostr";
@@ -124,7 +127,7 @@ test("participant post retries a lost response with the same idempotency key", a
   assert.equal(bodies[0], bodies[1]);
 });
 
-test("a successful participant post can produce only one post-only Mecky mirror body", async () => {
+test("a successful participant post can produce only one same-thread Mecky mirror body", async () => {
   let call: { path: string; body: Record<string, unknown> } | undefined;
   globalThis.fetch = async (input, init) => {
     call = { path: String(input), body: JSON.parse(String(init?.body)) };
@@ -228,6 +231,65 @@ test("a failed participant mirror retains the exact signed body for retry instea
   assert.equal(firstBody.requestId, firstRetryBody.requestId);
   assert.deepEqual(firstBody.event, firstRetryBody.event);
   assert.notDeepEqual(firstBody.admissionProof, firstRetryBody.admissionProof);
+});
+
+test("reload persistence keeps only one bounded public event and never an admission proof", () => {
+  const values = new Map<string, string>();
+  const storage: Storage = {
+    get length() { return values.size; },
+    clear() { values.clear(); },
+    getItem(key) { return values.get(key) ?? null; },
+    key(index) { return [...values.keys()][index] ?? null; },
+    removeItem(key) { values.delete(key); },
+    setItem(key, value) { values.set(key, value); },
+  };
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { localStorage: storage },
+  });
+  try {
+    const walletAddress = "0x1111111111111111111111111111111111111111";
+    const pending = {
+      schemaVersion: "roebel_staging_participant_mecky_mirror_v1" as const,
+      sourcePost: {
+        id: "11111111-1111-4111-8111-111111111111",
+        content: "@Mecky, bitte einordnen",
+      },
+      requestId: "22222222-2222-4222-8222-222222222222",
+      walletAddress,
+      event: {
+        id: "a".repeat(64),
+        pubkey: "b".repeat(64),
+        created_at: Math.floor(Date.now() / 1_000),
+        kind: 1,
+        tags: [
+          ["p", "d".repeat(64)],
+          ["source-app-post", "11111111-1111-4111-8111-111111111111"],
+          ["t", "roebel-app-conversation"],
+        ],
+        content: "@Mecky, bitte einordnen",
+        sig: "c".repeat(128),
+      },
+      expiresAt: Date.now() + 14 * 60 * 1_000,
+    };
+
+    savePendingStagingParticipantMeckyMirror(pending);
+    const serialized = [...values.values()][0] ?? "";
+    assert.match(serialized, /roebel_staging_participant_mecky_mirror_v1/u);
+    assert.doesNotMatch(serialized, /admissionProof|walletSignature|bindingEvent/u);
+    assert.deepEqual(loadPendingStagingParticipantMeckyMirror(walletAddress), pending);
+
+    clearPendingStagingParticipantMeckyMirror(walletAddress);
+    assert.equal(loadPendingStagingParticipantMeckyMirror(walletAddress), null);
+    assert.equal(values.size, 0);
+  } finally {
+    if (previousWindow) {
+      Object.defineProperty(globalThis, "window", previousWindow);
+    } else {
+      Reflect.deleteProperty(globalThis, "window");
+    }
+  }
 });
 
 test("participant UI never sends its writes through the public Web server actions", () => {

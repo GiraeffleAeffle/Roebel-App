@@ -70,6 +70,7 @@ function fixture(input: Partial<{
   mirrorReceipts: Map<string, StagingParticipantMirrorReceipt>;
 }> = {}) {
   let nowMs = input.nowMs ?? Date.parse("2026-08-25T12:00:00.000Z");
+  let mirrorFails = input.mirrorFails ?? false;
   const calls: Array<{ kind: "post" | "comment"; walletAddress: string; content: string; postId?: string }> = [];
   const verifier: WalletSignatureVerifier = {
     async verifyWalletSignature({ address, message, signature }) {
@@ -120,6 +121,7 @@ function fixture(input: Partial<{
       const existing = mirrorReceipts.get(key);
       if (existing) {
         if (existing.request_id !== mirrorInput.requestId || existing.event_id !== mirrorInput.eventId ||
+          existing.event_created_at !== mirrorInput.eventCreatedAt ||
           existing.content_sha256 !== mirrorInput.contentSha256) {
           throw new Error("staging_participant_mirror_conflict");
         }
@@ -136,6 +138,7 @@ function fixture(input: Partial<{
         source_post_id: mirrorInput.sourcePostId,
         request_id: mirrorInput.requestId,
         event_id: mirrorInput.eventId,
+        event_created_at: mirrorInput.eventCreatedAt,
         content_sha256: mirrorInput.contentSha256,
         state: "reserved",
       };
@@ -158,7 +161,7 @@ function fixture(input: Partial<{
   const mirror: MeckyMirrorAdapter = {
     async mirrorPost(mirrorInput) {
       mirrored.push(mirrorInput);
-      if (input.mirrorFails) throw new Error("upstream unavailable");
+      if (mirrorFails) throw new Error("upstream unavailable");
       return { status: "published", eventId: mirrorInput.event.id };
     },
   };
@@ -178,11 +181,18 @@ function fixture(input: Partial<{
     now: () => new Date(nowMs),
     randomId: () => (++count).toString(16).padStart(32, "0"),
   });
-  return { handler, calls, mirrored, mirrorReceipts, setNow: (value: number) => { nowMs = value; } };
+  return {
+    handler,
+    calls,
+    mirrored,
+    mirrorReceipts,
+    setNow: (value: number) => { nowMs = value; },
+    setMirrorFails: (value: boolean) => { mirrorFails = value; },
+  };
 }
 
-async function enrolledSession() {
-  const setup = fixture();
+async function enrolledSession(input: Parameters<typeof fixture>[0] = {}) {
+  const setup = fixture(input);
   const challenge = await setup.handler(jsonRequest("/api/staging-participant/v1/challenge", {
     schemaVersion: "staging_participant_challenge_request_v1",
     walletAddress: WALLET,
@@ -437,7 +447,7 @@ test("durably reserves one source event across concurrent gateway handlers and r
 });
 
 test("permits an old exact retry only after its first durable reservation", async () => {
-  const setup = await enrolledSession();
+  const setup = await enrolledSession({ mirrorFails: true });
   const identity = deriveNostrIdentity("0x" + "6".repeat(130));
   const bindingEvent = buildBindingEvent(identity.secretKey, WALLET, { createdAt: 1_787_659_199 });
   const event = buildNoteEvent(identity.secretKey, "@Mecky, was ist der nächste sinnvolle Schritt?", {
@@ -457,13 +467,27 @@ test("permits an old exact retry only after its first durable reservation", asyn
   };
   assert.equal(
     (await setup.handler(jsonRequest("/api/staging-participant/v1/nostr-post", body, setup.sessionCookie))).status,
+    503,
+  );
+  assert.equal([...setup.mirrorReceipts.values()][0]?.state, "reserved");
+  assert.equal([...setup.mirrorReceipts.values()][0]?.event_created_at, event.created_at);
+  setup.setNow(Date.parse("2026-08-25T12:11:00.000Z"));
+  setup.setMirrorFails(false);
+  const retryBindingEvent = buildBindingEvent(identity.secretKey, WALLET, {
+    createdAt: 1_787_659_860,
+  });
+  assert.equal(
+    (await setup.handler(jsonRequest("/api/staging-participant/v1/nostr-post", {
+      ...body,
+      admissionProof: {
+        ...body.admissionProof,
+        statement: retryBindingEvent.content,
+        bindingEvent: retryBindingEvent,
+      },
+    }, setup.sessionCookie))).status,
     201,
   );
-  setup.setNow(Date.parse("2026-08-25T12:11:00.000Z"));
-  assert.equal(
-    (await setup.handler(jsonRequest("/api/staging-participant/v1/nostr-post", body, setup.sessionCookie))).status,
-    200,
-  );
+  assert.equal([...setup.mirrorReceipts.values()][0]?.state, "published");
 
   const firstOldEvent = buildNoteEvent(identity.secretKey, "@Mecky, was ist der nächste sinnvolle Schritt?", {
     createdAt: event.created_at,
