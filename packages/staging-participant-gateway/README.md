@@ -94,7 +94,7 @@ Without both directions, leave `nostr-post` disabled.
 Ingress. It rejects query strings, every non-GET method, `Origin`, and cookies.
 It returns `503` with only `schemaVersion` and `not_ready` unless the fixed
 Supabase preflight verifies the armed Vault gate, migration marker, current
-catalog/ACL/trigger facts, captured rollback evidence, and the canonical schema
+catalog/ACL/trigger facts (including the live comment-count trigger executable), captured rollback evidence, and the canonical schema
 hash. A ready response additionally reports the compiled source revision and
 the three immutable deployment pins. It grants no civic, Case, vote, treasury,
 or administration authority.

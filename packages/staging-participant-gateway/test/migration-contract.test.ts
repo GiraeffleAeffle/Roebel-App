@@ -85,6 +85,8 @@ test("readiness binds canonical source bytes to an honest current-catalog marker
   assert.match(migration, /staging_participant_catalog_contract/u);
   assert.match(migration, /pg_get_functiondef\(proc\.oid\)/u);
   assert.match(migration, /extensions\.digest\(proc\.prosrc, 'sha256'\)/u);
+  assert.match(migration, /\('public\.post_comment_counts_sync\(\)'\)/u);
+  assert.match(migration, /staging_participant_catalog_contract\) <> 12/u);
   assert.match(migration, /STAGING_PARTICIPANT_SCHEMA_EXECUTABLE_CATALOG_INVALID/u);
   assert.match(migration, /enforce_posting_rules_trg/u);
   assert.match(migration, /trigger\.tgtype = 7/u);
@@ -193,6 +195,16 @@ test("activation captures and deactivation restores compatibility state without 
   assert.match(deactivation, /revoke all on function public\.pin_own_post/u);
   assert.match(deactivation, /revoke all on function public\.staging_participant_gateway_read_owned_main_text_post/u);
   assert.match(deactivation, /revoke all on function public\.staging_participant_gateway_reserve_nostr_post_mirror/u);
+  assert.match(deactivation, /prior_function_definitions_sha256 is null/u);
+  assert.match(deactivation, /prior_privileges_sha256 is null/u);
+  assert.match(deactivation, /STAGING_PARTICIPANT_DEACTIVATION_CAPTURE_INVALID/u);
+  assert.match(deactivation, /object_identity = 'public\.enforce_posting_rules\(\)'/u);
+  assert.match(deactivation, /object_kind = 'table_column'/u);
+  assert.ok(
+    deactivation.indexOf("STAGING_PARTICIPANT_DEACTIVATION_CAPTURE_INVALID") <
+      deactivation.indexOf("update staging_participant_private.staging_participant_admissions"),
+    "deactivation must validate evidence before its first mutation",
+  );
   assert.doesNotMatch(deactivation, /drop schema|delete from public\.(posts|post_comments)/iu);
 });
 

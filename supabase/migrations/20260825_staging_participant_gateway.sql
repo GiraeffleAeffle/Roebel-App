@@ -1298,7 +1298,7 @@ $contract$
       raise exception 'STAGING_PARTICIPANT_SCHEMA_PRIVATE_TABLE_INVALID:%', v_table using errcode = 'P0001';
     end if;
   end loop;
-  if (select count(*) from staging_participant_private.staging_participant_catalog_contract) <> 11
+  if (select count(*) from staging_participant_private.staging_participant_catalog_contract) <> 12
      or exists (
        select 1
          from staging_participant_private.staging_participant_catalog_contract contract
@@ -1391,6 +1391,7 @@ select target.object_identity, owner_role.rolname, language.lanname,
        encode(extensions.digest(proc.prosrc, 'sha256'), 'hex')
   from (values
     ('public.enforce_posting_rules()'),
+    ('public.post_comment_counts_sync()'),
     ('public.staging_participant_gateway_create_main_text_post(text,text,uuid)'),
     ('public.staging_participant_gateway_create_main_text_comment(text,uuid,text,uuid)'),
     ('public.staging_participant_gateway_read_owned_main_text_post(text,uuid)'),

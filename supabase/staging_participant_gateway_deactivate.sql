@@ -12,6 +12,7 @@ declare
   v_definition text;
   v_grantee text;
   v_grant record;
+  v_marker staging_participant_private.staging_participant_schema_contract%rowtype;
 begin
   if not exists (
     select 1
@@ -19,6 +20,57 @@ begin
      where singleton and environment = 'staging'
   ) then
     raise exception 'STAGING_PARTICIPANT_DEACTIVATION_REQUIRES_ARMED_CATALOG'
+      using errcode = 'P0001';
+  end if;
+
+  -- Validate all rollback evidence before this transaction revokes a grant,
+  -- revokes an admission or executes a captured definition. The marker binds
+  -- the exact activation-time rowsets; it does not claim to reconstruct an
+  -- unavailable historic migration file.
+  select * into strict v_marker
+    from staging_participant_private.staging_participant_schema_contract
+   where singleton;
+  if v_marker.migration_id <> '20260825_staging_participant_gateway'
+     or v_marker.prior_function_definitions_sha256 is null
+     or v_marker.prior_privileges_sha256 is null
+     or (select count(*) from staging_participant_private.staging_participant_prior_function_definitions) <> 1
+     or not exists (
+       select 1 from staging_participant_private.staging_participant_prior_function_definitions
+        where object_identity = 'public.enforce_posting_rules()'
+          and definition <> ''
+     ) or exists (
+       select 1 from staging_participant_private.staging_participant_prior_function_definitions
+        where object_identity <> 'public.enforce_posting_rules()'
+     ) or exists (
+       select 1 from staging_participant_private.staging_participant_prior_privileges
+        where (object_kind = 'table' and (column_name <> '' or object_identity not in (
+                 'public.posts', 'public.post_comments', 'public.post_likes', 'public.app_settings')))
+           or (object_kind = 'table_column' and (column_name = '' or object_identity not in (
+                 'public.posts', 'public.post_comments', 'public.post_likes', 'public.app_settings')))
+           or (object_kind = 'function' and (column_name <> '' or object_identity not in (
+                 'public.delete_owned_post(uuid,text)',
+                 'public.delete_owned_post_comment(uuid,text)',
+                 'public.delete_owned_experience(uuid,text)',
+                 'public.pin_own_post(uuid,text,boolean)')))
+           or object_kind not in ('table', 'table_column', 'function')
+           or grantee not in ('PUBLIC', 'anon', 'authenticated')
+           or (object_kind = 'table' and privilege_type not in ('INSERT', 'UPDATE', 'DELETE'))
+           or (object_kind = 'table_column' and privilege_type not in ('INSERT', 'UPDATE'))
+           or (object_kind = 'function' and privilege_type <> 'EXECUTE')
+     ) or v_marker.prior_function_definitions_sha256 <> (
+       select encode(extensions.digest(coalesce(string_agg(
+         object_identity || E'\x1f' || definition, E'\x1e' order by object_identity
+       ), ''), 'sha256'), 'hex')
+         from staging_participant_private.staging_participant_prior_function_definitions
+     ) or v_marker.prior_privileges_sha256 <> (
+       select encode(extensions.digest(coalesce(string_agg(
+         object_kind || E'\x1f' || object_identity || E'\x1f' || column_name || E'\x1f' ||
+         grantee || E'\x1f' || privilege_type || E'\x1f' || is_grantable::text,
+         E'\x1e' order by object_kind, object_identity, column_name, grantee, privilege_type
+       ), ''), 'sha256'), 'hex')
+         from staging_participant_private.staging_participant_prior_privileges
+     ) then
+    raise exception 'STAGING_PARTICIPANT_DEACTIVATION_CAPTURE_INVALID'
       using errcode = 'P0001';
   end if;
 
