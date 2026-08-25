@@ -131,6 +131,13 @@ test("a successful participant post can produce only one post-only Mecky mirror 
     });
   };
   const session = {
+    snapshot: {
+      credential: {
+        kind: "thirdweb_smart_account",
+        address: "0x1111111111111111111111111111111111111111",
+        chainId: 100,
+      },
+    },
     async createAdmissionProof() {
       return { schemaVersion: "roebel_citizen_admission_proof_v1" };
     },
@@ -167,7 +174,17 @@ test("a failed participant mirror retains the exact signed body for retry instea
   let admissions = 0;
   let signed = 0;
   const session = {
-    async createAdmissionProof() { admissions += 1; return { schemaVersion: "roebel_citizen_admission_proof_v1" }; },
+    snapshot: {
+      credential: {
+        kind: "thirdweb_smart_account",
+        address: "0x1111111111111111111111111111111111111111",
+        chainId: 100,
+      },
+    },
+    async createAdmissionProof() {
+      admissions += 1;
+      return { schemaVersion: "roebel_citizen_admission_proof_v1", attempt: admissions };
+    },
     async signPublicPost(input: { content: string; mentionPubkeys?: readonly string[]; sourceAppPostId?: string }) {
       signed += 1;
       return {
@@ -181,18 +198,25 @@ test("a failed participant mirror retains the exact signed body for retry instea
   const first = await mirrorStagingParticipantMeckyPost({ sourcePost, session, meckyPubkey: "d".repeat(64) });
   assert.equal(first.success, false);
   assert.ok(first.pending);
+  assert.equal("admissionProof" in (first.pending ?? {}), false);
+  assert.doesNotMatch(JSON.stringify(first.pending), /walletSignature|admissionProof/u);
   const second = await mirrorStagingParticipantMeckyPost({
     sourcePost,
+    session,
     retry: first.pending,
     meckyPubkey: "d".repeat(64),
   });
   assert.equal(second.success, false);
-  assert.equal(admissions, 1);
+  assert.equal(admissions, 2);
   assert.equal(signed, 1);
   assert.equal(bodies.length, 4);
+  const firstBody = JSON.parse(bodies[0]) as Record<string, unknown>;
+  const firstRetryBody = JSON.parse(bodies[2]) as Record<string, unknown>;
   assert.equal(bodies[0], bodies[1]);
-  assert.equal(bodies[1], bodies[2]);
   assert.equal(bodies[2], bodies[3]);
+  assert.equal(firstBody.requestId, firstRetryBody.requestId);
+  assert.deepEqual(firstBody.event, firstRetryBody.event);
+  assert.notDeepEqual(firstBody.admissionProof, firstRetryBody.admissionProof);
 });
 
 test("participant UI never sends its writes through the public Web server actions", () => {
@@ -228,4 +252,6 @@ test("participant UI never sends its writes through the public Web server action
   assert.match(hook, /Wallet wurde während der Anmeldung gewechselt/u);
   assert.match(composer, /submitLockRef\.current/u);
   assert.match(composer, /mirrorStagingParticipantMeckyPost/u);
+  assert.match(composer, /loadPendingStagingParticipantMeckyMirror/u);
+  assert.match(composer, /Erneut senden/u);
 });

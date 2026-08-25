@@ -1,5 +1,6 @@
 import type { Post, PostComment } from "@/types/post";
 import type { CitizenSession } from "@/lib/citizen-session/session";
+import type { NostrEvent } from "@netizen-labs/nostr";
 
 const API_ROOT = "/api/staging-participant/v1";
 const CHALLENGE_SCHEMA = "staging_participant_challenge_request_v1";
@@ -7,6 +8,14 @@ const SESSION_SCHEMA = "staging_participant_session_request_v1";
 const POST_SCHEMA = "staging_participant_post_request_v1";
 const COMMENT_SCHEMA = "staging_participant_comment_request_v1";
 const NOSTR_POST_SCHEMA = "staging_participant_nostr_post_request_v1";
+const PENDING_MIRROR_SCHEMA = "roebel_staging_participant_mecky_mirror_v1";
+const PENDING_MIRROR_STORAGE_KEY =
+  "roebel:staging-participant:mecky-mirror:v1";
+const PENDING_MIRROR_TTL_MS = 15 * 60 * 1_000;
+const PENDING_MIRROR_CLOCK_SKEW_MS = 5_000;
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const WALLET = /^0x[0-9a-f]{40}$/iu;
 
 export const STAGING_PARTICIPANT_LABEL =
   "Staging-Testteilnahme – keine Bürgerverifikation, kein Stimmrecht";
@@ -25,15 +34,151 @@ export type StagingParticipantResult<T> = {
 };
 
 /**
- * Retained browser-only retry payload. The gateway receipt accepts only this
- * original signed event and request id after a transient workbench failure.
+ * Retained browser-only retry payload. Only the public signed event and its
+ * source/request binding cross a reload boundary. The admission proof contains
+ * wallet signatures and is regenerated from the current CitizenSession for
+ * every attempt; it is intentionally not part of this shape.
  */
 export type PendingStagingParticipantMeckyMirror = Readonly<{
+  schemaVersion: "roebel_staging_participant_mecky_mirror_v1";
   sourcePost: Pick<Post, "id" | "content">;
   requestId: string;
-  admissionProof: unknown;
-  event: unknown;
+  walletAddress: string;
+  event: NostrEvent;
+  expiresAt: number;
 }>;
+
+function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+
+function validPublicEvent(value: unknown): NostrEvent | null {
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype) return null;
+  const record = value as Record<string, unknown>;
+  if (!exactKeys(record, ["id", "pubkey", "created_at", "kind", "tags", "content", "sig"]) ||
+    typeof record.id !== "string" || !/^[0-9a-f]{64}$/iu.test(record.id) ||
+    typeof record.pubkey !== "string" || !/^[0-9a-f]{64}$/iu.test(record.pubkey) ||
+    typeof record.created_at !== "number" || !Number.isSafeInteger(record.created_at) || record.created_at < 0 ||
+    typeof record.kind !== "number" || !Number.isSafeInteger(record.kind) || record.kind < 0 ||
+    typeof record.content !== "string" ||
+    typeof record.sig !== "string" || !/^[0-9a-f]{128}$/iu.test(record.sig) ||
+    !Array.isArray(record.tags) ||
+    record.tags.some((tag) => !Array.isArray(tag) || tag.some((item) => typeof item !== "string"))) {
+    return null;
+  }
+  return {
+    id: record.id.toLowerCase(),
+    pubkey: record.pubkey.toLowerCase(),
+    created_at: record.created_at,
+    kind: record.kind,
+    tags: record.tags.map((tag) => [...tag]),
+    content: record.content,
+    sig: record.sig.toLowerCase(),
+  } as NostrEvent;
+}
+
+function validPending(value: unknown, now = Date.now()): PendingStagingParticipantMeckyMirror | null {
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype) return null;
+  const record = value as Record<string, unknown>;
+  if (!exactKeys(record, ["schemaVersion", "sourcePost", "requestId", "walletAddress", "event", "expiresAt"]) ||
+    record.schemaVersion !== PENDING_MIRROR_SCHEMA ||
+    typeof record.requestId !== "string" || !UUID.test(record.requestId) ||
+    typeof record.walletAddress !== "string" || !WALLET.test(record.walletAddress) ||
+    typeof record.expiresAt !== "number" || !Number.isSafeInteger(record.expiresAt) ||
+    record.expiresAt <= now ||
+    record.expiresAt > now + PENDING_MIRROR_TTL_MS + PENDING_MIRROR_CLOCK_SKEW_MS) {
+    return null;
+  }
+  const sourcePost = record.sourcePost;
+  if (!sourcePost || typeof sourcePost !== "object" || Array.isArray(sourcePost) ||
+    Object.getPrototypeOf(sourcePost) !== Object.prototype) return null;
+  const source = sourcePost as Record<string, unknown>;
+  if (!exactKeys(source, ["id", "content"]) ||
+    typeof source.id !== "string" || !UUID.test(source.id) ||
+    typeof source.content !== "string" || source.content.trim() !== source.content ||
+    source.content.length < 1 || source.content.length > 2_000) return null;
+  const event = validPublicEvent(record.event);
+  if (!event) return null;
+  return {
+    schemaVersion: PENDING_MIRROR_SCHEMA,
+    sourcePost: { id: source.id.toLowerCase(), content: source.content },
+    requestId: record.requestId.toLowerCase(),
+    walletAddress: record.walletAddress.toLowerCase(),
+    event,
+    expiresAt: record.expiresAt,
+  };
+}
+
+function pendingStorageKey(walletAddress: string): string {
+  return `${PENDING_MIRROR_STORAGE_KEY}:${walletAddress.toLowerCase()}`;
+}
+
+function pendingStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** Load and validate the short-lived public retry record for one wallet. */
+export function loadPendingStagingParticipantMeckyMirror(
+  walletAddress: string,
+): PendingStagingParticipantMeckyMirror | null {
+  if (!WALLET.test(walletAddress)) return null;
+  const storage = pendingStorage();
+  if (!storage) return null;
+  const key = pendingStorageKey(walletAddress);
+  try {
+    const raw = storage.getItem(key);
+    if (!raw) return null;
+    const pending = validPending(JSON.parse(raw));
+    if (!pending || pending.walletAddress !== walletAddress.toLowerCase()) {
+      storage.removeItem(key);
+      return null;
+    }
+    return pending;
+  } catch {
+    try {
+      storage.removeItem(key);
+    } catch {
+      // Storage can disappear between read and cleanup (private browsing).
+    }
+    return null;
+  }
+}
+
+/** Persist only the public retry record; never pass an admission proof here. */
+export function savePendingStagingParticipantMeckyMirror(
+  pending: PendingStagingParticipantMeckyMirror,
+): void {
+  const validated = validPending(pending);
+  if (!validated) return;
+  const storage = pendingStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(
+      pendingStorageKey(validated.walletAddress),
+      JSON.stringify({ schemaVersion: PENDING_MIRROR_SCHEMA, ...validated }),
+    );
+  } catch {
+    // The in-memory result still gives the caller one retry opportunity.
+  }
+}
+
+export function clearPendingStagingParticipantMeckyMirror(walletAddress: string): void {
+  if (!WALLET.test(walletAddress)) return;
+  try {
+    pendingStorage()?.removeItem(pendingStorageKey(walletAddress));
+  } catch {
+    // Storage cleanup is best effort; it is not a security boundary.
+  }
+}
 
 function errorMessage(body: unknown, fallback: string): string {
   if (!body || typeof body !== "object") return fallback;
@@ -178,38 +323,75 @@ export async function mirrorStagingParticipantMeckyPost(input: Readonly<{
   if (!/^[0-9a-f]{64}$/u.test(meckyPubkey)) {
     return { success: false, error: "Mecky ist für diese Staging-Teilnahme noch nicht konfiguriert" };
   }
+  let pendingForRetry: PendingStagingParticipantMeckyMirror | undefined;
   try {
-    const pending = input.retry ?? (input.session ? await (async () => {
+    const walletAddress = input.session?.snapshot.credential.address.toLowerCase();
+    if (!walletAddress || !WALLET.test(walletAddress)) {
+      return {
+        success: false,
+        error: "Die aktuelle Testteilnahme kann nicht sicher bestätigt werden",
+        pending: input.retry,
+      };
+    }
+    const pending = input.retry ?? await (async () => {
       // The source row already exists at this point. The gateway independently
       // proves ownership/content before it is allowed to forward either proof.
-      const [admissionProof, event] = await Promise.all([
-        input.session!.createAdmissionProof(),
-        input.session!.signPublicPost({
+      // Save the public event before requesting the wallet-bound admission proof
+      // so a rejected signature still leaves a safe, exact retry available.
+      const event = await input.session!.signPublicPost({
+        content: input.sourcePost.content,
+        mentionPubkeys: [meckyPubkey],
+        sourceAppPostId: input.sourcePost.id,
+      });
+      const created: PendingStagingParticipantMeckyMirror = {
+        schemaVersion: PENDING_MIRROR_SCHEMA,
+        sourcePost: {
+          id: input.sourcePost.id,
           content: input.sourcePost.content,
-          mentionPubkeys: [meckyPubkey],
-          sourceAppPostId: input.sourcePost.id,
-        }),
-      ]);
-      return { sourcePost: input.sourcePost, requestId: newRequestId(), admissionProof, event };
-    })() : null);
+        },
+        requestId: newRequestId(),
+        walletAddress,
+        event,
+        expiresAt: Date.now() + PENDING_MIRROR_TTL_MS,
+      };
+      pendingForRetry = created;
+      savePendingStagingParticipantMeckyMirror(created);
+      return created;
+    })();
+    pendingForRetry = pending;
     if (!pending || pending.sourcePost.id !== input.sourcePost.id ||
-      pending.sourcePost.content !== input.sourcePost.content) {
+      pending.sourcePost.content !== input.sourcePost.content ||
+      pending.walletAddress !== walletAddress ||
+      !validPending(pending)) {
+      if (input.retry) clearPendingStagingParticipantMeckyMirror(walletAddress);
       return { success: false, error: "Die signierte Mecky-Anfrage kann nicht sicher wiederhergestellt werden" };
     }
+    // The proof is intentionally ephemeral. A retry uses the exact public
+    // event/request while asking the current session to sign a fresh proof.
+    const admissionProof = await input.session.createAdmissionProof();
     const result = await request(
       "nostr-post",
       {
         schemaVersion: NOSTR_POST_SCHEMA,
         requestId: pending.requestId,
         sourcePostId: pending.sourcePost.id,
-        admissionProof: pending.admissionProof,
+        admissionProof,
         event: pending.event,
       },
       "Der Beitrag ist veröffentlicht, aber Mecky konnte noch nicht sicher erreicht werden",
       true,
     );
-    return result.success ? result : { ...result, pending };
+    if (result.success) {
+      clearPendingStagingParticipantMeckyMirror(walletAddress);
+      return result;
+    }
+    savePendingStagingParticipantMeckyMirror(pending);
+    return { ...result, pending };
   } catch {
-    return { success: false, error: "Der Beitrag ist veröffentlicht, aber Mecky konnte noch nicht sicher erreicht werden" };
+    return {
+      success: false,
+      error: "Der Beitrag ist veröffentlicht, aber Mecky konnte noch nicht sicher erreicht werden",
+      pending: pendingForRetry ?? input.retry,
+    };
   }
 }
