@@ -643,8 +643,6 @@ export async function createPost(
   input: CreatePostInput
 ): Promise<{ success: boolean; data?: Post; error?: string }> {
   try {
-    const supabase = await createClient()
-
     // Authoritative gate: only verified citizens (or attesters) may post.
     // Org accounts can post if the caller owns the org — the org itself is a
     // verified entity. This mirrors the client-side gate in PostComposer but
@@ -669,6 +667,8 @@ export async function createPost(
         error: "Nur verifizierte Bürger können Beiträge erstellen",
       }
     }
+
+    const supabase = await createClient()
 
     const { data: post, error } = await supabase
       .from("posts")
@@ -1011,6 +1011,22 @@ export async function createComment(
   input: CreateCommentInput
 ): Promise<{ success: boolean; data?: PostComment; error?: string }> {
   try {
+    if (!input.wallet_address) {
+      return { success: false, error: "Nicht angemeldet" }
+    }
+
+    let allowed = await isVerifiedCitizen(input.wallet_address)
+    if (!allowed && input.account_id) {
+      const account = await fetchAccountById(input.account_id)
+      allowed =
+        !!account &&
+        isOrgAccount(account) &&
+        (await isAccountOwner(input.account_id, input.wallet_address))
+    }
+    if (!allowed) {
+      return { success: false, error: "Nur verifizierte Bürger können Kommentare erstellen" }
+    }
+
     const supabase = await createClient()
 
     const { data: comment, error } = await supabase

@@ -3,11 +3,18 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 
 import { createStagingParticipantGatewayHandler } from "../src/http.ts";
-import { CHALLENGE_COOKIE, SESSION_COOKIE } from "../src/protocol.ts";
+import {
+  CHALLENGE_COOKIE,
+  MAX_PENDING_CHALLENGES,
+  SESSION_COOKIE,
+  prepareChallengeStore,
+  type ChallengeStore,
+} from "../src/protocol.ts";
 import type { StagingParticipantDataAdapter, WalletSignatureVerifier } from "../src/types.ts";
 
 const ORIGIN = "https://roebel-web.staging.agentcart.eu";
 const WALLET = "0x1111111111111111111111111111111111111111";
+const OTHER_WALLET = "0x2222222222222222222222222222222222222222";
 const INVITE = "bounded-test-invite";
 const INVITE_SHA256 = createHash("sha256").update(INVITE).digest("hex");
 const KEY = "k".repeat(32);
@@ -74,7 +81,13 @@ function fixture(input: Partial<{
   };
   let count = 0;
   const handler = createStagingParticipantGatewayHandler({
-    config: { origin: ORIGIN, sessionHmacKey: KEY, inviteSha256: INVITE_SHA256, cookieSecure: true },
+    config: {
+      origin: ORIGIN,
+      sessionHmacKey: KEY,
+      inviteSha256: INVITE_SHA256,
+      allowedWallets: [WALLET],
+      cookieSecure: true,
+    },
     verifier,
     data,
     now: () => new Date(nowMs),
@@ -102,7 +115,19 @@ async function enrolledSession() {
 
 test("requires an exact origin, invite hash and schema before issuing a wallet-bound challenge", async () => {
   const { handler } = fixture();
-  assert.equal((await handler(new Request("https://gateway/api/staging-participant/v1/status"))).status, 403);
+  assert.equal((await handler(new Request("https://gateway/api/staging-participant/v1/status"))).status, 200);
+  assert.equal((await handler(new Request("https://gateway/api/staging-participant/v1/status", {
+    headers: { origin: "https://attacker.invalid" },
+  }))).status, 403);
+  assert.equal((await handler(new Request("https://gateway/api/staging-participant/v1/challenge", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      schemaVersion: "staging_participant_challenge_request_v1",
+      walletAddress: WALLET,
+      inviteToken: INVITE,
+    }),
+  }))).status, 403);
   assert.equal((await handler(jsonRequest("/api/staging-participant/v1/challenge", {
     schemaVersion: "staging_participant_challenge_request_v1",
     walletAddress: WALLET,
@@ -110,10 +135,32 @@ test("requires an exact origin, invite hash and schema before issuing a wallet-b
   }))).status, 401);
   assert.equal((await handler(jsonRequest("/api/staging-participant/v1/challenge", {
     schemaVersion: "staging_participant_challenge_request_v1",
+    walletAddress: OTHER_WALLET,
+    inviteToken: INVITE,
+  }))).status, 401);
+  assert.equal((await handler(jsonRequest("/api/staging-participant/v1/challenge", {
+    schemaVersion: "staging_participant_challenge_request_v1",
     walletAddress: WALLET,
     inviteToken: INVITE,
     municipal: true,
   }))).status, 401);
+});
+
+test("invalidates an unconsumed challenge when the single gateway replica restarts", async () => {
+  const beforeRestart = fixture();
+  const challenge = await beforeRestart.handler(jsonRequest("/api/staging-participant/v1/challenge", {
+    schemaVersion: "staging_participant_challenge_request_v1",
+    walletAddress: WALLET,
+    inviteToken: INVITE,
+  }));
+  const challengeCookie = cookieValue(challenge, CHALLENGE_COOKIE);
+
+  const afterRestart = fixture();
+  const session = await afterRestart.handler(jsonRequest("/api/staging-participant/v1/session", {
+    schemaVersion: "staging_participant_session_request_v1",
+    signature: "0xaaaa",
+  }, challengeCookie));
+  assert.equal(session.status, 401);
 });
 
 test("consumes each signed challenge once and binds its session to the exact verified wallet", async () => {
@@ -178,6 +225,17 @@ test("fails before the data adapter for missing session, non-text payloads, and 
   assert.equal((await handler(jsonRequest("/api/staging-participant/v1/votes", {
     schemaVersion: "anything",
   }, sessionCookie))).status, 403);
+  assert.equal((await handler(jsonRequest("/api/staging-participant/v1/posts", {
+    schemaVersion: "staging_participant_post_request_v1",
+    requestId: POST_REQUEST_ID,
+    content: "x".repeat(251),
+  }, sessionCookie))).status, 400);
+  assert.equal((await handler(jsonRequest("/api/staging-participant/v1/comments", {
+    schemaVersion: "staging_participant_comment_request_v1",
+    requestId: COMMENT_REQUEST_ID,
+    postId: "10000000-0000-4000-8000-000000000001",
+    content: "https://example.invalid",
+  }, sessionCookie))).status, 400);
   assert.equal(calls.length, 0);
 });
 
@@ -193,4 +251,23 @@ test("expires sessions and exposes only the exact status route", async () => {
   assert.equal(expired.status, 401);
   assert.equal((await handler(request("/api/staging-participant/v1/anything"))).status, 404);
   assert.equal((await handler(request("/api/staging-participant/v1/posts"))).status, 405);
+});
+
+test("prunes stale challenges and caps a leaked invite's in-memory footprint", () => {
+  const store: ChallengeStore = new Map();
+  for (let index = 0; index < MAX_PENDING_CHALLENGES; index += 1) {
+    store.set(index.toString(16).padStart(32, "0"), {
+      walletAddress: `0x${index.toString(16).padStart(40, "0")}`,
+      expiresAt: 2_000,
+      consumed: false,
+    });
+  }
+  assert.throws(
+    () => prepareChallengeStore(store, 1_000, "0xffffffffffffffffffffffffffffffffffffffff"),
+    /capacity_reached/u,
+  );
+  const first = store.keys().next().value as string;
+  store.set(first, { ...store.get(first)!, expiresAt: 999 });
+  prepareChallengeStore(store, 1_000, "0xffffffffffffffffffffffffffffffffffffffff");
+  assert.equal(store.size, MAX_PENDING_CHALLENGES - 1);
 });

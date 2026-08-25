@@ -73,6 +73,7 @@ for (const service of [
   { component: "public-mecky", entrypoint: ["node", "/app/agent-watcher.cjs"] },
   { component: "roebel-e2e-workbench", entrypoint: ["node", "/app/e2e-workbench.cjs"] },
   { component: "roebel-staging-relay", entrypoint: ["node", "/app/staging-relay.cjs"] },
+  { component: "staging-participant-gateway", entrypoint: ["node", "/app/staging-participant-gateway.cjs"] },
 ]) {
   test(`accepts one exact ${service.component} linux/amd64 image`, () => {
     const root = mkdtempSync(join(tmpdir(), "roebel-service-oci-"));
@@ -183,6 +184,29 @@ test("rejects a Stadtstack control credential embedded in Public Mecky", () => {
     });
     assert.throws(
       () => verifyStagingServiceOci(root, "a".repeat(40), "public-mecky"),
+      /runtime_secret_embedded/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a participant RPC capability embedded in the gateway image", () => {
+  const root = mkdtempSync(join(tmpdir(), "roebel-service-oci-participant-secret-"));
+  try {
+    writeLayout(
+      root,
+      "a".repeat(40),
+      "staging-participant-gateway",
+      ["node", "/app/staging-participant-gateway.cjs"],
+      (config) => {
+        config.config.Env.push(
+          "ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET=must-not-be-in-image",
+        );
+      },
+    );
+    assert.throws(
+      () => verifyStagingServiceOci(root, "a".repeat(40), "staging-participant-gateway"),
       /runtime_secret_embedded/,
     );
   } finally {

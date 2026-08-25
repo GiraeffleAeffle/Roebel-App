@@ -4,22 +4,15 @@ import type {
   StagingParticipantPost,
 } from "./types.ts";
 
-/**
- * REVIEW HOLD — this draft's custom writer JWT is not an accepted production
- * credential boundary. Do not provision it or deploy this adapter; it is kept
- * only so the pure HTTP handler remains independently testable until the
- * reviewed constrained-RPC credential design replaces this file.
- */
-
 const POST_RPC = "staging_participant_gateway_create_main_text_post";
 const COMMENT_RPC = "staging_participant_gateway_create_main_text_comment";
 
-export type RestrictedSupabaseWriterConfig = Readonly<{
+export type RestrictedSupabaseRpcConfig = Readonly<{
   url: string;
-  /** Public/publishable Supabase API key used only as the API gateway key. */
+  /** Browser-public anon/publishable key used only for PostgREST routing. */
   anonKey: string;
-  /** A dedicated, expiring JWT with role exactly staging_participant_writer. */
-  writerToken: string;
+  /** Gateway-only capability matched against Supabase Vault by the two RPCs. */
+  rpcSecret: string;
   fetch?: typeof fetch;
 }>;
 
@@ -38,30 +31,34 @@ function decodeJwtPayload(value: string): Record<string, unknown> | null {
   }
 }
 
-function validateConfig(config: RestrictedSupabaseWriterConfig, nowSeconds = Math.floor(Date.now() / 1_000)): URL {
+function unsafeAnonKey(value: string): boolean {
+  if (value.startsWith("sb_secret_")) return true;
+  const payload = decodeJwtPayload(value);
+  return payload !== null && payload.role !== "anon";
+}
+
+function validateConfig(config: RestrictedSupabaseRpcConfig): URL {
   let url: URL;
   try {
     url = new URL(config.url);
   } catch {
     throw new Error("staging_participant_supabase_url_invalid");
   }
-  const payload = decodeJwtPayload(config.writerToken);
-  if (url.protocol !== "https:" || config.anonKey.length < 16 || config.writerToken.length < 32 ||
-    !payload || payload.role !== "staging_participant_writer" ||
-    typeof payload.exp !== "number" || !Number.isSafeInteger(payload.exp) || payload.exp <= nowSeconds) {
-    throw new Error("staging_participant_supabase_writer_config_invalid");
+  if (url.protocol !== "https:" || config.anonKey.length < 16 ||
+    unsafeAnonKey(config.anonKey) || config.rpcSecret.length < 32) {
+    throw new Error("staging_participant_supabase_rpc_config_invalid");
   }
   return url;
 }
 
 /**
- * Calls only the two named, restricted RPCs that the staging migration must
- * expose to the dedicated writer role. This is intentionally fetch-based: no
- * service-role client exists in the process, and callers cannot select tables
- * or RPCs. `apikey` is public routing only; the bearer is the narrow role.
+ * Calls only the two named, restricted RPCs that the staging migration exposes
+ * to anon. The anon key is already browser-public; the additional header is a
+ * gateway-only capability that those two functions compare to Supabase Vault.
+ * No service-role or custom-role bearer exists in this process.
  */
 export function createRestrictedSupabaseDataAdapter(
-  config: RestrictedSupabaseWriterConfig,
+  config: RestrictedSupabaseRpcConfig,
 ): StagingParticipantDataAdapter {
   const base = validateConfig(config);
   const request = config.fetch ?? globalThis.fetch;
@@ -72,7 +69,8 @@ export function createRestrictedSupabaseDataAdapter(
       method: "POST",
       headers: {
         apikey: config.anonKey,
-        authorization: `Bearer ${config.writerToken}`,
+        authorization: `Bearer ${config.anonKey}`,
+        "x-staging-participant-rpc-secret": config.rpcSecret,
         "content-type": "application/json",
         accept: "application/json",
       },
@@ -91,6 +89,10 @@ export function createRestrictedSupabaseDataAdapter(
         p_request_id: requestId,
       });
       if (!isStagingParticipantPost(value)) throw new Error("staging_participant_restricted_rpc_response_invalid");
+      if (value.wallet_address.toLowerCase() !== walletAddress.toLowerCase() ||
+        value.content !== content) {
+        throw new Error("staging_participant_restricted_rpc_response_mismatch");
+      }
       return value;
     },
     async createMainTextComment({ walletAddress, postId, content, requestId }): Promise<StagingParticipantComment> {
@@ -101,6 +103,10 @@ export function createRestrictedSupabaseDataAdapter(
         p_request_id: requestId,
       });
       if (!isStagingParticipantComment(value)) throw new Error("staging_participant_restricted_rpc_response_invalid");
+      if (value.wallet_address.toLowerCase() !== walletAddress.toLowerCase() ||
+        value.post_id.toLowerCase() !== postId.toLowerCase() || value.content !== content) {
+        throw new Error("staging_participant_restricted_rpc_response_mismatch");
+      }
       return value;
     },
   };

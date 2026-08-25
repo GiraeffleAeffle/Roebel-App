@@ -6,6 +6,7 @@ export const CHALLENGE_COOKIE = "roebel_staging_participant_challenge";
 export const SESSION_COOKIE = "roebel_staging_participant_session";
 export const CHALLENGE_TTL_SECONDS = 5 * 60;
 export const SESSION_TTL_SECONDS = 2 * 60 * 60;
+export const MAX_PENDING_CHALLENGES = 256;
 
 export type ChallengeClaim = Readonly<{
   kind: "roebel_staging_participant_challenge_v1";
@@ -28,6 +29,25 @@ export type ChallengeStore = Map<string, Readonly<{
   expiresAt: number;
   consumed: boolean;
 }>>;
+
+/**
+ * Keep the first single-replica implementation bounded even if an invite is
+ * leaked. Reissuing for one wallet replaces its prior pending challenge.
+ */
+export function prepareChallengeStore(
+  store: ChallengeStore,
+  nowSeconds: number,
+  walletAddress: string,
+): void {
+  for (const [id, value] of store) {
+    if (value.consumed || value.expiresAt <= nowSeconds || value.walletAddress === walletAddress) {
+      store.delete(id);
+    }
+  }
+  if (store.size >= MAX_PENDING_CHALLENGES) {
+    throw new Error("staging_participant_challenge_capacity_reached");
+  }
+}
 
 export function normalizeWallet(value: unknown): string | null {
   if (typeof value !== "string" || !/^0x[0-9a-fA-F]{40}$/u.test(value)) return null;

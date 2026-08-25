@@ -63,5 +63,6 @@ export type StagingParticipantGatewayConfig = Readonly<{
   origin: string;
   sessionHmacKey: string;
   inviteSha256: string;
+  allowedWallets: readonly string[];
   cookieSecure: boolean;
 }>;

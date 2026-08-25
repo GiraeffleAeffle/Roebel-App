@@ -13,6 +13,7 @@ import {
   issueChallenge,
   issueSession,
   normalizeWallet,
+  prepareChallengeStore,
   readCookie,
   type ChallengeStore,
   validInvite,
@@ -25,6 +26,8 @@ import type {
 
 const MAX_REQUEST_BYTES = 8 * 1024;
 const MAX_CONTENT_BYTES = 2_000;
+const MAX_POST_CHARACTERS = 250;
+const MAX_COMMENT_CHARACTERS = 500;
 const CHALLENGE_SCHEMA = "staging_participant_challenge_request_v1";
 const SESSION_SCHEMA = "staging_participant_session_request_v1";
 const POST_SCHEMA = "staging_participant_post_request_v1";
@@ -84,9 +87,15 @@ function parsedObject(value: unknown, keys: readonly string[]): Record<string, u
   return exactKeys(record, keys) ? record : null;
 }
 
-function boundedText(value: unknown): string | null {
+function boundedText(value: unknown, maxCharacters: number): string | null {
   if (typeof value !== "string" || value !== value.trim() || !value) return null;
-  return Buffer.byteLength(value, "utf8") <= MAX_CONTENT_BYTES ? value : null;
+  if (Array.from(value).length > maxCharacters || Buffer.byteLength(value, "utf8") > MAX_CONTENT_BYTES) {
+    return null;
+  }
+  if (/\p{Cc}/u.test(value) || /(?:https?:\/\/|www\.)/iu.test(value)) {
+    return null;
+  }
+  return value;
 }
 
 function validPostId(value: unknown): string | null {
@@ -103,8 +112,8 @@ function validRequestId(value: unknown): string | null {
     : null;
 }
 
-function nodeResponseHeaders(headers: Headers): Record<string, string> {
-  const result: Record<string, string> = {};
+function nodeResponseHeaders(headers: Headers): Record<string, string | string[]> {
+  const result: Record<string, string | string[]> = {};
   headers.forEach((value, name) => { result[name] = value; });
   return result;
 }
@@ -147,7 +156,10 @@ export function createStagingParticipantGatewayHandler(
   dependencies: StagingParticipantGatewayDependencies,
 ): (request: Request) => Promise<Response> {
   const { config } = dependencies;
-  if (config.sessionHmacKey.length < 32 || !/^[a-f0-9]{64}$/iu.test(config.inviteSha256)) {
+  if (config.sessionHmacKey.length < 32 ||
+    !/^[a-f0-9]{64}$/iu.test(config.inviteSha256) ||
+    config.allowedWallets.length < 1 || config.allowedWallets.length > 8 ||
+    config.allowedWallets.some((wallet) => !/^0x[0-9a-f]{40}$/u.test(wallet))) {
     throw new Error("staging_participant_gateway_config_invalid");
   }
   let origin: string;
@@ -163,7 +175,10 @@ export function createStagingParticipantGatewayHandler(
   return async (request) => {
     const url = new URL(request.url);
     if (url.search) return json({ error: "not_found" }, 404);
-    if (!isAllowedOrigin(request, config)) return json({ error: "origin_forbidden" }, 403);
+    const requestOrigin = request.headers.get("origin");
+    if (requestOrigin !== null && !isAllowedOrigin(request, config)) {
+      return json({ error: "origin_forbidden" }, 403);
+    }
 
     if (AUTHORITY_PATHS.has(url.pathname)) {
       return json({ error: "authority_action_forbidden" }, 403, origin);
@@ -204,6 +219,11 @@ export function createStagingParticipantGatewayHandler(
       url.pathname !== POSTS_PATH && url.pathname !== COMMENTS_PATH) {
       return json({ error: "not_found" }, 404, origin);
     }
+    // Same-origin browser GET requests commonly omit Origin. Every mutating
+    // request must still carry the exact configured origin as a CSRF boundary.
+    if (!isAllowedOrigin(request, config)) {
+      return json({ error: "origin_forbidden" }, 403, origin);
+    }
     if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405, origin);
 
     let body: unknown;
@@ -220,11 +240,14 @@ export function createStagingParticipantGatewayHandler(
     if (url.pathname === CHALLENGE_PATH) {
       const record = parsedObject(body, ["schemaVersion", "walletAddress", "inviteToken"]);
       const walletAddress = record && record.schemaVersion === CHALLENGE_SCHEMA ? normalizeWallet(record.walletAddress) : null;
-      if (!record || !walletAddress || !validInvite(record.inviteToken, config.inviteSha256)) {
+      if (!record || !walletAddress ||
+        !config.allowedWallets.includes(walletAddress) ||
+        !validInvite(record.inviteToken, config.inviteSha256)) {
         return json({ error: "admission_invalid" }, 401, origin);
       }
       let issued: ReturnType<typeof issueChallenge>;
       try {
+        prepareChallengeStore(store, Math.floor(nowMs / 1_000), walletAddress);
         issued = issueChallenge({ walletAddress, nowMs, randomId: dependencies.randomId, key: config.sessionHmacKey, store });
       } catch {
         return json({ error: "service_unavailable" }, 503, origin);
@@ -268,6 +291,7 @@ export function createStagingParticipantGatewayHandler(
       const response = clearChallenge(json({
         active: true,
         walletAddress: issued.claim.walletAddress,
+        expiresAt: new Date(issued.claim.expiresAt * 1_000).toISOString(),
         label: PARTICIPANT_LABEL,
         scope: issued.claim.scope,
         authority: "none",
@@ -285,7 +309,9 @@ export function createStagingParticipantGatewayHandler(
 
     if (url.pathname === POSTS_PATH) {
       const record = parsedObject(body, ["schemaVersion", "requestId", "content"]);
-      const content = record && record.schemaVersion === POST_SCHEMA ? boundedText(record.content) : null;
+      const content = record && record.schemaVersion === POST_SCHEMA
+        ? boundedText(record.content, MAX_POST_CHARACTERS)
+        : null;
       const requestId = record && record.schemaVersion === POST_SCHEMA ? validRequestId(record.requestId) : null;
       if (!content || !requestId) return json({ error: "request_invalid" }, 400, origin);
       try {
@@ -298,7 +324,9 @@ export function createStagingParticipantGatewayHandler(
 
     const record = parsedObject(body, ["schemaVersion", "requestId", "postId", "content"]);
     const postId = record && record.schemaVersion === COMMENT_SCHEMA ? validPostId(record.postId) : null;
-    const content = record && record.schemaVersion === COMMENT_SCHEMA ? boundedText(record.content) : null;
+    const content = record && record.schemaVersion === COMMENT_SCHEMA
+      ? boundedText(record.content, MAX_COMMENT_CHARACTERS)
+      : null;
     const requestId = record && record.schemaVersion === COMMENT_SCHEMA ? validRequestId(record.requestId) : null;
     if (!postId || !content || !requestId) return json({ error: "request_invalid" }, 400, origin);
     try {
@@ -344,7 +372,7 @@ export function createStagingParticipantGatewayServer(
       }));
       const setCookie = response.headers.getSetCookie();
       const outputHeaders = nodeResponseHeaders(response.headers);
-      if (setCookie.length) outputHeaders["set-cookie"] = setCookie.join(", ");
+      if (setCookie.length) outputHeaders["set-cookie"] = setCookie;
       outgoing.writeHead(response.status, outputHeaders);
       outgoing.end(Buffer.from(await response.arrayBuffer()));
     } catch (error) {

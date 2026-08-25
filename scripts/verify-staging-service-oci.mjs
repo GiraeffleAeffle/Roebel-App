@@ -6,11 +6,12 @@ import { pathToFileURL } from "node:url";
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const SOURCE_REVISION = /^[0-9a-f]{40}$/u;
-const SECRET_ENV = /^(?:MECKY_INFERENCE_API_KEY|HETZNER_INFERENCE_API_KEY|NODE_AGENT_SECRET|STADTSTACK_NOSTR_INGESTOR_TOKEN|CASE_STEWARD_TOKEN|CITIZEN_RELAY_ADMISSION_TOKEN|RELAY_ADMISSION_TOKEN|SYNTHETIC_CITIZENS_JSON)=/u;
+const SECRET_ENV = /^(?:MECKY_INFERENCE_API_KEY|HETZNER_INFERENCE_API_KEY|NODE_AGENT_SECRET|STADTSTACK_NOSTR_INGESTOR_TOKEN|CASE_STEWARD_TOKEN|CITIZEN_RELAY_ADMISSION_TOKEN|RELAY_ADMISSION_TOKEN|SYNTHETIC_CITIZENS_JSON|ROEBEL_STAGING_PARTICIPANT_GATEWAY_SESSION_KEY|ROEBEL_STAGING_PARTICIPANT_GATEWAY_INVITE_SHA256|ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET)=/u;
 const COMPONENTS = {
   "public-mecky": ["node", "/app/agent-watcher.cjs"],
   "roebel-e2e-workbench": ["node", "/app/e2e-workbench.cjs"],
   "roebel-staging-relay": ["node", "/app/staging-relay.cjs"],
+  "staging-participant-gateway": ["node", "/app/staging-participant-gateway.cjs"],
 };
 const repositoryFor = (component) => `stadtstack.local/roebel-staging-lab/${component}`;
 const digest = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;

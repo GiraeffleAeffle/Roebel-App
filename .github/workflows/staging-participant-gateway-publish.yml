@@ -19,6 +19,8 @@ on:
       - "turbo.json"
       - "scripts/verify-staging-service-oci.mjs"
       - "scripts/verify-staging-service-oci.test.mjs"
+      - "supabase/migrations/20260825_staging_participant_gateway.sql"
+      - "supabase/staging_participant_gateway_deactivate.sql"
       - ".github/workflows/staging-participant-gateway-publish.yml"
   push:
     branches: [main]
@@ -34,6 +36,8 @@ on:
       - "turbo.json"
       - "scripts/verify-staging-service-oci.mjs"
       - "scripts/verify-staging-service-oci.test.mjs"
+      - "supabase/migrations/20260825_staging_participant_gateway.sql"
+      - "supabase/staging_participant_gateway_deactivate.sql"
       - ".github/workflows/staging-participant-gateway-publish.yml"
   workflow_dispatch:
     inputs:
@@ -138,6 +142,11 @@ jobs:
           store_bytes="$(du -sb "$RUNNER_TEMP/pnpm-store" | cut -f1)"
           test "$store_bytes" -le "$MAX_STORE_BYTES"
           cp -a "$RUNNER_TEMP/context/." "$RUNNER_TEMP/test-context/"
+          mkdir -p "$RUNNER_TEMP/test-context/supabase/migrations"
+          cp supabase/migrations/20260825_staging_participant_gateway.sql \
+            "$RUNNER_TEMP/test-context/supabase/migrations/"
+          cp supabase/staging_participant_gateway_deactivate.sql \
+            "$RUNNER_TEMP/test-context/supabase/"
           pnpm --dir "$RUNNER_TEMP/test-context" --store-dir "$RUNNER_TEMP/pnpm-store" --offline install --frozen-lockfile --ignore-scripts
           pnpm --dir "$RUNNER_TEMP/test-context" --filter "$PACKAGE" test
           pnpm --dir "$RUNNER_TEMP/test-context" --filter "$PACKAGE" typecheck
@@ -270,7 +279,7 @@ jobs:
           if remote_digest="$(oras resolve "$target" 2>"$error_file")"; then
             test "$remote_digest" = "$expected_digest"
           elif grep -Eqi '(not found|404|manifest unknown|name unknown|MANIFEST_UNKNOWN|NAME_UNKNOWN)' "$error_file"; then
-            oras cp --from-oci-layout "$LAYOUT:source-$SOURCE_REVISION" "$target"
+            oras cp --from-oci-layout "$LAYOUT@$expected_digest" "$target"
           else
             cat "$error_file" >&2
             exit 1

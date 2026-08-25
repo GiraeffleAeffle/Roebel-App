@@ -1,0 +1,63 @@
+# Röbel staging participant gateway
+
+This package implements ADR 0021's staging-only capability. It lets one
+invite-bearing, wallet-signing tester create a plain text post or comment in
+the normal Röbel staging feed without being labelled a verified citizen.
+
+It is deliberately not a general API proxy. The complete public surface is:
+
+```text
+GET  /api/staging-participant/v1/status
+POST /api/staging-participant/v1/challenge
+POST /api/staging-participant/v1/session
+POST /api/staging-participant/v1/posts
+POST /api/staging-participant/v1/comments
+```
+
+Case, vote, treasury, administration, municipal publication and arbitrary
+workbench actions are not representable by its data adapter.
+
+## Runtime contract
+
+The process fails closed unless all of these are present:
+
+| Variable | Purpose |
+| --- | --- |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY=enabled` | explicit staging kill switch |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_ORIGIN` | exact HTTPS browser origin, with no path |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_SESSION_KEY` | random 32+ byte cookie HMAC key |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_INVITE_SHA256` | SHA-256 of the bounded test invite |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_ALLOWED_WALLETS` | comma-separated allowlist of 1–8 lowercase tester wallet addresses |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_GNOSIS_RPC_URL` | Gnosis signature verification RPC |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_URL` | staging Supabase HTTPS origin |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_ANON_KEY` | browser-public PostgREST routing key |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET` | 32+ byte capability also stored in Supabase Vault |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_PORT` | listener port |
+
+The RPC secret is sent only to the two named functions as a private header.
+It is not a Supabase service-role key, custom database JWT, citizen credential,
+or cluster credential. Do not log request headers.
+
+Challenge issuance requires both a matching invite and membership in the
+configured wallet allowlist. The invite alone can never enroll another wallet.
+
+Session cookies are always `Secure`, `HttpOnly`, and `SameSite=Strict`; no
+runtime flag can weaken that production resolver. The first deployment must
+run exactly one replica. Challenge consumption is atomic inside that process
+but intentionally in-memory; restart invalidates outstanding challenges. The
+store prunes stale/consumed entries, replaces an older challenge for the same
+wallet, and has a hard capacity. Ingress must additionally rate-limit these
+five paths. A multi-replica deployment requires a durable atomic
+`ChallengeStore` implementation and corresponding replay tests first.
+
+## Source verification
+
+The focused tests need no container build:
+
+```sh
+pnpm --filter @roebel/staging-participant-gateway test
+pnpm --filter @roebel/staging-participant-gateway typecheck
+```
+
+The immutable image uses a small esbuild bundle and a runtime-only Node layer.
+It does not compile the Röbel Next.js page inventory.

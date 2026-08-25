@@ -1,0 +1,810 @@
+-- Bounded, staging-only post/comment capability for ADR 0021.
+--
+-- PRECONDITIONS (verify against the live staging catalog before applying):
+--   * public.app_settings contains roebel_env = staging
+--   * Supabase Vault contains an independently provisioned arm named
+--     roebel_staging_participant_environment_arm with value staging-only
+--   * Supabase Vault contains a random 32+ byte secret named
+--     roebel_staging_participant_rpc_secret
+--   * public.posts/post_comments/users and public.enforce_posting_rules()
+--     match the reviewed source schema
+--
+-- The gateway uses the ordinary public anon key for PostgREST routing plus the
+-- Vault capability in a private request header. It never receives service_role,
+-- a database password, or a custom JWT role that would inherit unrelated
+-- PUBLIC EXECUTE functions. This migration does not repair unrelated app-wide
+-- policy debt. It does close direct client writes to the two feed tables in the
+-- armed staging project, so this capability cannot be bypassed through the
+-- browser-public anon key.
+
+begin;
+
+-- Fail before creating any object unless this is the separately armed staging
+-- database. `app_settings` is useful environment evidence but is not deployment
+-- authority: the independent Vault arm is required before this migration can
+-- run, and the RPC capability must already exist.
+do $$
+begin
+  if not exists (
+    select 1 from public.app_settings
+     where key = 'roebel_env' and value = 'staging'
+  ) then
+    raise exception 'STAGING_PARTICIPANT_MIGRATION_REQUIRES_STAGING'
+      using errcode = 'P0001';
+  end if;
+  if not exists (
+    select 1 from vault.decrypted_secrets
+     where name = 'roebel_staging_participant_environment_arm'
+       and decrypted_secret = 'staging-only'
+  ) then
+    raise exception 'STAGING_PARTICIPANT_MIGRATION_REQUIRES_PRIVATE_ARM'
+      using errcode = 'P0001';
+  end if;
+  if not exists (
+    select 1 from vault.decrypted_secrets
+     where name = 'roebel_staging_participant_rpc_secret'
+       and length(decrypted_secret) >= 32
+  ) then
+    raise exception 'STAGING_PARTICIPANT_MIGRATION_REQUIRES_RPC_SECRET'
+      using errcode = 'P0001';
+  end if;
+  if not exists (
+    select 1
+      from pg_catalog.pg_extension e
+      join pg_catalog.pg_namespace n on n.oid = e.extnamespace
+     where e.extname = 'pgcrypto' and n.nspname = 'extensions'
+  ) then
+    raise exception 'STAGING_PARTICIPANT_MIGRATION_REQUIRES_PGCRYPTO_EXTENSIONS'
+      using errcode = 'P0001';
+  end if;
+  if not exists (
+    select 1
+      from pg_catalog.pg_trigger t
+      join pg_catalog.pg_class c on c.oid = t.tgrelid
+      join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public'
+       and c.relname = 'post_comments'
+       and t.tgname = 'trg_post_comment_counts'
+       and not t.tgisinternal
+       and t.tgenabled in ('O', 'A')
+       and t.tgtype = 13
+       and t.tgfoid = pg_catalog.to_regprocedure(
+         'public.post_comment_counts_sync()'
+       )
+  ) then
+    raise exception 'STAGING_PARTICIPANT_MIGRATION_REQUIRES_COMMENT_COUNT_TRIGGER'
+      using errcode = 'P0001';
+  end if;
+  if pg_catalog.to_regprocedure('public.delete_owned_post(uuid,text)') is null
+     or pg_catalog.to_regprocedure(
+       'public.delete_owned_post_comment(uuid,text)'
+     ) is null
+     or pg_catalog.to_regprocedure(
+       'public.delete_owned_experience(uuid,text)'
+     ) is null
+     or pg_catalog.to_regprocedure(
+       'public.pin_own_post(uuid,text,boolean)'
+     ) is null then
+    raise exception 'STAGING_PARTICIPANT_MIGRATION_REQUIRES_LEGACY_DELETE_RPCS'
+      using errcode = 'P0001';
+  end if;
+  if pg_catalog.to_regclass('public.account_owners') is null or not exists (
+    select 1
+      from pg_catalog.pg_attribute wallet_column
+      join pg_catalog.pg_class users_table
+        on users_table.oid = wallet_column.attrelid
+      join pg_catalog.pg_namespace users_schema
+        on users_schema.oid = users_table.relnamespace
+     where users_schema.nspname = 'public'
+       and users_table.relname = 'users'
+       and wallet_column.attname = 'wallet_address'
+       and wallet_column.atttypid = 'text'::pg_catalog.regtype
+       and exists (
+         select 1 from pg_catalog.pg_index users_unique
+          where users_unique.indrelid = users_table.oid
+            and users_unique.indisunique
+            and users_unique.indnkeyatts = 1
+            and users_unique.indkey[0] = wallet_column.attnum
+       )
+  ) or exists (
+    select 1
+      from pg_catalog.pg_attribute required_column
+     where required_column.attrelid = 'public.users'::pg_catalog.regclass
+       and required_column.attnum > 0
+       and not required_column.attisdropped
+       and required_column.attnotnull
+       and not required_column.atthasdef
+       and required_column.attidentity = ''
+       and required_column.attgenerated = ''
+       and required_column.attname not in (
+         'wallet_address', 'tier', 'is_verified_citizen', 'verification_status'
+       )
+  ) or not exists (
+    select 1 from pg_catalog.pg_attribute
+     where attrelid = 'public.users'::pg_catalog.regclass
+       and attname = 'tier' and atttypid = 'text'::pg_catalog.regtype
+  ) or not exists (
+    select 1 from pg_catalog.pg_attribute
+     where attrelid = 'public.users'::pg_catalog.regclass
+       and attname = 'is_verified_citizen'
+       and atttypid = 'boolean'::pg_catalog.regtype
+  ) or not exists (
+    select 1 from pg_catalog.pg_attribute
+     where attrelid = 'public.users'::pg_catalog.regclass
+       and attname = 'verification_status'
+       and atttypid = 'text'::pg_catalog.regtype
+  ) then
+    raise exception 'STAGING_PARTICIPANT_MIGRATION_REQUIRES_GUEST_USER_SHAPE'
+      using errcode = 'P0001';
+  end if;
+end;
+$$;
+
+create schema staging_participant_private;
+revoke all on schema staging_participant_private from public, anon, authenticated;
+
+create table staging_participant_private.staging_participant_environment (
+  singleton boolean primary key default true check (singleton),
+  environment text not null check (environment = 'staging')
+);
+insert into staging_participant_private.staging_participant_environment (singleton, environment)
+values (true, 'staging')
+on conflict (singleton) do nothing;
+
+create table staging_participant_private.staging_participant_admissions (
+  wallet_address text primary key,
+  issued_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  revoked_at timestamptz,
+  issued_by text not null default 'staging_participant_gateway_v1',
+  constraint staging_participant_admission_wallet_check
+    check (wallet_address = lower(wallet_address)
+      and wallet_address ~ '^0x[0-9a-f]{40}$'),
+  constraint staging_participant_admission_time_check
+    check (expires_at > issued_at and expires_at <= issued_at + interval '2 hours')
+);
+
+create table staging_participant_private.staging_participant_write_reservations (
+  id uuid primary key default extensions.gen_random_uuid(),
+  request_id uuid not null unique,
+  wallet_address text not null references staging_participant_private.staging_participant_admissions(wallet_address),
+  action text not null check (action in ('post', 'comment')),
+  target_id uuid not null,
+  source_post_id uuid,
+  content_sha256 bytea not null,
+  expires_at timestamptz not null,
+  consumed_at timestamptz,
+  constraint staging_participant_reservation_target_check
+    check ((action = 'post' and source_post_id is null)
+      or (action = 'comment' and source_post_id is not null))
+);
+
+create table staging_participant_private.staging_participant_write_audit (
+  request_id uuid primary key,
+  wallet_address text not null references staging_participant_private.staging_participant_admissions(wallet_address),
+  action text not null check (action in ('post', 'comment')),
+  result_id uuid not null,
+  source_post_id uuid,
+  content_sha256 bytea not null,
+  created_at timestamptz not null default now(),
+  constraint staging_participant_audit_target_check
+    check ((action = 'post' and source_post_id is null)
+      or (action = 'comment' and source_post_id is not null))
+);
+
+-- Capture the exact compatibility state before changing it. The companion
+-- deactivation transaction restores these definitions/grants from the armed
+-- catalog instead of guessing from historical SQL files.
+create table staging_participant_private.staging_participant_prior_function_definitions (
+  object_identity text primary key,
+  definition text not null
+);
+insert into staging_participant_private.staging_participant_prior_function_definitions (
+  object_identity, definition
+)
+select 'public.enforce_posting_rules()',
+       pg_catalog.pg_get_functiondef(
+         pg_catalog.to_regprocedure('public.enforce_posting_rules()')
+       );
+
+create table staging_participant_private.staging_participant_prior_privileges (
+  object_kind text not null check (object_kind in ('table', 'function')),
+  object_identity text not null,
+  grantee text not null,
+  privilege_type text not null,
+  is_grantable boolean not null,
+  primary key (object_kind, object_identity, grantee, privilege_type)
+);
+
+insert into staging_participant_private.staging_participant_prior_privileges
+  (object_kind, object_identity, grantee, privilege_type, is_grantable)
+select 'table', pg_catalog.format('%I.%I', n.nspname, c.relname),
+       case when acl.grantee = 0 then 'PUBLIC' else grantee_role.rolname end,
+       acl.privilege_type, acl.is_grantable
+  from pg_catalog.pg_class c
+  join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+  cross join lateral pg_catalog.aclexplode(
+    coalesce(c.relacl, pg_catalog.acldefault('r', c.relowner))
+  ) acl
+  left join pg_catalog.pg_roles grantee_role on grantee_role.oid = acl.grantee
+ where n.nspname = 'public'
+   and c.relname in ('posts', 'post_comments', 'post_likes', 'app_settings')
+   and (acl.grantee = 0 or grantee_role.rolname in ('anon', 'authenticated'))
+   and acl.privilege_type in ('INSERT', 'UPDATE', 'DELETE');
+
+insert into staging_participant_private.staging_participant_prior_privileges
+  (object_kind, object_identity, grantee, privilege_type, is_grantable)
+select 'function', target.object_identity,
+       case when acl.grantee = 0 then 'PUBLIC' else grantee_role.rolname end,
+       acl.privilege_type, acl.is_grantable
+  from (values
+    ('public.delete_owned_post(uuid,text)'),
+    ('public.delete_owned_post_comment(uuid,text)'),
+    ('public.delete_owned_experience(uuid,text)'),
+    ('public.pin_own_post(uuid,text,boolean)')
+  ) target(object_identity)
+  join pg_catalog.pg_proc p
+    on p.oid = pg_catalog.to_regprocedure(target.object_identity)
+  cross join lateral pg_catalog.aclexplode(
+    coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))
+  ) acl
+  left join pg_catalog.pg_roles grantee_role on grantee_role.oid = acl.grantee
+ where (acl.grantee = 0 or grantee_role.rolname in ('anon', 'authenticated'))
+   and acl.privilege_type = 'EXECUTE';
+
+create index if not exists staging_participant_write_audit_rate_idx
+  on staging_participant_private.staging_participant_write_audit
+    (wallet_address, action, created_at desc);
+
+revoke all on all tables in schema staging_participant_private from public, anon, authenticated;
+
+-- The public key remains sufficient for reads. All direct feed mutations are
+-- closed in staging; the two SECURITY DEFINER functions below are the only
+-- browser-reachable creation seam. Old caller-asserted ownership deletion RPCs
+-- are also disabled here because they do not verify a wallet signature.
+revoke insert, update, delete on table public.posts
+  from public, anon, authenticated;
+revoke insert, update, delete on table public.post_comments
+  from public, anon, authenticated;
+revoke insert, delete on table public.post_likes
+  from public, anon, authenticated;
+revoke insert, update, delete on table public.app_settings
+  from public, anon, authenticated;
+revoke all on function public.delete_owned_post(uuid, text)
+  from public, anon, authenticated;
+revoke all on function public.delete_owned_post_comment(uuid, text)
+  from public, anon, authenticated;
+revoke all on function public.delete_owned_experience(uuid, text)
+  from public, anon, authenticated;
+revoke all on function public.pin_own_post(uuid, text, boolean)
+  from public, anon, authenticated;
+
+create or replace function staging_participant_private.staging_participant_rpc_secret()
+returns text
+language plpgsql
+stable
+security definer
+set search_path = pg_catalog, vault
+as $$
+declare
+  v_secret text;
+begin
+  if not exists (
+    select 1 from vault.decrypted_secrets
+     where name = 'roebel_staging_participant_environment_arm'
+       and decrypted_secret = 'staging-only'
+  ) then
+    raise exception 'STAGING_PARTICIPANT_ENVIRONMENT_ARM_UNAVAILABLE'
+      using errcode = 'P0001';
+  end if;
+
+  select decrypted_secret into v_secret
+    from vault.decrypted_secrets
+   where name = 'roebel_staging_participant_rpc_secret'
+   limit 1;
+
+  if v_secret is null or length(v_secret) < 32 then
+    raise exception 'STAGING_PARTICIPANT_SECRET_UNAVAILABLE'
+      using errcode = 'P0001';
+  end if;
+  return v_secret;
+end;
+$$;
+revoke all on function staging_participant_private.staging_participant_rpc_secret() from public, anon, authenticated;
+
+create or replace function staging_participant_private.require_staging_participant_gateway()
+returns text
+language plpgsql
+security definer
+set search_path = pg_catalog, staging_participant_private
+as $$
+declare
+  v_headers jsonb;
+  v_provided text;
+  v_secret text;
+begin
+  begin
+    v_headers := nullif(current_setting('request.headers', true), '')::jsonb;
+  exception when others then
+    raise exception 'STAGING_PARTICIPANT_GATEWAY_REQUIRED'
+      using errcode = 'P0001';
+  end;
+  v_provided := v_headers ->> 'x-staging-participant-rpc-secret';
+  v_secret := staging_participant_private.staging_participant_rpc_secret();
+
+  if v_provided is null
+     or length(v_provided) < 32
+     or extensions.digest(v_provided, 'sha256') <>
+        extensions.digest(v_secret, 'sha256') then
+    raise exception 'STAGING_PARTICIPANT_GATEWAY_REQUIRED'
+      using errcode = 'P0001';
+  end if;
+
+  if not exists (
+    select 1 from staging_participant_private.staging_participant_environment
+     where singleton and environment = 'staging'
+  ) or not exists (
+    select 1 from public.app_settings
+     where key = 'roebel_env' and value = 'staging'
+  ) then
+    raise exception 'STAGING_PARTICIPANT_ENVIRONMENT_REQUIRED'
+      using errcode = 'P0001';
+  end if;
+  return v_secret;
+end;
+$$;
+revoke all on function staging_participant_private.require_staging_participant_gateway() from public, anon, authenticated;
+
+create or replace function staging_participant_private.ensure_active_staging_participant(p_wallet_address text)
+returns staging_participant_private.staging_participant_admissions
+language plpgsql
+security definer
+set search_path = pg_catalog, staging_participant_private
+as $$
+declare
+  v_admission staging_participant_private.staging_participant_admissions%rowtype;
+  v_user_was_missing boolean;
+begin
+  if p_wallet_address is null
+     or p_wallet_address <> lower(p_wallet_address)
+     or p_wallet_address !~ '^0x[0-9a-f]{40}$' then
+    raise exception 'STAGING_PARTICIPANT_WALLET_INVALID'
+      using errcode = 'P0001';
+  end if;
+
+  -- Thirdweb's first-login profile is deliberately ephemeral in staging. The
+  -- first signed, invite-bound write provisions only the minimum referential
+  -- prerequisite in the same transaction. It creates no personal account,
+  -- citizen verification, organisation membership, or civic authority.
+  select not exists (
+    select 1 from public.users
+     where lower(wallet_address) = p_wallet_address
+  ) into v_user_was_missing;
+
+  if v_user_was_missing then
+    insert into public.users (
+      wallet_address, tier, is_verified_citizen, verification_status
+    ) values (
+      p_wallet_address, 'guest', false, 'pending'
+    ) on conflict (wallet_address) do nothing;
+  end if;
+
+  if not exists (
+    select 1 from public.users
+     where lower(wallet_address) = p_wallet_address
+  ) then
+    raise exception 'STAGING_PARTICIPANT_GUEST_PROVISION_FAILED'
+      using errcode = 'P0001';
+  end if;
+
+  if v_user_was_missing and (
+    not exists (
+      select 1 from public.users
+       where lower(wallet_address) = p_wallet_address
+         and tier = 'guest'
+         and is_verified_citizen is false
+         and verification_status = 'pending'
+    ) or exists (
+      select 1 from public.account_owners
+       where lower(wallet_address) = p_wallet_address
+    )
+  ) then
+    raise exception 'STAGING_PARTICIPANT_GUEST_PROJECTION_ESCALATED'
+      using errcode = 'P0001';
+  end if;
+
+  insert into staging_participant_private.staging_participant_admissions (
+    wallet_address, expires_at
+  ) values (
+    p_wallet_address, now() + interval '2 hours'
+  ) on conflict (wallet_address) do update
+       set issued_at = excluded.issued_at,
+           expires_at = excluded.expires_at
+     where staging_participant_admissions.revoked_at is null
+       and staging_participant_admissions.expires_at <= now();
+
+  select * into v_admission
+    from staging_participant_private.staging_participant_admissions
+   where wallet_address = p_wallet_address
+   for update;
+
+  if not found
+     or v_admission.revoked_at is not null
+     or v_admission.expires_at <= now() then
+    raise exception 'STAGING_PARTICIPANT_ADMISSION_INACTIVE'
+      using errcode = 'P0001';
+  end if;
+  return v_admission;
+end;
+$$;
+revoke all on function staging_participant_private.ensure_active_staging_participant(text) from public, anon, authenticated;
+
+create or replace function staging_participant_private.consume_staging_post_reservation(p_post public.posts)
+returns boolean
+language plpgsql
+security definer
+set search_path = pg_catalog, staging_participant_private
+as $$
+declare
+  v_reservation staging_participant_private.staging_participant_write_reservations%rowtype;
+  v_secret text;
+  v_reservation_id uuid;
+  v_received_guard text;
+  v_expected_guard text;
+begin
+  begin
+    v_reservation_id := nullif(
+      current_setting('roebel.staging_participant_reservation_id', true), ''
+    )::uuid;
+  exception when others then
+    return false;
+  end;
+  v_received_guard := nullif(
+    current_setting('roebel.staging_participant_reservation_guard', true), ''
+  );
+  if v_reservation_id is null or v_received_guard is null then
+    return false;
+  end if;
+
+  select * into v_reservation
+    from staging_participant_private.staging_participant_write_reservations
+   where id = v_reservation_id
+     and action = 'post'
+   for update;
+  if not found
+     or v_reservation.consumed_at is not null
+     or v_reservation.expires_at <= now() then
+    return false;
+  end if;
+
+  v_secret := staging_participant_private.staging_participant_rpc_secret();
+  v_expected_guard := encode(
+    extensions.hmac(
+      v_reservation.id::text || ':' || v_reservation.wallet_address || ':' ||
+        encode(v_reservation.content_sha256, 'hex'),
+      v_secret,
+      'sha256'
+    ),
+    'hex'
+  );
+
+  if extensions.digest(v_received_guard, 'sha256') <>
+       extensions.digest(v_expected_guard, 'sha256')
+     or p_post.id <> v_reservation.target_id
+     or lower(p_post.wallet_address) <> v_reservation.wallet_address
+     or extensions.digest(btrim(p_post.content), 'sha256') <>
+        v_reservation.content_sha256
+     or p_post.account_id is not null
+     or p_post.feed_type is distinct from 'main'
+     or p_post.post_type is distinct from 'user'
+     or p_post.category is distinct from 'generell'
+     or p_post.status is distinct from 'published'
+     or coalesce(cardinality(p_post.media_urls), 0) <> 0
+     or p_post.video_url is not null
+     or p_post.linked_event_id is not null
+     or p_post.linked_experience_id is not null
+     or p_post.likes_count <> 0
+     or p_post.comments_count <> 0 then
+    return false;
+  end if;
+
+  update staging_participant_private.staging_participant_write_reservations
+     set consumed_at = now()
+   where id = v_reservation.id
+     and consumed_at is null;
+  return found;
+end;
+$$;
+revoke all on function staging_participant_private.consume_staging_post_reservation(public.posts) from public, anon, authenticated;
+
+-- Retain the existing citizen/tourist behaviour. Only a consumed, secret-bound,
+-- exact-shape reservation can bypass it.
+create or replace function public.enforce_posting_rules() returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public, staging_participant_private
+as $$
+declare
+  v_user public.users%rowtype;
+  v_now timestamptz := now();
+  v_day_count int;
+  v_week_count int;
+  v_oldest_day timestamptz;
+  v_oldest_week timestamptz;
+begin
+  if staging_participant_private.consume_staging_post_reservation(new) then
+    return new;
+  end if;
+  if new.post_type is distinct from 'user' then
+    return new;
+  end if;
+  if new.account_id is not null then
+    return new;
+  end if;
+
+  select * into v_user
+    from public.users
+   where lower(wallet_address) = lower(new.wallet_address)
+   limit 1;
+  if not found then
+    raise exception 'USER_NOT_FOUND' using errcode = 'P0001';
+  end if;
+  if coalesce(v_user.is_verified_citizen, false) or v_user.tier = 'citizen' then
+    return new;
+  end if;
+  if v_user.location_verified_at is null then
+    raise exception 'LOCATION_REQUIRED' using errcode = 'P0001';
+  end if;
+  if v_user.created_at is null or v_user.created_at > v_now - interval '24 hours' then
+    raise exception 'ACCOUNT_TOO_YOUNG:%',
+      to_char(coalesce(v_user.created_at, v_now) + interval '24 hours',
+              'YYYY-MM-DD"T"HH24:MI:SSOF')
+      using errcode = 'P0001';
+  end if;
+
+  select count(*), min(created_at) into v_day_count, v_oldest_day
+    from public.posts
+   where lower(wallet_address) = lower(new.wallet_address)
+     and post_type = 'user'
+     and status <> 'deleted'
+     and created_at > v_now - interval '24 hours';
+  if v_day_count >= 2 then
+    raise exception 'RATE_LIMIT_DAY:%',
+      to_char(v_oldest_day + interval '24 hours', 'YYYY-MM-DD"T"HH24:MI:SSOF')
+      using errcode = 'P0001';
+  end if;
+
+  select count(*), min(created_at) into v_week_count, v_oldest_week
+    from public.posts
+   where lower(wallet_address) = lower(new.wallet_address)
+     and post_type = 'user'
+     and status <> 'deleted'
+     and created_at > v_now - interval '7 days';
+  if v_week_count >= 5 then
+    raise exception 'RATE_LIMIT_WEEK:%',
+      to_char(v_oldest_week + interval '7 days', 'YYYY-MM-DD"T"HH24:MI:SSOF')
+      using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.staging_participant_gateway_create_main_text_post(
+  p_wallet_address text,
+  p_content text,
+  p_request_id uuid
+) returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public, staging_participant_private
+as $$
+declare
+  v_secret text;
+  v_wallet text := lower(p_wallet_address);
+  v_content text := btrim(p_content);
+  v_content_sha bytea;
+  v_existing staging_participant_private.staging_participant_write_audit%rowtype;
+  v_reservation staging_participant_private.staging_participant_write_reservations%rowtype;
+  v_post public.posts%rowtype;
+  v_day_count int;
+  v_week_count int;
+  v_guard text;
+begin
+  v_secret := staging_participant_private.require_staging_participant_gateway();
+  if p_wallet_address is null
+     or v_wallet !~ '^0x[0-9a-f]{40}$'
+     or p_request_id is null
+     or v_content = ''
+     or char_length(v_content) > 250
+     or v_content ~ '[[:cntrl:]]'
+     or v_content ~* '(https?://|www\.)' then
+    raise exception 'STAGING_PARTICIPANT_POST_INVALID'
+      using errcode = 'P0001';
+  end if;
+  v_content_sha := extensions.digest(v_content, 'sha256');
+  perform pg_advisory_xact_lock(hashtextextended(v_wallet, 20260825));
+
+  select * into v_existing
+    from staging_participant_private.staging_participant_write_audit
+   where request_id = p_request_id;
+  if found then
+    if v_existing.action <> 'post'
+       or v_existing.wallet_address <> v_wallet
+       or v_existing.content_sha256 <> v_content_sha then
+      raise exception 'STAGING_PARTICIPANT_REQUEST_REUSED'
+        using errcode = 'P0001';
+    end if;
+    select * into strict v_post from public.posts where id = v_existing.result_id;
+    return to_jsonb(v_post);
+  end if;
+
+  perform staging_participant_private.ensure_active_staging_participant(v_wallet);
+
+  select count(*) filter (where created_at > now() - interval '24 hours'),
+         count(*) filter (where created_at > now() - interval '7 days')
+    into v_day_count, v_week_count
+    from staging_participant_private.staging_participant_write_audit
+   where wallet_address = v_wallet and action = 'post';
+  if v_day_count >= 2 or v_week_count >= 5 then
+    raise exception 'STAGING_PARTICIPANT_POST_RATE_LIMIT'
+      using errcode = 'P0001';
+  end if;
+
+  insert into staging_participant_private.staging_participant_write_reservations (
+    request_id, wallet_address, action, target_id, content_sha256, expires_at
+  ) values (
+    p_request_id, v_wallet, 'post', extensions.gen_random_uuid(), v_content_sha,
+    now() + interval '60 seconds'
+  ) returning * into v_reservation;
+
+  v_guard := encode(
+    extensions.hmac(
+      v_reservation.id::text || ':' || v_wallet || ':' || encode(v_content_sha, 'hex'),
+      v_secret,
+      'sha256'
+    ),
+    'hex'
+  );
+  perform set_config(
+    'roebel.staging_participant_reservation_id', v_reservation.id::text, true
+  );
+  perform set_config(
+    'roebel.staging_participant_reservation_guard', v_guard, true
+  );
+
+  insert into public.posts (
+    id, wallet_address, account_id, content, category, feed_type, post_type,
+    status, media_urls, video_url, linked_event_id, linked_experience_id,
+    likes_count, comments_count
+  ) values (
+    v_reservation.target_id, v_wallet, null, v_content, 'generell', 'main',
+    'user', 'published', '{}'::text[], null, null, null, 0, 0
+  ) returning * into v_post;
+
+  if v_reservation.consumed_at is null and not exists (
+    select 1 from staging_participant_private.staging_participant_write_reservations
+     where id = v_reservation.id and consumed_at is not null
+  ) then
+    raise exception 'STAGING_PARTICIPANT_RESERVATION_NOT_CONSUMED'
+      using errcode = 'P0001';
+  end if;
+
+  insert into staging_participant_private.staging_participant_write_audit (
+    request_id, wallet_address, action, result_id, content_sha256
+  ) values (
+    p_request_id, v_wallet, 'post', v_post.id, v_content_sha
+  );
+  return to_jsonb(v_post);
+end;
+$$;
+
+create or replace function public.staging_participant_gateway_create_main_text_comment(
+  p_wallet_address text,
+  p_post_id uuid,
+  p_content text,
+  p_request_id uuid
+) returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public, staging_participant_private
+as $$
+declare
+  v_wallet text := lower(p_wallet_address);
+  v_content text := btrim(p_content);
+  v_content_sha bytea;
+  v_existing staging_participant_private.staging_participant_write_audit%rowtype;
+  v_comment public.post_comments%rowtype;
+  v_day_count int;
+  v_week_count int;
+begin
+  perform staging_participant_private.require_staging_participant_gateway();
+  if p_wallet_address is null
+     or v_wallet !~ '^0x[0-9a-f]{40}$'
+     or p_request_id is null
+     or p_post_id is null
+     or v_content = ''
+     or char_length(v_content) > 500
+     or v_content ~ '[[:cntrl:]]'
+     or v_content ~* '(https?://|www\.)' then
+    raise exception 'STAGING_PARTICIPANT_COMMENT_INVALID'
+      using errcode = 'P0001';
+  end if;
+  v_content_sha := extensions.digest(v_content, 'sha256');
+  perform pg_advisory_xact_lock(hashtextextended(v_wallet, 20260825));
+
+  select * into v_existing
+    from staging_participant_private.staging_participant_write_audit
+   where request_id = p_request_id;
+  if found then
+    if v_existing.action <> 'comment'
+       or v_existing.wallet_address <> v_wallet
+       or v_existing.source_post_id is distinct from p_post_id
+       or v_existing.content_sha256 <> v_content_sha then
+      raise exception 'STAGING_PARTICIPANT_REQUEST_REUSED'
+        using errcode = 'P0001';
+    end if;
+    select * into strict v_comment
+      from public.post_comments where id = v_existing.result_id;
+    return to_jsonb(v_comment) || jsonb_build_object(
+      'author_username', null,
+      'author_profile_picture_url', null
+    );
+  end if;
+
+  perform staging_participant_private.ensure_active_staging_participant(v_wallet);
+  if not exists (
+    select 1 from public.posts
+     where id = p_post_id
+       and feed_type = 'main'
+       and status = 'published'
+  ) then
+    raise exception 'STAGING_PARTICIPANT_PARENT_INVALID'
+      using errcode = 'P0001';
+  end if;
+
+  select count(*) filter (where created_at > now() - interval '24 hours'),
+         count(*) filter (where created_at > now() - interval '7 days')
+    into v_day_count, v_week_count
+    from staging_participant_private.staging_participant_write_audit
+   where wallet_address = v_wallet and action = 'comment';
+  if v_day_count >= 10 or v_week_count >= 40 then
+    raise exception 'STAGING_PARTICIPANT_COMMENT_RATE_LIMIT'
+      using errcode = 'P0001';
+  end if;
+
+  insert into public.post_comments (
+    id, post_id, wallet_address, account_id, content, media_urls, video_url,
+    status
+  ) values (
+    extensions.gen_random_uuid(), p_post_id, v_wallet, null, v_content, '{}'::text[], null,
+    'published'
+  ) returning * into v_comment;
+
+  insert into staging_participant_private.staging_participant_write_audit (
+    request_id, wallet_address, action, result_id, source_post_id,
+    content_sha256
+  ) values (
+    p_request_id, v_wallet, 'comment', v_comment.id, p_post_id, v_content_sha
+  );
+  return to_jsonb(v_comment) || jsonb_build_object(
+    'author_username', null,
+    'author_profile_picture_url', null
+  );
+end;
+$$;
+
+revoke all on function public.staging_participant_gateway_create_main_text_post(text, text, uuid)
+  from public, anon, authenticated;
+revoke all on function public.staging_participant_gateway_create_main_text_comment(text, uuid, text, uuid)
+  from public, anon, authenticated;
+grant execute on function public.staging_participant_gateway_create_main_text_post(text, text, uuid)
+  to anon;
+grant execute on function public.staging_participant_gateway_create_main_text_comment(text, uuid, text, uuid)
+  to anon;
+
+comment on function public.staging_participant_gateway_create_main_text_post(text, text, uuid)
+  is 'STAGING ONLY: exact text-only main-feed post capability for ADR 0021.';
+comment on function public.staging_participant_gateway_create_main_text_comment(text, uuid, text, uuid)
+  is 'STAGING ONLY: exact text-only main-feed comment capability for ADR 0021.';
+
+commit;

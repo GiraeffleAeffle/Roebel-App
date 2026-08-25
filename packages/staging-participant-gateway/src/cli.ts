@@ -19,7 +19,7 @@ async function main(): Promise<void> {
     data: createRestrictedSupabaseDataAdapter({
       url: config.supabaseUrl,
       anonKey: config.supabaseAnonKey,
-      writerToken: config.supabaseWriterToken,
+      rpcSecret: config.supabaseRpcSecret,
     }),
   });
   await listenStagingParticipantGatewayServer({
