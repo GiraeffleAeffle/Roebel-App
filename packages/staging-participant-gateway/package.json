@@ -10,14 +10,14 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "bin": {
-    "roebel-staging-participant-gateway": "src/cli.ts"
+    "roebel-staging-participant-gateway": "dist/staging-participant-gateway.cjs"
   },
   "exports": {
     ".": "./src/index.ts"
   },
-  "files": ["src"],
+  "files": ["src", "dist"],
   "scripts": {
-    "start": "tsx src/cli.ts",
+    "start": "node dist/staging-participant-gateway.cjs",
     "build": "node scripts/build.mjs",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"

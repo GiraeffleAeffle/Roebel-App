@@ -97,7 +97,7 @@ begin
     from public, anon, authenticated;
   revoke insert, update, delete on table public.post_comments
     from public, anon, authenticated;
-  revoke insert, delete on table public.post_likes
+  revoke insert, update, delete on table public.post_likes
     from public, anon, authenticated;
   revoke insert, update, delete on table public.app_settings
     from public, anon, authenticated;

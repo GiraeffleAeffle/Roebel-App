@@ -21,6 +21,12 @@ RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/core
 COPY . .
 RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
     SOURCE_REVISION="$SOURCE_REVISION" pnpm --filter @roebel/staging-participant-gateway build
+RUN set -eu; \
+    if output="$(env -i PATH="$PATH" HOME=/tmp NODE_ENV=production \
+      node packages/staging-participant-gateway/dist/staging-participant-gateway.cjs 2>&1)"; then \
+      exit 1; \
+    fi; \
+    test "$output" = "staging_participant_gateway_not_explicitly_configured"
 
 FROM --platform=linux/amd64 docker.io/library/node@sha256:a17d50af28002a160548bd4225b3cfcb12c5efcb171f79e68758f2885fb1b066 AS runtime
 

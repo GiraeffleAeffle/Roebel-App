@@ -25,6 +25,10 @@ test("the required ci result joins quality with one verified Web build", () => {
   assert.match(ci, /node scripts\/ci\/affected-staging-components\.mjs --github-output/u);
   assert.match(ci, /\n  quality:\n    name: Affected quality and non-Web builds/u);
   assert.match(ci, /node scripts\/ci\/run-affected-quality\.mjs/u);
+  assert.match(
+    ci,
+    /SOURCE_REVISION: \$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}[\s\S]*?QUALITY_FULL:/u,
+  );
   assert.match(ci, /\.github\/workflows\/ci-single-web-build\.static\.test\.mjs/u);
   assert.match(ci, /scripts\/ci\/write-staging-web-build-evidence\.test\.mjs/u);
   assert.doesNotMatch(ci, /run: pnpm build/u);

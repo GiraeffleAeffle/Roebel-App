@@ -100,10 +100,16 @@ the three immutable deployment pins. It grants no civic, Case, vote, treasury,
 or administration authority.
 
 The source revision is compiled into the esbuild bundle with JSON escaping. A
-full checkout quality build may derive it from `git rev-parse HEAD`; the pruned
-OCI build passes the exact Docker `SOURCE_REVISION` explicitly and fails closed
+full checkout quality build may derive it from `git rev-parse HEAD` only when
+the Git worktree is clean; otherwise it fails closed. The protected pruned OCI
+build supplies the exact Docker `SOURCE_REVISION` explicitly and fails closed
 if it is not a 40-character lowercase Git revision. No runtime environment
 variable or writable file supplies that compiled value.
+
+`pnpm start` and the package binary execute only the generated
+`dist/staging-participant-gateway.cjs`. They fail closed when that bundle has
+not first been built; they never execute the TypeScript source with an
+undefined build-time revision constant.
 
 ## Source verification
 

@@ -22,6 +22,10 @@ const schemaContract = readFileSync(
   new URL("../../../supabase/staging-participant-gateway-schema-contract-v1.json", import.meta.url),
   "utf8",
 );
+const publishWorkflow = readFileSync(
+  new URL("../../../.github/workflows/staging-participant-gateway-publish.yml", import.meta.url),
+  "utf8",
+);
 
 test("migration exposes only two writes, one exact source read, and two durable mirror receipt RPCs", () => {
   assert.match(migration, /vault\.decrypted_secrets/u);
@@ -169,11 +173,27 @@ test("staging closes direct feed writes and relies on the exact preflighted comm
   );
   assert.match(
     migration,
-    /revoke insert, delete on table public\.post_likes[\s\S]*from public, anon, authenticated;/u,
+    /revoke insert, update, delete on table public\.post_likes[\s\S]*from public, anon, authenticated;/u,
   );
   assert.match(
     migration,
     /revoke all on function public\.pin_own_post\(uuid, text, boolean\)[\s\S]*from public, anon, authenticated;/u,
+  );
+  assert.match(
+    deactivation,
+    /revoke insert, update, delete on table public\.post_likes[\s\S]*from public, anon, authenticated;/u,
+  );
+});
+
+test("release evidence binds the reviewed activation and deactivation source bytes", () => {
+  assert.match(publishWorkflow, /deactivation_source="supabase\/staging_participant_gateway_deactivate\.sql"/u);
+  assert.match(publishWorkflow, /deactivation_sha256="sha256:\$\(sha256sum "\$deactivation_source"/u);
+  assert.match(publishWorkflow, /--arg deactivationSha256 "\$deactivation_sha256"/u);
+  assert.match(publishWorkflow, /deactivationSha256:\$deactivationSha256/u);
+  assert.match(publishWorkflow, /\.deactivationSha256 \| test\("\^sha256:\[0-9a-f\]\{64\}"\)/u);
+  assert.match(
+    publishWorkflow,
+    /jq -r \.deactivationSha256 "\$RELEASE_PINS"\)" = "sha256:\$\(sha256sum source\/supabase\/staging_participant_gateway_deactivate\.sql/u,
   );
 });
 

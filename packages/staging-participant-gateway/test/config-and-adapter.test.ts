@@ -37,6 +37,8 @@ const productionConfig = (input: Record<string, string | undefined>) =>
 const dockerfile = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
 const buildScript = readFileSync(new URL("../scripts/build.mjs", import.meta.url), "utf8");
 const buildConfig = await import("../scripts/build-config.mjs");
+const packageManifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+const turboConfig = JSON.parse(readFileSync(new URL("../../../turbo.json", import.meta.url), "utf8"));
 
 function jwt(payload: Record<string, unknown>): string {
   return [
@@ -114,7 +116,6 @@ test("production configuration fails closed unless explicit staging mode and eve
   }), null);
   assert.equal(productionConfig({
     ...env,
-    // A Deployment can provide this variable, but it cannot substitute the
     // A Deployment pin cannot substitute the compiled source constant.
     ROEBEL_STAGING_PARTICIPANT_GATEWAY_SOURCE_REVISION: "e".repeat(40),
   }), null);
@@ -124,12 +125,33 @@ test("production configuration fails closed unless explicit staging mode and eve
   assert.doesNotMatch(readFileSync(new URL("../src/cli.ts", import.meta.url), "utf8"), /process\.env\.[A-Z_]*SOURCE_REVISION|source-revision/u);
   assert.match(readFileSync(new URL("../scripts/build-config.mjs", import.meta.url), "utf8"), /SOURCE_REVISION/u);
   assert.match(buildScript, /git", \["rev-parse", "HEAD"\]/u);
+  assert.match(buildScript, /git", \["status", "--porcelain"\]/u);
   assert.match(buildScript, /JSON\.stringify\(revision\)/u);
+  assert.match(
+    dockerfile,
+    /node packages\/staging-participant-gateway\/dist\/staging-participant-gateway\.cjs[\s\S]*?staging_participant_gateway_not_explicitly_configured/u,
+  );
   assert.match(readFileSync(new URL("../src/cli.ts", import.meta.url), "utf8"), /COMPILED_SOURCE_REVISION/u);
   assert.match(readFileSync(new URL("../src/build-constants.ts", import.meta.url), "utf8"), /__ROEBEL_STAGING_PARTICIPANT_GATEWAY_SOURCE_REVISION__/u);
   assert.equal(buildConfig.resolveSourceRevision({ SOURCE_REVISION: "b".repeat(40) }, () => "a".repeat(40)), "b".repeat(40));
   assert.equal(buildConfig.resolveSourceRevision({}, () => "a".repeat(40)), "a".repeat(40));
   assert.throws(() => buildConfig.resolveSourceRevision({ SOURCE_REVISION: "" }, () => "a".repeat(40)));
+  assert.throws(
+    () => buildConfig.resolveSourceRevision({}, () => "a".repeat(40), () => false),
+    /dirty_checkout/u,
+  );
+  assert.equal(
+    buildConfig.resolveSourceRevision({ SOURCE_REVISION: "b".repeat(40) }, () => "a".repeat(40), () => false),
+    "b".repeat(40),
+  );
+  assert.equal(packageManifest.scripts.start, "node dist/staging-participant-gateway.cjs");
+  assert.equal(packageManifest.bin["roebel-staging-participant-gateway"], "dist/staging-participant-gateway.cjs");
+  assert.ok(packageManifest.files.includes("dist"));
+  assert.ok(!turboConfig.tasks.build.env.includes("SOURCE_REVISION"));
+  assert.deepEqual(
+    turboConfig.tasks["@roebel/staging-participant-gateway#build"].env,
+    ["SOURCE_REVISION"],
+  );
 });
 
 test("Supabase adapter rejects a valid-looking row that is not correlated to its request", async () => {

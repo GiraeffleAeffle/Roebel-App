@@ -46,14 +46,17 @@ ordinary post
   └─ creates a civic topic
          └─ structured discussion
               └─ reviewed Mecky assistance
-                   └─ citizen-signed proposal candidate
-                        └─ human-admitted civic case
-                             └─ administration / openDesk
-                                  └─ Citizen Brief
-                                       └─ advisory Mitmachen
-                                            └─ authorized decision
-                                                 └─ treasury / execution
-                                                      └─ public outcome
+                   └─ participant-signed suggestion (when not yet a citizen)
+                        └─ citizen-credential adoption / citizen-signed candidate
+                             └─ human-admitted civic case
+                                  └─ bounded municipal context package
+                                       └─ municipality-operated Kair/openDesk work
+                                            └─ attributable official publication + receipt
+                                                 └─ Citizen Brief
+                                                      └─ advisory Mitmachen
+                                                           └─ authorized decision
+                                                                └─ treasury / execution
+                                                                     └─ public outcome
 ```
 
 Stages are connected through identifiers and receipts, not collapsed into one record. Governance and treasury remain separate authority gates even when they are shown in the same journey.
@@ -73,7 +76,7 @@ Stages are connected through identifiers and receipts, not collapsed into one re
 | [ADR 0019](adr/0019-role-isolated-case-steward-admission-and-public-binding-receipts.md) | accepted boundary; deployment pending | Keep Civic Case admission out of the public Web and advance the journey through a public-safe binding receipt. |
 | [ADR 0020](adr/0020-event-driven-attested-release-handoff.md)                         | proposed; bootstrap pending | Replace cron-only staging promotion latency with an exact, attested event handoff while retaining protected human review and recovery paths. |
 | [ADR 0021](adr/0021-bounded-staging-participant-gateway.md)                           | accepted boundary; deployment pending | Let an invited real account exercise the staging feed without putting write authority or citizen claims in the public Web. |
-| [ADR 0022](adr/0022-author-confirmed-topic-candidate-tracer.md)                       | accepted boundary; implementation pending | Promote one existing signed source note through two closed author-only operations into a topic root and candidate without creating municipal authority. |
+| [ADR 0022](adr/0022-author-confirmed-topic-candidate-tracer.md)                       | accepted boundary; implementation pending | Promote one existing signed source note through two closed author-only operations into a topic root and participant suggestion; citizen adoption remains a separate identity transition. |
 
 Canonical terms live in [`CONTEXT.md`](../CONTEXT.md). The integrated staging contract lives in [`2026-08-13-real-staging-topic-identity-and-administration-flow.md`](superpowers/specs/2026-08-13-real-staging-topic-identity-and-administration-flow.md).
 
@@ -87,7 +90,7 @@ Canonical terms live in [`CONTEXT.md`](../CONTEXT.md). The integrated staging co
 | Discussion stage     | signed root/replies, argument tree and sunburst                 | votes or administrative conclusions                            |
 | Mecky stage          | reviewed evidence, citations, uncertainty, suggested actions    | human signatures or official positions                         |
 | Participant gateway  | short-lived wallet proof and constrained staging text post/comment writes | citizenship, organisation identity, Case, vote, treasury, administration, or broad Web mutation |
-| Proposal stage       | exact derivation and citizen signatures                           | admission credentials or silent promotion from social content |
+| Suggestion/proposal stage | exact derivation, participant suggestion, and separate citizen adoption/signature | treating an invite as citizenship, admission credentials, or silent promotion from social content |
 | Case Steward console | staff-authenticated admission and its exact public receipt         | public social posting, Mecky output, later administrative approval |
 | Municipal workspace adapter | human administrative work in Kair/openDesk (or equivalent) plus returned municipality-attributed publications/receipts | public discussion ownership or self-created municipal authority |
 | Röbel Data mini-app  | bounded governance/budget exploration within a stage            | canonical topic/case state or treasury execution               |
@@ -162,7 +165,7 @@ accepted only when an isolated no-publish run demonstrates a material gain.
 | Signed Nostr posts and discussion graph                | configured public/staging relay plus idempotent publication ledger     |
 | Mecky evidence/reply policy                            | public contract and private reviewed runtime configuration             |
 | Civic case and deterministic transitions               | Stadtstack coordinator/runtime                                         |
-| Administration work and publication                    | municipality-operated Kair/openDesk (or equivalent) through an idempotent outbox/return adapter |
+| Administration work and publication                    | municipality-operated Kair/openDesk (or equivalent) through an idempotent case-package and official-publication return adapter |
 | Governance and treasury                                | their own reviewed contracts and signer policies; projected into Röbel |
 | Talos deployment, secrets, immutable digests           | private operations repository reconciled by namespace-scoped Flux      |
 
@@ -174,10 +177,10 @@ No public application repository receives cluster-admin credentials or secret va
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0. Vocabulary and boundaries         | One reviewed definition of post, topic, discussion, proposal, case, vote, and treasury state                                                       | documented in this branch                                                                                                                                                                          |
 | 1. General signed feed               | A real staging account publishes an ordinary signed Nostr post in the normal feed                                                                  | real Thirdweb login is live; bounded Supabase post/comment gateway is the active tracer seam, followed by wallet-to-Nostr binding and deployed browser E2E                                         |
-| 2. Explicit civic promotion          | The user attaches that post to a topic or creates a discussion; the source remains attributable                                                    | browser-signed author-only promotion, grouped feed activity, and a canonical topic hub are implemented; ADR 0022's two closed writer operations, one-source/one-root retry claim, exact conversation provenance, and a deployment-configured source-row resolver remain the active tracer |
+| 2. Explicit civic promotion          | The user attaches that post to a topic or creates a discussion; the source remains attributable                                                    | browser-signed author-only promotion, grouped feed activity, and a canonical topic hub are implemented; ADR 0022's two closed writer operations end in a `citizen_adoption_required` participant suggestion, with one-source/one-root retry claims, exact conversation provenance, and a deployment-configured source-row resolver still pending |
 | 3. Real Mecky loop                   | The user tags Mecky and receives one evidence-bound signed reply in the same thread                                                                | signed source-bound direct mentions, per-request pending/answered projections, reviewed Civic Cases, and explicitly enabled checksum-bound news/RIS projections compose into one catalog; the durable request UI is merged and publishing, while connected-account browser E2E remains |
-| 4. Proposal and admission            | A human signs a proposal candidate; a separately authenticated Case Steward admits one idempotent civic case and the public journey reads its binding receipt | citizen signing and the Stadtstack atomic admission kernel exist; the role-isolated control service, staff console, public receipt projection, GitOps resources and deployed browser E2E remain |
-| 5. Administration round trip         | One exact municipal work package returns reviewed feedback and an attributable publication receipt to the same journey | public-read candidate now binds reviewed package IDs and checksums to the exact case on its discussion and canonical topic; a real Kair/openDesk-equivalent return receipt and deployed browser E2E remain pending |
+| 4. Citizen adoption, proposal, and admission | A verified citizen credential adopts/signs the suggestion; a separately authenticated Case Steward admits one idempotent civic case and the public journey reads its binding receipt | the provider-neutral session/signing seam and Stadtstack atomic admission kernel exist; the separate citizen-eligibility policy, new versioned adoption event that references the participant suggestion, role-isolated control service, staff console, public receipt projection, GitOps resources and deployed browser E2E remain. Existing direct `citizen_signed_topic_suggestion_v1` is not an adoption event. A separately typed synthetic adoption/Case tracer may test the UI but cannot satisfy this slice. |
+| 5. Administration round trip         | One exact case package enters a municipality-operated workspace; municipal staff return reviewed feedback and an attributable official-publication receipt to the same journey | public-read candidate now binds reviewed package IDs and checksums to the exact case on its discussion and canonical topic; a real Kair/openDesk-equivalent return receipt and deployed browser E2E remain pending |
 | 6. Brief, participation, and finance | Citizen Brief, advisory Mitmachen, and treasury review are visible together without implying authority                                             | exact case-bound Mitmachen reader and reviewed finance context implemented; participation input/result and deployed browser proof remain                                                           |
 | 7. Identity coexistence              | A Thirdweb tester and a passkey/Safe tester use the same `CitizenSession` contract; one dual-proof link preserves an existing app account and npub | provider-neutral structural Safe adapter, short-lived dual-control proof, atomic challenge interface, and three-proof server verifier implemented without effects; ADR 0014 slices authenticated routing, durable storage, stable-member persistence, the real WebAuthn/Safe/Pimlico adapter, recovery and deployed opt-in E2E |
 | 8. Formal authority                  | A separately accepted governance/treasury contract enables real effects                                                                            | explicitly deferred                                                                                                                                                                                |
@@ -203,11 +206,19 @@ relay admission store, watcher, and normal Röbel feed.
    exercise the pro/contra tree and sunburst, and tag Mecky in the same thread.
 5. Require Mecky's signed answer to cite admitted public evidence and preserve
    uncertainty and no-authority boundaries.
-6. Sign a proposal candidate as the citizen; admit a Civic Case through a
-   separately authenticated Case Steward console; require the public journey
-   to advance only from the checksum-bound Case binding receipt; then return one checksum-bound municipality-operated Kair/openDesk
-   package; render the Citizen Brief, advisory Mitmachen and finance context in
-   the same journey.
+6. Keep the participant-signed output at `citizen_adoption_required`. ADR
+   0014 provides only the session and signing seam. For the authority-valid
+   path, first accept a separate citizen-eligibility and adoption ADR, verify
+   eligibility, adopt/re-sign the suggestion, and admit the candidate through
+   a separately authenticated Case Steward console. Until then, the UI may use
+   a separately typed synthetic candidate and isolated staging Case tracer,
+   but neither may enter the real Case Steward validator or count as completing
+   Slice 4. Require the public journey to advance
+   only from the checksum-bound Case binding receipt. Send one bounded case
+   package into a municipality-operated Kair/openDesk workspace, then accept
+   only the attributable official publication and checksum-bound receipt
+   returned by that municipality. Render the resulting Citizen Brief,
+   advisory Mitmachen and finance context in the same journey.
 7. Only after that tracer passes, add the passkey-owned Safe + Pimlico adapter
    as an opt-in coexistence path and prove that the same member, app account and
    npub are preserved without duplicating history.
