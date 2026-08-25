@@ -74,7 +74,7 @@ function fixture(input: Partial<{
   const verifier: WalletSignatureVerifier = {
     async verifyWalletSignature({ address, message, signature }) {
       assert.equal(address, WALLET);
-      assert.match(message, /Staging-Testteilnahme/);
+      assert.match(message, /(?:Staging-Testteilnahme|Netizen Nostr-Binding v1)/u);
       return signature === "0xaaaa" && (input.verify ?? true);
     },
   };

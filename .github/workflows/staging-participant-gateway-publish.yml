@@ -9,6 +9,8 @@ on:
     branches: [main]
     paths:
       - "packages/staging-participant-gateway/**"
+      - "packages/agent-watcher/**"
+      - "packages/e2e-workbench/**"
       - "packages/relay-sync/**"
       - "packages/nostr/**"
       - "patches/**"
@@ -26,6 +28,8 @@ on:
     branches: [main]
     paths:
       - "packages/staging-participant-gateway/**"
+      - "packages/agent-watcher/**"
+      - "packages/e2e-workbench/**"
       - "packages/relay-sync/**"
       - "packages/nostr/**"
       - "patches/**"
