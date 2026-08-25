@@ -87,11 +87,14 @@ export {
   buildCivicDiscussionEvent,
   buildCivicPromotionEvent,
   buildCivicTopicPromotionEvent,
+  buildParticipantTopicSuggestion,
   verifyCivicTopicPromotionEvent,
   verifyCitizenSignedTopicSuggestion,
+  verifyParticipantTopicSuggestion,
 } from "./civic";
 export type {
   CivicArgumentInput,
+  CivicConversationWitnesses,
   CivicSelectedConversationSource,
   CitizenSignedTopicSuggestionInput,
   CitizenSignedTopicSuggestionV1,
@@ -102,7 +105,11 @@ export type {
   CivicPromotionInput,
   CivicTopicBinding,
   CivicTopicPromotionInput,
+  ParticipantTopicSuggestionInput,
+  ParticipantTopicSuggestionV1,
+  PublicParticipantTopicSuggestionDraftV1,
   PublicMeckyTopicSuggestionDraftV1,
   PublicMeckySuggestionDraftV1,
   VerifyCitizenSignedTopicSuggestionInput,
+  VerifyParticipantTopicSuggestionInput,
 } from "./civic";

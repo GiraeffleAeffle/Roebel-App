@@ -65,14 +65,17 @@ policy values:
 municipalityId   -- the instance's municipality slug
 topicNamespace   -- the allowed canonical topic prefix
 meckyPubkey      -- the one public Mecky author key for this instance
+sourceConversationTopic -- the source app's exact Nostr conversation `t` value
 policyVersion    -- the verifier policy used for the receipt
 ```
 
 For the first instance, the values identify Röbel/Müritz in staging. The
 verifier accepts the same shape for another municipality only when that
 municipality deploys its own values. A request cannot select a different
-municipality, namespace, topic prefix, or Mecky key, and no code path treats
-Röbel as the default for other deployments.
+municipality, namespace, topic prefix, conversation topic, or Mecky key, and
+no code path treats Röbel as the default for other deployments. The Röbel
+adapter pins `roebel-app-conversation`; another deployment supplies its own
+value without changing the city-neutral suggestion protocol.
 
 ### Closed operation shapes
 

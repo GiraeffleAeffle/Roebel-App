@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  buildAgentNoteEvent,
   buildCivicArgumentEvent,
+  buildParticipantTopicSuggestion,
   buildCitizenSignedTopicSuggestion,
   buildCitizenSignedSuggestion,
   buildCivicDiscussionEvent,
@@ -11,6 +13,7 @@ import {
   buildNoteEvent,
   getPublicKeyHex,
   verifyCitizenSignedTopicSuggestion,
+  verifyParticipantTopicSuggestion,
   verifyCivicTopicPromotionEvent,
   verifyEvent,
 } from "../src/index";
@@ -18,6 +21,13 @@ import {
 const SECRET = new Uint8Array(32).fill(41);
 const MECKY_SECRET = new Uint8Array(32).fill(42);
 const MECKY = getPublicKeyHex(MECKY_SECRET);
+const MECKY_AGENT = {
+  name: "mecky",
+  nodeId: "roebel",
+  secretKey: MECKY_SECRET,
+  publicKey: MECKY,
+  npub: "npub1test",
+};
 const RECEIPT = `urn:stadtstack:mecky-answer:${"a".repeat(64)}`;
 
 test("an ordinary signed post remains immutable when its author promotes it into a civic topic", () => {
@@ -505,6 +515,386 @@ test("forged, cross-topic, or case-bearing answers cannot authorize a topic prop
         buildCitizenSignedTopicSuggestion(SECRET, {
           ...base,
           sourceAnswer: answer,
+        }),
+      /civic_topic_suggestion_answer_invalid/
+    );
+  }
+});
+
+test("a participant signs a topic suggestion with the adoption-required boundary", () => {
+  const topicId =
+    "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt";
+  const sourcePost = buildNoteEvent(SECRET, "Treffpunkt", { createdAt: 600 });
+  const discussion = buildCivicTopicPromotionEvent(SECRET, {
+    sourcePost,
+    municipalityId: "roebel-mueritz",
+    topicId,
+    topicTitle: "Offener Treffpunkt",
+    agentPubkey: MECKY,
+    content: "@Mecky Was ist dazu geprüft?",
+    createdAt: 601,
+  });
+  const answer = buildAgentNoteEvent(MECKY_AGENT, "Geprüfte Antwort", {
+    createdAt: 602,
+    tags: [
+      ["e", discussion.id, "", "reply"],
+      ["p", discussion.pubkey],
+      ["mecky-receipt", RECEIPT],
+      ["municipality", "roebel-mueritz"],
+      ["topic", topicId],
+      [
+        "evidence",
+        `sha256:${"b".repeat(64)}`,
+        "https://stadtstack.example/public/reviewed-source",
+      ],
+    ],
+  });
+
+  const signed = buildParticipantTopicSuggestion(SECRET, {
+    binding: { municipalityId: "roebel-mueritz", topicId },
+    sourcePost,
+    sourceDiscussion: discussion,
+    sourceAnswer: answer,
+    agentPubkey: MECKY,
+    title: "Offenen Treffpunkt in Röbel prüfen",
+    summary:
+      "Die öffentlich diskutierten Optionen sollen durch die zuständigen Menschen geprüft werden.",
+    createdAt: 603,
+  });
+
+  assert.equal(verifyEvent(signed.event), true);
+  assert.equal(signed.signerPubkey, discussion.pubkey);
+  assert.equal(signed.entryState, "citizen_adoption_required");
+  assert.equal(signed.authorityBinding, "none");
+  assert.equal(signed.submittedToCivicWorkflow, false);
+  assert.equal(signed.draft.schemaVersion, "public_participant_topic_suggestion_draft_v1");
+  assert.equal(signed.draft.participantPubkey, discussion.pubkey);
+  assert.equal("citizenPubkey" in signed.draft, false);
+  assert.deepEqual(signed.event.tags, [
+    ["schema", "staging_participant_signed_topic_suggestion_v1"],
+    ["municipality", "roebel-mueritz"],
+    ["topic", topicId],
+    ["e", discussion.id, "", "root"],
+    ["mecky-receipt", RECEIPT],
+    ["credential-class", "staging-participant"],
+  ]);
+  assert.deepEqual(JSON.parse(signed.event.content), signed.draft);
+  assert.deepEqual(
+    verifyParticipantTopicSuggestion({
+      binding: { municipalityId: "roebel-mueritz", topicId },
+      sourcePost,
+      sourceDiscussion: discussion,
+      sourceAnswer: answer,
+      agentPubkey: MECKY,
+      event: signed.event,
+    }),
+    signed
+  );
+  assert.throws(() => {
+    (signed.event as { content: string }).content = "mutated";
+  }, TypeError);
+  assert.throws(() => {
+    (signed.draft as { title: string }).title = "mutated";
+  }, TypeError);
+  assert.throws(
+    () =>
+      verifyParticipantTopicSuggestion({
+        binding: { municipalityId: "roebel-mueritz", topicId },
+        sourcePost,
+        sourceDiscussion: discussion,
+        sourceAnswer: answer,
+        agentPubkey: MECKY,
+        event: { ...signed.event, unexpected: true } as never,
+      }),
+    /civic_topic_suggestion_event_invalid/
+  );
+  assert.throws(
+    () =>
+      buildParticipantTopicSuggestion(SECRET, {
+        binding: { municipalityId: "roebel-mueritz", topicId },
+        sourcePost: { ...sourcePost, unexpected: true } as never,
+        sourceDiscussion: discussion,
+        sourceAnswer: answer,
+        agentPubkey: MECKY,
+        title: "Offenen Treffpunkt in Röbel prüfen",
+        summary:
+          "Die öffentlich diskutierten Optionen sollen durch die zuständigen Menschen geprüft werden.",
+        createdAt: 603,
+      }),
+    /civic_topic_suggestion_discussion_invalid/
+  );
+  assert.throws(
+    () =>
+      buildParticipantTopicSuggestion(SECRET, {
+        binding: { municipalityId: "roebel-mueritz", topicId },
+        sourcePost,
+        sourceDiscussion: discussion,
+        sourceAnswer: { ...answer, unexpected: true } as never,
+        agentPubkey: MECKY,
+        title: "Offenen Treffpunkt in Röbel prüfen",
+        summary:
+          "Die öffentlich diskutierten Optionen sollen durch die zuständigen Menschen geprüft werden.",
+        createdAt: 603,
+      }),
+    /civic_topic_suggestion_answer_invalid/
+  );
+});
+
+test("a participant suggestion rejects citizen credentials and authority tags", () => {
+  const topicId =
+    "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt";
+  const sourcePost = buildNoteEvent(SECRET, "Treffpunkt", { createdAt: 610 });
+  const discussion = buildCivicTopicPromotionEvent(SECRET, {
+    sourcePost,
+    municipalityId: "roebel-mueritz",
+    topicId,
+    topicTitle: "Offener Treffpunkt",
+    agentPubkey: MECKY,
+    content: "@Mecky Was ist dazu geprüft?",
+    createdAt: 611,
+  });
+  const answer = buildAgentNoteEvent(MECKY_AGENT, "Geprüfte Antwort", {
+    createdAt: 612,
+    tags: [
+      ["e", discussion.id, "", "reply"],
+      ["p", discussion.pubkey],
+      ["mecky-receipt", RECEIPT],
+      ["municipality", "roebel-mueritz"],
+      ["topic", topicId],
+      [
+        "evidence",
+        `sha256:${"c".repeat(64)}`,
+        "https://stadtstack.example/public/reviewed-source",
+      ],
+    ],
+  });
+  const signed = buildParticipantTopicSuggestion(SECRET, {
+    binding: { municipalityId: "roebel-mueritz", topicId },
+    sourcePost,
+    sourceDiscussion: discussion,
+    sourceAnswer: answer,
+    agentPubkey: MECKY,
+    title: "Treffpunkt prüfen",
+    summary: "Die Optionen sollen menschlich geprüft werden.",
+    createdAt: 613,
+  });
+
+  const citizenDraft = JSON.parse(signed.event.content) as Record<string, unknown>;
+  citizenDraft.schemaVersion = "public_mecky_topic_suggestion_draft_v1";
+  citizenDraft.citizenPubkey = discussion.pubkey;
+  delete citizenDraft.participantPubkey;
+  const forgedCitizenEvent = buildNoteEvent(SECRET, JSON.stringify(citizenDraft), {
+    createdAt: signed.event.created_at,
+    tags: signed.event.tags,
+  });
+  assert.throws(
+    () =>
+      verifyParticipantTopicSuggestion({
+        binding: { municipalityId: "roebel-mueritz", topicId },
+        sourcePost,
+        sourceDiscussion: discussion,
+        sourceAnswer: answer,
+        agentPubkey: MECKY,
+        event: forgedCitizenEvent,
+      }),
+    /civic_topic_suggestion_draft_invalid/
+  );
+
+  const authorityEvent = buildNoteEvent(SECRET, signed.event.content, {
+    createdAt: signed.event.created_at,
+    tags: [...signed.event.tags, ["case", "unauthorized"]],
+  });
+  assert.throws(
+    () =>
+      verifyParticipantTopicSuggestion({
+        binding: { municipalityId: "roebel-mueritz", topicId },
+        sourcePost,
+        sourceDiscussion: discussion,
+        sourceAnswer: answer,
+        agentPubkey: MECKY,
+        event: authorityEvent,
+      }),
+    /civic_topic_suggestion_draft_invalid/
+  );
+});
+
+test("a selected conversation is verified against the signed mention and agent reply witnesses", () => {
+  const topicId =
+    "urn:stadtstack:topic:municipality:herzogtum-lauenburg:offener-treffpunkt";
+  const sourceAppPostId = "018f1c63-7b2a-4a11-8a55-2e3d9c4b5a61";
+  const sourceAppCommentId = "018f1c63-7b2a-4a11-8a55-2e3d9c4b5a62";
+  const sourcePost = buildNoteEvent(SECRET, "Treffpunkt", {
+    createdAt: 700,
+    tags: [["source-app-post", sourceAppPostId]],
+  });
+  const mention = buildNoteEvent(SECRET, "@Mecky Was ist geprüft?", {
+    createdAt: 701,
+    tags: [
+      ["p", MECKY],
+      ["source-app-post", sourceAppPostId],
+      ["source-app-comment", sourceAppCommentId],
+      ["t", "kair-app-conversation"],
+    ],
+  });
+  const conversationReply = buildAgentNoteEvent(MECKY_AGENT, "Geprüfte Antwort", {
+    createdAt: 701,
+    tags: [
+      ["e", mention.id, "", "reply"],
+      ["p", mention.pubkey],
+      ["source-app-post", sourceAppPostId],
+      ["source-app-comment", sourceAppCommentId],
+      ["mecky-receipt", RECEIPT],
+      [
+        "evidence",
+        `sha256:${"d".repeat(64)}`,
+        "https://stadtstack.example/public/reviewed-source",
+      ],
+    ],
+  });
+  const discussion = buildCivicTopicPromotionEvent(SECRET, {
+    sourcePost,
+    municipalityId: "herzogtum-lauenburg",
+    topicId,
+    topicTitle: "Offener Treffpunkt",
+    agentPubkey: MECKY,
+    content: "@Mecky Was ist dazu geprüft?",
+    conversationSource: {
+      kind: "selected_conversation",
+      sourceAppPostId,
+      sourceAppCommentId,
+      mentionEventId: mention.id,
+      replyEventId: conversationReply.id,
+      receiptId: RECEIPT,
+    },
+    createdAt: 701,
+  });
+  const answer = buildAgentNoteEvent(MECKY_AGENT, "Weitere geprüfte Antwort", {
+    createdAt: 701,
+    tags: [
+      ["e", discussion.id, "", "reply"],
+      ["p", discussion.pubkey],
+      ["source-app-post", sourceAppPostId],
+      ["source-app-comment", sourceAppCommentId],
+      ["mecky-receipt", RECEIPT],
+      ["municipality", "herzogtum-lauenburg"],
+      ["topic", topicId],
+      [
+        "evidence",
+        `sha256:${"e".repeat(64)}`,
+        "https://stadtstack.example/public/reviewed-source-2",
+      ],
+    ],
+  });
+
+  const signed = buildParticipantTopicSuggestion(SECRET, {
+    binding: { municipalityId: "herzogtum-lauenburg", topicId },
+    sourcePost,
+    sourceDiscussion: discussion,
+    sourceAnswer: answer,
+    conversationWitnesses: {
+      conversationTopic: "kair-app-conversation",
+      mentionEvent: mention,
+      replyEvent: conversationReply,
+    },
+    agentPubkey: MECKY,
+    title: "Treffpunkt prüfen",
+    summary: "Die Optionen sollen menschlich geprüft werden.",
+    createdAt: 702,
+  });
+
+  assert.equal(signed.draft.sourceDiscussionId, discussion.id);
+  assert.equal(signed.draft.sourceAnswerReceiptId, RECEIPT);
+
+  const answerWithoutConversationBinding = buildAgentNoteEvent(
+    MECKY_AGENT,
+    "Weitere geprüfte Antwort",
+    {
+      createdAt: 701,
+      tags: [
+        ["e", discussion.id, "", "reply"],
+        ["p", discussion.pubkey],
+        ["mecky-receipt", RECEIPT],
+        ["municipality", "herzogtum-lauenburg"],
+        ["topic", topicId],
+        [
+          "evidence",
+          `sha256:${"e".repeat(64)}`,
+          "https://stadtstack.example/public/reviewed-source-2",
+        ],
+      ],
+    }
+  );
+  assert.throws(
+    () =>
+      buildParticipantTopicSuggestion(SECRET, {
+        binding: { municipalityId: "herzogtum-lauenburg", topicId },
+        sourcePost,
+        sourceDiscussion: discussion,
+        sourceAnswer: answerWithoutConversationBinding,
+        conversationWitnesses: {
+          conversationTopic: "kair-app-conversation",
+          mentionEvent: mention,
+          replyEvent: conversationReply,
+        },
+        agentPubkey: MECKY,
+        title: "Treffpunkt prüfen",
+        summary: "Die Optionen sollen menschlich geprüft werden.",
+        createdAt: 702,
+      }),
+    /civic_topic_suggestion_answer_invalid/
+  );
+});
+
+test("the topic answer envelope rejects unknown tags, empty content, and oversized content", () => {
+  const topicId =
+    "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt";
+  const sourcePost = buildNoteEvent(SECRET, "Treffpunkt", { createdAt: 720 });
+  const discussion = buildCivicTopicPromotionEvent(SECRET, {
+    sourcePost,
+    municipalityId: "roebel-mueritz",
+    topicId,
+    topicTitle: "Offener Treffpunkt",
+    agentPubkey: MECKY,
+    content: "@Mecky Was ist dazu geprüft?",
+    createdAt: 721,
+  });
+  const answerTags = [
+    ["e", discussion.id, "", "reply"],
+    ["p", discussion.pubkey],
+    ["mecky-receipt", RECEIPT],
+    ["municipality", "roebel-mueritz"],
+    ["topic", topicId],
+    [
+      "evidence",
+      `sha256:${"f".repeat(64)}`,
+      "https://stadtstack.example/public/reviewed-source",
+    ],
+  ];
+  for (const answer of [
+    buildAgentNoteEvent(MECKY_AGENT, "Antwort", {
+      createdAt: 722,
+      tags: [...answerTags, ["unknown", "smuggled"]],
+    }),
+    buildAgentNoteEvent(MECKY_AGENT, "", {
+      createdAt: 722,
+      tags: answerTags,
+    }),
+    buildAgentNoteEvent(MECKY_AGENT, "x".repeat(2_001), {
+      createdAt: 722,
+      tags: answerTags,
+    }),
+  ]) {
+    assert.throws(
+      () =>
+        buildParticipantTopicSuggestion(SECRET, {
+          binding: { municipalityId: "roebel-mueritz", topicId },
+          sourcePost,
+          sourceDiscussion: discussion,
+          sourceAnswer: answer,
+          agentPubkey: MECKY,
+          title: "Treffpunkt prüfen",
+          summary: "Die Optionen sollen menschlich geprüft werden.",
+          createdAt: 723,
         }),
       /civic_topic_suggestion_answer_invalid/
     );
