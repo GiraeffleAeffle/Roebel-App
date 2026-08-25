@@ -82,13 +82,6 @@ test("participant mutations send closed versioned bodies to the six-route gatewa
       "/api/staging-participant/v1/comments",
     ],
   );
-  assert.equal(
-    isAppConversationMentionEvent(call?.body.event as NostrEvent, {
-      agentPubkey: "d".repeat(64),
-      sourceAppPostId: "11111111-1111-4111-8111-111111111111",
-    }),
-    true,
-  );
   for (const call of calls) {
     assert.equal(call.init.method, "POST");
     assert.equal(call.init.credentials, "same-origin");
@@ -169,6 +162,13 @@ test("a successful participant post can produce only one post-only Mecky mirror 
       ["source-app-post", "11111111-1111-4111-8111-111111111111"],
       ["t", "roebel-app-conversation"],
     ],
+  );
+  assert.equal(
+    isAppConversationMentionEvent(call?.body.event as NostrEvent, {
+      agentPubkey: "d".repeat(64),
+      sourceAppPostId: "11111111-1111-4111-8111-111111111111",
+    }),
+    true,
   );
   assert.doesNotMatch(JSON.stringify(call?.body), /promotion|argument|case|vote|treasury/u);
   session.dispose();
