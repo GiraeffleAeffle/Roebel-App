@@ -1,6 +1,8 @@
-# Röbel civic workflow language
+# City-neutral civic workflow language (Röbel tracer)
 
-This glossary fixes the terms used by the Röbel app and Stadtstack integration.
+This glossary fixes the city-neutral terms used by civic applications and the
+Stadtstack integration. Röbel is the first concrete application and staging
+tracer, not a protocol default.
 
 | Term | Canonical meaning | Not the same as |
 | --- | --- | --- |

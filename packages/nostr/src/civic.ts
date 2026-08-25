@@ -214,6 +214,107 @@ export type VerifyParticipantTopicSuggestionInput = Omit<
   event: NostrEvent;
 };
 
+/**
+ * Public-safe municipal receipt defined by ADR 0023. The issuer proof is
+ * verified by the deployment-pinned policy below; neither a wallet nor a
+ * residency record is ever carried by this public envelope.
+ */
+export type MunicipalCivicEligibilityReceiptV1 = {
+  schemaVersion: "municipal_civic_eligibility_receipt_v1";
+  eligibilityCore: {
+    municipalityId: string;
+    eligibilityClass: "municipal_civic_participation";
+    subjectPubkey: string;
+    participantSuggestionId: string;
+    topicId: string;
+    policyVersion: string;
+    issuer: string;
+    issuedAt: number;
+    expiresAt: number;
+    authorityBinding: "civic_eligibility_only";
+  };
+  receiptId: string;
+  payloadChecksum: string;
+  statusRef: string;
+  proof: {
+    algorithm: string;
+    keyId: string;
+    signature: string;
+  };
+};
+
+export type MunicipalCivicEligibilityReceiptProofInputV1 = {
+  domain: "municipal-civic-eligibility-receipt/v1";
+  schemaVersion: "municipal_civic_eligibility_receipt_v1";
+  receiptId: string;
+  payloadChecksum: string;
+  statusRef: string;
+};
+
+/**
+ * This is deployment configuration, not an event payload. The gateway must
+ * obtain it from its reviewed municipality policy, never from browser input.
+ */
+export type MunicipalCivicEligibilityPolicyV1 = {
+  municipalityId: string;
+  policyVersion: string;
+  issuer: string;
+  statusBaseUrl: string;
+  verifiedAt: number;
+  verifyReceiptProof: (
+    input: MunicipalCivicEligibilityReceiptProofInputV1,
+    proof: MunicipalCivicEligibilityReceiptV1["proof"]
+  ) => boolean;
+};
+
+export type PublicCitizenTopicSuggestionAdoptionV1 = {
+  schemaVersion: "public_citizen_topic_suggestion_adoption_v1";
+  adoptionId: string;
+  municipalityId: string;
+  topicId: string;
+  participantSuggestionId: string;
+  participantSuggestionRef: string;
+  participantPubkey: string;
+  sourceDiscussionId: string;
+  sourceAnswerReceiptId: string;
+  adopterPubkey: string;
+  eligibilityReceiptId: string;
+  eligibilityReceiptChecksum: string;
+  title: string;
+  summary: string;
+  entryState: "case_steward_review_required";
+  authorityBinding: "civic_eligibility_only";
+  submittedToCivicWorkflow: false;
+};
+
+export type CitizenTopicSuggestionAdoptionV1 = {
+  schemaVersion: "citizen_adopted_topic_suggestion_v1";
+  adoptionId: string;
+  signerPubkey: string;
+  participantSuggestionId: string;
+  eligibilityReceiptId: string;
+  adoption: PublicCitizenTopicSuggestionAdoptionV1;
+  event: NostrEvent;
+  verification: { kind: "nostr_nip01"; verified: true };
+  entryState: "case_steward_review_required";
+  authorityBinding: "civic_eligibility_only";
+  submittedToCivicWorkflow: false;
+};
+
+export type CitizenTopicSuggestionAdoptionInput = {
+  participantSuggestion: ParticipantTopicSuggestionV1;
+  eligibilityReceipt: MunicipalCivicEligibilityReceiptV1;
+  eligibilityPolicy: MunicipalCivicEligibilityPolicyV1;
+  createdAt: number;
+};
+
+export type VerifyCitizenTopicSuggestionAdoptionInput = Omit<
+  CitizenTopicSuggestionAdoptionInput,
+  "createdAt"
+> & {
+  event: NostrEvent;
+};
+
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const PUBKEY = /^[0-9a-f]{64}$/;
 const TOPIC_ID =
@@ -360,6 +461,148 @@ const NOSTR_EVENT_KEYS = [
   "content",
   "sig",
 ] as const;
+
+/**
+ * Snapshot an untrusted closed record without invoking property accessors.
+ * A Proxy may participate only by yielding this one plain data snapshot; no
+ * later validation reads through the original object again.
+ */
+function snapshotClosedDataRecord(
+  value: unknown,
+  keys: readonly string[]
+): Record<string, unknown> | null {
+  try {
+    if (
+      !value ||
+      typeof value !== "object" ||
+      Array.isArray(value) ||
+      Object.getPrototypeOf(value) !== Object.prototype
+    ) {
+      return null;
+    }
+    const ownKeys = Reflect.ownKeys(value);
+    if (
+      ownKeys.length !== keys.length ||
+      !ownKeys.every((key) => typeof key === "string" && keys.includes(key))
+    ) {
+      return null;
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const snapshot: Record<string, unknown> = {};
+    for (const key of keys) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
+        return null;
+      }
+      Object.defineProperty(snapshot, key, {
+        value: descriptor.value,
+        enumerable: true,
+        writable: false,
+        configurable: false,
+      });
+    }
+    return Object.freeze(snapshot);
+  } catch {
+    return null;
+  }
+}
+
+function snapshotStringArray(value: unknown): string[] | null {
+  try {
+    if (!Array.isArray(value)) return null;
+    const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+    if (
+      !lengthDescriptor ||
+      !("value" in lengthDescriptor) ||
+      !Number.isSafeInteger(lengthDescriptor.value) ||
+      lengthDescriptor.value < 0
+    ) {
+      return null;
+    }
+    const length = lengthDescriptor.value;
+    const ownKeys = Reflect.ownKeys(value);
+    if (
+      ownKeys.length !== length + 1 ||
+      !ownKeys.includes("length") ||
+      !ownKeys
+        .filter((key) => key !== "length")
+        .every((key) => typeof key === "string" && /^(0|[1-9][0-9]*)$/.test(key))
+    ) {
+      return null;
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const snapshot: string[] = [];
+    for (let index = 0; index < length; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (
+        !descriptor ||
+        !("value" in descriptor) ||
+        !descriptor.enumerable ||
+        typeof descriptor.value !== "string"
+      ) {
+        return null;
+      }
+      snapshot.push(descriptor.value);
+    }
+    return Object.freeze(snapshot) as string[];
+  } catch {
+    return null;
+  }
+}
+
+function snapshotNostrEvent(value: unknown): NostrEvent | null {
+  const record = snapshotClosedDataRecord(value, NOSTR_EVENT_KEYS);
+  if (
+    !record ||
+    typeof record.id !== "string" ||
+    typeof record.pubkey !== "string" ||
+    typeof record.created_at !== "number" ||
+    !Number.isSafeInteger(record.created_at) ||
+    typeof record.kind !== "number" ||
+    !Number.isSafeInteger(record.kind) ||
+    typeof record.content !== "string" ||
+    typeof record.sig !== "string" ||
+    !Array.isArray(record.tags)
+  ) {
+    return null;
+  }
+  try {
+    const outerKeys = Reflect.ownKeys(record.tags);
+    const lengthDescriptor = Object.getOwnPropertyDescriptor(record.tags, "length");
+    if (
+      !lengthDescriptor ||
+      !("value" in lengthDescriptor) ||
+      !Number.isSafeInteger(lengthDescriptor.value) ||
+      lengthDescriptor.value < 0 ||
+      outerKeys.length !== lengthDescriptor.value + 1 ||
+      !outerKeys.includes("length")
+    ) {
+      return null;
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(record.tags);
+    const tags: string[][] = [];
+    for (let index = 0; index < lengthDescriptor.value; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
+        return null;
+      }
+      const tag = snapshotStringArray(descriptor.value);
+      if (!tag) return null;
+      tags.push(tag);
+    }
+    return cloneAndFreezeNostrEvent({
+      id: record.id,
+      pubkey: record.pubkey,
+      created_at: record.created_at,
+      kind: record.kind,
+      tags,
+      content: record.content,
+      sig: record.sig,
+    });
+  } catch {
+    return null;
+  }
+}
 
 function exactNostrEvent(value: unknown): value is NostrEvent {
   if (!exactRecord(value, NOSTR_EVENT_KEYS)) return false;
@@ -557,6 +800,368 @@ function participantTopicSuggestionCandidate(
     verification: Object.freeze({ kind: "nostr_nip01", verified: true }),
     entryState: "citizen_adoption_required",
     authorityBinding: "none",
+    submittedToCivicWorkflow: false,
+  });
+}
+
+function freezeCitizenTopicSuggestionAdoption(
+  adoption: PublicCitizenTopicSuggestionAdoptionV1
+): PublicCitizenTopicSuggestionAdoptionV1 {
+  return Object.freeze({ ...adoption }) as PublicCitizenTopicSuggestionAdoptionV1;
+}
+
+function invalidCitizenAdoption(error: string): never {
+  throw new Error(error);
+}
+
+function participantSuggestionForAdoption(
+  value: unknown
+): ParticipantTopicSuggestionV1 {
+  const candidateKeys = [
+    "schemaVersion",
+    "suggestionId",
+    "candidateId",
+    "signerPubkey",
+    "draft",
+    "event",
+    "verification",
+    "entryState",
+    "authorityBinding",
+    "submittedToCivicWorkflow",
+  ] as const;
+  const draftKeys = [
+    "schemaVersion",
+    "draftId",
+    "sourceAnswerId",
+    "sourceAnswerRef",
+    "sourceAnswerReceiptId",
+    "sourceDiscussionId",
+    "sourceDiscussionRef",
+    "municipalityId",
+    "topicId",
+    "participantPubkey",
+    "title",
+    "summary",
+    "entryState",
+    "authorityBinding",
+    "submittedToCivicWorkflow",
+  ] as const;
+  const candidateRecord = snapshotClosedDataRecord(value, candidateKeys);
+  const draftRecord = candidateRecord
+    ? snapshotClosedDataRecord(candidateRecord.draft, draftKeys)
+    : null;
+  const verificationRecord = candidateRecord
+    ? snapshotClosedDataRecord(candidateRecord.verification, ["kind", "verified"])
+    : null;
+  const event = candidateRecord ? snapshotNostrEvent(candidateRecord.event) : null;
+  if (!candidateRecord || !draftRecord || !verificationRecord || !event) {
+    invalidCitizenAdoption("civic_participant_suggestion_invalid");
+  }
+  const candidate = {
+    schemaVersion: candidateRecord.schemaVersion,
+    suggestionId: candidateRecord.suggestionId,
+    candidateId: candidateRecord.candidateId,
+    signerPubkey: candidateRecord.signerPubkey,
+    draft: draftRecord,
+    event,
+    verification: verificationRecord,
+    entryState: candidateRecord.entryState,
+    authorityBinding: candidateRecord.authorityBinding,
+    submittedToCivicWorkflow: candidateRecord.submittedToCivicWorkflow,
+  } as ParticipantTopicSuggestionV1;
+  const topicMatch = TOPIC_ID.exec(candidate.draft.topicId);
+  if (
+    candidate.schemaVersion !== "staging_participant_signed_topic_suggestion_v1" ||
+    candidate.suggestionId !== candidate.event.id ||
+    candidate.candidateId !==
+      `urn:stadtstack:participant-topic-suggestion:${candidate.event.id}` ||
+    candidate.signerPubkey !== candidate.event.pubkey ||
+    !PUBKEY.test(candidate.signerPubkey) ||
+    candidate.verification.kind !== "nostr_nip01" ||
+    candidate.verification.verified !== true ||
+    candidate.entryState !== "citizen_adoption_required" ||
+    candidate.authorityBinding !== "none" ||
+    candidate.submittedToCivicWorkflow !== false ||
+    !verifyEvent(candidate.event) ||
+    candidate.event.kind !== 1 ||
+    candidate.event.created_at < 0 ||
+    candidate.draft.schemaVersion !==
+      "public_participant_topic_suggestion_draft_v1" ||
+    candidate.draft.participantPubkey !== candidate.signerPubkey ||
+    !PUBKEY.test(candidate.draft.participantPubkey) ||
+    !SLUG.test(candidate.draft.municipalityId) ||
+    !topicMatch ||
+    topicMatch[1] !== candidate.draft.municipalityId ||
+    !NOSTR_EVENT_ID.test(candidate.draft.sourceAnswerId) ||
+    candidate.draft.sourceAnswerRef !== `nostr://event/${candidate.draft.sourceAnswerId}` ||
+    !NOSTR_EVENT_ID.test(candidate.draft.sourceDiscussionId) ||
+    candidate.draft.sourceDiscussionRef !==
+      `nostr://event/${candidate.draft.sourceDiscussionId}` ||
+    !MECKY_RECEIPT.test(candidate.draft.sourceAnswerReceiptId) ||
+    candidate.draft.entryState !== "citizen_adoption_required" ||
+    candidate.draft.authorityBinding !== "none" ||
+    candidate.draft.submittedToCivicWorkflow !== false ||
+    typeof candidate.draft.title !== "string" ||
+    typeof candidate.draft.summary !== "string"
+  ) {
+    invalidCitizenAdoption("civic_participant_suggestion_invalid");
+  }
+  const { title, summary } = normalizedSuggestionContent(candidate.draft);
+  const draftCore = {
+    sourceAnswerId: candidate.draft.sourceAnswerId,
+    sourceAnswerRef: candidate.draft.sourceAnswerRef,
+    sourceAnswerReceiptId: candidate.draft.sourceAnswerReceiptId,
+    sourceDiscussionId: candidate.draft.sourceDiscussionId,
+    sourceDiscussionRef: candidate.draft.sourceDiscussionRef,
+    municipalityId: candidate.draft.municipalityId,
+    topicId: candidate.draft.topicId,
+    participantPubkey: candidate.draft.participantPubkey,
+    title,
+    summary,
+  };
+  const expectedDraft: PublicParticipantTopicSuggestionDraftV1 = {
+    schemaVersion: "public_participant_topic_suggestion_draft_v1",
+    draftId: `urn:stadtstack:participant-topic-suggestion-draft:${digest(draftCore).slice("sha256:".length)}`,
+    ...draftCore,
+    entryState: "citizen_adoption_required",
+    authorityBinding: "none",
+    submittedToCivicWorkflow: false,
+  };
+  const expectedTags = [
+    ["schema", "staging_participant_signed_topic_suggestion_v1"],
+    ["municipality", expectedDraft.municipalityId],
+    ["topic", expectedDraft.topicId],
+    ["e", expectedDraft.sourceDiscussionId, "", "root"],
+    ["mecky-receipt", expectedDraft.sourceAnswerReceiptId],
+    ["credential-class", "staging-participant"],
+  ];
+  if (
+    canonical(candidate.draft) !== canonical(expectedDraft) ||
+    canonical(candidate.event.tags) !== canonical(expectedTags) ||
+    candidate.event.content !== canonical(expectedDraft)
+  ) {
+    invalidCitizenAdoption("civic_participant_suggestion_invalid");
+  }
+  return participantTopicSuggestionCandidate(candidate.event, expectedDraft);
+}
+
+function eligibilityReceiptForAdoption(input: {
+  receipt: unknown;
+  policy: MunicipalCivicEligibilityPolicyV1;
+  participantSuggestion: ParticipantTopicSuggestionV1;
+  adopterPubkey: string;
+}): MunicipalCivicEligibilityReceiptV1 {
+  const receiptKeys = [
+    "schemaVersion",
+    "eligibilityCore",
+    "receiptId",
+    "payloadChecksum",
+    "statusRef",
+    "proof",
+  ] as const;
+  const coreKeys = [
+    "municipalityId",
+    "eligibilityClass",
+    "subjectPubkey",
+    "participantSuggestionId",
+    "topicId",
+    "policyVersion",
+    "issuer",
+    "issuedAt",
+    "expiresAt",
+    "authorityBinding",
+  ] as const;
+  const proofKeys = ["algorithm", "keyId", "signature"] as const;
+  const { receipt, policy, participantSuggestion, adopterPubkey } = input;
+  const receiptRecord = snapshotClosedDataRecord(receipt, receiptKeys);
+  const coreRecord = receiptRecord
+    ? snapshotClosedDataRecord(receiptRecord.eligibilityCore, coreKeys)
+    : null;
+  const proofRecord = receiptRecord
+    ? snapshotClosedDataRecord(receiptRecord.proof, proofKeys)
+    : null;
+  if (!receiptRecord || !coreRecord || !proofRecord) {
+    invalidCitizenAdoption("civic_eligibility_receipt_invalid");
+  }
+  const suppliedReceipt = {
+    schemaVersion: receiptRecord.schemaVersion,
+    eligibilityCore: coreRecord,
+    receiptId: receiptRecord.receiptId,
+    payloadChecksum: receiptRecord.payloadChecksum,
+    statusRef: receiptRecord.statusRef,
+    proof: proofRecord,
+  } as MunicipalCivicEligibilityReceiptV1;
+  if (
+    !exactRecord(policy, [
+      "municipalityId",
+      "policyVersion",
+      "issuer",
+      "statusBaseUrl",
+      "verifiedAt",
+      "verifyReceiptProof",
+    ]) ||
+    !SLUG.test(policy.municipalityId) ||
+    typeof policy.policyVersion !== "string" ||
+    policy.policyVersion.length === 0 ||
+    typeof policy.issuer !== "string" ||
+    policy.issuer.length === 0 ||
+    typeof policy.statusBaseUrl !== "string" ||
+    !isExactHttpsStatusBaseUrl(policy.statusBaseUrl) ||
+    !Number.isSafeInteger(policy.verifiedAt) ||
+    policy.verifiedAt < 0 ||
+    typeof policy.verifyReceiptProof !== "function" ||
+    suppliedReceipt.schemaVersion !== "municipal_civic_eligibility_receipt_v1" ||
+    suppliedReceipt.eligibilityCore.municipalityId !== policy.municipalityId ||
+    suppliedReceipt.eligibilityCore.municipalityId !==
+      participantSuggestion.draft.municipalityId ||
+    suppliedReceipt.eligibilityCore.eligibilityClass !==
+      "municipal_civic_participation" ||
+    suppliedReceipt.eligibilityCore.subjectPubkey !== adopterPubkey ||
+    suppliedReceipt.eligibilityCore.participantSuggestionId !==
+      participantSuggestion.suggestionId ||
+    suppliedReceipt.eligibilityCore.topicId !== participantSuggestion.draft.topicId ||
+    suppliedReceipt.eligibilityCore.policyVersion !== policy.policyVersion ||
+    suppliedReceipt.eligibilityCore.issuer !== policy.issuer ||
+    !Number.isSafeInteger(suppliedReceipt.eligibilityCore.issuedAt) ||
+    !Number.isSafeInteger(suppliedReceipt.eligibilityCore.expiresAt) ||
+    suppliedReceipt.eligibilityCore.issuedAt < 0 ||
+    suppliedReceipt.eligibilityCore.issuedAt > policy.verifiedAt ||
+    policy.verifiedAt >= suppliedReceipt.eligibilityCore.expiresAt ||
+    suppliedReceipt.eligibilityCore.authorityBinding !== "civic_eligibility_only" ||
+    !/^[0-9a-f]{64}$/.test(suppliedReceipt.payloadChecksum) ||
+    suppliedReceipt.payloadChecksum !== digest(suppliedReceipt.eligibilityCore).slice("sha256:".length) ||
+    suppliedReceipt.receiptId !==
+      `urn:stadtstack:municipal-civic-eligibility-receipt:${suppliedReceipt.payloadChecksum}` ||
+    suppliedReceipt.statusRef !== `${policy.statusBaseUrl}/${suppliedReceipt.payloadChecksum}` ||
+    typeof suppliedReceipt.proof.algorithm !== "string" ||
+    suppliedReceipt.proof.algorithm.length === 0 ||
+    suppliedReceipt.proof.algorithm !== suppliedReceipt.proof.algorithm.trim() ||
+    typeof suppliedReceipt.proof.keyId !== "string" ||
+    suppliedReceipt.proof.keyId.length === 0 ||
+    suppliedReceipt.proof.keyId !== suppliedReceipt.proof.keyId.trim() ||
+    typeof suppliedReceipt.proof.signature !== "string" ||
+    !/^[A-Za-z0-9_-]+$/.test(suppliedReceipt.proof.signature)
+  ) {
+    invalidCitizenAdoption("civic_eligibility_receipt_invalid");
+  }
+  const sanitizedReceipt = Object.freeze({
+    schemaVersion: suppliedReceipt.schemaVersion,
+    eligibilityCore: Object.freeze({ ...suppliedReceipt.eligibilityCore }),
+    receiptId: suppliedReceipt.receiptId,
+    payloadChecksum: suppliedReceipt.payloadChecksum,
+    statusRef: suppliedReceipt.statusRef,
+    proof: Object.freeze({ ...suppliedReceipt.proof }),
+  }) as MunicipalCivicEligibilityReceiptV1;
+  const proofInput: MunicipalCivicEligibilityReceiptProofInputV1 = Object.freeze({
+    domain: "municipal-civic-eligibility-receipt/v1",
+    schemaVersion: "municipal_civic_eligibility_receipt_v1",
+    receiptId: sanitizedReceipt.receiptId,
+    payloadChecksum: sanitizedReceipt.payloadChecksum,
+    statusRef: sanitizedReceipt.statusRef,
+  });
+  try {
+    if (!policy.verifyReceiptProof(proofInput, sanitizedReceipt.proof)) {
+      invalidCitizenAdoption("civic_eligibility_receipt_invalid");
+    }
+  } catch {
+    invalidCitizenAdoption("civic_eligibility_receipt_invalid");
+  }
+  return sanitizedReceipt;
+}
+
+function citizenTopicSuggestionAdoption(
+  event: NostrEvent,
+  participantSuggestion: ParticipantTopicSuggestionV1,
+  receipt: MunicipalCivicEligibilityReceiptV1
+): CitizenTopicSuggestionAdoptionV1 {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(event.content) as unknown;
+  } catch {
+    invalidCitizenAdoption("civic_topic_suggestion_adoption_invalid");
+  }
+  const adoptionKeys = [
+    "schemaVersion",
+    "adoptionId",
+    "municipalityId",
+    "topicId",
+    "participantSuggestionId",
+    "participantSuggestionRef",
+    "participantPubkey",
+    "sourceDiscussionId",
+    "sourceAnswerReceiptId",
+    "adopterPubkey",
+    "eligibilityReceiptId",
+    "eligibilityReceiptChecksum",
+    "title",
+    "summary",
+    "entryState",
+    "authorityBinding",
+    "submittedToCivicWorkflow",
+  ] as const;
+  const parsedAdoption = parsed as PublicCitizenTopicSuggestionAdoptionV1;
+  if (
+    !exactRecord(parsed, adoptionKeys) ||
+    typeof parsedAdoption.title !== "string" ||
+    typeof parsedAdoption.summary !== "string"
+  ) {
+    invalidCitizenAdoption("civic_topic_suggestion_adoption_invalid");
+  }
+  const { title, summary } = normalizedSuggestionContent(
+    participantSuggestion.draft
+  );
+  const adoptionCore = {
+    municipalityId: participantSuggestion.draft.municipalityId,
+    topicId: participantSuggestion.draft.topicId,
+    participantSuggestionId: participantSuggestion.suggestionId,
+    participantSuggestionRef: `nostr://event/${participantSuggestion.suggestionId}`,
+    participantPubkey: participantSuggestion.signerPubkey,
+    sourceDiscussionId: participantSuggestion.draft.sourceDiscussionId,
+    sourceAnswerReceiptId: participantSuggestion.draft.sourceAnswerReceiptId,
+    adopterPubkey: event.pubkey,
+    eligibilityReceiptId: receipt.receiptId,
+    eligibilityReceiptChecksum: receipt.payloadChecksum,
+    title,
+    summary,
+  };
+  const expected: PublicCitizenTopicSuggestionAdoptionV1 = {
+    schemaVersion: "public_citizen_topic_suggestion_adoption_v1",
+    adoptionId: `urn:stadtstack:citizen-topic-suggestion-adoption:${digest(adoptionCore).slice("sha256:".length)}`,
+    ...adoptionCore,
+    entryState: "case_steward_review_required",
+    authorityBinding: "civic_eligibility_only",
+    submittedToCivicWorkflow: false,
+  };
+  const expectedTags = [
+    ["schema", "citizen_adopted_topic_suggestion_v1"],
+    ["municipality", expected.municipalityId],
+    ["topic", expected.topicId],
+    ["e", expected.participantSuggestionId, "", "adopted-suggestion"],
+    ["e", expected.sourceDiscussionId, "", "root"],
+    ["p", expected.participantPubkey],
+    ["eligibility-receipt", expected.eligibilityReceiptId],
+    ["credential-class", "municipal-civic-eligibility"],
+  ];
+  if (
+    canonical(parsed) !== canonical(expected) ||
+    event.content !== canonical(expected) ||
+    canonical(event.tags) !== canonical(expectedTags)
+  ) {
+    invalidCitizenAdoption("civic_topic_suggestion_adoption_invalid");
+  }
+  const sanitizedEvent = cloneAndFreezeNostrEvent(event);
+  const sanitizedAdoption = freezeCitizenTopicSuggestionAdoption(expected);
+  return Object.freeze({
+    schemaVersion: "citizen_adopted_topic_suggestion_v1",
+    adoptionId: sanitizedAdoption.adoptionId,
+    signerPubkey: sanitizedEvent.pubkey,
+    participantSuggestionId: participantSuggestion.suggestionId,
+    eligibilityReceiptId: receipt.receiptId,
+    adoption: sanitizedAdoption,
+    event: sanitizedEvent,
+    verification: Object.freeze({ kind: "nostr_nip01", verified: true }),
+    entryState: "case_steward_review_required",
+    authorityBinding: "civic_eligibility_only",
     submittedToCivicWorkflow: false,
   });
 }
@@ -773,6 +1378,22 @@ function isSafeHttpsUrl(value: string): boolean {
   try {
     const url = new URL(value);
     return url.protocol === "https:" && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
+function isExactHttpsStatusBaseUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash &&
+      !url.pathname.endsWith("/")
+    );
   } catch {
     return false;
   }
@@ -1671,4 +2292,112 @@ export function verifyParticipantTopicSuggestion(
     throw new Error("civic_topic_suggestion_draft_invalid");
   }
   return participantTopicSuggestionCandidate(input.event, expectedDraft);
+}
+
+/**
+ * Sign the ADR 0023 citizen adoption of an immutable participant suggestion.
+ *
+ * `eligibilityPolicy` is trusted deployment configuration. This kernel checks
+ * its exact receipt binding and invokes its proof verifier, but it neither
+ * issues eligibility nor creates a Case, ballot, publication, or treasury
+ * effect.
+ */
+export function buildCitizenTopicSuggestionAdoption(
+  secretKey: Uint8Array,
+  input: CitizenTopicSuggestionAdoptionInput
+): CitizenTopicSuggestionAdoptionV1 {
+  const adopterPubkey = getPublicKeyHex(secretKey);
+  const participantSuggestion = participantSuggestionForAdoption(
+    input.participantSuggestion
+  );
+  const receipt = eligibilityReceiptForAdoption({
+    receipt: input.eligibilityReceipt,
+    policy: input.eligibilityPolicy,
+    participantSuggestion,
+    adopterPubkey,
+  });
+  if (
+    !Number.isSafeInteger(input.createdAt) ||
+    input.createdAt < 0 ||
+    input.createdAt < participantSuggestion.event.created_at
+  ) {
+    invalidCitizenAdoption("civic_topic_suggestion_adoption_timestamp_invalid");
+  }
+  if (
+    input.createdAt < receipt.eligibilityCore.issuedAt ||
+    input.createdAt >= receipt.eligibilityCore.expiresAt
+  ) {
+    invalidCitizenAdoption("civic_eligibility_receipt_invalid");
+  }
+  const adoptionCore = {
+    municipalityId: participantSuggestion.draft.municipalityId,
+    topicId: participantSuggestion.draft.topicId,
+    participantSuggestionId: participantSuggestion.suggestionId,
+    participantSuggestionRef: `nostr://event/${participantSuggestion.suggestionId}`,
+    participantPubkey: participantSuggestion.signerPubkey,
+    sourceDiscussionId: participantSuggestion.draft.sourceDiscussionId,
+    sourceAnswerReceiptId: participantSuggestion.draft.sourceAnswerReceiptId,
+    adopterPubkey,
+    eligibilityReceiptId: receipt.receiptId,
+    eligibilityReceiptChecksum: receipt.payloadChecksum,
+    title: participantSuggestion.draft.title,
+    summary: participantSuggestion.draft.summary,
+  };
+  const adoption: PublicCitizenTopicSuggestionAdoptionV1 = {
+    schemaVersion: "public_citizen_topic_suggestion_adoption_v1",
+    adoptionId: `urn:stadtstack:citizen-topic-suggestion-adoption:${digest(adoptionCore).slice("sha256:".length)}`,
+    ...adoptionCore,
+    entryState: "case_steward_review_required",
+    authorityBinding: "civic_eligibility_only",
+    submittedToCivicWorkflow: false,
+  };
+  const event = buildNoteEvent(secretKey, canonical(adoption), {
+    createdAt: input.createdAt,
+    tags: [
+      ["schema", "citizen_adopted_topic_suggestion_v1"],
+      ["municipality", adoption.municipalityId],
+      ["topic", adoption.topicId],
+      ["e", adoption.participantSuggestionId, "", "adopted-suggestion"],
+      ["e", adoption.sourceDiscussionId, "", "root"],
+      ["p", adoption.participantPubkey],
+      ["eligibility-receipt", adoption.eligibilityReceiptId],
+      ["credential-class", "municipal-civic-eligibility"],
+    ],
+  });
+  return citizenTopicSuggestionAdoption(event, participantSuggestion, receipt);
+}
+
+/** Verify a fully signed adoption against the immutable suggestion and policy. */
+export function verifyCitizenTopicSuggestionAdoption(
+  input: VerifyCitizenTopicSuggestionAdoptionInput
+): CitizenTopicSuggestionAdoptionV1 {
+  const event = snapshotNostrEvent(input.event);
+  if (
+    !event ||
+    !verifyEvent(event) ||
+    event.kind !== 1 ||
+    !PUBKEY.test(event.pubkey) ||
+    event.created_at < 0
+  ) {
+    invalidCitizenAdoption("civic_topic_suggestion_adoption_event_invalid");
+  }
+  const participantSuggestion = participantSuggestionForAdoption(
+    input.participantSuggestion
+  );
+  const receipt = eligibilityReceiptForAdoption({
+    receipt: input.eligibilityReceipt,
+    policy: input.eligibilityPolicy,
+    participantSuggestion,
+    adopterPubkey: event.pubkey,
+  });
+  if (event.created_at < participantSuggestion.event.created_at) {
+    invalidCitizenAdoption("civic_topic_suggestion_adoption_timestamp_invalid");
+  }
+  if (
+    event.created_at < receipt.eligibilityCore.issuedAt ||
+    event.created_at >= receipt.eligibilityCore.expiresAt
+  ) {
+    invalidCitizenAdoption("civic_eligibility_receipt_invalid");
+  }
+  return citizenTopicSuggestionAdoption(event, participantSuggestion, receipt);
 }
