@@ -30,13 +30,85 @@ test("the required ci result joins quality with one verified Web build", () => {
   assert.doesNotMatch(ci, /run: pnpm build/u);
   assert.match(
     ci,
-    /\n  web-oci:[\s\S]*?needs: changes[\s\S]*?if: \$\{\{ needs\.changes\.outputs\.web == 'true' \}\}[\s\S]*?uses: \.\/\.github\/workflows\/staging-web-oci\.yml[\s\S]*?source_revision: \$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/u,
+    /\n  web-oci:[\s\S]*?needs: changes[\s\S]*?if: \$\{\{ github\.event_name == 'pull_request' && needs\.changes\.outputs\.web == 'true' \}\}[\s\S]*?uses: \.\/\.github\/workflows\/staging-web-oci\.yml[\s\S]*?source_revision: \$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/u,
+  );
+  assert.match(
+    ci,
+    /WEB_REQUIRED: \$\{\{ github\.event_name == 'pull_request' && needs\.changes\.outputs\.web == 'true' \}\}/u,
   );
   assert.match(ci, /\n  ci:\n    name: ci\n    if: \$\{\{ always\(\) \}\}/u);
   assert.match(ci, /needs:\n      - changes\n      - quality\n      - web-oci/u);
   assert.match(ci, /test "\$CHANGES_RESULT" = success/u);
   assert.match(ci, /test "\$QUALITY_RESULT" = success/u);
   assert.match(ci, /if test "\$WEB_REQUIRED" = true; then[\s\S]*?test "\$WEB_OCI_RESULT" = success[\s\S]*?test "\$WEB_OCI_RESULT" = skipped/u);
+});
+
+test("the Web result gate requires a candidate only for PR Web changes", () => {
+  const webRequired = ({ eventName, webChanged }) =>
+    eventName === "pull_request" && webChanged === true;
+  const resultAccepted = ({ eventName, webChanged, webOciResult }) => {
+    const required = webRequired({ eventName, webChanged });
+    return required ? webOciResult === "success" : webOciResult === "skipped";
+  };
+
+  const cases = [
+    {
+      name: "PR Web",
+      eventName: "pull_request",
+      webChanged: true,
+      webOciResult: "success",
+      expectedRequired: true,
+      expectedAccepted: true,
+    },
+    {
+      name: "main Web",
+      eventName: "push",
+      webChanged: true,
+      webOciResult: "skipped",
+      expectedRequired: false,
+      expectedAccepted: true,
+    },
+    {
+      name: "PR non-Web",
+      eventName: "pull_request",
+      webChanged: false,
+      webOciResult: "skipped",
+      expectedRequired: false,
+      expectedAccepted: true,
+    },
+    {
+      name: "main non-Web",
+      eventName: "push",
+      webChanged: false,
+      webOciResult: "skipped",
+      expectedRequired: false,
+      expectedAccepted: true,
+    },
+  ];
+
+  for (const scenario of cases) {
+    assert.equal(
+      webRequired(scenario),
+      scenario.expectedRequired,
+      `${scenario.name}: unexpected Web requirement`,
+    );
+    assert.equal(
+      resultAccepted(scenario),
+      scenario.expectedAccepted,
+      `${scenario.name}: unexpected result acceptance`,
+    );
+  }
+
+  assert.equal(
+    resultAccepted({ eventName: "pull_request", webChanged: true, webOciResult: "skipped" }),
+    false,
+    "a PR Web change must not pass with a skipped candidate",
+  );
+  assert.equal(
+    resultAccepted({ eventName: "push", webChanged: true, webOciResult: "success" }),
+    false,
+    "a main Web push must preserve the intentionally skipped candidate result",
+  );
 });
 
 test("the Web workflow is reusable and no longer starts a duplicate PR build", () => {
