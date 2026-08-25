@@ -19,6 +19,7 @@ import {
 import type {
   MeckyMirrorAdapter,
   StagingParticipantDataAdapter,
+  StagingParticipantMirrorReceipt,
   WalletSignatureVerifier,
 } from "../src/types.ts";
 
@@ -66,6 +67,7 @@ function fixture(input: Partial<{
   verify: boolean;
   nowMs: number;
   mirrorFails: boolean;
+  mirrorReceipts: Map<string, StagingParticipantMirrorReceipt>;
 }> = {}) {
   let nowMs = input.nowMs ?? Date.parse("2026-08-25T12:00:00.000Z");
   const calls: Array<{ kind: "post" | "comment"; walletAddress: string; content: string; postId?: string }> = [];
@@ -76,6 +78,9 @@ function fixture(input: Partial<{
       return signature === "0xaaaa" && (input.verify ?? true);
     },
   };
+  const mirrorReceipts = input.mirrorReceipts ?? new Map<string, StagingParticipantMirrorReceipt>();
+  const receiptKey = (walletAddress: string, sourcePostId: string) =>
+    `${walletAddress.toLowerCase()}:${sourcePostId.toLowerCase()}`;
   const data: StagingParticipantDataAdapter = {
     async createMainTextPost({ walletAddress, content }) {
       calls.push({ kind: "post", walletAddress, content });
@@ -107,6 +112,41 @@ function fixture(input: Partial<{
         post_type: "user", feed_type: "main", linked_event_id: null, linked_experience_id: null,
       };
     },
+    async reserveNostrPostMirror(mirrorInput) {
+      const key = receiptKey(mirrorInput.walletAddress, mirrorInput.sourcePostId);
+      const existing = mirrorReceipts.get(key);
+      if (existing) {
+        if (existing.request_id !== mirrorInput.requestId || existing.event_id !== mirrorInput.eventId ||
+          existing.content_sha256 !== mirrorInput.contentSha256) {
+          throw new Error("staging_participant_mirror_conflict");
+        }
+        return existing;
+      }
+      if ([...mirrorReceipts.values()].some((receipt) => receipt.request_id === mirrorInput.requestId)) {
+        throw new Error("staging_participant_mirror_conflict");
+      }
+      const receipt: StagingParticipantMirrorReceipt = {
+        wallet_address: mirrorInput.walletAddress,
+        source_post_id: mirrorInput.sourcePostId,
+        request_id: mirrorInput.requestId,
+        event_id: mirrorInput.eventId,
+        content_sha256: mirrorInput.contentSha256,
+        state: "reserved",
+      };
+      mirrorReceipts.set(key, receipt);
+      return receipt;
+    },
+    async completeNostrPostMirror(mirrorInput) {
+      const key = receiptKey(mirrorInput.walletAddress, mirrorInput.sourcePostId);
+      const receipt = mirrorReceipts.get(key);
+      if (!receipt || receipt.request_id !== mirrorInput.requestId || receipt.event_id !== mirrorInput.eventId ||
+        receipt.content_sha256 !== mirrorInput.contentSha256) {
+        throw new Error("staging_participant_mirror_conflict");
+      }
+      const published: StagingParticipantMirrorReceipt = { ...receipt, state: "published" };
+      mirrorReceipts.set(key, published);
+      return published;
+    },
   };
   const mirrored: unknown[] = [];
   const mirror: MeckyMirrorAdapter = {
@@ -132,7 +172,7 @@ function fixture(input: Partial<{
     now: () => new Date(nowMs),
     randomId: () => (++count).toString(16).padStart(32, "0"),
   });
-  return { handler, calls, mirrored, setNow: (value: number) => { nowMs = value; } };
+  return { handler, calls, mirrored, mirrorReceipts, setNow: (value: number) => { nowMs = value; } };
 }
 
 async function enrolledSession() {
@@ -345,6 +385,48 @@ test("refuses cross-wallet and malformed participant Mecky mirrors before their 
     schemaVersion: "staging_participant_nostr_post_request_v1",
   }, sessionCookie))).status, 400);
   assert.equal(mirrored.length, 0);
+});
+
+test("durably reserves one source event across concurrent gateway handlers and rejects replacement", async () => {
+  const setup = await enrolledSession();
+  const resumed = fixture({ mirrorReceipts: setup.mirrorReceipts });
+  const identity = deriveNostrIdentity("0x" + "4".repeat(130));
+  const bindingEvent = buildBindingEvent(identity.secretKey, WALLET, { createdAt: 1_787_659_199 });
+  const sourcePostId = "10000000-0000-4000-8000-000000000001";
+  const event = buildNoteEvent(identity.secretKey, "@Mecky, was ist der nächste sinnvolle Schritt?", {
+    createdAt: 1_787_659_200,
+    tags: [["p", MECKY_PUBKEY], ["source-app-post", sourcePostId]],
+  });
+  const body = {
+    schemaVersion: "staging_participant_nostr_post_request_v1",
+    requestId: "20000000-0000-4000-8000-000000000008",
+    sourcePostId,
+    admissionProof: {
+      schemaVersion: "roebel_citizen_admission_proof_v1",
+      credential: { kind: "thirdweb_smart_account", address: WALLET, chainId: 100 },
+      statement: bindingEvent.content, walletSignature: "0xaaaa", bindingEvent,
+    },
+    event,
+  };
+  const [first, retry] = await Promise.all([
+    setup.handler(jsonRequest("/api/staging-participant/v1/nostr-post", body, setup.sessionCookie)),
+    resumed.handler(jsonRequest("/api/staging-participant/v1/nostr-post", body, setup.sessionCookie)),
+  ]);
+  assert.ok([200, 201].includes(first.status));
+  assert.ok([200, 201].includes(retry.status));
+  const receipt = [...setup.mirrorReceipts.values()][0];
+  assert.equal(receipt?.event_id, event.id);
+  assert.equal(receipt?.state, "published");
+
+  const replacement = buildNoteEvent(identity.secretKey, event.content, {
+    createdAt: 1_787_659_201,
+    tags: [["p", MECKY_PUBKEY], ["source-app-post", sourcePostId]],
+  });
+  assert.equal((await resumed.handler(jsonRequest("/api/staging-participant/v1/nostr-post", {
+    ...body,
+    requestId: "20000000-0000-4000-8000-000000000009",
+    event: replacement,
+  }, setup.sessionCookie))).status, 409);
 });
 
 test("returns an honest failure without recording a successful mirror when the private adapter is unavailable", async () => {

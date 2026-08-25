@@ -8,8 +8,8 @@ export type WalletSignatureVerifier = Readonly<{
 
 /**
  * The gateway is deliberately unable to express civic authority. Its data
- * boundary exposes two restricted write RPCs plus one exact owned-source read:
- * a personal text-only main-feed post, a comment, and its later Nostr mirror.
+ * boundary exposes two write RPCs, one exact owned-source read and two durable
+ * mirror-receipt transitions. None can address an arbitrary application row.
  */
 export type StagingParticipantDataAdapter = Readonly<{
   createMainTextPost(input: Readonly<{
@@ -32,6 +32,22 @@ export type StagingParticipantDataAdapter = Readonly<{
     walletAddress: string;
     postId: string;
   }>): Promise<StagingParticipantPost | null>;
+  /** Atomically reserves (or re-reads) one immutable post→Nostr mirror. */
+  reserveNostrPostMirror(input: Readonly<{
+    walletAddress: string;
+    sourcePostId: string;
+    requestId: string;
+    eventId: string;
+    contentSha256: string;
+  }>): Promise<StagingParticipantMirrorReceipt>;
+  /** Marks only the already-reserved exact event as published. */
+  completeNostrPostMirror(input: Readonly<{
+    walletAddress: string;
+    sourcePostId: string;
+    requestId: string;
+    eventId: string;
+    contentSha256: string;
+  }>): Promise<StagingParticipantMirrorReceipt>;
 }>;
 
 /**
@@ -85,6 +101,15 @@ export type StagingParticipantComment = Readonly<{
   created_at: string;
   author_username: null;
   author_profile_picture_url: null;
+}>;
+
+export type StagingParticipantMirrorReceipt = Readonly<{
+  wallet_address: string;
+  source_post_id: string;
+  request_id: string;
+  event_id: string;
+  content_sha256: string;
+  state: "reserved" | "published";
 }>;
 
 export type StagingParticipantGatewayConfig = Readonly<{

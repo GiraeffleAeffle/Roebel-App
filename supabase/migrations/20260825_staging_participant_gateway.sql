@@ -192,6 +192,28 @@ create table staging_participant_private.staging_participant_write_audit (
       or (action = 'comment' and source_post_id is not null))
 );
 
+-- A relay is external to this transaction. Reserve the immutable event first,
+-- publish precisely that event, then mark the receipt complete. A crash leaves
+-- a durable `reserved` receipt that can retry only the original event id.
+create table staging_participant_private.staging_participant_nostr_post_mirror_receipts (
+  wallet_address text not null references staging_participant_private.staging_participant_admissions(wallet_address),
+  source_post_id uuid not null,
+  request_id uuid not null unique,
+  event_id text not null,
+  content_sha256 bytea not null,
+  state text not null default 'reserved' check (state in ('reserved', 'published')),
+  created_at timestamptz not null default now(),
+  published_at timestamptz,
+  primary key (wallet_address, source_post_id),
+  constraint staging_participant_nostr_mirror_event_check
+    check (event_id ~ '^[0-9a-f]{64}$'),
+  constraint staging_participant_nostr_mirror_digest_check
+    check (octet_length(content_sha256) = 32),
+  constraint staging_participant_nostr_mirror_completion_check
+    check ((state = 'reserved' and published_at is null)
+      or (state = 'published' and published_at is not null))
+);
+
 -- Capture the exact compatibility state before changing it. The companion
 -- deactivation transaction restores these definitions/grants from the armed
 -- catalog instead of guessing from historical SQL files.
@@ -225,6 +247,8 @@ alter table staging_participant_private.staging_participant_admissions
 alter table staging_participant_private.staging_participant_write_reservations
   enable row level security;
 alter table staging_participant_private.staging_participant_write_audit
+  enable row level security;
+alter table staging_participant_private.staging_participant_nostr_post_mirror_receipts
   enable row level security;
 alter table staging_participant_private.staging_participant_prior_function_definitions
   enable row level security;
@@ -853,17 +877,169 @@ begin
 end;
 $$;
 
+-- Claim one immutable ordinary-post Nostr mirror. This is the durable replay
+-- authority: request id, source row, event id, and content digest are bound
+-- together before the gateway ever calls the private workbench.
+create or replace function public.staging_participant_gateway_reserve_nostr_post_mirror(
+  p_wallet_address text,
+  p_source_post_id uuid,
+  p_request_id uuid,
+  p_event_id text,
+  p_content_sha256 text
+) returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public, staging_participant_private
+as $$
+declare
+  v_wallet text := lower(p_wallet_address);
+  v_event_id text := lower(p_event_id);
+  v_content_sha bytea;
+  v_receipt staging_participant_private.staging_participant_nostr_post_mirror_receipts%rowtype;
+begin
+  perform staging_participant_private.require_staging_participant_gateway();
+  if p_wallet_address is null or v_wallet !~ '^0x[0-9a-f]{40}$'
+     or p_source_post_id is null or p_request_id is null
+     or p_event_id is null or v_event_id !~ '^[0-9a-f]{64}$'
+     or p_content_sha256 is null or lower(p_content_sha256) !~ '^[0-9a-f]{64}$' then
+    raise exception 'STAGING_PARTICIPANT_MIRROR_INVALID' using errcode = 'P0001';
+  end if;
+  v_content_sha := decode(lower(p_content_sha256), 'hex');
+  perform staging_participant_private.ensure_active_staging_participant(v_wallet);
+  perform pg_advisory_xact_lock(hashtextextended(v_wallet || ':' || p_source_post_id::text, 20260825));
+
+  select * into v_receipt
+    from staging_participant_private.staging_participant_nostr_post_mirror_receipts
+   where wallet_address = v_wallet and source_post_id = p_source_post_id;
+  if found then
+    if v_receipt.request_id <> p_request_id or v_receipt.event_id <> v_event_id
+       or v_receipt.content_sha256 <> v_content_sha then
+      raise exception 'STAGING_PARTICIPANT_MIRROR_SOURCE_REUSED' using errcode = 'P0001';
+    end if;
+    return jsonb_build_object(
+      'wallet_address', v_receipt.wallet_address,
+      'source_post_id', v_receipt.source_post_id,
+      'request_id', v_receipt.request_id,
+      'event_id', v_receipt.event_id,
+      'content_sha256', encode(v_receipt.content_sha256, 'hex'),
+      'state', v_receipt.state
+    );
+  end if;
+
+  select * into v_receipt
+    from staging_participant_private.staging_participant_nostr_post_mirror_receipts
+   where request_id = p_request_id;
+  if found then
+    raise exception 'STAGING_PARTICIPANT_MIRROR_REQUEST_REUSED' using errcode = 'P0001';
+  end if;
+
+  if not exists (
+    select 1
+      from public.posts p
+      join staging_participant_private.staging_participant_write_audit a
+        on a.result_id = p.id and a.action = 'post' and a.wallet_address = v_wallet
+     where p.id = p_source_post_id
+       and lower(p.wallet_address) = v_wallet
+       and p.account_id is null and p.feed_type = 'main' and p.post_type = 'user'
+       and p.category = 'generell' and p.status = 'published'
+       and coalesce(cardinality(p.media_urls), 0) = 0 and p.video_url is null
+       and p.linked_event_id is null and p.linked_experience_id is null
+       and extensions.digest(p.content, 'sha256') = v_content_sha
+  ) then
+    raise exception 'STAGING_PARTICIPANT_MIRROR_SOURCE_INVALID' using errcode = 'P0001';
+  end if;
+
+  insert into staging_participant_private.staging_participant_nostr_post_mirror_receipts (
+    wallet_address, source_post_id, request_id, event_id, content_sha256
+  ) values (v_wallet, p_source_post_id, p_request_id, v_event_id, v_content_sha)
+  returning * into v_receipt;
+  return jsonb_build_object(
+    'wallet_address', v_receipt.wallet_address,
+    'source_post_id', v_receipt.source_post_id,
+    'request_id', v_receipt.request_id,
+    'event_id', v_receipt.event_id,
+    'content_sha256', encode(v_receipt.content_sha256, 'hex'),
+    'state', v_receipt.state
+  );
+end;
+$$;
+
+-- Only the exact receipt that was reserved before external publication may be
+-- completed. No retry can replace its event id or change its source content.
+create or replace function public.staging_participant_gateway_complete_nostr_post_mirror(
+  p_wallet_address text,
+  p_source_post_id uuid,
+  p_request_id uuid,
+  p_event_id text,
+  p_content_sha256 text
+) returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public, staging_participant_private
+as $$
+declare
+  v_wallet text := lower(p_wallet_address);
+  v_event_id text := lower(p_event_id);
+  v_content_sha bytea;
+  v_receipt staging_participant_private.staging_participant_nostr_post_mirror_receipts%rowtype;
+begin
+  perform staging_participant_private.require_staging_participant_gateway();
+  if p_wallet_address is null or v_wallet !~ '^0x[0-9a-f]{40}$'
+     or p_source_post_id is null or p_request_id is null
+     or p_event_id is null or v_event_id !~ '^[0-9a-f]{64}$'
+     or p_content_sha256 is null or lower(p_content_sha256) !~ '^[0-9a-f]{64}$' then
+    raise exception 'STAGING_PARTICIPANT_MIRROR_INVALID' using errcode = 'P0001';
+  end if;
+  v_content_sha := decode(lower(p_content_sha256), 'hex');
+  perform staging_participant_private.ensure_active_staging_participant(v_wallet);
+  perform pg_advisory_xact_lock(hashtextextended(v_wallet || ':' || p_source_post_id::text, 20260825));
+  select * into v_receipt
+    from staging_participant_private.staging_participant_nostr_post_mirror_receipts
+   where wallet_address = v_wallet and source_post_id = p_source_post_id
+   for update;
+  if not found then
+    raise exception 'STAGING_PARTICIPANT_MIRROR_RECEIPT_MISSING' using errcode = 'P0001';
+  end if;
+  if v_receipt.request_id <> p_request_id or v_receipt.event_id <> v_event_id
+     or v_receipt.content_sha256 <> v_content_sha then
+    raise exception 'STAGING_PARTICIPANT_MIRROR_RECEIPT_MISMATCH' using errcode = 'P0001';
+  end if;
+  if v_receipt.state = 'reserved' then
+    update staging_participant_private.staging_participant_nostr_post_mirror_receipts
+       set state = 'published', published_at = now()
+     where wallet_address = v_wallet and source_post_id = p_source_post_id
+     returning * into v_receipt;
+  end if;
+  return jsonb_build_object(
+    'wallet_address', v_receipt.wallet_address,
+    'source_post_id', v_receipt.source_post_id,
+    'request_id', v_receipt.request_id,
+    'event_id', v_receipt.event_id,
+    'content_sha256', encode(v_receipt.content_sha256, 'hex'),
+    'state', v_receipt.state
+  );
+end;
+$$;
+
 revoke all on function public.staging_participant_gateway_create_main_text_post(text, text, uuid)
   from public, anon, authenticated;
 revoke all on function public.staging_participant_gateway_create_main_text_comment(text, uuid, text, uuid)
   from public, anon, authenticated;
 revoke all on function public.staging_participant_gateway_read_owned_main_text_post(text, uuid)
   from public, anon, authenticated;
+revoke all on function public.staging_participant_gateway_reserve_nostr_post_mirror(text, uuid, uuid, text, text)
+  from public, anon, authenticated;
+revoke all on function public.staging_participant_gateway_complete_nostr_post_mirror(text, uuid, uuid, text, text)
+  from public, anon, authenticated;
 grant execute on function public.staging_participant_gateway_create_main_text_post(text, text, uuid)
   to anon;
 grant execute on function public.staging_participant_gateway_create_main_text_comment(text, uuid, text, uuid)
   to anon;
 grant execute on function public.staging_participant_gateway_read_owned_main_text_post(text, uuid)
+  to anon;
+grant execute on function public.staging_participant_gateway_reserve_nostr_post_mirror(text, uuid, uuid, text, text)
+  to anon;
+grant execute on function public.staging_participant_gateway_complete_nostr_post_mirror(text, uuid, uuid, text, text)
   to anon;
 
 comment on function public.staging_participant_gateway_create_main_text_post(text, text, uuid)
@@ -872,5 +1048,9 @@ comment on function public.staging_participant_gateway_create_main_text_comment(
   is 'STAGING ONLY: exact text-only main-feed comment capability for ADR 0021.';
 comment on function public.staging_participant_gateway_read_owned_main_text_post(text, uuid)
   is 'STAGING ONLY: exact participant-owned source row for a post-only Nostr Mecky mirror.';
+comment on function public.staging_participant_gateway_reserve_nostr_post_mirror(text, uuid, uuid, text, text)
+  is 'STAGING ONLY: durable immutable post-to-Nostr receipt reservation for ADR 0021.';
+comment on function public.staging_participant_gateway_complete_nostr_post_mirror(text, uuid, uuid, text, text)
+  is 'STAGING ONLY: completes only the exact durable post-to-Nostr receipt for ADR 0021.';
 
 commit;

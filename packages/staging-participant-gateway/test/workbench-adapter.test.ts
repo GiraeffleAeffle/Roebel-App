@@ -12,7 +12,7 @@ const EVENT = {
 test("private mirror has only the workbench admission then exact ordinary-post publication", async () => {
   const calls: Array<{ url: string; headers: Headers; body: unknown }> = [];
   const adapter = createPrivateWorkbenchMeckyMirrorAdapter({
-    url: "http://stadtstack-roebel-e2e.stadtstack-roebel-web-preview.svc.cluster.local:18083",
+    url: "http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/",
     admissionHeader: { name: "x-stadtstack-e2e", value: "1" },
     fetch: async (url, init) => {
       calls.push({ url: String(url), headers: new Headers(init?.headers), body: JSON.parse(String(init?.body)) });
@@ -26,8 +26,8 @@ test("private mirror has only the workbench admission then exact ordinary-post p
   const result = await adapter.mirrorPost({ admissionProof: { schemaVersion: "roebel_citizen_admission_proof_v1" }, event: EVENT });
   assert.deepEqual(result, { status: "published", eventId: EVENT.id });
   assert.deepEqual(calls.map(({ url }) => url), [
-    "http://stadtstack-roebel-e2e.stadtstack-roebel-web-preview.svc.cluster.local:18083/api/session/admit",
-    "http://stadtstack-roebel-e2e.stadtstack-roebel-web-preview.svc.cluster.local:18083/api/signed-event",
+    "http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/api/session/admit",
+    "http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/api/signed-event",
   ]);
   assert.equal(calls[0]?.headers.get("x-stadtstack-e2e"), "1");
   assert.deepEqual(calls[1]?.body, { intent: "post", event: EVENT });
@@ -39,7 +39,11 @@ test("private mirror rejects public URLs and arbitrary workbench capability head
     admissionHeader: { name: "x-stadtstack-e2e", value: "1" },
   }));
   assert.throws(() => createPrivateWorkbenchMeckyMirrorAdapter({
-    url: "http://stadtstack-roebel-e2e.stadtstack-roebel-web-preview.svc.cluster.local:18083",
+    url: "http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18082/",
     admissionHeader: { name: "authorization", value: "Bearer arbitrary" },
+  }));
+  assert.throws(() => createPrivateWorkbenchMeckyMirrorAdapter({
+    url: "http://e2e-workbench.stadtstack-roebel-web-preview.svc.cluster.local:18083/",
+    admissionHeader: { name: "x-stadtstack-e2e", value: "1" },
   }));
 });

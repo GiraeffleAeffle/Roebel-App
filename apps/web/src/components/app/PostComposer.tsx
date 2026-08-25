@@ -51,7 +51,10 @@ import {
 import { appMeckyConversationGateway } from "@/lib/stadtstack/app-mecky-gateway";
 import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
 import { useStagingTestParticipant } from "@/hooks/useStagingTestParticipant";
-import { mirrorStagingParticipantMeckyPost } from "@/lib/staging-participant/client";
+import {
+  mirrorStagingParticipantMeckyPost,
+  type PendingStagingParticipantMeckyMirror,
+} from "@/lib/staging-participant/client";
 
 const MAX_CHARS = 500;
 const MAX_IMAGES = 10;
@@ -124,6 +127,8 @@ export function PostComposer({
     null
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingParticipantMeckyPost, setPendingParticipantMeckyPost] =
+    useState<PendingStagingParticipantMeckyMirror | null>(null);
 
   // Keep local feed selection in sync when the active tab changes
   useEffect(() => {
@@ -425,6 +430,8 @@ export function PostComposer({
             });
             participantMeckyMirrored = mirrored.success;
             participantMeckyDeferred = !mirrored.success;
+            if (!mirrored.success) setPendingParticipantMeckyPost(mirrored.pending ?? null);
+            else setPendingParticipantMeckyPost(null);
           }
         }
         // Reset form
@@ -652,6 +659,34 @@ export function PostComposer({
       {isStagingParticipant && (
         <div className="mx-4 mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
           {stagingParticipant.label}. Erlaubt sind nur Textbeiträge im normalen Feed.
+        </div>
+      )}
+
+      {isStagingParticipant && pendingParticipantMeckyPost && (
+        <div className="mx-4 mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+          <p>Der Beitrag ist veröffentlicht; die signierte Mecky-Anfrage wartet noch auf einen sicheren Versand.</p>
+          <button
+            type="button"
+            className="mt-1 font-semibold underline disabled:opacity-50"
+            disabled={isSubmitting}
+            onClick={async () => {
+              const retry = await mirrorStagingParticipantMeckyPost({
+                sourcePost: pendingParticipantMeckyPost.sourcePost,
+                session: citizenSession,
+                retry: pendingParticipantMeckyPost,
+              });
+              if (retry.success) {
+                setPendingParticipantMeckyPost(null);
+                toast.success("Mecky wurde signiert gefragt.");
+                router.push(`/app/posts/${pendingParticipantMeckyPost.sourcePost.id}`);
+              } else {
+                setPendingParticipantMeckyPost(retry.pending ?? pendingParticipantMeckyPost);
+                toast.warning("Mecky ist noch nicht sicher erreichbar; die Anfrage bleibt zum erneuten Versuch erhalten.");
+              }
+            }}
+          >
+            Mecky-Anfrage erneut senden
+          </button>
         </div>
       )}
 

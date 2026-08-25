@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
+import { createHash } from "node:crypto";
 import {
   bindingStatement,
   verifyBindingEvent,
@@ -28,6 +29,7 @@ import type {
   MeckyMirrorAdapter,
   StagingParticipantDataAdapter,
   StagingParticipantGatewayConfig,
+  StagingParticipantMirrorReceipt,
   WalletSignatureVerifier,
 } from "./types.ts";
 
@@ -67,11 +69,6 @@ export type StagingParticipantGatewayDependencies = Readonly<{
    * atomically-consuming store before it is enabled.
    */
   challengeStore?: ChallengeStore;
-}>;
-
-type MirroredRequest = Readonly<{
-  fingerprint: string;
-  result: Promise<Readonly<{ status: "published"; eventId: string }>>;
 }>;
 
 function json(value: unknown, status = 200, origin?: string): Response {
@@ -150,7 +147,14 @@ function exactMeckyTags(event: NostrEvent, meckyPubkey: string, sourcePostId: st
 }
 
 function containsExplicitMeckyMention(content: string): boolean {
-  return /(?:^|\s)@mecky\b/iu.test(content);
+  // Keep the same boundary semantics as the Röbel composer. The tags remain
+  // the authority at this HTTP boundary; this check merely rejects a signed
+  // event that does not faithfully mirror an explicit source mention.
+  return /(^|[^\p{L}\p{N}_])@mecky(?![\p{L}\p{N}_])/iu.test(content);
+}
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 function admissionProof(value: unknown, walletAddress: string): Readonly<{
@@ -249,8 +253,6 @@ export function createStagingParticipantGatewayHandler(
   if (origin !== config.origin) throw new Error("staging_participant_gateway_origin_invalid");
   const now = dependencies.now ?? (() => new Date());
   const store = dependencies.challengeStore ?? new Map();
-  const mirroredRequests = new Map<string, MirroredRequest>();
-  const mirroredSources = new Map<string, Readonly<{ eventId: string; result: Promise<Readonly<{ status: "published"; eventId: string }>> }>>();
 
   return async (request) => {
     const url = new URL(request.url);
@@ -403,17 +405,6 @@ export function createStagingParticipantGatewayHandler(
         !exactMeckyTags(event, config.meckyPubkey, sourcePostId)) {
         return json({ error: "nostr_post_invalid" }, 400, origin);
       }
-      const fingerprint = JSON.stringify({ sourcePostId, admissionProof: proof.workbenchProof, event });
-      const requestKey = `${session.walletAddress}:${requestId}`;
-      const previousRequest = mirroredRequests.get(requestKey);
-      if (previousRequest) {
-        if (previousRequest.fingerprint !== fingerprint) return json({ error: "request_reused" }, 409, origin);
-        try {
-          return json({ status: "published", eventId: (await previousRequest.result).eventId, authority: "none" }, 200, origin);
-        } catch {
-          return json({ error: "mirror_unavailable" }, 503, origin);
-        }
-      }
       let source;
       try {
         source = await dependencies.data.readOwnedMainTextPost({ walletAddress: session.walletAddress, postId: sourcePostId });
@@ -433,20 +424,38 @@ export function createStagingParticipantGatewayHandler(
         return json({ error: "verification_unavailable" }, 503, origin);
       }
       if (!walletSignatureValid) return json({ error: "wallet_signature_invalid" }, 401, origin);
-      const sourceKey = `${event.pubkey}:${sourcePostId}`;
-      const previousSource = mirroredSources.get(sourceKey);
-      if (previousSource && previousSource.eventId !== event.id) return json({ error: "source_already_mirrored" }, 409, origin);
-      const result = previousSource?.result ?? dependencies.mirror.mirrorPost({ admissionProof: proof.workbenchProof, event });
-      mirroredRequests.set(requestKey, { fingerprint, result });
-      mirroredSources.set(sourceKey, { eventId: event.id, result });
+      const receiptInput = {
+        walletAddress: session.walletAddress,
+        sourcePostId,
+        requestId,
+        eventId: event.id,
+        contentSha256: sha256Hex(source.content),
+      };
+      let receipt: StagingParticipantMirrorReceipt;
       try {
-        const published = await result;
-        return json({ status: published.status, eventId: published.eventId, authority: "none" }, previousSource ? 200 : 201, origin);
-      } catch {
-        // A failed upstream result is never retained as an idempotency success;
-        // allow the identical bounded request to be attempted again.
-        mirroredRequests.delete(requestKey);
-        if (!previousSource) mirroredSources.delete(sourceKey);
+        receipt = await dependencies.data.reserveNostrPostMirror(receiptInput);
+      } catch (error) {
+        if (error instanceof Error && error.message === "staging_participant_mirror_conflict") {
+          return json({ error: "source_already_mirrored" }, 409, origin);
+        }
+        return json({ error: "mirror_receipt_unavailable" }, 503, origin);
+      }
+      if (receipt.state === "published") {
+        return json({ status: "published", eventId: receipt.event_id, authority: "none" }, 200, origin);
+      }
+      try {
+        const published = await dependencies.mirror.mirrorPost({ admissionProof: proof.workbenchProof, event });
+        if (published.status !== "published" || published.eventId !== receipt.event_id) {
+          return json({ error: "mirror_unavailable" }, 503, origin);
+        }
+        const completed = await dependencies.data.completeNostrPostMirror(receiptInput);
+        return json({ status: "published", eventId: completed.event_id, authority: "none" }, 201, origin);
+      } catch (error) {
+        if (error instanceof Error && error.message === "staging_participant_mirror_conflict") {
+          return json({ error: "source_already_mirrored" }, 409, origin);
+        }
+        // The durable reservation deliberately remains. A retry can only ever
+        // publish this exact event id; it cannot substitute a new signed note.
         return json({ error: "mirror_unavailable" }, 503, origin);
       }
     }

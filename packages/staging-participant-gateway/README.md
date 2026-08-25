@@ -38,8 +38,9 @@ The process fails closed unless all of these are present:
 | `ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_URL` | exact cluster-local HTTP workbench URL; public URLs fail closed |
 | `ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_ADMISSION_HEADER` | fixed existing gate: `x-stadtstack-e2e:1` |
 
-The RPC secret is sent only to the two write functions and one exact
-participant-owned-source read function as a private header.
+The RPC secret is sent only to two write functions, one exact
+participant-owned-source read, and the two durable mirror-receipt transitions
+as a private header.
 It is not a Supabase service-role key, custom database JWT, citizen credential,
 or cluster credential. Do not log request headers.
 
@@ -59,6 +60,11 @@ exact source ownership/content and exactly these tags must agree:
 The private adapter first calls the existing workbench admission endpoint and
 then its fixed `intent: "post"` endpoint. It cannot select a workbench method,
 event intent, conversation, promotion, argument, case, vote or treasury action.
+Its target is pinned byte-for-byte to
+`http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/`;
+another cluster Service, namespace, port, path, credentials, or header fails
+closed. A relay failure leaves the same immutable receipt `reserved`, so a
+retry can only repeat the identical signed event—not replace it.
 
 Session cookies are always `Secure`, `HttpOnly`, and `SameSite=Strict`; no
 runtime flag can weaken that production resolver. The first deployment must
@@ -68,6 +74,15 @@ store prunes stale/consumed entries, replaces an older challenge for the same
 wallet, and has a hard capacity. Ingress must additionally rate-limit these
 six paths. A multi-replica deployment requires a durable atomic
 `ChallengeStore` implementation and corresponding replay tests first.
+
+## Activation prerequisite
+
+The code does **not** claim that the required NetworkPolicies already exist.
+Before activation, GitOps must review an exact gateway egress allowance only to
+the pinned workbench Service on TCP 18083, and a reciprocal workbench ingress
+allowance only from the gateway's exact ServiceAccount/pod selector on TCP
+18083. DNS, Gnosis RPC and staging Supabase remain separately constrained.
+Without both directions, leave `nostr-post` disabled.
 
 ## Source verification
 

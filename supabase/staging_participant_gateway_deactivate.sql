@@ -1,6 +1,6 @@
 -- Catalog-bound compatibility deactivation for ADR 0021.
 --
--- Run only after the five ingress routes have been removed. This preserves all
+-- Run only after the six ingress routes have been removed. This preserves all
 -- participant audit/admission rows and public staging evidence while restoring
 -- the exact function definition and grants captured by the activation
 -- transaction. It intentionally does not drop the dedicated private schema.
@@ -30,6 +30,10 @@ begin
   revoke all on function public.staging_participant_gateway_create_main_text_comment(text, uuid, text, uuid)
     from public, anon, authenticated;
   revoke all on function public.staging_participant_gateway_read_owned_main_text_post(text, uuid)
+    from public, anon, authenticated;
+  revoke all on function public.staging_participant_gateway_reserve_nostr_post_mirror(text, uuid, uuid, text, text)
+    from public, anon, authenticated;
+  revoke all on function public.staging_participant_gateway_complete_nostr_post_mirror(text, uuid, uuid, text, text)
     from public, anon, authenticated;
 
   -- Normalize the exact activation-owned privilege surface before restoring

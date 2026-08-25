@@ -1,5 +1,5 @@
 import type { StagingParticipantGatewayConfig } from "./types.ts";
-import type { PrivateWorkbenchMirrorConfig } from "./workbench-adapter.ts";
+import { PRIVATE_WORKBENCH_URL, type PrivateWorkbenchMirrorConfig } from "./workbench-adapter.ts";
 
 export type ProductionGatewayConfig = Readonly<{
   gateway: StagingParticipantGatewayConfig;
@@ -86,8 +86,9 @@ export function resolveProductionGatewayConfig(
   }
   if (originUrl.origin !== origin || originUrl.protocol !== "https:" ||
     gnosisUrl.protocol !== "https:" || supabaseUrlValue.protocol !== "https:" ||
+    workbenchUrl !== PRIVATE_WORKBENCH_URL ||
+    workbenchUrlValue.href !== PRIVATE_WORKBENCH_URL ||
     workbenchUrlValue.protocol !== "http:" ||
-    !workbenchUrlValue.hostname.endsWith(".svc.cluster.local") ||
     Boolean(workbenchUrlValue.username) || Boolean(workbenchUrlValue.password) ||
     workbenchUrlValue.pathname !== "/" || Boolean(workbenchUrlValue.search) || Boolean(workbenchUrlValue.hash) ||
     !["127.0.0.1", "0.0.0.0"].includes(host)) return null;

@@ -45,7 +45,7 @@ test("participant status fails closed and uses only the exact same-origin gatewa
   });
 });
 
-test("participant mutations send closed versioned bodies to the five-route gateway", async () => {
+test("participant mutations send closed versioned bodies to the six-route gateway", async () => {
   const calls: Array<{ path: string; init: RequestInit }> = [];
   globalThis.fetch = async (input, init) => {
     calls.push({ path: String(input), init: init ?? {} });
@@ -154,6 +154,45 @@ test("a successful participant post can produce only one post-only Mecky mirror 
   ]);
   assert.equal(call?.body.schemaVersion, "staging_participant_nostr_post_request_v1");
   assert.doesNotMatch(JSON.stringify(call?.body), /promotion|argument|case|vote|treasury/u);
+});
+
+test("a failed participant mirror retains the exact signed body for retry instead of signing a replacement", async () => {
+  const bodies: string[] = [];
+  globalThis.fetch = async (_input, init) => {
+    bodies.push(String(init?.body));
+    return new Response(JSON.stringify({ error: "mirror_unavailable" }), {
+      status: 503, headers: { "content-type": "application/json" },
+    });
+  };
+  let admissions = 0;
+  let signed = 0;
+  const session = {
+    async createAdmissionProof() { admissions += 1; return { schemaVersion: "roebel_citizen_admission_proof_v1" }; },
+    async signPublicPost(input: { content: string; mentionPubkeys?: readonly string[]; sourceAppPostId?: string }) {
+      signed += 1;
+      return {
+        id: "a".repeat(64), pubkey: "b".repeat(64), created_at: 1, kind: 1,
+        tags: [["p", input.mentionPubkeys?.[0] ?? ""], ["source-app-post", input.sourceAppPostId ?? ""]],
+        content: input.content, sig: "c".repeat(128),
+      };
+    },
+  } as never;
+  const sourcePost = { id: "11111111-1111-4111-8111-111111111111", content: "@Mecky, bitte einordnen" };
+  const first = await mirrorStagingParticipantMeckyPost({ sourcePost, session, meckyPubkey: "d".repeat(64) });
+  assert.equal(first.success, false);
+  assert.ok(first.pending);
+  const second = await mirrorStagingParticipantMeckyPost({
+    sourcePost,
+    retry: first.pending,
+    meckyPubkey: "d".repeat(64),
+  });
+  assert.equal(second.success, false);
+  assert.equal(admissions, 1);
+  assert.equal(signed, 1);
+  assert.equal(bodies.length, 4);
+  assert.equal(bodies[0], bodies[1]);
+  assert.equal(bodies[1], bodies[2]);
+  assert.equal(bodies[2], bodies[3]);
 });
 
 test("participant UI never sends its writes through the public Web server actions", () => {

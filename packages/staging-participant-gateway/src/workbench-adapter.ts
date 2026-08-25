@@ -2,6 +2,8 @@ import type { MeckyMirrorAdapter } from "./types.ts";
 
 const ADMIT_PATH = "/api/session/admit";
 const POST_PATH = "/api/signed-event";
+export const PRIVATE_WORKBENCH_URL =
+  "http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/";
 
 export type PrivateWorkbenchMirrorConfig = Readonly<{
   /** Exact cluster-local workbench base URL; no browser origin is accepted. */
@@ -19,10 +21,11 @@ function validate(config: PrivateWorkbenchMirrorConfig): URL {
     throw new Error("staging_participant_workbench_url_invalid");
   }
   if (
+    config.url !== PRIVATE_WORKBENCH_URL ||
+    url.href !== PRIVATE_WORKBENCH_URL ||
     url.protocol !== "http:" ||
-    !url.hostname.endsWith(".svc.cluster.local") ||
     url.username || url.password || url.pathname !== "/" || url.search || url.hash ||
-    !/^x-stadtstack-e2e$/iu.test(config.admissionHeader.name) ||
+    config.admissionHeader.name !== "x-stadtstack-e2e" ||
     config.admissionHeader.value !== "1"
   ) {
     throw new Error("staging_participant_workbench_config_invalid");

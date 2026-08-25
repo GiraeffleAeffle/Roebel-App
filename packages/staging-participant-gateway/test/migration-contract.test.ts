@@ -18,7 +18,7 @@ const deactivation = readFileSync(
   "utf8",
 );
 
-test("migration exposes only the two write RPCs plus one exact owned-source read RPC", () => {
+test("migration exposes only two writes, one exact source read, and two durable mirror receipt RPCs", () => {
   assert.match(migration, /vault\.decrypted_secrets/u);
   assert.match(migration, /roebel_staging_participant_environment_arm/u);
   assert.match(migration, /x-staging-participant-rpc-secret/u);
@@ -34,11 +34,33 @@ test("migration exposes only the two write RPCs plus one exact owned-source read
     migration,
     /grant execute on function public\.staging_participant_gateway_create_main_text_comment[\s\S]*to anon;/u,
   );
+  assert.match(
+    migration,
+    /grant execute on function public\.staging_participant_gateway_reserve_nostr_post_mirror[\s\S]*to anon;/u,
+  );
+  assert.match(
+    migration,
+    /grant execute on function public\.staging_participant_gateway_complete_nostr_post_mirror[\s\S]*to anon;/u,
+  );
   assert.doesNotMatch(migration, /create role staging_participant_writer/iu);
   assert.doesNotMatch(migration, /is_staging_test_participant/iu);
   assert.doesNotMatch(adapter, /service_role|writerToken|staging_participant_writer/u);
   assert.match(adapter, /authorization: `Bearer \$\{config\.anonKey\}`/u);
   assert.match(adapter, /"x-staging-participant-rpc-secret": config\.rpcSecret/u);
+});
+
+test("mirror receipt is durable, source-bound, and cannot authorize replacement after a crash", () => {
+  assert.match(migration, /staging_participant_nostr_post_mirror_receipts/u);
+  assert.match(migration, /primary key \(wallet_address, source_post_id\)/u);
+  assert.match(migration, /request_id uuid not null unique/u);
+  assert.match(migration, /pg_advisory_xact_lock\(hashtextextended\(v_wallet \|\| ':' \|\| p_source_post_id::text/u);
+  assert.match(migration, /STAGING_PARTICIPANT_MIRROR_SOURCE_REUSED/u);
+  assert.match(migration, /STAGING_PARTICIPANT_MIRROR_REQUEST_REUSED/u);
+  assert.match(migration, /extensions\.digest\(p\.content, 'sha256'\) = v_content_sha/u);
+  assert.match(migration, /state = 'published', published_at = now\(\)/u);
+  assert.match(adapter, /reserveNostrPostMirror/u);
+  assert.match(adapter, /completeNostrPostMirror/u);
+  assert.match(adapter, /staging_participant_mirror_conflict/u);
 });
 
 test("the source read can return only an exact participant-created ordinary post", () => {
@@ -111,6 +133,7 @@ test("activation captures and deactivation restores compatibility state without 
   assert.match(deactivation, /grant %s on function %s/u);
   assert.match(deactivation, /revoke all on function public\.pin_own_post/u);
   assert.match(deactivation, /revoke all on function public\.staging_participant_gateway_read_owned_main_text_post/u);
+  assert.match(deactivation, /revoke all on function public\.staging_participant_gateway_reserve_nostr_post_mirror/u);
   assert.doesNotMatch(deactivation, /drop schema|delete from public\.(posts|post_comments)/iu);
 });
 
@@ -120,6 +143,7 @@ test("every private capability and audit table has RLS enabled with no public po
     "staging_participant_admissions",
     "staging_participant_write_reservations",
     "staging_participant_write_audit",
+    "staging_participant_nostr_post_mirror_receipts",
     "staging_participant_prior_function_definitions",
     "staging_participant_prior_privileges",
   ]) {

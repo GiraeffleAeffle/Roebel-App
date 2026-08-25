@@ -21,7 +21,7 @@ const env = {
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_PORT: "18085",
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_MECKY_PUBKEY: "a".repeat(64),
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_URL:
-    "http://stadtstack-roebel-e2e.stadtstack-roebel-web-preview.svc.cluster.local:18083",
+    "http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/",
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_ADMISSION_HEADER: "x-stadtstack-e2e:1",
 };
 
@@ -66,6 +66,15 @@ const COMMENT = {
   author_profile_picture_url: null,
 };
 
+const MIRROR_RECEIPT = {
+  wallet_address: POST.wallet_address,
+  source_post_id: POST.id,
+  request_id: "20000000-0000-4000-8000-000000000003",
+  event_id: "a".repeat(64),
+  content_sha256: "b".repeat(64),
+  state: "reserved",
+};
+
 test("production configuration fails closed unless explicit staging mode and every dedicated input is present", () => {
   assert.equal(resolveProductionGatewayConfig({}), null);
   assert.equal(resolveProductionGatewayConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY: "true" }), null);
@@ -79,6 +88,11 @@ test("production configuration fails closed unless explicit staging mode and eve
   assert.equal(resolveProductionGatewayConfig({
     ...env,
     ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_URL: "https://public.example",
+  }), null);
+  assert.equal(resolveProductionGatewayConfig({
+    ...env,
+    ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_URL:
+      "http://e2e-workbench.other.svc.cluster.local:18083/",
   }), null);
   assert.equal(resolveProductionGatewayConfig({
     ...env,
@@ -111,7 +125,14 @@ test("Supabase adapter invokes only named Vault-checked RPCs and never a service
     rpcSecret: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET,
     fetch: async (url, init) => {
       calls.push({ url: String(url), headers: new Headers(init?.headers), body: JSON.parse(String(init?.body)) });
-      return new Response(JSON.stringify(String(url).includes("comment") ? COMMENT : POST), { status: 200 });
+      const target = String(url);
+      if (target.includes("reserve_nostr_post_mirror")) {
+        return new Response(JSON.stringify(MIRROR_RECEIPT), { status: 200 });
+      }
+      if (target.includes("complete_nostr_post_mirror")) {
+        return new Response(JSON.stringify({ ...MIRROR_RECEIPT, state: "published" }), { status: 200 });
+      }
+      return new Response(JSON.stringify(target.includes("comment") ? COMMENT : POST), { status: 200 });
     },
   });
   await adapter.createMainTextPost({
@@ -128,10 +149,22 @@ test("Supabase adapter invokes only named Vault-checked RPCs and never a service
     walletAddress: "0x1111111111111111111111111111111111111111",
     postId: "10000000-0000-4000-8000-000000000001",
   });
+  await adapter.reserveNostrPostMirror({
+    walletAddress: POST.wallet_address, sourcePostId: POST.id,
+    requestId: MIRROR_RECEIPT.request_id, eventId: MIRROR_RECEIPT.event_id,
+    contentSha256: MIRROR_RECEIPT.content_sha256,
+  });
+  await adapter.completeNostrPostMirror({
+    walletAddress: POST.wallet_address, sourcePostId: POST.id,
+    requestId: MIRROR_RECEIPT.request_id, eventId: MIRROR_RECEIPT.event_id,
+    contentSha256: MIRROR_RECEIPT.content_sha256,
+  });
   assert.deepEqual(calls.map((call) => call.url), [
     `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.createMainTextPost}`,
     `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.createMainTextComment}`,
     `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.readOwnedMainTextPost}`,
+    `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.reserveNostrPostMirror}`,
+    `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.completeNostrPostMirror}`,
   ]);
   assert.equal(calls[0]?.headers.get("apikey"), env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_ANON_KEY);
   assert.equal(calls[0]?.headers.get("authorization"), `Bearer ${env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_ANON_KEY}`);

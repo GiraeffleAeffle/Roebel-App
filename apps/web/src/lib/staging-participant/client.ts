@@ -24,6 +24,17 @@ export type StagingParticipantResult<T> = {
   error?: string;
 };
 
+/**
+ * Retained browser-only retry payload. The gateway receipt accepts only this
+ * original signed event and request id after a transient workbench failure.
+ */
+export type PendingStagingParticipantMeckyMirror = Readonly<{
+  sourcePost: Pick<Post, "id" | "content">;
+  requestId: string;
+  admissionProof: unknown;
+  event: unknown;
+}>;
+
 function errorMessage(body: unknown, fallback: string): string {
   if (!body || typeof body !== "object") return fallback;
   const direct = (body as { error?: unknown }).error;
@@ -157,36 +168,47 @@ export function createStagingParticipantComment(
 
 export async function mirrorStagingParticipantMeckyPost(input: Readonly<{
   sourcePost: Pick<Post, "id" | "content">;
-  session: CitizenSession;
+  session?: CitizenSession;
   meckyPubkey?: string;
-}>): Promise<StagingParticipantResult<{ status: "published"; eventId: string }>> {
+  retry?: PendingStagingParticipantMeckyMirror;
+}>): Promise<StagingParticipantResult<{ status: "published"; eventId: string }> & {
+  pending?: PendingStagingParticipantMeckyMirror;
+}> {
   const meckyPubkey = (input.meckyPubkey ?? process.env.NEXT_PUBLIC_STAGING_PARTICIPANT_MECKY_PUBKEY ?? "").toLowerCase();
   if (!/^[0-9a-f]{64}$/u.test(meckyPubkey)) {
     return { success: false, error: "Mecky ist für diese Staging-Teilnahme noch nicht konfiguriert" };
   }
   try {
-    // The source row already exists at this point. The gateway independently
-    // proves ownership/content before it is allowed to forward either proof.
-    const [admissionProof, event] = await Promise.all([
-      input.session.createAdmissionProof(),
-      input.session.signPublicPost({
-        content: input.sourcePost.content,
-        mentionPubkeys: [meckyPubkey],
-        sourceAppPostId: input.sourcePost.id,
-      }),
-    ]);
-    return await request(
+    const pending = input.retry ?? (input.session ? await (async () => {
+      // The source row already exists at this point. The gateway independently
+      // proves ownership/content before it is allowed to forward either proof.
+      const [admissionProof, event] = await Promise.all([
+        input.session!.createAdmissionProof(),
+        input.session!.signPublicPost({
+          content: input.sourcePost.content,
+          mentionPubkeys: [meckyPubkey],
+          sourceAppPostId: input.sourcePost.id,
+        }),
+      ]);
+      return { sourcePost: input.sourcePost, requestId: newRequestId(), admissionProof, event };
+    })() : null);
+    if (!pending || pending.sourcePost.id !== input.sourcePost.id ||
+      pending.sourcePost.content !== input.sourcePost.content) {
+      return { success: false, error: "Die signierte Mecky-Anfrage kann nicht sicher wiederhergestellt werden" };
+    }
+    const result = await request(
       "nostr-post",
       {
         schemaVersion: NOSTR_POST_SCHEMA,
-        requestId: newRequestId(),
-        sourcePostId: input.sourcePost.id,
-        admissionProof,
-        event,
+        requestId: pending.requestId,
+        sourcePostId: pending.sourcePost.id,
+        admissionProof: pending.admissionProof,
+        event: pending.event,
       },
       "Der Beitrag ist veröffentlicht, aber Mecky konnte noch nicht sicher erreicht werden",
       true,
     );
+    return result.success ? result : { ...result, pending };
   } catch {
     return { success: false, error: "Der Beitrag ist veröffentlicht, aber Mecky konnte noch nicht sicher erreicht werden" };
   }
