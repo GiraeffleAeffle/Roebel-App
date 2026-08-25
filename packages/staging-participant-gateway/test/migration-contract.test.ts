@@ -100,3 +100,23 @@ test("activation captures and deactivation restores compatibility state without 
   assert.match(deactivation, /revoke all on function public\.pin_own_post/u);
   assert.doesNotMatch(deactivation, /drop schema|delete from public\.(posts|post_comments)/iu);
 });
+
+test("every private capability and audit table has RLS enabled with no public policy", () => {
+  for (const table of [
+    "staging_participant_environment",
+    "staging_participant_admissions",
+    "staging_participant_write_reservations",
+    "staging_participant_write_audit",
+    "staging_participant_prior_function_definitions",
+    "staging_participant_prior_privileges",
+  ]) {
+    assert.match(
+      migration,
+      new RegExp(
+        `alter table staging_participant_private\\.${table}\\s+enable row level security`,
+        "u",
+      ),
+    );
+  }
+  assert.doesNotMatch(migration, /create\s+policy/iu);
+});

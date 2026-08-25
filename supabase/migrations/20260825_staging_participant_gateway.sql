@@ -216,6 +216,21 @@ create table staging_participant_private.staging_participant_prior_privileges (
   primary key (object_kind, object_identity, grantee, privilege_type)
 );
 
+-- Defense in depth for the private capability/audit catalog. No public policy
+-- is created; only the owning SECURITY DEFINER functions may use these rows.
+alter table staging_participant_private.staging_participant_environment
+  enable row level security;
+alter table staging_participant_private.staging_participant_admissions
+  enable row level security;
+alter table staging_participant_private.staging_participant_write_reservations
+  enable row level security;
+alter table staging_participant_private.staging_participant_write_audit
+  enable row level security;
+alter table staging_participant_private.staging_participant_prior_function_definitions
+  enable row level security;
+alter table staging_participant_private.staging_participant_prior_privileges
+  enable row level security;
+
 insert into staging_participant_private.staging_participant_prior_privileges
   (object_kind, object_identity, grantee, privilege_type, is_grantable)
 select 'table', pg_catalog.format('%I.%I', n.nspname, c.relname),
