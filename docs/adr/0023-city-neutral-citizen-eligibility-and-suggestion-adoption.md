@@ -1,6 +1,6 @@
 # ADR 0023: City-neutral citizen eligibility and suggestion adoption
 
-- Status: Proposed boundary for staging; implementation pending
+- Status: Accepted boundary for staging; implementation pending
 - Date: 2026-08-25
 
 ## Context
