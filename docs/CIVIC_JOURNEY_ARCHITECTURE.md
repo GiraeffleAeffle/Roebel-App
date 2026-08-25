@@ -2,7 +2,7 @@
 
 This is the navigation page for the discussion-to-outcome work. It records where the durable language, decisions, implementation specification, code, and operations live so a future slice extends the same journey instead of creating another parallel demo.
 
-## Testability checkpoint at 2026-08-24
+## Testability checkpoint at 2026-08-25
 
 The complete journey is **not yet accepted end to end in Talos staging**. The
 code candidates and authority boundaries are substantially ahead of the live
@@ -10,11 +10,12 @@ deployment:
 
 | Boundary | Current fact | Gate to the first whole-flow browser test |
 | --- | --- | --- |
-| Reviewed source | Application source `5ec17b126c585238c4a94ffd916d14f3f6f876dd` was published as immutable Release Set candidate `sha256:98ac937840a4ee0d79d8c2a3524f962616552738d5bb97ebca0a23d0458939c9`; Web and Public Mecky evidence were read back and verified. | Merge the reviewed mixed-source promotion fix, then promote that exact Release Set through the protected operations repository. |
-| Talos delivery | Flux is active with namespace-scoped ownership of the named Web and Public Mecky resources. Its reconciler can update only the reviewed named Ingress and NetworkPolicy; create, delete, Secrets, ConfigMaps and other names are denied. The public HTTP boundary permits GET/HEAD and only exact POST `/api/chat/mecky`. | Promote the current immutable Release Set and retain the previous head for compare-and-swap rollback. |
-| Existing Web | The public app and exact Mecky chat route respond, but the latest source, Thirdweb client ID and transient-inference retry have not yet been accepted together in one browser receipt. | Promote the current release, then pass signup, ordinary post, post detail and civic-navigation semantic QA. |
-| Thirdweb staging login | A browser-public Thirdweb client ID is now supplied outside Git. No Thirdweb server secret is required by the browser path. | Promote it, confirm the staging origin is allowed in Thirdweb, and prove signup before claiming Slice 1 complete. |
-| Public Mecky | The live endpoint answers behind the exact POST boundary; source `5ec17b12…` adds one bounded retry for transient provider failures. | Promote the retry digest and prove one same-thread, signed, citation-bound reply from a connected account. |
+| Reviewed source | Application source `7f691b4de76c15cf72c18dc12f86003399015be0` is live as Web digest `sha256:e6a8b2f26acc1f22c5f8e13ea78d5355331a2d584bb1547614c286407806fdef`; Public Mecky is live as `sha256:2a47e…c46826`. | Publish the participant-gateway source and one reviewed Web UI integration as separate immutable components. |
+| Talos delivery | Flux owns the reviewed Web and Public Mecky resources. The public Web remains read-only: `GET`/`HEAD` plus exact `POST /api/chat/mecky`. | Add a separately owned, namespace-scoped participant gateway and route only its five exact method/path pairs; keep rollback to the current Release Set. |
+| Existing Web | The public app, post details, proposal view and exact Mecky chat respond. The Web pod has no database writer credential by design. | Point the constrained participant UI at the separate gateway and pass feed/post-detail semantic QA. |
+| Thirdweb staging login | A real browser-public client ID is live. Google sign-in completes and a connected ephemeral guest profile loads; that account is correctly not a verified citizen. | Prove its EOA/ERC-1271/ERC-6492 wallet signature at the gateway, then write only through the bounded staging capability. |
+| Staging participant gateway | ADR 0021 fixes the isolated write boundary; package, restricted database functions, immutable image and GitOps resources are in progress. | Deploy it, create one text post/comment, revoke the admission, and prove the next write fails. |
+| Public Mecky | The live endpoint answers behind the exact chat boundary with the reviewed evidence policy and no civic authority. | Bind one participant post/mention to the signed-Nostr workbench and prove one same-thread, citation-bound reply. |
 | Case Steward admission | The public Stadtstack repository contains the atomic signed-topic admission kernel; the current source candidate adds a municipality-scoped asynchronous control contract, atomic durable-port requirement and a separately typed GET-only binding reader. No listener, durable root-claim/outbox adapter, staff console, public deployment or GitOps resources exist yet. Public admission/completion commands are removed; one legacy server-side token remains only for the diagnostic administration read. | Complete ADR 0019 with separate staff/public deployables, staff authentication, transactional root claim and outbox replay, credential-free public read, token removal and browser acceptance. |
 | Sovereign identity | The provider-neutral `CitizenSession`, structural Safe adapter, dual-control proof envelope and effect-free three-proof verifier exist. | WebAuthn creation/recovery, real Safe deployment/control, Pimlico execution, authenticated route, durable multi-replica challenges, stable member/credential persistence and opt-in deployed E2E are still required. |
 
@@ -26,6 +27,10 @@ checklist is [Stadtstack issue #25](https://github.com/GiraeffleAeffle/stadtstac
 ## Product position
 
 The Röbel app is a general local social app first. A post about an event, a business, a personal observation, or local news remains a normal post. When a person identifies a shared problem or wants a structured public process, they explicitly promote that signed post into a civic topic or discussion.
+
+Röbel is the reference public experience for the active tracer. No Röbel,
+Strausberg, or other city-specific identifier belongs in the interoperability
+contract; city names and IDs in tests are fixtures, not protocol constants.
 
 The resulting civic journey stays visible as one attributable line:
 
@@ -62,6 +67,7 @@ Stages are connected through identifiers and receipts, not collapsed into one re
 | [ADR 0018](adr/0018-separate-public-journey-and-operator-console-build-boundaries.md)  | proposed                  | Separate the public journey from privileged operator routes so authority and builds scale independently. |
 | [ADR 0019](adr/0019-role-isolated-case-steward-admission-and-public-binding-receipts.md) | accepted boundary; deployment pending | Keep Civic Case admission out of the public Web and advance the journey through a public-safe binding receipt. |
 | [ADR 0020](adr/0020-event-driven-attested-release-handoff.md)                         | proposed; bootstrap pending | Replace cron-only staging promotion latency with an exact, attested event handoff while retaining protected human review and recovery paths. |
+| [ADR 0021](adr/0021-bounded-staging-participant-gateway.md)                           | accepted boundary; deployment pending | Let an invited real account exercise the staging feed without putting write authority or citizen claims in the public Web. |
 
 Canonical terms live in [`CONTEXT.md`](../CONTEXT.md). The integrated staging contract lives in [`2026-08-13-real-staging-topic-identity-and-administration-flow.md`](superpowers/specs/2026-08-13-real-staging-topic-identity-and-administration-flow.md).
 
@@ -74,9 +80,10 @@ Canonical terms live in [`CONTEXT.md`](../CONTEXT.md). The integrated staging co
 | Civic journey        | stable topic header, stages, provenance, navigation             | authority belonging to administration, governance, or treasury |
 | Discussion stage     | signed root/replies, argument tree and sunburst                 | votes or administrative conclusions                            |
 | Mecky stage          | reviewed evidence, citations, uncertainty, suggested actions    | human signatures or official positions                         |
+| Participant gateway  | short-lived wallet proof and constrained staging text post/comment writes | citizenship, organisation identity, Case, vote, treasury, administration, or broad Web mutation |
 | Proposal stage       | exact derivation and citizen signatures                           | admission credentials or silent promotion from social content |
 | Case Steward console | staff-authenticated admission and its exact public receipt         | public social posting, Mecky output, later administrative approval |
-| openDesk adapter     | human administrative work and returned packages                 | public discussion ownership                                    |
+| Municipal workspace adapter | human administrative work in Kair/openDesk (or equivalent) plus returned municipality-attributed publications/receipts | public discussion ownership or self-created municipal authority |
 | Röbel Data mini-app  | bounded governance/budget exploration within a stage            | canonical topic/case state or treasury execution               |
 | Mitmachen            | case-bound Citizen Brief, budget context, advisory participation | detached profiles, ambiguous votes, or treasury authority      |
 
@@ -145,10 +152,11 @@ accepted only when an isolated no-publish run demonstrates a material gain.
 | Concern                                                | Source of truth                                                        |
 | ------------------------------------------------------ | ---------------------------------------------------------------------- |
 | Röbel feed, post promotion, journey UX, login adapters | public Röbel App repository                                            |
+| Bounded real-account staging writes                    | participant gateway package plus separately scoped private GitOps owner |
 | Signed Nostr posts and discussion graph                | configured public/staging relay plus idempotent publication ledger     |
 | Mecky evidence/reply policy                            | public contract and private reviewed runtime configuration             |
 | Civic case and deterministic transitions               | Stadtstack coordinator/runtime                                         |
-| Administration work                                    | openDesk through an idempotent outbox/return adapter                   |
+| Administration work and publication                    | municipality-operated Kair/openDesk (or equivalent) through an idempotent outbox/return adapter |
 | Governance and treasury                                | their own reviewed contracts and signer policies; projected into Röbel |
 | Talos deployment, secrets, immutable digests           | private operations repository reconciled by namespace-scoped Flux      |
 
@@ -159,11 +167,11 @@ No public application repository receives cluster-admin credentials or secret va
 | Slice                                | User-visible exit test                                                                                                                             | State                                                                                                                                                                                              |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0. Vocabulary and boundaries         | One reviewed definition of post, topic, discussion, proposal, case, vote, and treasury state                                                       | documented in this branch                                                                                                                                                                          |
-| 1. General signed feed               | A real staging account publishes an ordinary signed Nostr post in the normal feed                                                                  | Thirdweb-backed `CitizenSession`, dual-proof admission and pre-signed event path implemented; immutable deployment and browser E2E pending                                                         |
+| 1. General signed feed               | A real staging account publishes an ordinary signed Nostr post in the normal feed                                                                  | real Thirdweb login is live; bounded Supabase post/comment gateway is the active tracer seam, followed by wallet-to-Nostr binding and deployed browser E2E                                         |
 | 2. Explicit civic promotion          | The user attaches that post to a topic or creates a discussion; the source remains attributable                                                    | browser-signed author-only promotion, grouped feed activity, and a canonical topic hub are implemented; the writer-side one-source/one-root retry claim and optional exact conversation provenance are the active tracer, while a trusted Röbel-row resolver remains a production gate |
 | 3. Real Mecky loop                   | The user tags Mecky and receives one evidence-bound signed reply in the same thread                                                                | signed source-bound direct mentions, per-request pending/answered projections, reviewed Civic Cases, and explicitly enabled checksum-bound news/RIS projections compose into one catalog; the durable request UI is merged and publishing, while connected-account browser E2E remains |
 | 4. Proposal and admission            | A human signs a proposal candidate; a separately authenticated Case Steward admits one idempotent civic case and the public journey reads its binding receipt | citizen signing and the Stadtstack atomic admission kernel exist; the role-isolated control service, staff console, public receipt projection, GitOps resources and deployed browser E2E remain |
-| 5. Administration round trip         | One exact openDesk package returns reviewed feedback to the same journey                                                                           | public-read candidate now binds reviewed package IDs and checksums to the exact case on its discussion and canonical topic; a real openDesk return receipt and deployed browser E2E remain pending |
+| 5. Administration round trip         | One exact municipal work package returns reviewed feedback and an attributable publication receipt to the same journey | public-read candidate now binds reviewed package IDs and checksums to the exact case on its discussion and canonical topic; a real Kair/openDesk-equivalent return receipt and deployed browser E2E remain pending |
 | 6. Brief, participation, and finance | Citizen Brief, advisory Mitmachen, and treasury review are visible together without implying authority                                             | exact case-bound Mitmachen reader and reviewed finance context implemented; participation input/result and deployed browser proof remain                                                           |
 | 7. Identity coexistence              | A Thirdweb tester and a passkey/Safe tester use the same `CitizenSession` contract; one dual-proof link preserves an existing app account and npub | provider-neutral structural Safe adapter, short-lived dual-control proof, atomic challenge interface, and three-proof server verifier implemented without effects; ADR 0014 slices authenticated routing, durable storage, stable-member persistence, the real WebAuthn/Safe/Pimlico adapter, recovery and deployed opt-in E2E |
 | 8. Formal authority                  | A separately accepted governance/treasury contract enables real effects                                                                            | explicitly deferred                                                                                                                                                                                |
@@ -177,12 +185,13 @@ relay admission store, watcher, and normal Röbel feed.
 
 ## Execution order to the first accepted journey
 
-1. Replace the disabled Thirdweb placeholder with a valid staging client ID
-   and prove one connected staging account.
-2. Bootstrap the protected operations workflow and namespace-scoped Flux,
-   adopt the exact current Web and Public Mecky digests, and retain the previous
-   Release Set for compare-and-swap rollback.
-3. Publish one ordinary signed Nostr post in the normal feed. Keep other
+1. Keep the now-working Thirdweb login behind the provider-neutral session
+   seam; do not mislabel its unverified guest as a citizen.
+2. Deploy ADR 0021's restricted participant database functions and gateway
+   through a separate namespace-scoped Flux owner. Route only its five exact
+   method/path pairs and retain the current Web/Mecky Release Set for rollback.
+3. Let the connected tester create one ordinary text post/comment, then bind
+   that same wallet to one signed Nostr post in the normal feed. Keep other
    timeline content ordinary.
 4. Explicitly promote that source post into a canonical topic/discussion,
    exercise the pro/contra tree and sunburst, and tag Mecky in the same thread.
@@ -190,7 +199,7 @@ relay admission store, watcher, and normal Röbel feed.
    uncertainty and no-authority boundaries.
 6. Sign a proposal candidate as the citizen; admit a Civic Case through a
    separately authenticated Case Steward console; require the public journey
-   to advance only from the checksum-bound Case binding receipt; then return one checksum-bound administration/openDesk
+   to advance only from the checksum-bound Case binding receipt; then return one checksum-bound municipality-operated Kair/openDesk
    package; render the Citizen Brief, advisory Mitmachen and finance context in
    the same journey.
 7. Only after that tracer passes, add the passkey-owned Safe + Pimlico adapter

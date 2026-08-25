@@ -19,7 +19,14 @@ The Röbel Web consumes that projection only through its server-side BFF at `GET
 
 The control handler and public reader use separate composition roots, pods, service accounts, Services and ingress/network policies. The public reader exposes no writer, authenticator, coordinator or admission method. The public HTTP adapter rejects oversized or deeply nested bodies before decoding; unknown control faults are logged privately and returned only as a generic availability failure.
 
-Admission does not automatically contact openDesk. Creating an administrative work package is a later, separately authenticated and idempotent human action with its own outbox receipt. Governance, participation and treasury effects remain behind their existing distinct authority gates.
+Admission does not automatically contact openDesk. Creating an administrative
+work package is a later, separately authenticated and idempotent human action
+with its own outbox receipt. A further staff-authorized action may instruct a
+municipality-operated Kair/openDesk adapter; that adapter returns an
+idempotent, municipality-attributed publication receipt to the same case.
+Neither Röbel, Mecky nor an automatic adapter may manufacture that municipal
+transition. Governance, participation and treasury effects remain behind their
+existing distinct authority gates.
 
 ## Consequences
 
