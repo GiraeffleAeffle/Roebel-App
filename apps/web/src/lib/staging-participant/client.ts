@@ -338,9 +338,10 @@ export async function mirrorStagingParticipantMeckyPost(input: Readonly<{
       // proves ownership/content before it is allowed to forward either proof.
       // Save the public event before requesting the wallet-bound admission proof
       // so a rejected signature still leaves a safe, exact retry available.
-      const event = await input.session!.signPublicPost({
+      const event = await input.session!.signConversationMention({
         content: input.sourcePost.content,
-        mentionPubkeys: [meckyPubkey],
+        createdAt: Math.floor(Date.now() / 1_000),
+        agentPubkey: meckyPubkey,
         sourceAppPostId: input.sourcePost.id,
       });
       const created: PendingStagingParticipantMeckyMirror = {

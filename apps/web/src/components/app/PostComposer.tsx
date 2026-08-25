@@ -177,7 +177,9 @@ export function PostComposer({
         toast.success("Mecky wurde signiert gefragt.");
         router.push(`/app/posts/${pending.sourcePost.id}`);
       } else {
-        setPendingParticipantMeckyPost(retry.pending ?? pending);
+        // Invalid/expired retry data is returned without `pending`; do not
+        // keep an unrecoverable in-memory copy after storage was cleared.
+        setPendingParticipantMeckyPost(retry.pending ?? null);
         toast.warning(
           "Mecky ist noch nicht sicher erreichbar; die Anfrage bleibt zum erneuten Versuch erhalten.",
         );

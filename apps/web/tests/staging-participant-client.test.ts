@@ -9,6 +9,7 @@ import {
   mirrorStagingParticipantMeckyPost,
   requestStagingParticipantChallenge,
 } from "../src/lib/staging-participant/client.ts";
+import { createCitizenSession } from "../src/lib/citizen-session/session.ts";
 
 const originalFetch = globalThis.fetch;
 
@@ -130,25 +131,18 @@ test("a successful participant post can produce only one post-only Mecky mirror 
       status: 201, headers: { "content-type": "application/json" },
     });
   };
-  const session = {
-    snapshot: {
-      credential: {
-        kind: "thirdweb_smart_account",
-        address: "0x1111111111111111111111111111111111111111",
-        chainId: 100,
+  const session = createCitizenSession({
+    memberId: null,
+    appAccountId: null,
+    credential: {
+      kind: "thirdweb_smart_account",
+      address: "0x1111111111111111111111111111111111111111",
+      chainId: 100,
+      async signMessage() {
+        return `0x${"12".repeat(65)}`;
       },
     },
-    async createAdmissionProof() {
-      return { schemaVersion: "roebel_citizen_admission_proof_v1" };
-    },
-    async signPublicPost(input: { content: string; mentionPubkeys?: readonly string[]; sourceAppPostId?: string }) {
-      return {
-        id: "a".repeat(64), pubkey: "b".repeat(64), created_at: 1, kind: 1,
-        tags: [["p", input.mentionPubkeys?.[0] ?? ""], ["source-app-post", input.sourceAppPostId ?? ""]],
-        content: input.content, sig: "c".repeat(128),
-      };
-    },
-  } as never;
+  });
   const result = await mirrorStagingParticipantMeckyPost({
     sourcePost: { id: "11111111-1111-4111-8111-111111111111", content: "@Mecky, bitte einordnen" },
     session,
@@ -160,7 +154,16 @@ test("a successful participant post can produce only one post-only Mecky mirror 
     "admissionProof", "event", "requestId", "schemaVersion", "sourcePostId",
   ]);
   assert.equal(call?.body.schemaVersion, "staging_participant_nostr_post_request_v1");
+  assert.deepEqual(
+    (call?.body.event as { tags?: unknown } | undefined)?.tags,
+    [
+      ["p", "d".repeat(64)],
+      ["source-app-post", "11111111-1111-4111-8111-111111111111"],
+      ["t", "roebel-app-conversation"],
+    ],
+  );
   assert.doesNotMatch(JSON.stringify(call?.body), /promotion|argument|case|vote|treasury/u);
+  session.dispose();
 });
 
 test("a failed participant mirror retains the exact signed body for retry instead of signing a replacement", async () => {
@@ -185,11 +188,11 @@ test("a failed participant mirror retains the exact signed body for retry instea
       admissions += 1;
       return { schemaVersion: "roebel_citizen_admission_proof_v1", attempt: admissions };
     },
-    async signPublicPost(input: { content: string; mentionPubkeys?: readonly string[]; sourceAppPostId?: string }) {
+    async signConversationMention(input: { content: string; createdAt: number; agentPubkey: string; sourceAppPostId: string }) {
       signed += 1;
       return {
-        id: "a".repeat(64), pubkey: "b".repeat(64), created_at: 1, kind: 1,
-        tags: [["p", input.mentionPubkeys?.[0] ?? ""], ["source-app-post", input.sourceAppPostId ?? ""]],
+        id: "a".repeat(64), pubkey: "b".repeat(64), created_at: input.createdAt, kind: 1,
+        tags: [["p", input.agentPubkey], ["source-app-post", input.sourceAppPostId], ["t", "roebel-app-conversation"]],
         content: input.content, sig: "c".repeat(128),
       };
     },
