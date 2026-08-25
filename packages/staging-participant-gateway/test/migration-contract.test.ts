@@ -190,7 +190,9 @@ test("release evidence binds the reviewed activation and deactivation source byt
   assert.match(publishWorkflow, /deactivation_sha256="sha256:\$\(sha256sum "\$deactivation_source"/u);
   assert.match(publishWorkflow, /--arg deactivationSha256 "\$deactivation_sha256"/u);
   assert.match(publishWorkflow, /deactivationSha256:\$deactivationSha256/u);
-  assert.match(publishWorkflow, /\.deactivationSha256 \| test\("\^sha256:\[0-9a-f\]\{64\}"\)/u);
+  assert.ok(
+    publishWorkflow.includes('(.deactivationSha256 | test("^sha256:[0-9a-f]{64}$"))'),
+  );
   assert.match(
     publishWorkflow,
     /jq -r \.deactivationSha256 "\$RELEASE_PINS"\)" = "sha256:\$\(sha256sum source\/supabase\/staging_participant_gateway_deactivate\.sql/u,

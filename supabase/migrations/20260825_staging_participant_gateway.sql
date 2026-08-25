@@ -151,8 +151,8 @@ insert into staging_participant_private.staging_participant_environment (singlet
 values (true, 'staging')
 on conflict (singleton) do nothing;
 
--- The database attests only to this marker and fixed catalog facts. It does
--- not claim to know the raw historical migration bytes; source/GitOps pins
+-- The database attests only to this marker and fixed catalog facts.
+-- It does not claim to know the raw historical migration bytes; source/GitOps pins
 -- bind those separately as release evidence.
 create table staging_participant_private.staging_participant_schema_contract (
   singleton boolean primary key default true check (singleton),
