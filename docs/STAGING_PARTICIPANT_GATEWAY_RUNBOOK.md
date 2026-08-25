@@ -76,6 +76,9 @@ armed staging project. Then verify:
 
 Deploy the gateway as its own immutable image and ServiceAccount with exactly
 one replica. Route only the five reviewed method/path pairs from ingress.
+Verify that both challenge and session cookies are scoped to
+`/api/staging-participant/v1`; requests to `/app`, other `/api` paths and static
+assets must not carry them.
 NetworkPolicy permits ingress only from the ingress controller and egress only
 to DNS, the reviewed Gnosis RPC, and the staging Supabase origin. Do not mount a
 Kubernetes API token. Keep the current read-only Web and exact Mecky route

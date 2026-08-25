@@ -4,6 +4,7 @@ export const PARTICIPANT_LABEL =
   "Staging-Testteilnahme – keine Bürgerverifikation, kein Stimmrecht";
 export const CHALLENGE_COOKIE = "roebel_staging_participant_challenge";
 export const SESSION_COOKIE = "roebel_staging_participant_session";
+export const PARTICIPANT_COOKIE_PATH = "/api/staging-participant/v1";
 export const CHALLENGE_TTL_SECONDS = 5 * 60;
 export const SESSION_TTL_SECONDS = 2 * 60 * 60;
 export const MAX_PENDING_CHALLENGES = 256;
@@ -193,7 +194,7 @@ export function readCookie(header: string | null, name: string): string | undefi
 }
 
 export function cookie(name: string, value: string, maxAge: number, secure: boolean): string {
-  return `${name}=${value}; Path=/; HttpOnly; ${secure ? "Secure; " : ""}SameSite=Strict; Max-Age=${maxAge}`;
+  return `${name}=${value}; Path=${PARTICIPANT_COOKIE_PATH}; HttpOnly; ${secure ? "Secure; " : ""}SameSite=Strict; Max-Age=${maxAge}`;
 }
 
 export function clearCookie(name: string, secure: boolean): string {

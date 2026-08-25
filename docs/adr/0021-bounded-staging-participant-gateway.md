@@ -48,7 +48,8 @@ The gateway issues a short challenge only when the wallet is on a configured
 verifies the returned wallet signature with the shared
 Gnosis verifier, including EOA, ERC-1271 and ERC-6492/counterfactual accounts,
 then creates a short-lived, wallet-bound, HMAC-authenticated, `HttpOnly`,
-`Secure`, `SameSite=Strict` session. Challenges are time-limited and claimed
+`Secure`, `SameSite=Strict` session scoped only to the common participant API
+path, so ordinary Web routes never receive either bearer cookie. Challenges are time-limited and claimed
 once. The first deployment is explicitly one replica with a bounded,
 expiry-pruned process-local challenge store; multi-replica operation requires
 an atomically consuming durable adapter. Invite values are never logged or

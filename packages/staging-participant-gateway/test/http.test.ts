@@ -6,6 +6,7 @@ import { createStagingParticipantGatewayHandler } from "../src/http.ts";
 import {
   CHALLENGE_COOKIE,
   MAX_PENDING_CHALLENGES,
+  PARTICIPANT_COOKIE_PATH,
   SESSION_COOKIE,
   prepareChallengeStore,
   type ChallengeStore,
@@ -23,6 +24,11 @@ const COMMENT_REQUEST_ID = "20000000-0000-4000-8000-000000000002";
 
 function cookieValue(response: Response, name: string): string {
   const setCookie = response.headers.get("set-cookie") ?? "";
+  assert.match(
+    setCookie,
+    new RegExp(`; Path=${PARTICIPANT_COOKIE_PATH}; HttpOnly; Secure; SameSite=Strict;`),
+  );
+  assert.doesNotMatch(setCookie, /; Path=\/;/u);
   const matched = setCookie.match(new RegExp(`${name}=([^;]+)`));
   assert.ok(matched, `missing ${name} cookie`);
   return `${name}=${matched[1]}`;
