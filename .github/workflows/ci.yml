@@ -72,6 +72,10 @@ jobs:
           scripts/ci/run-affected-quality.test.mjs
           scripts/ci/write-staging-web-build-evidence.test.mjs
 
+      - name: Verify the dependency-free staging profile boundary
+        if: ${{ needs.changes.outputs.quality_web_tests == 'true' }}
+        run: node --test apps/web/tests/first-login-profile-boundary.test.mjs
+
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4

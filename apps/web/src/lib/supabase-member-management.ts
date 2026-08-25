@@ -5,6 +5,7 @@
 import { supabase } from "./supabase";
 import { fetchAccountOwners, removeOwner } from "./supabase-accounts";
 import { callOrgMembership, type SigningAccount } from "./org-membership/client";
+import { executeLeaveOrg } from "./org-membership/leave-org.mjs";
 import type { MemberWithProfile } from "@/types/account";
 
 /** Fetch all members of an account with their user profiles. */
@@ -77,26 +78,14 @@ export async function leaveOrg(
   account: SigningAccount,
   accountId: string
 ): Promise<void> {
-  const walletAddress = account.address.toLowerCase();
-  const owners = await fetchAccountOwners(accountId);
-  const ownerCount = owners.filter((o) => o.role === "owner").length;
-  const myRole = owners.find(
-    (o) => o.wallet_address.toLowerCase() === walletAddress
-  )?.role;
-
-  const lastOwnerMessage =
-    "Du bist der einzige Inhaber. Übertrage die Inhaberschaft, bevor du die Organisation verlässt.";
-
-  if (myRole === "owner" && ownerCount <= 1) {
-    throw new Error(lastOwnerMessage);
-  }
-
-  const res = await callOrgMembership(account, "leave", { accountId });
-  if (!res.ok) {
-    if (res.code === "LAST_OWNER") throw new Error(lastOwnerMessage);
-    console.error("leaveOrg error:", res.code, res.message);
-    throw new Error(res.message || res.code || "leaveOrg failed");
-  }
+  return executeLeaveOrg({
+    stagingFlag: process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB,
+    account,
+    accountId,
+    fetchOwners: fetchAccountOwners,
+    leave: (signingAccount: SigningAccount, targetAccountId: string) =>
+      callOrgMembership(signingAccount, "leave", { accountId: targetAccountId }),
+  });
 }
 
 /** Search users by name for the invite flow (excludes existing members). */

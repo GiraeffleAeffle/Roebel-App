@@ -20,12 +20,14 @@ interface ProfileFormProps {
   user: User;
   onSave: (updates: Omit<UpdateUserProfileInput, "wallet_address">) => Promise<void>;
   isSaving: boolean;
+  /** Staging guests are display-only and must not write profiles or Storage. */
+  canPersist: boolean;
 }
 
 /** New tier values shown in the form */
 const TIERS: UserTier[] = ["citizen", "tourist", "guest"];
 
-export function ProfileForm({ user, onSave, isSaving }: ProfileFormProps) {
+export function ProfileForm({ user, onSave, isSaving, canPersist }: ProfileFormProps) {
   const [username, setUsername] = useState(user.username || "");
   const [bio, setBio] = useState(user.bio || "");
   const [profilePictureUrl, setProfilePictureUrl] = useState(
@@ -109,7 +111,7 @@ export function ProfileForm({ user, onSave, isSaving }: ProfileFormProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (usernameError || bioError || !hasChanges) return;
+    if (!canPersist || usernameError || bioError || !hasChanges) return;
 
     const updates: Omit<UpdateUserProfileInput, "wallet_address"> = {};
 
@@ -191,6 +193,7 @@ export function ProfileForm({ user, onSave, isSaving }: ProfileFormProps) {
               accept="image/*"
               className="hidden"
               onChange={async (e) => {
+                if (!canPersist) return;
                 const file = e.target.files?.[0];
                 if (!file) return;
                 if (file.size > 5 * 1024 * 1024) return;
@@ -216,7 +219,7 @@ export function ProfileForm({ user, onSave, isSaving }: ProfileFormProps) {
             <button
               type="button"
               onClick={() => coverInputRef.current?.click()}
-              disabled={isUploadingCover}
+              disabled={!canPersist || isUploadingCover}
               className="text-sm text-primary hover:text-primary/80 font-medium"
             >
               {coverImageUrl ? "Titelbild ändern" : "Titelbild hochladen"}
@@ -243,6 +246,7 @@ export function ProfileForm({ user, onSave, isSaving }: ProfileFormProps) {
             currentPictureUrl={profilePictureUrl}
             walletAddress={user.wallet_address}
             onUploadComplete={setProfilePictureUrl}
+            canPersist={canPersist}
           />
         </div>
 

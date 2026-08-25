@@ -1,3 +1,5 @@
+import { isExplicitStaging } from "./profile-write-boundary.mjs";
+
 export const STADTSTACK_STAGING_LAB_PATH = "/stadtstack-test/" as const;
 
 export type StadtstackStagingLab = {
@@ -12,8 +14,7 @@ export type StadtstackStagingLab = {
 export function resolveStadtstackStagingLab(
   raw: string | undefined,
 ): StadtstackStagingLab | null {
-  const enabled = raw?.trim().toLowerCase();
-  if (enabled !== "1" && enabled !== "true") return null;
+  if (!isExplicitStaging(raw)) return null;
   return {
     href: STADTSTACK_STAGING_LAB_PATH,
     label: "Synthetischer Test",

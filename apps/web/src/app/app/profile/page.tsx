@@ -8,8 +8,7 @@ import { useActiveAccount } from "thirdweb/react";
 import { formatWalletAddress, getDaysSinceJoined } from "@/lib/user-types";
 import type { UpdateUserProfileInput, PrivacySettings } from "@/lib/user-types";
 import { DEFAULT_PRIVACY_SETTINGS } from "@/lib/user-types";
-import { updateUserProfile } from "@/lib/supabase-users";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { ProfileForm } from "@/components/profile/ProfileForm";
 import { RoleBadge } from "@/components/profile/RoleBadge";
@@ -50,7 +49,16 @@ import {
 import QRCode from "qrcode";
 
 export default function ProfilePage() {
-  const { user, isLoading, error, refreshUser, isConnected } = useUserProfile();
+  const {
+    user,
+    isLoading,
+    error,
+    refreshUser,
+    updateProfile,
+    isConnected,
+    canPersistProfile,
+    walletAddress,
+  } = useUserProfile();
   const account = useActiveAccount();
   const { isAttester, isCitizen, votingPower, isVerified } = useVerificationStatus();
   const { activeAccount, ownedAccounts } = useAccount();
@@ -66,19 +74,45 @@ export default function ProfilePage() {
   const [privacySettings, setPrivacySettings] = useState<PrivacySettings>(
     user?.privacy_settings || DEFAULT_PRIVACY_SETTINGS
   );
+  const privacyWalletRef = useRef<string | null>(null);
+  const currentWalletRef = useRef<string | null>(walletAddress?.toLowerCase() || null);
+  currentWalletRef.current = walletAddress?.toLowerCase() || null;
+  const hasLoadedUser = user !== null;
+  const profileWallet = user?.wallet_address?.toLowerCase() || null;
+  const loadedPrivacySettings = user?.privacy_settings;
+
+  // Privacy controls belong to the loaded persisted wallet, never to the
+  // component instance. Reset on disconnect/guest mode and rehydrate on a
+  // new persisted wallet before accepting a submission.
+  useEffect(() => {
+    if (!hasLoadedUser || !canPersistProfile || !profileWallet) {
+      privacyWalletRef.current = null;
+      setPrivacySettings(DEFAULT_PRIVACY_SETTINGS);
+      setShowPrivacyModal(false);
+      return;
+    }
+
+    if (privacyWalletRef.current === profileWallet) return;
+    privacyWalletRef.current = profileWallet;
+    setPrivacySettings({
+      ...DEFAULT_PRIVACY_SETTINGS,
+      ...(loadedPrivacySettings || {}),
+    });
+    setShowPrivacyModal(false);
+  }, [canPersistProfile, hasLoadedUser, loadedPrivacySettings, profileWallet]);
 
   const handleSaveProfile = async (updates: Omit<UpdateUserProfileInput, "wallet_address">) => {
-    if (!user) return;
+    if (!user || !canPersistProfile) {
+      setSaveError("Staging-Gastprofile können nicht geändert werden");
+      return;
+    }
 
     setIsSaving(true);
     setSaveError(null);
     setSaveSuccess(false);
 
     try {
-      const result = await updateUserProfile({
-        wallet_address: user.wallet_address,
-        ...updates,
-      });
+      const result = await updateProfile(updates);
 
       if (result.success) {
         setSaveSuccess(true);
@@ -111,13 +145,29 @@ export default function ProfilePage() {
   };
 
   const handleSavePrivacy = async (settings: PrivacySettings) => {
-    if (!user) return;
-    setPrivacySettings(settings);
-    await updateUserProfile({
-      wallet_address: user.wallet_address,
-      privacy_settings: settings,
-    });
-    await refreshUser();
+    const submissionWallet = user?.wallet_address?.toLowerCase() || null;
+    if (
+      !user ||
+      !canPersistProfile ||
+      !submissionWallet ||
+      privacyWalletRef.current !== submissionWallet ||
+      currentWalletRef.current !== submissionWallet
+    ) {
+      setSaveError("Staging-Gastprofile können nicht geändert werden");
+      return;
+    }
+
+    const result = await updateProfile({ privacy_settings: settings });
+    if (
+      result.success &&
+      currentWalletRef.current === submissionWallet &&
+      privacyWalletRef.current === submissionWallet
+    ) {
+      setPrivacySettings(settings);
+      await refreshUser();
+    } else if (!result.success) {
+      setSaveError(result.error || "Fehler beim Speichern");
+    }
   };
 
   if (!isConnected) {
@@ -199,10 +249,14 @@ export default function ProfilePage() {
 
     const orgMenu: ProfileMenuItem[][] = [
       [
-        { label: "Profil bearbeiten", icon: Pencil, href: "/dashboard/profile" },
+        ...(canPersistProfile
+          ? [{ label: "Profil bearbeiten", icon: Pencil, href: "/dashboard/profile" }]
+          : []),
         { label: "Einstellungen", icon: Settings, href: "/dashboard/settings" },
       ],
-      [{ label: "Datenschutz", icon: Shield, onClick: () => setShowPrivacyModal(true) }],
+      ...(canPersistProfile
+        ? [[{ label: "Datenschutz", icon: Shield, onClick: () => setShowPrivacyModal(true) }]]
+        : []),
     ];
 
     return (
@@ -227,14 +281,18 @@ export default function ProfilePage() {
                 </span>
               ) : undefined
             }
-            action={{ label: "Profil bearbeiten", href: "/dashboard/profile" }}
+            action={
+              canPersistProfile
+                ? { label: "Profil bearbeiten", href: "/dashboard/profile" }
+                : undefined
+            }
           />
 
           <ProfileActionGrid actions={orgActions} />
           <ProfileMenuList groups={orgMenu} />
         </div>
 
-        {showPrivacyModal && (
+        {canPersistProfile && showPrivacyModal && (
           <PrivacyModal
             settings={privacySettings}
             onChange={handleSavePrivacy}
@@ -259,7 +317,9 @@ export default function ProfilePage() {
 
   const personalMenu: ProfileMenuItem[][] = [
     [
-      { label: "Profil bearbeiten", icon: Pencil, onClick: () => setShowEditModal(true) },
+      ...(canPersistProfile
+        ? [{ label: "Profil bearbeiten", icon: Pencil, onClick: () => setShowEditModal(true) }]
+        : []),
       hasCitizen
         ? { label: "QR-Code anzeigen", icon: QrCode, onClick: handleShowQR }
         : { label: "Bürger-Pass beantragen", icon: QrCode, href: "/verifizierung/buerger-beantragen" },
@@ -269,7 +329,9 @@ export default function ProfilePage() {
         : []),
     ],
     [
-      { label: "Datenschutz", icon: Shield, onClick: () => setShowPrivacyModal(true) },
+      ...(canPersistProfile
+        ? [{ label: "Datenschutz", icon: Shield, onClick: () => setShowPrivacyModal(true) }]
+        : []),
       { label: "Hilfe & Support", icon: HelpCircle, href: "/app/support" },
     ],
   ];
@@ -292,7 +354,11 @@ export default function ProfilePage() {
               <span>Seit {daysSinceJoined} Tagen Mitglied</span>
             </>
           }
-          action={{ label: "Bearbeiten", onClick: () => setShowEditModal(true) }}
+          action={
+            canPersistProfile
+              ? { label: "Bearbeiten", onClick: () => setShowEditModal(true) }
+              : undefined
+          }
         />
 
         {/* Civic stats — folds in the old "Bürger-Aktivität" card */}
@@ -361,14 +427,19 @@ export default function ProfilePage() {
       </div>
 
       {/* Edit Profile Modal */}
-      {showEditModal && (
+      {canPersistProfile && showEditModal && (
         <Modal title="Profil bearbeiten" onClose={() => setShowEditModal(false)}>
-          <ProfileForm user={user} onSave={handleSaveProfile} isSaving={isSaving} />
+          <ProfileForm
+            user={user}
+            onSave={handleSaveProfile}
+            isSaving={isSaving}
+            canPersist={canPersistProfile}
+          />
         </Modal>
       )}
 
       {/* Privacy Settings Modal */}
-      {showPrivacyModal && (
+      {canPersistProfile && showPrivacyModal && (
         <PrivacyModal
           settings={privacySettings}
           onChange={handleSavePrivacy}
