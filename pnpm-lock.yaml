@@ -1260,10 +1260,19 @@ importers:
 
   packages/staging-participant-gateway:
     dependencies:
+      '@netizen-labs/nostr':
+        specifier: workspace:*
+        version: link:../nostr
       '@netizen-labs/relay-sync':
         specifier: workspace:*
         version: link:../relay-sync
     devDependencies:
+      '@netizen-labs/agent-watcher':
+        specifier: workspace:*
+        version: link:../agent-watcher
+      '@roebel/e2e-workbench':
+        specifier: workspace:*
+        version: link:../e2e-workbench
       '@types/node':
         specifier: ^22.7.4
         version: 22.19.15

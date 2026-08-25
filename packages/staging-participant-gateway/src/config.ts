@@ -1,4 +1,5 @@
-import type { StagingParticipantGatewayConfig } from "./types.ts";
+import type { StagingParticipantGatewayConfig, StagingParticipantReadinessPins } from "./types.ts";
+import { PRIVATE_WORKBENCH_URL, type PrivateWorkbenchMirrorConfig } from "./workbench-adapter.ts";
 
 export type ProductionGatewayConfig = Readonly<{
   gateway: StagingParticipantGatewayConfig;
@@ -8,6 +9,8 @@ export type ProductionGatewayConfig = Readonly<{
   supabaseRpcSecret: string;
   host: string;
   port: number;
+  workbench: PrivateWorkbenchMirrorConfig;
+  readinessPins: StagingParticipantReadinessPins;
 }>;
 
 function nonEmpty(value: string | undefined): string | null {
@@ -29,9 +32,33 @@ function walletAllowlist(value: string | undefined): readonly string[] | null {
     : null;
 }
 
+function meckyPubkey(value: string | undefined): string | null {
+  const pubkey = nonEmpty(value)?.toLowerCase() ?? null;
+  return pubkey && /^[a-f0-9]{64}$/u.test(pubkey) ? pubkey : null;
+}
+
+function workbenchAdmissionHeader(value: string | undefined): PrivateWorkbenchMirrorConfig["admissionHeader"] | null {
+  // Keep the existing workbench gate fixed. An arbitrary header would turn
+  // this resolver into a generic internal request capability.
+  return value === "x-stadtstack-e2e:1"
+    ? { name: "x-stadtstack-e2e", value: "1" }
+    : null;
+}
+
+function sourceRevision(value: string | undefined): string | null {
+  const revision = nonEmpty(value);
+  return revision && /^[0-9a-f]{40}$/u.test(revision) ? revision : null;
+}
+
+function sha256Digest(value: string | undefined): string | null {
+  const digest = nonEmpty(value);
+  return digest && /^sha256:[0-9a-f]{64}$/u.test(digest) ? digest : null;
+}
+
 /** Fail closed unless the dedicated staging gateway is explicitly enabled. */
 export function resolveProductionGatewayConfig(
   env: Record<string, string | undefined> = process.env,
+  bakedSourceRevision: string | undefined,
 ): ProductionGatewayConfig | null {
   if (env.ROEBEL_STAGING_PARTICIPANT_GATEWAY !== "enabled") return null;
   const origin = nonEmpty(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_ORIGIN);
@@ -46,23 +73,45 @@ export function resolveProductionGatewayConfig(
   const supabaseRpcSecret = nonEmpty(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET);
   const host = nonEmpty(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_HOST) ?? "127.0.0.1";
   const port = integerPort(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_PORT);
+  const configuredMeckyPubkey = meckyPubkey(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_MECKY_PUBKEY);
+  const workbenchUrl = nonEmpty(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_URL);
+  const admissionHeader = workbenchAdmissionHeader(
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_ADMISSION_HEADER,
+  );
+  // Read by the CLI from an image-owned, read-only file. It is deliberately
+  // not an environment variable, which a Deployment could override.
+  const immutableSourceRevision = sourceRevision(bakedSourceRevision);
+  const deployedSourceRevision = sourceRevision(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SOURCE_REVISION);
+  const manifestDigest = sha256Digest(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_MANIFEST_DIGEST);
+  const migrationSha256 = sha256Digest(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_MIGRATION_SHA256);
+  const databaseSchemaSha256 = sha256Digest(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_DATABASE_SCHEMA_SHA256);
   if (!origin || !sessionHmacKey || sessionHmacKey.length < 32 || !inviteSha256 ||
     !allowedWallets ||
     !/^[a-f0-9]{64}$/iu.test(inviteSha256) || !gnosisRpcUrl || !supabaseUrl ||
     !supabaseAnonKey || supabaseAnonKey.length < 16 || !supabaseRpcSecret ||
-    supabaseRpcSecret.length < 32 || !port) return null;
+    supabaseRpcSecret.length < 32 || !port || !configuredMeckyPubkey || !workbenchUrl ||
+    !admissionHeader || !immutableSourceRevision || !deployedSourceRevision ||
+    immutableSourceRevision !== deployedSourceRevision || !manifestDigest || !migrationSha256 ||
+    !databaseSchemaSha256) return null;
   let originUrl: URL;
   let gnosisUrl: URL;
   let supabaseUrlValue: URL;
+  let workbenchUrlValue: URL;
   try {
     originUrl = new URL(origin);
     gnosisUrl = new URL(gnosisRpcUrl);
     supabaseUrlValue = new URL(supabaseUrl);
+    workbenchUrlValue = new URL(workbenchUrl);
   } catch {
     return null;
   }
   if (originUrl.origin !== origin || originUrl.protocol !== "https:" ||
     gnosisUrl.protocol !== "https:" || supabaseUrlValue.protocol !== "https:" ||
+    workbenchUrl !== PRIVATE_WORKBENCH_URL ||
+    workbenchUrlValue.href !== PRIVATE_WORKBENCH_URL ||
+    workbenchUrlValue.protocol !== "http:" ||
+    Boolean(workbenchUrlValue.username) || Boolean(workbenchUrlValue.password) ||
+    workbenchUrlValue.pathname !== "/" || Boolean(workbenchUrlValue.search) || Boolean(workbenchUrlValue.hash) ||
     !["127.0.0.1", "0.0.0.0"].includes(host)) return null;
   return {
     gateway: {
@@ -71,6 +120,7 @@ export function resolveProductionGatewayConfig(
       inviteSha256: inviteSha256.toLowerCase(),
       allowedWallets,
       cookieSecure: true,
+      meckyPubkey: configuredMeckyPubkey,
     },
     gnosisRpcUrl,
     supabaseUrl,
@@ -78,5 +128,7 @@ export function resolveProductionGatewayConfig(
     supabaseRpcSecret,
     host,
     port,
+    workbench: { url: workbenchUrl, admissionHeader },
+    readinessPins: { sourceRevision: immutableSourceRevision, manifestDigest, migrationSha256, databaseSchemaSha256 },
   };
 }

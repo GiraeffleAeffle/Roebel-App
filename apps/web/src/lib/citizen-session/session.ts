@@ -1,4 +1,5 @@
 import {
+  APP_CONVERSATION_TOPIC,
   NOSTR_KEY_DERIVATION_MESSAGE,
   buildBindingEvent,
   buildCivicArgumentEvent,
@@ -299,7 +300,7 @@ export function createCitizenSession(
           ...(input.sourceAppCommentId === undefined
             ? []
             : [["source-app-comment", input.sourceAppCommentId]]),
-          ["t", "roebel-app-conversation"],
+          ["t", APP_CONVERSATION_TOPIC],
         ],
       });
     },

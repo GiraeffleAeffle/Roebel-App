@@ -32,6 +32,11 @@
         "GNOSIS_RPC_URL"
       ]
     },
+    "@roebel/staging-participant-gateway#build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"],
+      "env": ["SOURCE_REVISION"]
+    },
     "dev": {
       "cache": false,
       "persistent": true

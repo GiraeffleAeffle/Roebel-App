@@ -15,7 +15,8 @@ Before applying the migration, record evidence for the exact staging project:
   trigger binding;
 - `pg_get_triggerdef` for `trg_post_comment_counts` and
   `pg_get_functiondef('public.post_comment_counts_sync()'::regprocedure)`;
-- current policies/grants on those three tables and the two proposed RPC names;
+- current policies/grants on those three tables and all five proposed restricted
+  RPC names (two writes, one owned-source read, reserve and complete mirror);
 - current INSERT/UPDATE/DELETE grants on `app_settings` and `post_likes`;
 - the legacy caller-asserted delete and `pin_own_post` RPC definitions and grants;
 - Vault and `pgcrypto` availability.
@@ -62,6 +63,9 @@ armed staging project. Then verify:
   parent, and quota overflow all fail;
 - a valid request creates one exact main-feed text row and one private audit
   receipt; retrying the same request ID returns the same row;
+- reserve a participant `nostr-post` receipt twice concurrently and after a
+  gateway restart; it must retain the first event ID and content SHA-256, retry
+  only that event after a relay failure, and reject every replacement;
 - the preflighted `trg_post_comment_counts` changes the comment counter exactly
   once; the restricted RPC performs no second manual increment;
 - a missing first-login projection is provisioned only as `tier='guest'`,
@@ -75,16 +79,19 @@ armed staging project. Then verify:
 ## 4. GitOps boundary
 
 Deploy the gateway as its own immutable image and ServiceAccount with exactly
-one replica. Route only the five reviewed method/path pairs from ingress.
+one replica. Route only the six reviewed method/path pairs from ingress.
 Verify that both challenge and session cookies are scoped to
 `/api/staging-participant/v1`; requests to `/app`, other `/api` paths and static
 assets must not carry them.
 NetworkPolicy permits ingress only from the ingress controller and egress only
-to DNS, the reviewed Gnosis RPC, and the staging Supabase origin. Do not mount a
-Kubernetes API token. Keep the current read-only Web and exact Mecky route
-unchanged.
+to DNS, the reviewed Gnosis RPC, staging Supabase, and exactly
+`e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083`. The
+workbench must also have the reciprocal TCP/18083 ingress allowance selected
+only for this gateway workload. These are activation prerequisites—not a claim
+that operations manifests already contain them. Do not mount a Kubernetes API
+token. Keep the current read-only Web and exact Mecky route unchanged.
 
-The ingress must also apply a dedicated request-rate limit to the five gateway
+The ingress must also apply a dedicated request-rate limit to the six gateway
 paths. The single-replica challenge store prunes expired/consumed entries,
 replaces a wallet's older pending challenge, and caps pending entries; the
 ingress limit is the outer protection if an invite is disclosed.
@@ -105,16 +112,20 @@ That receipt does not complete the signed-feed slice. The next separately
 reviewed activation must bind the same wallet to a signed Nostr event before
 discussion promotion and same-thread Mecky are accepted.
 
-Until that activation, participant text may contain `@Mecky`, but the Web must
-not call the existing workbench routes: those routes do not validate the
-participant session and remain closed at ingress. The UI reports this honestly
-instead of promising an answer that cannot be produced safely.
+The signed post mirror atomically reserves the first wallet/source/request/
+event/content receipt before it calls the workbench. A relay outage leaves that
+exact receipt pending for retry; no different event may replace it. Until the
+reciprocal NetworkPolicies and this route are activated, participant text may
+contain `@Mecky`, but the Web must not call the existing workbench routes: those
+routes do not validate the participant session and remain closed at ingress.
+The UI reports this honestly instead of promising an answer that cannot be
+produced safely.
 
 ## 5. Deactivation and compatibility rollback
 
-Remove the five ingress routes and roll Flux back to the previous immutable
+Remove the six ingress routes and roll Flux back to the previous immutable
 release first. Then run `supabase/staging_participant_gateway_deactivate.sql`.
-That transaction revokes both gateway RPCs, revokes every admission, restores
+That transaction revokes all five gateway RPCs, revokes every admission, restores
 the exact prior posting-trigger definition and table/function grants captured
 by the activation, and preserves the dedicated schema, audit rows, guest
 projection, and public posts/comments as staging evidence. Verify the captured

@@ -36,6 +36,7 @@ POST /api/staging-participant/v1/challenge
 POST /api/staging-participant/v1/session
 POST /api/staging-participant/v1/posts
 POST /api/staging-participant/v1/comments
+POST /api/staging-participant/v1/nostr-post
 ```
 
 The Web calls these same-origin paths from the browser. The existing Web
@@ -84,18 +85,45 @@ well, as is the caller-asserted post-pinning function. Post reactions are also p
 path requires direct `posts` UPDATE. This is intentionally staging-only and does not silently change the
 production application's compatibility contract.
 
-The first gateway slice owns only ordinary post/comment writes. A later signed
-discussion slice may proxy a separately deployed Nostr workbench, but only
-after validating the same participant session and only for an explicit allowlist
-of `post`, `conversation`, `promotion`, and `argument` intents. It must not
-expose Case admission, governance, voting, treasury, municipal publication,
-administrative completion, or arbitrary workbench commands.
+The first gateway slice owns only ordinary post/comment writes. The immediate
+follow-on slice is deliberately smaller than a generic signed-discussion
+proxy: it adds exactly one post-mirror endpoint,
+`POST /api/staging-participant/v1/nostr-post`. The closed request binds a newly
+created participant-owned Supabase post, the same wallet's admission proof,
+and one already-signed Nostr event. The gateway accepts only an exact text
+mirror whose trimmed content equals the source row and whose tags contain only
+the explicit Mecky recipient plus `source-app-post`. It verifies the cookie
+session wallet, source-row ownership, wallet↔Nostr binding, event signature,
+request replay key and the configured Mecky public key before forwarding the
+event to a private post-only relay/workbench adapter. The database atomically
+reserves an immutable receipt keyed by wallet and source row before any relay
+call, binding the first request ID, event ID and source-content SHA-256. A
+crash leaves that exact receipt `reserved`; a retry may publish only the same
+event, while a changed request, event or content is rejected forever.
+
+That event is the participant's public `@Mecky` mention. The existing watcher
+may answer it, and the existing signed-reply projection renders the cited,
+zero-authority answer as a comment under the same normal feed post. When the
+answer is grounded only in staging fixtures, it must carry the closed
+machine-readable evidence mode `synthetic_reviewed`, and the thread must show
+that state instead of implying real Röbel news or RIS evidence.
+
+No generic signed-event endpoint is allowed in this slice. `conversation`,
+promotion, argument, Case admission, governance, voting, treasury, municipal
+publication, administrative completion and arbitrary workbench commands remain
+unreachable. A source-comment mirror and explicit promotion intents require
+their own later review after the post-only loop works end to end.
 
 The gateway has its own immutable image, ServiceAccount, Deployment, Service,
 NetworkPolicy, Secrets, and namespace-scoped GitOps owner. It accepts ingress
 only from the cluster ingress controller and egress only to the approved Gnosis
 RPC, staging Supabase endpoint, DNS, and—when activated—the internal signed
-Nostr workbench. It receives no Kubernetes API credential. Its runtime and
+Nostr workbench at exactly
+`http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/`.
+It receives no Kubernetes API credential. Activation additionally requires a
+reviewed exact gateway→workbench TCP/18083 egress rule and reciprocal
+workbench ingress rule selected only for the gateway workload; these manifests
+are a prerequisite, not asserted as already deployed. Its runtime and
 GitOps resources are labelled `stadtstack.io/civic-authority: none` and
 `stadtstack.io/environment: staging`.
 
@@ -118,8 +146,8 @@ GitOps resources are labelled `stadtstack.io/civic-authority: none` and
   complete only when the same connected tester also publishes the bound signed
   Nostr event and the normal feed projection can be rebuilt from that record.
 - Participant `@Mecky` text does not call the existing browser workbench route.
-  Same-thread answers stay disabled until the next participant-session-bound,
-  signed-Nostr proxy is reviewed and deployed.
+  Same-thread answers stay disabled until the exact post-only,
+  participant-session-bound signed-Nostr mirror above is reviewed and deployed.
 - Disabling the gateway route or revoking the admission immediately removes
   the capability without redeploying the public Web or changing citizen state.
 
@@ -142,10 +170,11 @@ GitOps resources are labelled `stadtstack.io/civic-authority: none` and
 
 - the public Web pod has no participant or writer secret and remains unable to
   mutate the database directly;
-- only the five exact gateway method/path pairs are externally reachable;
+- only the six exact gateway method/path pairs are externally reachable;
 - EOA, deployed smart-account and counterfactual smart-account signature tests
   pass, while RPC outage, replay, mismatch, expiry and revocation fail closed;
-- the writer credential can invoke only the two constrained RPCs and cannot
+- the writer credential can invoke only the two constrained write RPCs, one
+  exact owned-source read and two exact durable mirror receipt RPCs; it cannot
   select or mutate arbitrary application tables;
 - direct anonymous/authenticated post/comment mutations fail even when the
   caller spoofs a citizen wallet or mutable user projection;
@@ -158,4 +187,12 @@ GitOps resources are labelled `stadtstack.io/civic-authority: none` and
 - one connected invited tester creates a normal text post and comment in
   Talos staging, then revocation prevents the next write;
 - the following signed-Nostr slice binds that same wallet to the emitted event
-  before the roadmap calls the general signed-feed tracer complete.
+  and the exact participant-owned source post before the roadmap calls the
+  general signed-feed tracer complete;
+- the post-only mirror rejects cross-wallet sources, content or tag drift,
+  invalid Nostr signatures/bindings, replay, non-Mecky events, arbitrary signed
+  events and every promotion/case/vote/treasury intent; concurrent/restarted
+  retries can only re-publish the first reserved event ID;
+- one participant-created `@Mecky` post produces one signed cited Mecky reply
+  under that same normal feed post, with `synthetic_reviewed` visibly labelled
+  until a separately reviewed real Röbel source runtime is deployed.

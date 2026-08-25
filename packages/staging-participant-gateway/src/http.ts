@@ -1,4 +1,12 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
+import { createHash } from "node:crypto";
+import {
+  bindingStatement,
+  isAppConversationMentionEvent,
+  verifyBindingEvent,
+  verifyEvent,
+  type NostrEvent,
+} from "@netizen-labs/nostr";
 
 import {
   CHALLENGE_COOKIE,
@@ -19,8 +27,12 @@ import {
   validInvite,
 } from "./protocol.ts";
 import type {
+  MeckyMirrorAdapter,
   StagingParticipantDataAdapter,
   StagingParticipantGatewayConfig,
+  StagingParticipantMirrorReceipt,
+  StagingParticipantReadinessAdapter,
+  StagingParticipantReadinessPins,
   WalletSignatureVerifier,
 } from "./types.ts";
 
@@ -32,12 +44,16 @@ const CHALLENGE_SCHEMA = "staging_participant_challenge_request_v1";
 const SESSION_SCHEMA = "staging_participant_session_request_v1";
 const POST_SCHEMA = "staging_participant_post_request_v1";
 const COMMENT_SCHEMA = "staging_participant_comment_request_v1";
+const NOSTR_POST_SCHEMA = "staging_participant_nostr_post_request_v1";
 
 const STATUS_PATH = "/api/staging-participant/v1/status";
+const INTERNAL_STATUS_PATH = "/status";
+const INTERNAL_STATUS_SCHEMA = "roebel_staging_participant_gateway_status_v1";
 const CHALLENGE_PATH = "/api/staging-participant/v1/challenge";
 const SESSION_PATH = "/api/staging-participant/v1/session";
 const POSTS_PATH = "/api/staging-participant/v1/posts";
 const COMMENTS_PATH = "/api/staging-participant/v1/comments";
+const NOSTR_POST_PATH = "/api/staging-participant/v1/nostr-post";
 const AUTHORITY_PATHS = new Set([
   "/api/staging-participant/v1/cases",
   "/api/staging-participant/v1/votes",
@@ -49,6 +65,7 @@ export type StagingParticipantGatewayDependencies = Readonly<{
   config: StagingParticipantGatewayConfig;
   verifier: WalletSignatureVerifier;
   data: StagingParticipantDataAdapter;
+  mirror: MeckyMirrorAdapter;
   now?: () => Date;
   randomId?: () => string;
   /**
@@ -57,6 +74,9 @@ export type StagingParticipantGatewayDependencies = Readonly<{
    * atomically-consuming store before it is enabled.
    */
   challengeStore?: ChallengeStore;
+  /** Omitted by unit-only embeddings; that leaves the private probe closed. */
+  readiness?: StagingParticipantReadinessAdapter;
+  readinessPins?: StagingParticipantReadinessPins;
 }>;
 
 function json(value: unknown, status = 200, origin?: string): Response {
@@ -112,6 +132,76 @@ function validRequestId(value: unknown): string | null {
     : null;
 }
 
+function validNostrEvent(value: unknown): NostrEvent | null {
+  const record = parsedObject(value, ["id", "pubkey", "created_at", "kind", "tags", "content", "sig"]);
+  if (!record || typeof record.id !== "string" || !/^[a-f0-9]{64}$/iu.test(record.id) ||
+    typeof record.pubkey !== "string" || !/^[a-f0-9]{64}$/iu.test(record.pubkey) ||
+    typeof record.created_at !== "number" || !Number.isSafeInteger(record.created_at) || record.created_at < 0 ||
+    typeof record.kind !== "number" || !Number.isSafeInteger(record.kind) || record.kind < 0 ||
+    typeof record.content !== "string" || typeof record.sig !== "string" ||
+    !/^[a-f0-9]{128}$/iu.test(record.sig) || !Array.isArray(record.tags) ||
+    record.tags.some((tag) => !Array.isArray(tag) || tag.some((item) => typeof item !== "string"))) return null;
+  const event = {
+    id: record.id.toLowerCase(), pubkey: record.pubkey.toLowerCase(), created_at: record.created_at,
+    kind: record.kind, tags: record.tags.map((tag) => [...tag]), content: record.content, sig: record.sig.toLowerCase(),
+  } as NostrEvent;
+  return verifyEvent(event) ? event : null;
+}
+
+function exactMeckyConversationEvent(event: NostrEvent, meckyPubkey: string, sourcePostId: string): boolean {
+  return isAppConversationMentionEvent(event, {
+    agentPubkey: meckyPubkey,
+    sourceAppPostId: sourcePostId,
+  });
+}
+
+function containsExplicitMeckyMention(content: string): boolean {
+  // Keep the same boundary semantics as the Röbel composer. The tags remain
+  // the authority at this HTTP boundary; this check merely rejects a signed
+  // event that does not faithfully mirror an explicit source mention.
+  return /(^|[^\p{L}\p{N}_])@mecky(?![\p{L}\p{N}_])/iu.test(content);
+}
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function admissionProof(value: unknown, walletAddress: string): Readonly<{
+  credential: { kind: "thirdweb_smart_account" | "passkey_safe"; address: string; chainId: 100 };
+  statement: string;
+  walletSignature: string;
+  bindingEvent: NostrEvent;
+  nostrPubkey: string;
+  workbenchProof: unknown;
+}> | null {
+  const record = parsedObject(value, ["schemaVersion", "credential", "statement", "walletSignature", "bindingEvent"]);
+  const credential = record && parsedObject(record.credential, ["kind", "address", "chainId"]);
+  if (!record || record.schemaVersion !== "roebel_citizen_admission_proof_v1" || !credential ||
+    (credential.kind !== "thirdweb_smart_account" && credential.kind !== "passkey_safe") ||
+    normalizeWallet(credential.address) !== walletAddress || credential.chainId !== 100 ||
+    typeof record.statement !== "string" || typeof record.walletSignature !== "string" ||
+    !/^0x[0-9a-f]+$/iu.test(record.walletSignature) || (record.walletSignature.length - 2) % 2 !== 0) return null;
+  const bindingEvent = validNostrEvent(record.bindingEvent);
+  if (!bindingEvent) return null;
+  const binding = verifyBindingEvent(bindingEvent, walletAddress);
+  if (!binding.valid || bindingEvent.content !== record.statement ||
+    record.statement !== bindingStatement({ account: walletAddress, npub: binding.npub })) return null;
+  return {
+    credential: { kind: credential.kind, address: walletAddress, chainId: 100 },
+    statement: record.statement,
+    walletSignature: record.walletSignature,
+    bindingEvent,
+    nostrPubkey: binding.pubkey,
+    workbenchProof: {
+      schemaVersion: "roebel_citizen_admission_proof_v1",
+      credential: { kind: credential.kind, address: walletAddress, chainId: 100 },
+      statement: record.statement,
+      walletSignature: record.walletSignature,
+      bindingEvent,
+    },
+  };
+}
+
 function nodeResponseHeaders(headers: Headers): Record<string, string | string[]> {
   const result: Record<string, string | string[]> = {};
   headers.forEach((value, name) => { result[name] = value; });
@@ -146,6 +236,18 @@ function clearChallenge(response: Response, secure: boolean): Response {
   return response;
 }
 
+function internalStatus(value: unknown, status: number): Response {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "no-referrer",
+    },
+  });
+}
+
 /**
  * Exact, staging-only write surface. This handler has no generic proxy, no
  * caller-selected table/RPC, and no civic-authority verbs. It is designed to
@@ -159,7 +261,8 @@ export function createStagingParticipantGatewayHandler(
   if (config.sessionHmacKey.length < 32 ||
     !/^[a-f0-9]{64}$/iu.test(config.inviteSha256) ||
     config.allowedWallets.length < 1 || config.allowedWallets.length > 8 ||
-    config.allowedWallets.some((wallet) => !/^0x[0-9a-f]{40}$/u.test(wallet))) {
+    config.allowedWallets.some((wallet) => !/^0x[0-9a-f]{40}$/u.test(wallet)) ||
+    !/^[0-9a-f]{64}$/u.test(config.meckyPubkey)) {
     throw new Error("staging_participant_gateway_config_invalid");
   }
   let origin: string;
@@ -174,6 +277,34 @@ export function createStagingParticipantGatewayHandler(
 
   return async (request) => {
     const url = new URL(request.url);
+    if (url.pathname === INTERNAL_STATUS_PATH) {
+      // No CORS, browser origin or cookies are accepted on this non-ingressed
+      // probe. A network policy/service boundary is still required in deploy.
+      if (url.search || request.method !== "GET" || request.headers.has("origin") || request.headers.has("cookie")) {
+        return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
+      }
+      const pins = dependencies.readinessPins;
+      if (!dependencies.readiness || !pins) {
+        return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
+      }
+      try {
+        const preflight = await dependencies.readiness.preflight();
+        if (preflight.migrationId !== "20260825_staging_participant_gateway" ||
+          preflight.databaseSchemaSha256 !== pins.databaseSchemaSha256) {
+          return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
+        }
+        return internalStatus({
+          schemaVersion: INTERNAL_STATUS_SCHEMA,
+          status: "ready",
+          sourceRevision: pins.sourceRevision,
+          manifestDigest: pins.manifestDigest,
+          migrationSha256: pins.migrationSha256,
+          databaseSchemaSha256: pins.databaseSchemaSha256,
+        }, 200);
+      } catch {
+        return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
+      }
+    }
     if (url.search) return json({ error: "not_found" }, 404);
     const requestOrigin = request.headers.get("origin");
     if (requestOrigin !== null && !isAllowedOrigin(request, config)) {
@@ -184,7 +315,7 @@ export function createStagingParticipantGatewayHandler(
       return json({ error: "authority_action_forbidden" }, 403, origin);
     }
     if (request.method === "OPTIONS" &&
-      [STATUS_PATH, CHALLENGE_PATH, SESSION_PATH, POSTS_PATH, COMMENTS_PATH].includes(url.pathname)) {
+      [STATUS_PATH, CHALLENGE_PATH, SESSION_PATH, POSTS_PATH, COMMENTS_PATH, NOSTR_POST_PATH].includes(url.pathname)) {
       const response = new Response(null, {
         status: 204,
         headers: {
@@ -216,7 +347,7 @@ export function createStagingParticipantGatewayHandler(
       }, 200, origin);
     }
     if (url.pathname !== CHALLENGE_PATH && url.pathname !== SESSION_PATH &&
-      url.pathname !== POSTS_PATH && url.pathname !== COMMENTS_PATH) {
+      url.pathname !== POSTS_PATH && url.pathname !== COMMENTS_PATH && url.pathname !== NOSTR_POST_PATH) {
       return json({ error: "not_found" }, 404, origin);
     }
     // Same-origin browser GET requests commonly omit Origin. Every mutating
@@ -306,6 +437,80 @@ export function createStagingParticipantGatewayHandler(
       Math.floor(nowMs / 1_000),
     );
     if (!session) return json({ error: "session_required" }, 401, origin);
+
+    if (url.pathname === NOSTR_POST_PATH) {
+      const record = parsedObject(body, ["schemaVersion", "requestId", "sourcePostId", "admissionProof", "event"]);
+      const requestId = record && record.schemaVersion === NOSTR_POST_SCHEMA
+        ? validRequestId(record.requestId) : null;
+      const sourcePostId = record && record.schemaVersion === NOSTR_POST_SCHEMA
+        ? validPostId(record.sourcePostId) : null;
+      const proof = record && record.schemaVersion === NOSTR_POST_SCHEMA
+        ? admissionProof(record.admissionProof, session.walletAddress) : null;
+      const event = record && record.schemaVersion === NOSTR_POST_SCHEMA
+        ? validNostrEvent(record.event) : null;
+      if (!requestId || !sourcePostId || !proof || !event || event.kind !== 1 ||
+        event.pubkey !== proof.nostrPubkey ||
+        !exactMeckyConversationEvent(event, config.meckyPubkey, sourcePostId)) {
+        return json({ error: "nostr_post_invalid" }, 400, origin);
+      }
+      let source;
+      try {
+        source = await dependencies.data.readOwnedMainTextPost({ walletAddress: session.walletAddress, postId: sourcePostId });
+      } catch {
+        return json({ error: "source_unavailable" }, 503, origin);
+      }
+      if (!source || source.content !== event.content || !containsExplicitMeckyMention(source.content) ||
+        source.wallet_address.toLowerCase() !== session.walletAddress) {
+        return json({ error: "source_mismatch" }, 409, origin);
+      }
+      let walletSignatureValid = false;
+      try {
+        walletSignatureValid = await dependencies.verifier.verifyWalletSignature({
+          address: session.walletAddress, message: proof.statement, signature: proof.walletSignature,
+        });
+      } catch {
+        return json({ error: "verification_unavailable" }, 503, origin);
+      }
+      if (!walletSignatureValid) return json({ error: "wallet_signature_invalid" }, 401, origin);
+      const receiptInput = {
+        walletAddress: session.walletAddress,
+        sourcePostId,
+        requestId,
+        eventId: event.id,
+        eventCreatedAt: event.created_at,
+        contentSha256: sha256Hex(source.content),
+      };
+      let receipt: StagingParticipantMirrorReceipt;
+      try {
+        receipt = await dependencies.data.reserveNostrPostMirror(receiptInput);
+      } catch (error) {
+        if (error instanceof Error && error.message === "staging_participant_mirror_stale") {
+          return json({ error: "nostr_post_stale" }, 400, origin);
+        }
+        if (error instanceof Error && error.message === "staging_participant_mirror_conflict") {
+          return json({ error: "source_already_mirrored" }, 409, origin);
+        }
+        return json({ error: "mirror_receipt_unavailable" }, 503, origin);
+      }
+      if (receipt.state === "published") {
+        return json({ status: "published", eventId: receipt.event_id, authority: "none" }, 200, origin);
+      }
+      try {
+        const published = await dependencies.mirror.mirrorPost({ admissionProof: proof.workbenchProof, event });
+        if (published.status !== "published" || published.eventId !== receipt.event_id) {
+          return json({ error: "mirror_unavailable" }, 503, origin);
+        }
+        const completed = await dependencies.data.completeNostrPostMirror(receiptInput);
+        return json({ status: "published", eventId: completed.event_id, authority: "none" }, 201, origin);
+      } catch (error) {
+        if (error instanceof Error && error.message === "staging_participant_mirror_conflict") {
+          return json({ error: "source_already_mirrored" }, 409, origin);
+        }
+        // The durable reservation deliberately remains. A retry can only ever
+        // publish this exact event id; it cannot substitute a new signed note.
+        return json({ error: "mirror_unavailable" }, 503, origin);
+      }
+    }
 
     if (url.pathname === POSTS_PATH) {
       const record = parsedObject(body, ["schemaVersion", "requestId", "content"]);

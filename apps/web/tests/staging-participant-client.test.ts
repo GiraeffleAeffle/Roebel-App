@@ -2,12 +2,18 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { afterEach, test } from "node:test";
 import {
+  clearPendingStagingParticipantMeckyMirror,
   createStagingParticipantComment,
   createStagingParticipantPost,
   createStagingParticipantSession,
   getStagingParticipantStatus,
+  loadPendingStagingParticipantMeckyMirror,
+  mirrorStagingParticipantMeckyPost,
   requestStagingParticipantChallenge,
+  savePendingStagingParticipantMeckyMirror,
 } from "../src/lib/staging-participant/client.ts";
+import { createCitizenSession } from "../src/lib/citizen-session/session.ts";
+import { isAppConversationMentionEvent, type NostrEvent } from "@netizen-labs/nostr";
 
 const originalFetch = globalThis.fetch;
 
@@ -44,7 +50,7 @@ test("participant status fails closed and uses only the exact same-origin gatewa
   });
 });
 
-test("participant mutations send closed versioned bodies to the five-route gateway", async () => {
+test("participant mutations send closed versioned bodies to the six-route gateway", async () => {
   const calls: Array<{ path: string; init: RequestInit }> = [];
   globalThis.fetch = async (input, init) => {
     calls.push({ path: String(input), init: init ?? {} });
@@ -121,6 +127,171 @@ test("participant post retries a lost response with the same idempotency key", a
   assert.equal(bodies[0], bodies[1]);
 });
 
+test("a successful participant post can produce only one same-thread Mecky mirror body", async () => {
+  let call: { path: string; body: Record<string, unknown> } | undefined;
+  globalThis.fetch = async (input, init) => {
+    call = { path: String(input), body: JSON.parse(String(init?.body)) };
+    return new Response(JSON.stringify({ status: "published", eventId: "a".repeat(64) }), {
+      status: 201, headers: { "content-type": "application/json" },
+    });
+  };
+  const session = createCitizenSession({
+    memberId: null,
+    appAccountId: null,
+    credential: {
+      kind: "thirdweb_smart_account",
+      address: "0x1111111111111111111111111111111111111111",
+      chainId: 100,
+      async signMessage() {
+        return `0x${"12".repeat(65)}`;
+      },
+    },
+  });
+  const result = await mirrorStagingParticipantMeckyPost({
+    sourcePost: { id: "11111111-1111-4111-8111-111111111111", content: "@Mecky, bitte einordnen" },
+    session,
+    meckyPubkey: "d".repeat(64),
+  });
+  assert.equal(result.success, true);
+  assert.equal(call?.path, "/api/staging-participant/v1/nostr-post");
+  assert.deepEqual(Object.keys(call?.body ?? {}).sort(), [
+    "admissionProof", "event", "requestId", "schemaVersion", "sourcePostId",
+  ]);
+  assert.equal(call?.body.schemaVersion, "staging_participant_nostr_post_request_v1");
+  assert.deepEqual(
+    (call?.body.event as { tags?: unknown } | undefined)?.tags,
+    [
+      ["p", "d".repeat(64)],
+      ["source-app-post", "11111111-1111-4111-8111-111111111111"],
+      ["t", "roebel-app-conversation"],
+    ],
+  );
+  assert.equal(
+    isAppConversationMentionEvent(call?.body.event as NostrEvent, {
+      agentPubkey: "d".repeat(64),
+      sourceAppPostId: "11111111-1111-4111-8111-111111111111",
+    }),
+    true,
+  );
+  assert.doesNotMatch(JSON.stringify(call?.body), /promotion|argument|case|vote|treasury/u);
+  session.dispose();
+});
+
+test("a failed participant mirror retains the exact signed body for retry instead of signing a replacement", async () => {
+  const bodies: string[] = [];
+  globalThis.fetch = async (_input, init) => {
+    bodies.push(String(init?.body));
+    return new Response(JSON.stringify({ error: "mirror_unavailable" }), {
+      status: 503, headers: { "content-type": "application/json" },
+    });
+  };
+  let admissions = 0;
+  let signed = 0;
+  const session = {
+    snapshot: {
+      credential: {
+        kind: "thirdweb_smart_account",
+        address: "0x1111111111111111111111111111111111111111",
+        chainId: 100,
+      },
+    },
+    async createAdmissionProof() {
+      admissions += 1;
+      return { schemaVersion: "roebel_citizen_admission_proof_v1", attempt: admissions };
+    },
+    async signConversationMention(input: { content: string; createdAt: number; agentPubkey: string; sourceAppPostId: string }) {
+      signed += 1;
+      return {
+        id: "a".repeat(64), pubkey: "b".repeat(64), created_at: input.createdAt, kind: 1,
+        tags: [["p", input.agentPubkey], ["source-app-post", input.sourceAppPostId], ["t", "roebel-app-conversation"]],
+        content: input.content, sig: "c".repeat(128),
+      };
+    },
+  } as never;
+  const sourcePost = { id: "11111111-1111-4111-8111-111111111111", content: "@Mecky, bitte einordnen" };
+  const first = await mirrorStagingParticipantMeckyPost({ sourcePost, session, meckyPubkey: "d".repeat(64) });
+  assert.equal(first.success, false);
+  assert.ok(first.pending);
+  assert.equal("admissionProof" in (first.pending ?? {}), false);
+  assert.doesNotMatch(JSON.stringify(first.pending), /walletSignature|admissionProof/u);
+  const second = await mirrorStagingParticipantMeckyPost({
+    sourcePost,
+    session,
+    retry: first.pending,
+    meckyPubkey: "d".repeat(64),
+  });
+  assert.equal(second.success, false);
+  assert.equal(admissions, 2);
+  assert.equal(signed, 1);
+  assert.equal(bodies.length, 4);
+  const firstBody = JSON.parse(bodies[0]) as Record<string, unknown>;
+  const firstRetryBody = JSON.parse(bodies[2]) as Record<string, unknown>;
+  assert.equal(bodies[0], bodies[1]);
+  assert.equal(bodies[2], bodies[3]);
+  assert.equal(firstBody.requestId, firstRetryBody.requestId);
+  assert.deepEqual(firstBody.event, firstRetryBody.event);
+  assert.notDeepEqual(firstBody.admissionProof, firstRetryBody.admissionProof);
+});
+
+test("reload persistence keeps only one bounded public event and never an admission proof", () => {
+  const values = new Map<string, string>();
+  const storage: Storage = {
+    get length() { return values.size; },
+    clear() { values.clear(); },
+    getItem(key) { return values.get(key) ?? null; },
+    key(index) { return [...values.keys()][index] ?? null; },
+    removeItem(key) { values.delete(key); },
+    setItem(key, value) { values.set(key, value); },
+  };
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { localStorage: storage },
+  });
+  try {
+    const walletAddress = "0x1111111111111111111111111111111111111111";
+    const pending = {
+      schemaVersion: "roebel_staging_participant_mecky_mirror_v1" as const,
+      sourcePost: {
+        id: "11111111-1111-4111-8111-111111111111",
+        content: "@Mecky, bitte einordnen",
+      },
+      requestId: "22222222-2222-4222-8222-222222222222",
+      walletAddress,
+      event: {
+        id: "a".repeat(64),
+        pubkey: "b".repeat(64),
+        created_at: Math.floor(Date.now() / 1_000),
+        kind: 1,
+        tags: [
+          ["p", "d".repeat(64)],
+          ["source-app-post", "11111111-1111-4111-8111-111111111111"],
+          ["t", "roebel-app-conversation"],
+        ],
+        content: "@Mecky, bitte einordnen",
+        sig: "c".repeat(128),
+      },
+      expiresAt: Date.now() + 14 * 60 * 1_000,
+    };
+
+    savePendingStagingParticipantMeckyMirror(pending);
+    const serialized = [...values.values()][0] ?? "";
+    assert.match(serialized, /roebel_staging_participant_mecky_mirror_v1/u);
+    assert.doesNotMatch(serialized, /admissionProof|walletSignature|bindingEvent/u);
+    assert.deepEqual(loadPendingStagingParticipantMeckyMirror(walletAddress), pending);
+
+    clearPendingStagingParticipantMeckyMirror(walletAddress);
+    assert.equal(loadPendingStagingParticipantMeckyMirror(walletAddress), null);
+    assert.equal(values.size, 0);
+  } finally {
+    if (previousWindow) {
+      Object.defineProperty(globalThis, "window", previousWindow);
+    } else {
+      Reflect.deleteProperty(globalThis, "window");
+    }
+  }
+});
+
 test("participant UI never sends its writes through the public Web server actions", () => {
   const composer = readFileSync(
     new URL("../src/components/app/PostComposer.tsx", import.meta.url),
@@ -153,4 +324,7 @@ test("participant UI never sends its writes through the public Web server action
   assert.match(hook, /checkedWalletAddress === currentWalletAddress/u);
   assert.match(hook, /Wallet wurde während der Anmeldung gewechselt/u);
   assert.match(composer, /submitLockRef\.current/u);
+  assert.match(composer, /mirrorStagingParticipantMeckyPost/u);
+  assert.match(composer, /loadPendingStagingParticipantMeckyMirror/u);
+  assert.match(composer, /Mecky-Anfrage erneut senden/u);
 });

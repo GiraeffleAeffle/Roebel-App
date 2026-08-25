@@ -35,7 +35,7 @@ const STAGING_BUILD_WORKERS = resolveStagingBuildWorkers(
   process.env.ROEBEL_STANDALONE_IMAGE,
 );
 
-// thirdweb/react is imported from 121 source files. Isolated no-publish run
+// thirdweb/react is imported from 148 source files as of 2026-08-25. Isolated no-publish run
 // 32569478401 proved Next's named-import rewriting against the complete route
 // graph and reduced the exact build from 363.5s to 301.1s. Limit the
 // experimental optimization to the same staging image until its deployed

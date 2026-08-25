@@ -5,7 +5,7 @@
 
 ## Context
 
-ADR 0016 fixes the source-authority boundary for Public Mecky, but a type in the answer process is not yet a safe production source. Directly crawling a newspaper, RSS feed, ALLRIS page or calendar while answering would bypass human source admission, make corrections difficult to enforce and couple Röbel to provider-specific markup. Requiring the administration to approve every Mecky answer would instead make ordinary conversation prohibitively expensive.
+ADR 0016 fixes the source-authority boundary for Public Mecky, but a type in the answer process is not yet a safe production source. Directly crawling a newspaper, RSS feed, Ratsinformationssystem (RIS) page or calendar while answering would bypass human source admission, make corrections difficult to enforce and couple a deployment to provider-specific markup. Requiring the administration to approve every Mecky answer would instead make ordinary conversation prohibitively expensive.
 
 ## Decision
 
@@ -44,7 +44,7 @@ their reviewed endpoints are actually deployed, so shipping this code cannot
 turn a missing source into an endless production dependency.
 
 This still does not claim that a reviewed Röbel corpus or public producer
-endpoint is deployed. Provider-specific ALLRIS or news ingestion remains behind
+endpoint is deployed. Provider-specific RIS or news ingestion remains behind
 the publication boundary. Production activation requires at least one real
 reviewed record, correction tests and a deployed projection endpoint; raw or
 pending records continue to yield no factual answer.

@@ -87,6 +87,10 @@ jobs:
 
       - name: Test, lint, typecheck and build the affected graph
         env:
+          # Gateway bundles compile this exact value. It is both the checkout
+          # identity and a Turbo cache input, so a restored dist/ cannot carry
+          # a revision compiled from another source tree.
+          SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
           QUALITY_FULL: ${{ needs.changes.outputs.quality_full }}
           QUALITY_PACKAGES: ${{ needs.changes.outputs.quality_packages }}
           QUALITY_WEB_TESTS: ${{ needs.changes.outputs.quality_web_tests }}

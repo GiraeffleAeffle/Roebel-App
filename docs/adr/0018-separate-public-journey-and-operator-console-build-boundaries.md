@@ -29,6 +29,26 @@ increased webpack parallelism from two to four changed an exact Next build from
 Compiler-cache, dependency-cache and Turbopack trials were slower, larger or
 failed existing page-data gates and remain rejected.
 
+A 2026-08-25 source and pipeline re-audit reached the same conclusion on the
+current tree. A representative cold job took about 8 minutes 23 seconds, with
+about 5 minutes 4 seconds in the Next compile alone. The job already prunes to
+the exact `@roebel/web` workspace graph, materializes one offline dependency
+store, invokes `next build` once, and packages only standalone/static/public
+runtime output. The source still contains 360 page or route files, including
+75 `/admin` pages and 36 `/dashboard` pages, while roughly 148 source files
+import Thirdweb directly. Reintroducing `.next`, dependency or `mode=max`
+BuildKit caches is not accepted: earlier warm-cache measurements were slower,
+restore was unreliable, and the cache expanded into multiple GiB.
+
+The immediate fast-feedback rule is therefore component ownership, not another
+cache. Gateway, relay, watcher and harness-only changes use their dedicated
+publishers and do not compile Web. A change to participant-facing Web UI still
+requires one verified Web build. Before changing runner size or increasing
+Webpack parallelism, a non-publishing exact-source benchmark must compare the
+same artifact on the current runner and an 8-core/32-GiB runner; the existing
+limit of two stays fail-closed until that benchmark proves a lower end-to-end
+time without memory or page-data regressions.
+
 These surfaces also have different authority. The public app owns ordinary
 posts, profiles, topics, discussions and the visible civic journey. The
 operator surface owns privileged review, publishing and configuration. Keeping

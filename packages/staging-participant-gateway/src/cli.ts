@@ -1,26 +1,32 @@
 #!/usr/bin/env node
 import { createGnosisWalletVerifier } from "@netizen-labs/relay-sync";
 
+import { COMPILED_SOURCE_REVISION } from "./build-constants.ts";
 import { resolveProductionGatewayConfig } from "./config.ts";
 import {
   createStagingParticipantGatewayServer,
   listenStagingParticipantGatewayServer,
 } from "./http.ts";
-import { createRestrictedSupabaseDataAdapter } from "./supabase-adapter.ts";
+import { createRestrictedSupabaseDataAdapter, createStagingParticipantReadinessAdapter } from "./supabase-adapter.ts";
+import { createPrivateWorkbenchMeckyMirrorAdapter } from "./workbench-adapter.ts";
 
 async function main(): Promise<void> {
-  const config = resolveProductionGatewayConfig();
+  const config = resolveProductionGatewayConfig(process.env, COMPILED_SOURCE_REVISION);
   if (!config) {
     throw new Error("staging_participant_gateway_not_explicitly_configured");
   }
+  const supabase = {
+    url: config.supabaseUrl,
+    anonKey: config.supabaseAnonKey,
+    rpcSecret: config.supabaseRpcSecret,
+  };
   const server = createStagingParticipantGatewayServer({
     config: config.gateway,
     verifier: createGnosisWalletVerifier({ rpcUrl: config.gnosisRpcUrl }),
-    data: createRestrictedSupabaseDataAdapter({
-      url: config.supabaseUrl,
-      anonKey: config.supabaseAnonKey,
-      rpcSecret: config.supabaseRpcSecret,
-    }),
+    data: createRestrictedSupabaseDataAdapter(supabase),
+    readiness: createStagingParticipantReadinessAdapter(supabase),
+    readinessPins: config.readinessPins,
+    mirror: createPrivateWorkbenchMeckyMirrorAdapter(config.workbench),
   });
   await listenStagingParticipantGatewayServer({
     server,
