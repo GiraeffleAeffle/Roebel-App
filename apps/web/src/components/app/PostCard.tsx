@@ -20,6 +20,7 @@ import { StadtstackPostPromotion } from "@/components/app/StadtstackPostPromotio
 import { deletePost } from "@/app/actions/posts";
 import type { PostWithEngagement } from "@/types/post";
 import { toast } from "sonner";
+import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
 
 interface PostCardProps extends PostWithEngagement {
   onDeleted?: () => void;
@@ -70,6 +71,7 @@ export function PostCard({
   content,
   media_urls,
   video_url,
+  feed_type,
   category,
   likes_count,
   comments_count,
@@ -89,6 +91,11 @@ export function PostCard({
 }: PostCardProps) {
   const router = useRouter();
   const account = useActiveAccount();
+  const stagingParticipantGatewayExpected = Boolean(
+    resolveStadtstackStagingLab(
+      process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB,
+    ),
+  );
   const { isVerified } = useVerificationStatus();
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -262,7 +269,7 @@ export function PostCard({
               )}
             </div>
           </div>
-          {isAuthor && (
+          {isAuthor && !stagingParticipantGatewayExpected && (
             <button
               onClick={handleDelete}
               disabled={isDeleting}
@@ -321,12 +328,18 @@ export function PostCard({
 
         {/* Action bar */}
         <div className="flex items-center gap-1 px-4 py-2 border-t border-border">
-          <LikeButton
-            postId={id}
-            isLiked={is_liked_by_viewer}
-            likesCount={likes_count}
-            walletAddress={account?.address}
-          />
+          {stagingParticipantGatewayExpected ? (
+            <span className="px-2 py-1 text-xs text-muted-foreground" title="Reaktionen sind in diesem Staging-Schritt pausiert">
+              {likes_count} Gefällt mir
+            </span>
+          ) : (
+            <LikeButton
+              postId={id}
+              isLiked={is_liked_by_viewer}
+              likesCount={likes_count}
+              walletAddress={account?.address}
+            />
+          )}
           <button
             onClick={() => setShowComments(!showComments)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-muted-foreground hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950 rounded-md text-sm transition-colors"
@@ -365,6 +378,7 @@ export function PostCard({
           <CommentSection
             postId={id}
             commentsCount={comments_count}
+            postFeedType={feed_type}
             defaultExpanded={mode === "detail"}
             postSource={{
               id,

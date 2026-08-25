@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useTransition, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { useActiveAccount } from "thirdweb/react";
 import { useVerificationStatus } from "@/hooks/useVerificationStatus";
@@ -14,6 +14,7 @@ import { ConnectCta } from "@/components/unternehmen/ConnectCta";
 import { useAccount } from "@/lib/context/AccountContext";
 import { isOrgAccount, ACCOUNT_TYPE_LABELS } from "@/types/account";
 import type { PostComment } from "@/types/post";
+import type { FeedType } from "@/types/post";
 import { Bot, ExternalLink, Send, ImagePlus, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { useCitizenSession } from "@/lib/citizen-session/CitizenSessionContext";
@@ -28,6 +29,7 @@ import {
   type StagingMeckyConversationResponse,
 } from "@/lib/stadtstack/staging-api";
 import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
+import { useStagingTestParticipant } from "@/hooks/useStagingTestParticipant";
 
 const MAX_COMMENT_IMAGES = 3;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -36,6 +38,7 @@ const MAX_VIDEO_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB (matches bucket cap)
 interface CommentSectionProps {
   postId: string;
   commentsCount: number;
+  postFeedType: FeedType;
   defaultExpanded?: boolean;
   postSource: {
     id: string;
@@ -285,6 +288,7 @@ async function uploadToStorage(
 export function CommentSection({
   postId,
   commentsCount,
+  postFeedType,
   defaultExpanded = false,
   postSource,
 }: CommentSectionProps) {
@@ -293,11 +297,27 @@ export function CommentSection({
   const { isVerified } = useVerificationStatus();
   const { activeAccount } = useAccount();
   const isCommentingAsOrg = activeAccount ? isOrgAccount(activeAccount) : false;
+  const stagingEnabled = Boolean(
+    resolveStadtstackStagingLab(
+      process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB
+    )
+  );
+  const stagingParticipant = useStagingTestParticipant(account);
+  const isStagingParticipant =
+    postFeedType === "main" &&
+    stagingEnabled &&
+    stagingParticipant.isAvailable &&
+    stagingParticipant.isActive &&
+    !isCommentingAsOrg;
+  const canComment = Boolean(account) &&
+    !(stagingEnabled && stagingParticipant.isLoading) &&
+    (stagingEnabled
+      ? isStagingParticipant
+      : isVerified || isCommentingAsOrg);
   const [comments, setComments] = useState<PostComment[]>([]);
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [isLoading, setIsLoading] = useState(false);
   const [newComment, setNewComment] = useState("");
-  const [isPending, startTransition] = useTransition();
   const [totalCount, setTotalCount] = useState(commentsCount);
   const [meckyConversation, setMeckyConversation] =
     useState<StagingMeckyConversationResponse | null>(null);
@@ -306,11 +326,6 @@ export function CommentSection({
   );
   const [conversationPollVersion, setConversationPollVersion] = useState(0);
   const [meckyPollingPaused, setMeckyPollingPaused] = useState(false);
-  const stagingEnabled = Boolean(
-    resolveStadtstackStagingLab(
-      process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB
-    )
-  );
 
   // Media state
   const [imageFiles, setImageFiles] = useState<File[]>([]);
@@ -324,8 +339,9 @@ export function CommentSection({
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const submitLockRef = useRef(false);
 
-  const hasMedia = imageFiles.length > 0 || videoFile !== null;
+  const hasMedia = !isStagingParticipant && (imageFiles.length > 0 || videoFile !== null);
   const projectedReplyIds = new Set(
     comments
       .filter((comment) => comment.agent?.kind === "public_mecky")
@@ -483,25 +499,28 @@ export function CommentSection({
     if (
       !account?.address ||
       (!newComment.trim() && !hasMedia) ||
-      isPending ||
+      submitLockRef.current ||
       isUploading
     )
       return;
 
     const content = newComment.trim() || " ";
+    submitLockRef.current = true;
     setNewComment("");
     setIsUploading(true);
 
     try {
       // Upload media
       const uploadedImageUrls: string[] = [];
-      for (const file of imageFiles) {
-        const url = await uploadToStorage(file, "image");
-        if (url) uploadedImageUrls.push(url);
+      if (!isStagingParticipant) {
+        for (const file of imageFiles) {
+          const url = await uploadToStorage(file, "image");
+          if (url) uploadedImageUrls.push(url);
+        }
       }
 
       let uploadedVideoUrl: string | null = null;
-      if (videoFile) {
+      if (!isStagingParticipant && videoFile) {
         try {
           uploadedVideoUrl = await uploadToStorage(videoFile, "video", (pct) =>
             setVideoUploadProgress(pct)
@@ -522,7 +541,7 @@ export function CommentSection({
         id: `temp-${Date.now()}`,
         post_id: postId,
         wallet_address: account.address,
-        account_id: activeAccount?.id ?? null,
+        account_id: isStagingParticipant ? null : activeAccount?.id ?? null,
         content,
         media_urls: imagePreviews,
         video_url: videoPreview,
@@ -541,60 +560,69 @@ export function CommentSection({
       if (!isExpanded) setIsExpanded(true);
       resetMedia();
 
-      startTransition(async () => {
-        const result = await createComment({
-          post_id: postId,
-          wallet_address: account.address,
-          account_id: activeAccount?.id,
-          content,
-          media_urls:
-            uploadedImageUrls.length > 0 ? uploadedImageUrls : undefined,
-          video_url: uploadedVideoUrl,
-        });
+      const result = isStagingParticipant
+        ? await stagingParticipant.createComment(postId, content)
+        : await createComment({
+            post_id: postId,
+            wallet_address: account.address,
+            account_id: activeAccount?.id,
+            content,
+            media_urls:
+              uploadedImageUrls.length > 0 ? uploadedImageUrls : undefined,
+            video_url: uploadedVideoUrl,
+          });
 
-        if (result.success && result.data) {
-          setComments((prev) =>
-            prev.map((c) => (c.id === optimisticComment.id ? result.data! : c))
-          );
-          if (
-            stagingEnabled &&
-            citizenSession &&
-            containsExplicitMeckyMention(result.data.content)
-          ) {
-            try {
-              const request = await requestAppMeckyConversationAnswer({
-                session: citizenSession,
-                gateway: appMeckyConversationGateway,
-                source: {
-                  postId,
-                  commentId: result.data.id,
-                  walletAddress: result.data.wallet_address.toLowerCase(),
-                  content: result.data.content,
-                  createdAt: result.data.created_at,
-                },
-              });
-              setWaitingForMentionId(request.mentionId);
-              setConversationPollVersion((value) => value + 1);
-              toast.success("Kommentar veröffentlicht – Mecky antwortet hier.");
-            } catch (error) {
-              console.error("Mecky conversation request failed", error);
-              toast.warning(
-                "Der Kommentar ist veröffentlicht, aber Mecky konnte noch nicht gefragt werden."
-              );
-            }
+      if (result.success && result.data) {
+        setComments((prev) =>
+          prev.map((c) => (c.id === optimisticComment.id ? result.data! : c))
+        );
+        if (
+          !isStagingParticipant &&
+          stagingEnabled &&
+          citizenSession &&
+          containsExplicitMeckyMention(result.data.content)
+        ) {
+          try {
+            const request = await requestAppMeckyConversationAnswer({
+              session: citizenSession,
+              gateway: appMeckyConversationGateway,
+              source: {
+                postId,
+                commentId: result.data.id,
+                walletAddress: result.data.wallet_address.toLowerCase(),
+                content: result.data.content,
+                createdAt: result.data.created_at,
+              },
+            });
+            setWaitingForMentionId(request.mentionId);
+            setConversationPollVersion((value) => value + 1);
+            toast.success("Kommentar veröffentlicht – Mecky antwortet hier.");
+          } catch (error) {
+            console.error("Mecky conversation request failed", error);
+            toast.warning(
+              "Der Kommentar ist veröffentlicht, aber Mecky konnte noch nicht gefragt werden."
+            );
           }
-        } else {
-          // Rollback
-          setComments((prev) =>
-            prev.filter((c) => c.id !== optimisticComment.id)
+        } else if (
+          isStagingParticipant &&
+          containsExplicitMeckyMention(result.data.content)
+        ) {
+          toast.warning(
+            "Kommentar veröffentlicht. Die signierte Mecky-Antwort wird mit dem nächsten, getrennt geprüften Diskussionsschritt aktiviert."
           );
-          setTotalCount((prev) => prev - 1);
-          toast.error(result.error || "Fehler beim Kommentieren");
         }
-      });
+      } else {
+        // Rollback
+        setComments((prev) =>
+          prev.filter((c) => c.id !== optimisticComment.id)
+        );
+        setTotalCount((prev) => prev - 1);
+        toast.error(result.error || "Fehler beim Kommentieren");
+      }
     } catch {
       toast.error("Fehler beim Kommentieren");
     } finally {
+      submitLockRef.current = false;
       setIsUploading(false);
     }
   };
@@ -661,10 +689,15 @@ export function CommentSection({
       )}
 
       {/* Comment input */}
-      {account && isVerified ? (
+      {canComment ? (
         <form onSubmit={handleSubmit} className="border-t border-border">
+          {isStagingParticipant && (
+            <p className="mx-4 mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+              {stagingParticipant.label}. Erlaubt sind nur Textkommentare.
+            </p>
+          )}
           {/* Active-account context — only when commenting as an org */}
-          {isCommentingAsOrg && activeAccount && (
+          {!isStagingParticipant && isCommentingAsOrg && activeAccount && (
             <div className="flex items-center gap-2 px-4 pt-2 pb-1">
               <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center flex-shrink-0 overflow-hidden">
                 {activeAccount.avatar_url ? (
@@ -758,26 +791,28 @@ export function CommentSection({
           )}
 
           <div className="flex items-center gap-2 px-4 py-2">
-            <div className="flex items-center gap-0.5">
-              <button
-                type="button"
-                onClick={() => imageInputRef.current?.click()}
-                disabled={imageFiles.length >= MAX_COMMENT_IMAGES}
-                className="p-1.5 text-muted-foreground hover:text-foreground rounded-full hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                aria-label="Bild hinzufügen"
-              >
-                <ImagePlus className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => videoInputRef.current?.click()}
-                disabled={!!videoFile}
-                className="p-1.5 text-muted-foreground hover:text-foreground rounded-full hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                aria-label="Video hinzufügen"
-              >
-                <Video className="h-4 w-4" />
-              </button>
-            </div>
+            {!isStagingParticipant && (
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={imageFiles.length >= MAX_COMMENT_IMAGES}
+                  className="p-1.5 text-muted-foreground hover:text-foreground rounded-full hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-label="Bild hinzufügen"
+                >
+                  <ImagePlus className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => videoInputRef.current?.click()}
+                  disabled={!!videoFile}
+                  className="p-1.5 text-muted-foreground hover:text-foreground rounded-full hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-label="Video hinzufügen"
+                >
+                  <Video className="h-4 w-4" />
+                </button>
+              </div>
+            )}
             <input
               type="text"
               value={newComment}
@@ -789,7 +824,7 @@ export function CommentSection({
             <button
               type="submit"
               disabled={
-                (!newComment.trim() && !hasMedia) || isPending || isUploading
+                (!newComment.trim() && !hasMedia) || isUploading
               }
               className="p-2 text-primary hover:bg-primary/10 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               aria-label="Kommentar senden"
@@ -817,9 +852,37 @@ export function CommentSection({
         </form>
       ) : account ? (
         <div className="px-4 py-2 border-t border-border">
-          <p className="text-xs text-muted-foreground text-center">
-            Nur verifizierte Bürger können kommentieren
-          </p>
+          <div className="space-y-1 text-center text-xs text-muted-foreground">
+            <p>
+              {stagingEnabled && stagingParticipant.isLoading
+                ? "Staging-Schreibzugang wird geprüft …"
+                : stagingEnabled && !stagingParticipant.isAvailable
+                  ? "Der begrenzte Staging-Schreibdienst ist derzeit nicht erreichbar."
+                : stagingParticipant.isAvailable && isCommentingAsOrg
+                  ? "Organisationskommentare sind in diesem Staging-Schritt pausiert."
+                  : stagingParticipant.isAvailable && postFeedType !== "main"
+                    ? "Kommentare in diesem Bereich sind im aktuellen Staging-Schritt pausiert."
+                    : stagingParticipant.isAvailable
+                      ? "Für einen persönlichen Testkommentar zuerst die Staging-Testteilnahme aktivieren."
+                      : "Nur verifizierte Bürger können kommentieren"}
+            </p>
+            {stagingEnabled && postFeedType === "main" && stagingParticipant.isAvailable && !isCommentingAsOrg && <button
+              type="button"
+              disabled={stagingParticipant.isEnrolling}
+              onClick={async () => {
+                const inviteToken = window.prompt(
+                  "Staging-Einladung eingeben.",
+                );
+                if (inviteToken === null) return;
+                const result = await stagingParticipant.enroll(inviteToken.trim() || undefined);
+                if (result.success) toast.success("Staging-Testteilnahme aktiviert");
+                else toast.error(result.error || "Staging-Testteilnahme fehlgeschlagen");
+              }}
+              className="font-semibold text-primary hover:underline disabled:opacity-50"
+            >
+              Staging-Testteilnahme aktivieren
+            </button>}
+          </div>
         </div>
       ) : (
         <div className="flex flex-col items-center gap-2 border-t border-border px-4 py-3 text-center">

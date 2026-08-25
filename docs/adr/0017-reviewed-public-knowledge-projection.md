@@ -9,11 +9,22 @@ ADR 0016 fixes the source-authority boundary for Public Mecky, but a type in the
 
 ## Decision
 
-Stadtstack publishes separate municipality-scoped projections for reviewed local news and reviewed Ratsinformationssystem records. Röbel consumes each projection through a source-specific, credential-free, GET-only adapter.
+An authorized municipal publication producer publishes municipality-scoped
+records for reviewed local news and Ratsinformationssystem material. A
+municipality-operated Kair/openDesk/RIS adapter may be that producer after an
+explicit human municipal transition. Stadtstack validates and projects the
+record; Röbel—or any other frontend—consumes it through a source-specific,
+credential-free, GET-only adapter.
 
 Each projection is closed, versioned and checksum-bound. It contains one source kind, one municipality, a generation time and exact admitted records. A record keeps its fixed authority (`editorial_report` or `official_record`), review time and lifecycle. The consumer rejects the whole source snapshot on an unknown field, checksum drift, duplicate identity, cross-municipality or cross-source record, pending review, future review, unsafe URL, redirect, oversized response or timeout. Withdrawn, stale and superseded records remain expressible but are removed before retrieval ranking.
 
 The answer path never crawls upstream systems and receives no publisher, administration, case, voting or treasury credential. Once a source version is admitted, Mecky may answer ordinary tagged conversations automatically from it with citations and `authorityBinding: none`; humans review source admission, correction and official transitions, not every generated sentence.
+
+The outward exchange is city-neutral. An official record may have an
+OParl-compatible public representation, an MCP query projection and a signed
+Nostr/Netizen replication event. Those interfaces neither replace OParl nor
+create authority: `official_record` comes only from the attributable municipal
+producer and covers only what that publication states.
 
 The two source endpoints are deliberately independent:
 

@@ -22,7 +22,9 @@ The division of labour they propose is coherent and worth adopting:
 - **The Röbel app is the public community space.** Discussion, participation, membership.
 - **Stadtstack is the traceable decision and evidence pipeline.** Case state, departmental work
   packages, evidence with provenance, decisions, impact receipts.
-- **openDesk (Nextcloud/Matrix/Collabora) is the administration's workspace.** Human work.
+- **Kair/openDesk may be municipality-operated administrative workspaces.**
+  Human municipal work happens there; after an explicit authorized transition,
+  such a workspace may emit an attributable Municipal publication.
 - **Mecky is a family of role-bounded companions**, not one omniscient bot.
 - **A Netizen node can later bundle these as a sovereign, operable profile.**
 
@@ -32,6 +34,34 @@ And the lifecycle that ties them together:
 discussion → topic → proposal → departmental packages → evidence and answers
   → options → decision → implementation → measured impact → back to discussion
 ```
+
+The city-neutral publication path is distinct but connected:
+
+```text
+municipal workspace/session context
+  → human municipal approval
+  → municipality-authorized publication
+  → OParl-compatible public record + MCP query projection
+  → signed Nostr/Netizen replication
+  → Röbel or any other frontend
+```
+
+Kair, openDesk and a publication adapter may be operated together by one
+municipality. Their logical separation records provenance and authority; it
+does not require separate infrastructure. Nostr/MCP distribute and query the
+publication but never create its official status.
+
+Röbel remains the first active product tracer. Potential later adapter trials
+may include Charlie Fisher's municipal work in Herzogtum Lauenburg (with
+NextLearning e.V., Landvorteil e.V. and WFL) and Ludwigslust-Parchim (with the
+South West Mecklenburg Economic Development Agency). These are candidate
+jurisdictions, not current Stadtstack deployment commitments, and must not add
+region-specific fields to the exchange contract.
+
+Kair's planned self-deployable device/operating-system role is a future adapter
+constraint. Stadtstack will not make its active Röbel flow depend on that
+runtime until the code and hardware profile are available for an isolated
+installation, conformance and recovery review.
 
 Every surface references the **same case ID, the same versions, the same checksums**, and a
 reader can always see what is confirmed, disputed, missing, private, or merely AI-assisted.

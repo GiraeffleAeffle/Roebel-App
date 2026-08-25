@@ -28,9 +28,12 @@ Combining every capability into one large page would create the opposite problem
 6. Mini-apps and external systems are **stage tools** behind narrow interfaces:
    - tree and sunburst views project the signed discussion graph;
    - the Röbel Data mini-app may render governance or budget exploration;
-   - openDesk owns administrative work;
+   - a municipality-operated Kair/openDesk workspace owns administrative work
+     and may return an authorized Municipal publication receipt;
    - governance and treasury systems own their authorized actions.
-   They receive a scoped journey context and return an intent or receipt. They do not own the canonical topic, proposal, or case state.
+   They receive a scoped journey context and return an intent or receipt. A
+   municipal workspace receipt may advance only the exact reviewed municipal
+   stage it proves; it cannot silently alter topic, proposal, or case state.
 7. Direct mini-app URLs may remain for development and deep linking, but the primary public route is the Röbel journey. Returning from a stage tool restores the same topic and stage rather than dropping the person into a separate product.
 8. Desktop presents a persistent stage timeline alongside the active work surface. Mobile presents the same stages through a compact progress header and stage navigation; it does not squeeze a desktop process map into one horizontal strip.
 9. Proposal, participation, treasury review, and execution remain visibly connected in the journey, while their permissions remain separate. Displaying a budget constraint never authorizes a treasury transaction; displaying an advisory signal never turns it into a formal vote.

@@ -83,6 +83,7 @@ export const QUALITY_WORKSPACES = Object.freeze([
   ["packages/relay-sync", "@netizen-labs/relay-sync"],
   ["packages/stadtstack-federation-client", "@roebel/stadtstack-federation-client"],
   ["packages/staging-relay", "@roebel/staging-relay"],
+  ["packages/staging-participant-gateway", "@roebel/staging-participant-gateway"],
   ["packages/workspace", "@netizen-labs/workspace"],
 ].map(([root, name]) => Object.freeze({ root, name })));
 

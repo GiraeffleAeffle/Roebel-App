@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useTransition, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { useActiveAccount } from "thirdweb/react";
 import { useVerificationStatus } from "@/hooks/useVerificationStatus";
@@ -50,6 +50,7 @@ import {
 } from "@/lib/stadtstack/app-mecky-conversation";
 import { appMeckyConversationGateway } from "@/lib/stadtstack/app-mecky-gateway";
 import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
+import { useStagingTestParticipant } from "@/hooks/useStagingTestParticipant";
 
 const MAX_CHARS = 500;
 const MAX_IMAGES = 10;
@@ -83,6 +84,28 @@ export function PostComposer({
   const { activeAccount } = useAccount();
 
   const isPostingAsOrg = activeAccount ? isOrgAccount(activeAccount) : false;
+  const stagingParticipantGatewayExpected = Boolean(
+    resolveStadtstackStagingLab(
+      process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB,
+    ),
+  );
+  // The temporary capability belongs only to the ordinary neighbourhood feed.
+  // App and Rathaus composers retain their existing citizen/org behavior and
+  // never offer a hidden route into the normal feed.
+  const stagingParticipationCanBeUsedHere = defaultFeedType === "main";
+  const stagingParticipant = useStagingTestParticipant(account);
+  const isStagingParticipant =
+    stagingParticipationCanBeUsedHere &&
+    stagingParticipantGatewayExpected &&
+    stagingParticipant.isAvailable &&
+    stagingParticipant.isActive &&
+    !isPostingAsOrg;
+  const maxChars = isStagingParticipant ? 250 : MAX_CHARS;
+  const canCreatePost = stagingParticipantGatewayExpected && stagingParticipant.isLoading
+    ? false
+    : stagingParticipantGatewayExpected
+      ? isStagingParticipant
+      : isVerified || isPostingAsOrg;
 
   const [isExpanded, setIsExpanded] = useState(false);
   const [content, setContent] = useState("");
@@ -100,7 +123,6 @@ export function PostComposer({
     null
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isPending, startTransition] = useTransition();
 
   // Keep local feed selection in sync when the active tab changes
   useEffect(() => {
@@ -112,6 +134,7 @@ export function PostComposer({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const submitLockRef = useRef(false);
 
   const shortAddress = account?.address
     ? `${account.address.slice(0, 4)}...${account.address.slice(-3)}`
@@ -150,10 +173,10 @@ export function PostComposer({
 
   // Debounced URL detection
   useEffect(() => {
-    if (!content) return;
+    if (!content || isStagingParticipant) return;
     const timeout = setTimeout(() => fetchOGForUrls(content), 800);
     return () => clearTimeout(timeout);
-  }, [content, fetchOGForUrls]);
+  }, [content, fetchOGForUrls, isStagingParticipant]);
 
   // Handle image selection
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -303,16 +326,19 @@ export function PostComposer({
 
   // Submit post
   const handleSubmit = async () => {
-    if (!account?.address || !content.trim() || isSubmitting) return;
+    if (!account?.address || !content.trim() || submitLockRef.current) return;
 
+    submitLockRef.current = true;
     setIsSubmitting(true);
 
     try {
       // Upload images directly to Supabase Storage
       const uploadedImageUrls: string[] = [];
-      for (const file of imageFiles) {
-        const url = await uploadToStorage(file, "image");
-        if (url) uploadedImageUrls.push(url);
+      if (!isStagingParticipant) {
+        for (const file of imageFiles) {
+          const url = await uploadToStorage(file, "image");
+          if (url) uploadedImageUrls.push(url);
+        }
       }
 
       // Upload video directly to Supabase Storage. If a video was attached
@@ -320,16 +346,15 @@ export function PostComposer({
       // a text-only ghost post the user didn't ask for. uploadToStorage has
       // already toasted the error.
       let uploadedVideoUrl: string | null = null;
-      if (videoFile) {
+      if (!isStagingParticipant && videoFile) {
         uploadedVideoUrl = await uploadToStorage(videoFile, "video");
         if (!uploadedVideoUrl) {
-          setIsSubmitting(false);
           return;
         }
       }
 
       // Extract URLs from content
-      const linkUrls = content.match(URL_REGEX) || [];
+      const linkUrls = isStagingParticipant ? [] : content.match(URL_REGEX) || [];
 
       // Validate poll options if poll is attached
       const validPoll =
@@ -341,72 +366,82 @@ export function PostComposer({
         feedType === "rathaus" && !canPostToRathaus ? "main" : feedType;
       const submittedContent = content.trim();
 
-      startTransition(async () => {
-        const result = await createPost({
-          wallet_address: account.address,
-          account_id: activeAccount?.id,
-          content: submittedContent,
-          category: category || "generell",
-          feed_type: targetFeedType,
-          media_urls: uploadedImageUrls,
-          video_url: uploadedVideoUrl,
-          link_urls: linkUrls,
-          poll: validPoll,
-        });
+      const result = isStagingParticipant
+        ? await stagingParticipant.createPost(submittedContent)
+        : await createPost({
+            wallet_address: account.address,
+            account_id: activeAccount?.id,
+            content: submittedContent,
+            category: category || "generell",
+            feed_type: targetFeedType,
+            media_urls: uploadedImageUrls,
+            video_url: uploadedVideoUrl,
+            link_urls: linkUrls,
+            poll: validPoll,
+          });
 
-        if (result.success && result.data) {
-          let meckyRequested = false;
-          if (
-            citizenSession &&
-            resolveStadtstackStagingLab(
-              process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB
-            ) &&
-            containsExplicitMeckyMention(submittedContent)
-          ) {
-            try {
-              await requestAppMeckyConversationAnswer({
-                session: citizenSession,
-                gateway: appMeckyConversationGateway,
-                source: {
-                  postId: result.data.id,
-                  walletAddress: result.data.wallet_address.toLowerCase(),
-                  content: result.data.content,
-                  createdAt: result.data.created_at,
-                },
-              });
-              meckyRequested = true;
-            } catch (error) {
-              console.error("Mecky conversation request failed", error);
-              toast.warning(
-                "Der Beitrag ist veröffentlicht, aber Mecky konnte noch nicht gefragt werden."
-              );
-            }
+      if (result.success && result.data) {
+        let meckyRequested = false;
+        if (
+          !isStagingParticipant &&
+          citizenSession &&
+          resolveStadtstackStagingLab(
+            process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB
+          ) &&
+          containsExplicitMeckyMention(submittedContent)
+        ) {
+          try {
+            await requestAppMeckyConversationAnswer({
+              session: citizenSession,
+              gateway: appMeckyConversationGateway,
+              source: {
+                postId: result.data.id,
+                walletAddress: result.data.wallet_address.toLowerCase(),
+                content: result.data.content,
+                createdAt: result.data.created_at,
+              },
+            });
+            meckyRequested = true;
+          } catch (error) {
+            console.error("Mecky conversation request failed", error);
+            toast.warning(
+              "Der Beitrag ist veröffentlicht, aber Mecky konnte noch nicht gefragt werden."
+            );
           }
-          // Reset form
-          setContent("");
-          setImageFiles([]);
-          setImagePreviews([]);
-          removeVideo();
-          setLinkPreviews([]);
-          setFetchedUrls(new Set());
-          setPollInput(null);
-          setCategory(null);
-          setFeedType(defaultFeedType);
-          setIsExpanded(false);
+        }
+        const participantMeckyDeferred =
+          isStagingParticipant && containsExplicitMeckyMention(submittedContent);
+        // Reset form
+        setContent("");
+        setImageFiles([]);
+        setImagePreviews([]);
+        removeVideo();
+        setLinkPreviews([]);
+        setFetchedUrls(new Set());
+        setPollInput(null);
+        setCategory(null);
+        setFeedType(defaultFeedType);
+        setIsExpanded(false);
+        if (participantMeckyDeferred) {
+          toast.warning(
+            "Beitrag veröffentlicht. Die signierte Mecky-Antwort wird mit dem nächsten, getrennt geprüften Diskussionsschritt aktiviert."
+          );
+        } else {
           toast.success(
             meckyRequested
               ? "Beitrag veröffentlicht – Mecky antwortet im Gespräch."
               : "Beitrag veröffentlicht!"
           );
-          onPostCreated?.();
-          if (meckyRequested) router.push(`/app/posts/${result.data.id}`);
-        } else {
-          toast.error(result.error || "Fehler beim Veröffentlichen");
         }
-      });
+        onPostCreated?.();
+        if (meckyRequested) router.push(`/app/posts/${result.data.id}`);
+      } else {
+        toast.error(result.error || "Fehler beim Veröffentlichen");
+      }
     } catch {
       toast.error("Fehler beim Veröffentlichen");
     } finally {
+      submitLockRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -414,13 +449,61 @@ export function PostComposer({
   // Posting always needs the backend — never show a composer that can't submit.
   if (!hasSupabase) return null;
 
+  if (account && stagingParticipantGatewayExpected && stagingParticipant.isLoading) {
+    return (
+      <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
+        Staging-Schreibzugang wird geprüft …
+      </div>
+    );
+  }
+
+  if (account && stagingParticipantGatewayExpected && !stagingParticipant.isAvailable) {
+    return (
+      <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
+        Der begrenzte Staging-Schreibdienst ist derzeit nicht erreichbar. Es
+        wird kein unsicherer Legacy-Schreibweg verwendet.
+      </div>
+    );
+  }
+
+  // In the separately armed staging database all legacy direct feed writes are
+  // closed. The reviewed gateway currently supports only a personal, text-only
+  // main-feed tracer; never let another UI path fail silently against the DB.
+  if (account && stagingParticipantGatewayExpected && !isStagingParticipant) {
+    const message = isPostingAsOrg
+      ? "Organisationsbeiträge sind in diesem Staging-Schritt pausiert. Bitte zum persönlichen Profil wechseln."
+      : !stagingParticipationCanBeUsedHere
+        ? "Beiträge in diesem Bereich sind im aktuellen Staging-Schritt pausiert."
+        : "Für einen persönlichen Testbeitrag zuerst die begrenzte Staging-Testteilnahme aktivieren.";
+    return (
+      <div className="rounded-lg border border-border bg-card p-4">
+        <p className="text-sm text-muted-foreground">{message}</p>
+        {!isPostingAsOrg && stagingParticipationCanBeUsedHere && (
+          <button
+            type="button"
+            disabled={stagingParticipant.isEnrolling}
+            onClick={async () => {
+              const inviteToken = window.prompt("Staging-Einladung eingeben.");
+              if (inviteToken === null) return;
+              const result = await stagingParticipant.enroll(inviteToken.trim() || undefined);
+              if (result.success) toast.success("Staging-Testteilnahme aktiviert");
+              else toast.error(result.error || "Staging-Testteilnahme fehlgeschlagen");
+            }}
+            className="mt-2 text-xs font-semibold text-primary hover:underline disabled:opacity-50"
+          >
+            Staging-Testteilnahme aktivieren
+          </button>
+        )}
+      </div>
+    );
+  }
+
   // Non-citizen state — only blocks when the parent feed requires verification
   if (
     requireVerified &&
     !verificationLoading &&
     account &&
-    !isVerified &&
-    !isPostingAsOrg
+    !canCreatePost
   ) {
     return (
       <div className="bg-card rounded-lg border border-border p-4">
@@ -428,8 +511,8 @@ export function PostComposer({
           <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center text-sm font-medium text-muted-foreground flex-shrink-0">
             {displayName.slice(0, 2).toUpperCase()}
           </div>
-          <div className="flex-1 py-2.5 px-4 bg-muted rounded-full text-sm text-muted-foreground">
-            Nur verifizierte Bürger können Beiträge erstellen
+          <div className="flex-1 space-y-2 rounded-xl bg-muted px-4 py-2.5 text-sm text-muted-foreground">
+            <p>Nur verifizierte Bürger können Beiträge erstellen</p>
           </div>
         </div>
       </div>
@@ -476,7 +559,7 @@ export function PostComposer({
           >
             Was gibt es Neues, Nachbar?
           </button>
-          <button
+          {!isStagingParticipant && <button
             onClick={() => {
               setIsExpanded(true);
               setTimeout(() => imageInputRef.current?.click(), 100);
@@ -485,7 +568,7 @@ export function PostComposer({
             aria-label="Bild hinzufügen"
           >
             <ImagePlus className="h-5 w-5" />
-          </button>
+          </button>}
         </div>
       </div>
     );
@@ -548,8 +631,14 @@ export function PostComposer({
       {/* Community Guidelines Banner (first-time only) */}
       <GuidelinesBanner />
 
+      {isStagingParticipant && (
+        <div className="mx-4 mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+          {stagingParticipant.label}. Erlaubt sind nur Textbeiträge im normalen Feed.
+        </div>
+      )}
+
       {/* Feed-target selector */}
-      <div className="px-4 pb-2">
+      {!isStagingParticipant && <div className="px-4 pb-2">
         <div className="relative inline-block">
           <button
             type="button"
@@ -601,7 +690,7 @@ export function PostComposer({
             </div>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* Textarea */}
       <div className="px-4 pb-2">
@@ -609,35 +698,35 @@ export function PostComposer({
           ref={textareaRef}
           value={content}
           onChange={(e) => {
-            if (e.target.value.length <= MAX_CHARS) {
+            if (Array.from(e.target.value).length <= maxChars) {
               setContent(e.target.value);
             }
           }}
           placeholder="Was gibt es Neues, Nachbar?"
           className="w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none min-h-[80px]"
           rows={3}
-          maxLength={MAX_CHARS}
+          maxLength={maxChars}
           autoFocus
         />
         <div className="flex justify-end">
           <span
             className={`text-xs ${
-              content.length >= MAX_CHARS
+              Array.from(content).length >= maxChars
                 ? "text-destructive"
-                : content.length >= MAX_CHARS * 0.8
+                : Array.from(content).length >= maxChars * 0.8
                   ? "text-yellow-500"
                   : "text-muted-foreground"
             }`}
           >
-            {content.length}/{MAX_CHARS}
+            {Array.from(content).length}/{maxChars}
           </span>
         </div>
       </div>
 
       {/* Category selector */}
-      <div className="px-4 pb-2">
+      {!isStagingParticipant && <div className="px-4 pb-2">
         <CategorySelector value={category} onChange={setCategory} />
-      </div>
+      </div>}
 
       {/* Image previews */}
       {imagePreviews.length > 0 && (
@@ -760,23 +849,23 @@ export function PostComposer({
       {/* Action bar */}
       <div className="flex items-center justify-between px-4 py-3 border-t border-border">
         <div className="flex items-center gap-1">
-          <button
+          {!isStagingParticipant && <button
             onClick={() => imageInputRef.current?.click()}
             disabled={imageFiles.length >= MAX_IMAGES}
             className="p-2 text-muted-foreground hover:text-foreground rounded-full hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             aria-label="Bilder hinzufügen"
           >
             <ImagePlus className="h-5 w-5" />
-          </button>
-          <button
+          </button>}
+          {!isStagingParticipant && <button
             onClick={() => videoInputRef.current?.click()}
             disabled={!!videoFile}
             className="p-2 text-muted-foreground hover:text-foreground rounded-full hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             aria-label="Video hinzufügen"
           >
             <Video className="h-5 w-5" />
-          </button>
-          <button
+          </button>}
+          {!isStagingParticipant && <button
             onClick={() =>
               setPollInput(
                 pollInput
@@ -792,7 +881,7 @@ export function PostComposer({
             aria-label="Umfrage erstellen"
           >
             <BarChart3 className="h-5 w-5" />
-          </button>
+          </button>}
           <GuidelinesInfoButton />
         </div>
 
@@ -801,12 +890,11 @@ export function PostComposer({
           disabled={
             !content.trim() ||
             isSubmitting ||
-            isPending ||
             videoUploadProgress != null
           }
           className="px-4 py-2 bg-primary text-primary-foreground rounded-full text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
         >
-          {(isSubmitting || isPending) && (
+          {isSubmitting && (
             <Loader2 className="h-4 w-4 animate-spin" />
           )}
           {videoUploadProgress != null

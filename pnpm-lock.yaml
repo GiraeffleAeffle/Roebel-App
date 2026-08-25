@@ -1258,6 +1258,25 @@ importers:
         specifier: ^5.7.0
         version: 5.8.3
 
+  packages/staging-participant-gateway:
+    dependencies:
+      '@netizen-labs/relay-sync':
+        specifier: workspace:*
+        version: link:../relay-sync
+    devDependencies:
+      '@types/node':
+        specifier: ^22.7.4
+        version: 22.19.15
+      esbuild:
+        specifier: ^0.27.7
+        version: 0.27.7
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
+      typescript:
+        specifier: ^5.6.3
+        version: 5.8.3
+
   packages/staging-relay:
     dependencies:
       '@netizen-labs/nostr':
