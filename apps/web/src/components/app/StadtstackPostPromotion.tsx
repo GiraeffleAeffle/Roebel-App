@@ -3,42 +3,50 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { GitFork, Loader2 } from "lucide-react";
-import type { NostrEvent } from "@netizen-labs/nostr";
 
 import { useCitizenSession } from "@/lib/citizen-session/CitizenSessionContext";
 import {
-  promoteAppPostToCivicTopic,
-  type AppPostPromotionGateway,
-  type AppPostPromotionSource,
-} from "@/lib/stadtstack/app-post-promotion";
-import {
   stagingGet,
-  stagingPost,
   type StagingConfigResponse,
-  type StagingFeedResponse,
   type StagingMeckyConversationReply,
   type StagingMeckyConversationResponse,
 } from "@/lib/stadtstack/staging-api";
 import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
+import {
+  promoteStagingParticipantSourcePost,
+  resumeStagingParticipantSourcePostPromotion,
+} from "@/lib/staging-participant/topic-tracer";
 
-const gateway: AppPostPromotionGateway = {
-  getConfig: () => stagingGet<StagingConfigResponse>("/config"),
-  getFeed: () => stagingGet<StagingFeedResponse>("/feed"),
-  admit: (proof) =>
-    stagingPost<{ status: "admitted"; pubkey: string }>(
-      "/session/admit",
-      proof,
-    ),
-  publish: (intent, event) =>
-    stagingPost<
-      | { status: "published" | "promoted"; event?: NostrEvent }
-      | { status: "already_promoted"; event: NostrEvent }
-    >("/signed-event", { intent, event }),
-};
+type AppPostPromotionSource = Readonly<{
+  id: string;
+  walletAddress: string;
+  content: string;
+  createdAt: string;
+}>;
 
 function suggestedTitle(content: string): string {
   const firstSentence = content.split(/[.!?\n]/, 1)[0]?.trim() ?? "";
   return firstSentence.slice(0, 120);
+}
+
+function toTopicId(title: string): string {
+  const slug = title
+    .trim()
+    .toLocaleLowerCase("de-DE")
+    .replaceAll("ä", "ae")
+    .replaceAll("ö", "oe")
+    .replaceAll("ü", "ue")
+    .replaceAll("ß", "ss")
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 63)
+    .replace(/-+$/g, "");
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(slug)) {
+    throw new Error("staging_participant_topic_title_invalid");
+  }
+  return `urn:stadtstack:topic:municipality:roebel-mueritz:${slug}`;
 }
 
 export function StadtstackPostPromotion({
@@ -57,7 +65,7 @@ export function StadtstackPostPromotion({
   const [conversationReplies, setConversationReplies] = useState<
     StagingMeckyConversationReply[]
   >([]);
-  const [selectedSource, setSelectedSource] = useState("original-post");
+  const [selectedSource, setSelectedSource] = useState("");
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,14 +83,27 @@ export function StadtstackPostPromotion({
     setError(null);
     setLoadingConversation(true);
     try {
+      const resumed = await resumeStagingParticipantSourcePostPromotion(post.id);
+      if (resumed) {
+        router.push(`/app/diskussion/${resumed.discussionRootId}`);
+        return;
+      }
       const conversation = await stagingGet<StagingMeckyConversationResponse>(
         `/conversation?post=${encodeURIComponent(post.id)}`,
       );
-      setConversationReplies(
-        conversation.replies.filter((reply) => reply.evidenceRefs.length > 0),
+      const replies = conversation.replies.filter(
+        (reply) =>
+          reply.evidenceRefs.length > 0 && reply.sourceAppCommentId === null,
       );
-    } catch {
+      setConversationReplies(replies);
+      setSelectedSource((current) => current || replies[0]?.id || "");
+    } catch (cause) {
       setConversationReplies([]);
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Ein offener Diskussionsschritt konnte nicht fortgesetzt werden.",
+      );
     } finally {
       setLoadingConversation(false);
     }
@@ -94,49 +115,49 @@ export function StadtstackPostPromotion({
     setBusy(true);
     setError(null);
     try {
-      const selectedReply = conversationReplies.find(
-        (reply) => reply.id === selectedSource,
+      const selectedReply = conversationReplies.find((reply) => reply.id === selectedSource);
+      if (!selectedReply) throw new Error("staging_participant_mecky_reply_required");
+      const selectedReplySeconds = Math.floor(
+        Date.parse(selectedReply.createdAt) / 1_000,
       );
-      const selectedReplySeconds =
-        selectedReply === undefined
-          ? 0
-          : Math.floor(Date.parse(selectedReply.createdAt) / 1_000);
-      if (
-        selectedReply !== undefined &&
-        !Number.isSafeInteger(selectedReplySeconds)
-      ) {
-        throw new Error("app_post_promotion_conversation_timestamp_invalid");
+      if (!Number.isSafeInteger(selectedReplySeconds) || selectedReplySeconds < 0) {
+        throw new Error("staging_participant_mecky_reply_timestamp_invalid");
       }
-      const result = await promoteAppPostToCivicTopic({
-        session,
-        gateway,
-        post: { ...post, walletAddress: post.walletAddress.toLowerCase() },
-        topicTitle,
-        question,
-        nowSeconds: Math.max(
+      if (
+        selectedReply.mentionEvent.id !== selectedReply.mentionId ||
+        selectedReply.replyEvent.id !== selectedReply.id
+      ) {
+        throw new Error("staging_participant_source_exchange_invalid");
+      }
+      const config = await stagingGet<StagingConfigResponse>("/config");
+      const topicId = toTopicId(topicTitle);
+      const rootEvent = await session.promotePublicPostToTopic({
+        sourcePost: selectedReply.mentionEvent,
+        municipalityId: "roebel-mueritz",
+        topicId,
+        topicTitle: topicTitle.trim(),
+        agentPubkey: config.meckyPubkey,
+        content: /@mecky\b/iu.test(question.trim())
+          ? question.trim()
+          : `@Mecky, ${question.trim()}`,
+        conversationSource: {
+          kind: "selected_conversation",
+          sourceAppPostId: post.id,
+          mentionEventId: selectedReply.mentionEvent.id,
+          replyEventId: selectedReply.id,
+          ...(selectedReply.receiptId === null ? {} : { receiptId: selectedReply.receiptId }),
+        },
+        createdAt: Math.max(
           Math.floor(Date.now() / 1_000),
+          selectedReply.mentionEvent.created_at + 1,
           selectedReplySeconds + 1,
         ),
-        ...(selectedReply === undefined
-          ? {}
-          : {
-              conversationSource: {
-                kind: "selected_conversation" as const,
-                sourceAppPostId: post.id,
-                ...(selectedReply.sourceAppCommentId === null
-                  ? {}
-                  : {
-                      sourceAppCommentId: selectedReply.sourceAppCommentId,
-                    }),
-                mentionEventId: selectedReply.mentionId,
-                replyEventId: selectedReply.id,
-                ...(selectedReply.receiptId === null
-                  ? {}
-                  : { receiptId: selectedReply.receiptId }),
-              },
-            }),
       });
-      router.push(`/app/diskussion/${result.discussionId}`);
+      const receipt = await promoteStagingParticipantSourcePost({
+        sourcePostId: post.id,
+        rootEvent,
+      });
+      router.push(`/app/diskussion/${receipt.discussionRootId}`);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -191,24 +212,6 @@ export function StadtstackPostPromotion({
             <legend className="text-xs font-semibold text-foreground">
               Nachvollziehbarer Ausgangspunkt
             </legend>
-            <label className="flex cursor-pointer gap-2 rounded-lg border border-border bg-background p-3 text-xs">
-              <input
-                type="radio"
-                name={`stadtstack-source-${post.id}`}
-                value="original-post"
-                checked={selectedSource === "original-post"}
-                onChange={(event) => setSelectedSource(event.target.value)}
-                className="mt-0.5"
-              />
-              <span>
-                <span className="block font-semibold text-foreground">
-                  Ursprünglichen Beitrag verwenden
-                </span>
-                <span className="mt-0.5 block text-muted-foreground">
-                  Die neue Diskussion verweist auf diesen unveränderten Beitrag.
-                </span>
-              </span>
-            </label>
             {loadingConversation ? (
               <p className="text-xs text-muted-foreground">
                 Belegte Mecky-Antworten werden geladen …
@@ -244,6 +247,12 @@ export function StadtstackPostPromotion({
                   </span>
                 </label>
               ))
+            )}
+            {!loadingConversation && conversationReplies.length === 0 && (
+              <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+                Für diesen Staging-Schritt braucht es zuerst die beantwortete,
+                signierte @Mecky-Erwähnung dieses Beitrags.
+              </p>
             )}
           </fieldset>
           <div>
@@ -281,7 +290,7 @@ export function StadtstackPostPromotion({
               onClick={() => {
                 setOpen(false);
                 setError(null);
-                setSelectedSource("original-post");
+                setSelectedSource("");
               }}
               disabled={busy}
               className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-foreground disabled:opacity-50"
@@ -290,7 +299,7 @@ export function StadtstackPostPromotion({
             </button>
             <button
               type="submit"
-              disabled={busy || topicTitle.trim().length < 3 || question.trim().length < 3}
+              disabled={busy || topicTitle.trim().length < 3 || question.trim().length < 3 || !selectedSource}
               className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50"
             >
               {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}

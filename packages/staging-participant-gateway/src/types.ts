@@ -1,3 +1,5 @@
+import type { NostrEvent } from "@netizen-labs/nostr";
+
 export type WalletSignatureVerifier = Readonly<{
   verifyWalletSignature(input: Readonly<{
     address: string;
@@ -8,8 +10,9 @@ export type WalletSignatureVerifier = Readonly<{
 
 /**
  * The gateway is deliberately unable to express civic authority. Its data
- * boundary exposes two write RPCs, one exact owned-source read and two durable
- * mirror-receipt transitions. None can address an arbitrary application row.
+ * boundary exposes ordinary feed writes, one exact owned-source read, and
+ * separately versioned mirror/tracer receipt transitions. None can address an
+ * arbitrary application row or a civic-authority table.
  */
 export type StagingParticipantDataAdapter = Readonly<{
   createMainTextPost(input: Readonly<{
@@ -51,11 +54,80 @@ export type StagingParticipantDataAdapter = Readonly<{
     eventId: string;
     contentSha256: string;
   }>): Promise<StagingParticipantMirrorReceipt>;
+  /** Adds the v2 proof-verified Nostr author binding to a published mirror. */
+  bindPublishedNostrPostMirror(input: Readonly<{
+    walletAddress: string;
+    sourcePostId: string;
+    eventId: string;
+    nostrPubkey: string;
+  }>): Promise<StagingParticipantSourceMirrorBinding>;
+  /** Closed resolver; ownership is checked by the database, never workbench input. */
+  resolvePublishedNostrPostMirror(input: Readonly<{
+    walletAddress: string;
+    sourcePostId: string;
+  }>): Promise<StagingParticipantSourceMirrorBinding | null>;
+  /**
+   * Atomically reserves one author-confirmed topic root. The database does not
+   * receive a browser-selected table or feed query: it checks the ordinary
+   * source row against the active session wallet before recording the claim.
+   */
+  reserveSourcePostPromotion(input: Readonly<{
+    walletAddress: string;
+    namespace: string;
+    sourcePostId: string;
+    requestId: string;
+    idempotencyKeySha256: string;
+    discussionRootId: string;
+    discussionRootSha256: string;
+    topicId: string;
+    policyVersion: string;
+  }>): Promise<StagingParticipantPromotionReceipt>;
+  completeSourcePostPromotion(input: Readonly<{
+    walletAddress: string;
+    namespace: string;
+    sourcePostId: string;
+    requestId: string;
+    idempotencyKeySha256: string;
+    discussionRootId: string;
+    discussionRootSha256: string;
+  }>): Promise<StagingParticipantPromotionReceipt>;
+  resolvePublishedSourcePostPromotion(input: Readonly<{
+    walletAddress: string;
+    namespace: string;
+    discussionRootId: string;
+    sourceAuthorPubkey: string;
+  }>): Promise<StagingParticipantPromotionReceipt | null>;
+  /** Same closed, durable hand-off for one root and its source author. */
+  reserveTopicSuggestion(input: Readonly<{
+    walletAddress: string;
+    namespace: string;
+    discussionRootId: string;
+    sourceAuthorPubkey: string;
+    requestId: string;
+    idempotencyKeySha256: string;
+    suggestionId: string;
+    suggestionSha256: string;
+    meckyAnswerId: string;
+    meckyReceiptId: string;
+    topicId: string;
+    policyVersion: string;
+  }>): Promise<StagingParticipantSuggestionReceipt>;
+  completeTopicSuggestion(input: Readonly<{
+    walletAddress: string;
+    namespace: string;
+    discussionRootId: string;
+    sourceAuthorPubkey: string;
+    requestId: string;
+    idempotencyKeySha256: string;
+    suggestionId: string;
+    suggestionSha256: string;
+  }>): Promise<StagingParticipantSuggestionReceipt>;
 }>;
 
 /** A single catalog-bound readiness capability; it cannot select any RPC. */
 export type StagingParticipantReadinessAdapter = Readonly<{
   preflight(): Promise<Readonly<{ migrationId: string; databaseSchemaSha256: string }>>;
+  preflightTopicTracer(): Promise<Readonly<{ migrationId: string; databaseSchemaSha256: string }>>;
 }>;
 
 export type StagingParticipantReadinessPins = Readonly<{
@@ -63,6 +135,8 @@ export type StagingParticipantReadinessPins = Readonly<{
   manifestDigest: string;
   migrationSha256: string;
   databaseSchemaSha256: string;
+  topicTracerMigrationSha256: string;
+  topicTracerDatabaseSchemaSha256: string;
 }>;
 
 /**
@@ -82,6 +156,54 @@ export type MeckyMirrorAdapter = Readonly<{
       sig: string;
     }>;
   }>): Promise<Readonly<{ status: "published"; eventId: string }>>;
+}>;
+
+/** Immutable deployment configuration for the ADR-0022 tracer. */
+export type StagingParticipantTopicPolicy = Readonly<{
+  municipalityId: string;
+  /** Exact prefix before the final topic slug, e.g. `urn:...:roebel-mueritz`. */
+  topicNamespace: string;
+  /** Exact source-app Nostr `t` value. */
+  sourceConversationTopic: string;
+  policyVersion: string;
+}>;
+
+/**
+ * A fixed internal resolver/publisher for the ADR-0022 tracer. It has no
+ * arbitrary relay URL, query, method, Nostr intent, Case, vote, or treasury
+ * capability. The browser can submit signed envelopes but never declares the
+ * source facts used to accept them.
+ */
+export type StagingParticipantTopicTracerAdapter = Readonly<{
+  resolvePromotionSource(input: Readonly<{
+    sourceNoteEventId: string;
+    sourceAuthorPubkey: string;
+    sourceAppPostId: string;
+  }>): Promise<Readonly<{
+    sourceNote: NostrEvent;
+    meckyReplyEvent: NostrEvent;
+    meckyReceiptId?: string;
+  }> | null>;
+  publishPromotion(input: Readonly<{ event: NostrEvent }>): Promise<Readonly<{
+    status: "published";
+    eventId: string;
+  }>>;
+  resolveTopicSuggestionSources(input: Readonly<{
+    discussionRootId: string;
+    sourceAuthorPubkey: string;
+    sourceNoteEventId: string;
+    sourceAppPostId: string;
+  }>): Promise<Readonly<{
+    sourceNote: NostrEvent;
+    discussionRoot: NostrEvent;
+    meckyAnswer: NostrEvent;
+    meckyReplyEvent: NostrEvent;
+    meckyReceiptId?: string;
+  }> | null>;
+  publishTopicSuggestion(input: Readonly<{ event: NostrEvent }>): Promise<Readonly<{
+    status: "published";
+    eventId: string;
+  }>>;
 }>;
 
 /** Public shapes consumed by the Röbel composer/comment UI. */
@@ -128,6 +250,44 @@ export type StagingParticipantMirrorReceipt = Readonly<{
   state: "reserved" | "published";
 }>;
 
+export type StagingParticipantSourceMirrorBinding = Readonly<{
+  wallet_address: string;
+  source_post_id: string;
+  event_id: string;
+  nostr_pubkey: string;
+}>;
+
+export type StagingParticipantPromotionReceipt = Readonly<{
+  namespace: string;
+  wallet_address: string;
+  source_post_id: string;
+  request_id: string;
+  idempotency_key_sha256: string;
+  discussion_root_id: string;
+  discussion_root_sha256: string;
+  topic_id: string;
+  policy_version: string;
+  state: "reserved" | "published";
+  receipt_checksum: string;
+}>;
+
+export type StagingParticipantSuggestionReceipt = Readonly<{
+  namespace: string;
+  wallet_address: string;
+  discussion_root_id: string;
+  source_author_pubkey: string;
+  request_id: string;
+  idempotency_key_sha256: string;
+  suggestion_id: string;
+  suggestion_sha256: string;
+  mecky_answer_id: string;
+  mecky_receipt_id: string;
+  topic_id: string;
+  policy_version: string;
+  state: "reserved" | "published";
+  receipt_checksum: string;
+}>;
+
 export type StagingParticipantGatewayConfig = Readonly<{
   origin: string;
   sessionHmacKey: string;
@@ -136,4 +296,5 @@ export type StagingParticipantGatewayConfig = Readonly<{
   cookieSecure: boolean;
   /** The only agent p-tag that the same-thread mirror may carry. */
   meckyPubkey: string;
+  topicPolicy: StagingParticipantTopicPolicy;
 }>;

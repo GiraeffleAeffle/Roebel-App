@@ -13,10 +13,20 @@ POST /api/staging-participant/v1/session
 POST /api/staging-participant/v1/posts
 POST /api/staging-participant/v1/comments
 POST /api/staging-participant/v1/nostr-post
+POST /api/staging-participant/v1/promote-source-post
+POST /api/staging-participant/v1/sign-topic-suggestion
 ```
 
 Case, vote, treasury, administration, municipal publication and arbitrary
 workbench actions are not representable by its data adapter.
+
+Request bodies have route-specific UTF-8 limits: 8 KiB for the original six
+routes, 16 KiB for source-post promotion, and 64 KiB for the complete signed
+topic-suggestion envelope. The browser applies the same limits before writing
+its durable outbox. Within the signed protocol, each evidence URL is at most
+2,048 characters and each agent name/node identifier at most 120 characters.
+An oversized envelope is therefore rejected before persistence instead of
+becoming an unrecoverable replay loop.
 
 ## Runtime contract
 
@@ -41,10 +51,13 @@ The process fails closed unless all of these are present:
 | `ROEBEL_STAGING_PARTICIPANT_GATEWAY_MANIFEST_DIGEST` | immutable `sha256:<64 hex>` OCI manifest pin |
 | `ROEBEL_STAGING_PARTICIPANT_GATEWAY_MIGRATION_SHA256` | raw source SHA-256 of the reviewed migration, bound by release evidence |
 | `ROEBEL_STAGING_PARTICIPANT_GATEWAY_DATABASE_SCHEMA_SHA256` | raw SHA-256 of the canonical catalog-contract JSON |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_TOPIC_TRACER_MIGRATION_SHA256` | raw SHA-256 of ADR0022's additive durable-ledger migration |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_TOPIC_TRACER_DATABASE_SCHEMA_SHA256` | raw SHA-256 of ADR0022's canonical tracer contract JSON |
 
 The RPC secret is sent only to two write functions, one exact
 participant-owned-source read, and the two durable mirror-receipt transitions
-and one no-argument catalog preflight as a private header.
+and three closed source/binding resolvers plus two no-argument catalog
+preflights as a private header.
 It is not a Supabase service-role key, custom database JWT, citizen credential,
 or cluster credential. Do not log request headers.
 
@@ -76,7 +89,7 @@ run exactly one replica. Challenge consumption is atomic inside that process
 but intentionally in-memory; restart invalidates outstanding challenges. The
 store prunes stale/consumed entries, replaces an older challenge for the same
 wallet, and has a hard capacity. Ingress must additionally rate-limit these
-six paths. A multi-replica deployment requires a durable atomic
+eight paths. A multi-replica deployment requires a durable atomic
 `ChallengeStore` implementation and corresponding replay tests first.
 
 ## Activation prerequisite
@@ -95,8 +108,9 @@ Ingress. It rejects query strings, every non-GET method, `Origin`, and cookies.
 It returns `503` with only `schemaVersion` and `not_ready` unless the fixed
 Supabase preflight verifies the armed Vault gate, migration marker, current
 catalog/ACL/trigger facts (including the live comment-count trigger executable), captured rollback evidence, and the canonical schema
-hash. A ready response additionally reports the compiled source revision and
-the three immutable deployment pins. It grants no civic, Case, vote, treasury,
+hash. It additionally requires the ADR0022 ledger/RLS/catalog preflight and
+its exact additive contract hash. A ready response additionally reports the
+compiled source revision and all immutable deployment pins. It grants no civic, Case, vote, treasury,
 or administration authority.
 
 The source revision is compiled into the esbuild bundle with JSON escaping. A

@@ -4,6 +4,7 @@ import {
   buildBindingEvent,
   buildCivicArgumentEvent,
   buildCitizenSignedTopicSuggestion,
+  buildParticipantTopicSuggestion,
   buildCivicPromotionEvent,
   buildCivicTopicPromotionEvent,
   buildNoteEvent,
@@ -13,6 +14,8 @@ import {
   type CivicTopicPromotionInput,
   type CitizenSignedTopicSuggestionInput,
   type CitizenSignedTopicSuggestionV1,
+  type ParticipantTopicSuggestionInput,
+  type ParticipantTopicSuggestionV1,
   type NostrEvent,
 } from "@netizen-labs/nostr";
 
@@ -85,6 +88,10 @@ export interface CitizenSession {
   signTopicSuggestion(
     input: CitizenSignedTopicSuggestionInput
   ): Promise<CitizenSignedTopicSuggestionV1>;
+  /** ADR-0022 staging hand-off; this deliberately is not citizen adoption. */
+  signParticipantTopicSuggestion(
+    input: ParticipantTopicSuggestionInput
+  ): Promise<ParticipantTopicSuggestionV1>;
   dispose(): void;
 }
 
@@ -327,6 +334,13 @@ export function createCitizenSession(
       ensureActive();
       const signer = await identity();
       return buildCitizenSignedTopicSuggestion(signer.secretKey, input);
+    },
+    async signParticipantTopicSuggestion(
+      input: ParticipantTopicSuggestionInput
+    ): Promise<ParticipantTopicSuggestionV1> {
+      ensureActive();
+      const signer = await identity();
+      return buildParticipantTopicSuggestion(signer.secretKey, input);
     },
     dispose(): void {
       if (disposed) return;

@@ -10,6 +10,7 @@ import {
   buildCivicTopicPromotionEvent,
   buildCitizenSignedTopicSuggestion,
   buildNoteEvent,
+  buildParticipantTopicSuggestion,
   deriveAgentIdentity,
   getPublicKeyHex,
   npubEncode,
@@ -141,6 +142,60 @@ describe("Röbel E2E workbench boundary", () => {
         assert.equal(head.headers.get("content-length"), get.headers.get("content-length"));
         assert.equal(await head.text(), "");
       }
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("keeps participant topic-tracer RPCs off the public staging prefix", async () => {
+    const config = parseWorkbenchConfig(publicSignedEnvironment());
+    const relay = {
+      query: async () => [],
+      publish: async () => ({ ok: true, message: "stored" }),
+      close: () => {},
+    };
+    const running = await startWorkbench(config, {
+      agentRelay: relay,
+      citizenRelay: relay,
+    });
+    try {
+      for (const path of [
+        "/api/staging-participant/topic-tracer/promotion-source",
+        "/api/staging-participant/topic-tracer/promotions",
+        "/api/staging-participant/topic-tracer/suggestion-source",
+        "/api/staging-participant/topic-tracer/suggestions",
+      ]) {
+        const response = await fetch(
+          `http://127.0.0.1:${running.port}/stadtstack-test${path}`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-stadtstack-e2e": "1",
+            },
+            body: "{}",
+          },
+        );
+        assert.equal(response.status, 404, path);
+        assert.deepEqual(await response.json(), { error: "not_found" });
+      }
+      const internal = await fetch(
+        `http://127.0.0.1:${running.port}/api/staging-participant/topic-tracer/promotion-source`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-stadtstack-e2e": "1",
+          },
+          body: JSON.stringify({
+            sourceNoteEventId: "a".repeat(64),
+            sourceAuthorPubkey: "b".repeat(64),
+            sourceAppPostId: "30000000-0000-4000-8000-000000000003",
+          }),
+        },
+      );
+      assert.equal(internal.status, 200);
+      assert.equal(await internal.json(), null);
     } finally {
       await running.close();
     }
@@ -1219,6 +1274,264 @@ describe("Röbel E2E workbench boundary", () => {
     }
   });
 
+  it("projects an adoption-required participant suggestion with its exact public conversation witnesses", async () => {
+    const config = parseWorkbenchConfig(publicSignedEnvironment());
+    const citizenEvents: Array<Record<string, unknown>> = [];
+    const agentEvents: Array<Record<string, unknown>> = [];
+    const relay = (events: Array<Record<string, unknown>>) => ({
+      query: async (filters: Array<Record<string, unknown>>) =>
+        events.filter((entry) => {
+          const filter = filters[0] ?? {};
+          if (Array.isArray(filter.ids) && !filter.ids.includes(entry.id))
+            return false;
+          if (
+            Array.isArray(filter.authors) &&
+            !filter.authors.includes(entry.pubkey)
+          )
+            return false;
+          if (Array.isArray(filter.kinds) && !filter.kinds.includes(entry.kind))
+            return false;
+          const parents = filter["#e"];
+          return (
+            !Array.isArray(parents) ||
+            (entry.tags as string[][]).some(
+              (tag) => tag[0] === "e" && parents.includes(tag[1]),
+            )
+          );
+        }),
+      publish: async (entry: Record<string, unknown>) => {
+        if (!events.some((candidate) => candidate.id === entry.id))
+          events.push(entry);
+        return { ok: true, message: "stored" };
+      },
+      close: () => {},
+    });
+    const running = await startWorkbench(config, {
+      citizenRelay: relay(citizenEvents) as never,
+      agentRelay: relay(agentEvents) as never,
+    });
+    try {
+      const citizenSecret = Uint8Array.from(Buffer.from("11".repeat(32), "hex"));
+      const meckySecret = Uint8Array.from(Buffer.from("33".repeat(32), "hex"));
+      const sourceAppPostId = "30000000-0000-4000-8000-000000000003";
+      const topicId =
+        "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt";
+      const mention = buildNoteEvent(
+        citizenSecret,
+        "@Mecky, welche Orte kommen als offener Treffpunkt infrage?",
+        {
+          createdAt: 701,
+          tags: [
+            ["p", config.meckyPubkey],
+            ["source-app-post", sourceAppPostId],
+            ["t", "roebel-app-conversation"],
+          ],
+        },
+      );
+      const sourceReceipt = `urn:stadtstack:mecky-answer:${"a".repeat(64)}`;
+      const sourceReply = buildNoteEvent(
+        meckySecret,
+        "Eine veröffentlichte Übersicht nennt mehrere nutzbare Räume.",
+        {
+          createdAt: 702,
+          tags: [
+            ["netizen_agent", "Mecky", "roebel-staging"],
+            ["e", mention.id, "", "reply"],
+            ["p", mention.pubkey],
+            ["source-app-post", sourceAppPostId],
+            ["mecky-receipt", sourceReceipt],
+            [
+              "evidence",
+              `sha256:${"b".repeat(64)}`,
+              "https://stadtstack.example/public/room-overview",
+            ],
+          ],
+        },
+      );
+      const discussion = buildCivicTopicPromotionEvent(citizenSecret, {
+        sourcePost: mention,
+        municipalityId: "roebel-mueritz",
+        topicId,
+        topicTitle: "Offener Treffpunkt",
+        agentPubkey: config.meckyPubkey,
+        content: "@Mecky, welche Optionen sollten gemeinsam geprüft werden?",
+        conversationSource: {
+          kind: "selected_conversation",
+          sourceAppPostId,
+          mentionEventId: mention.id,
+          replyEventId: sourceReply.id,
+          receiptId: sourceReceipt,
+        },
+        createdAt: 703,
+      });
+      const answerReceipt = `urn:stadtstack:mecky-answer:${"c".repeat(64)}`;
+      const answer = buildNoteEvent(meckySecret, "Drei Optionen sind belegt.", {
+        createdAt: 704,
+        tags: [
+          ["netizen_agent", "Mecky", "roebel-staging"],
+          ["e", discussion.id, "", "reply"],
+          ["p", discussion.pubkey],
+          ["source-app-post", sourceAppPostId],
+          ["mecky-receipt", answerReceipt],
+          ["municipality", "roebel-mueritz"],
+          ["topic", topicId],
+          [
+            "evidence",
+            `sha256:${"d".repeat(64)}`,
+            "https://stadtstack.example/public/options",
+          ],
+        ],
+      });
+      const malformedAnswer = buildNoteEvent(
+        meckySecret,
+        "Diese signierte Antwort trägt keine verpflichtende Agentenkennzeichnung.",
+        {
+          createdAt: 705,
+          tags: [
+            ["e", discussion.id, "", "reply"],
+            ["p", discussion.pubkey],
+            ["source-app-post", sourceAppPostId],
+            ["mecky-receipt", `urn:stadtstack:mecky-answer:${"e".repeat(64)}`],
+            ["municipality", "roebel-mueritz"],
+            ["topic", topicId],
+            [
+              "evidence",
+              `sha256:${"f".repeat(64)}`,
+              "https://stadtstack.example/public/malformed-answer",
+            ],
+          ],
+        },
+      );
+      const suggestion = buildParticipantTopicSuggestion(citizenSecret, {
+        binding: { municipalityId: "roebel-mueritz", topicId },
+        sourcePost: mention,
+        sourceDiscussion: discussion,
+        sourceAnswer: answer,
+        conversationWitnesses: {
+          conversationTopic: "roebel-app-conversation",
+          mentionEvent: mention,
+          replyEvent: sourceReply,
+        },
+        agentPubkey: config.meckyPubkey,
+        title: "Offenen Treffpunkt prüfen",
+        summary: "Die belegten Raumoptionen sollen gemeinsam geprüft werden.",
+        createdAt: 705,
+      });
+      citizenEvents.push(
+        mention as unknown as Record<string, unknown>,
+        discussion as unknown as Record<string, unknown>,
+      );
+      agentEvents.push(
+        sourceReply as unknown as Record<string, unknown>,
+        malformedAnswer as unknown as Record<string, unknown>,
+      );
+
+      const origin = `http://127.0.0.1:${running.port}/stadtstack-test`;
+      const unverifiedThread = (await fetch(
+        `${origin}/api/thread?root=${discussion.id}`,
+      ).then((response) => response.json())) as {
+        mecky: unknown;
+      };
+      assert.equal(unverifiedThread.mecky, null);
+      const unverifiedFeed = (await fetch(
+        `${origin}/api/feed?profile=public`,
+      ).then((response) => response.json())) as {
+        posts: Array<{
+          meckyAnswered: boolean;
+          discussions?: Array<{ id: string; meckyAnswered: boolean }>;
+        }>;
+      };
+      const unverifiedTopic = unverifiedFeed.posts.find((entry) =>
+        entry.discussions?.some((entry) => entry.id === discussion.id),
+      );
+      assert.equal(unverifiedTopic?.meckyAnswered, false);
+      assert.equal(
+        unverifiedFeed.posts
+          .flatMap((entry) => entry.discussions ?? [])
+          .find((entry) => entry.id === discussion.id)?.meckyAnswered,
+        false,
+      );
+
+      citizenEvents.push(suggestion.event as unknown as Record<string, unknown>);
+      agentEvents.push(answer as unknown as Record<string, unknown>);
+      const thread = (await fetch(
+        `${origin}/api/thread?root=${discussion.id}`,
+      ).then((response) => response.json())) as {
+        suggestion: null | {
+          schemaVersion: string;
+          entryState: string;
+          authorityBinding: string;
+          submittedToCivicWorkflow: boolean;
+        };
+        mecky: null | {
+          event: { id: string };
+          evidenceRefs: Array<{ digest: string; url: string }>;
+        };
+        sourceConversationWitnesses: null | {
+          conversationTopic: string;
+          mentionEvent: Record<string, unknown>;
+          replyEvent: Record<string, unknown>;
+        };
+      };
+      assert.deepEqual(thread.sourceConversationWitnesses, {
+        conversationTopic: "roebel-app-conversation",
+        mentionEvent: mention,
+        replyEvent: sourceReply,
+      });
+      assert.equal(thread.mecky?.event.id, answer.id);
+      assert.deepEqual(thread.mecky?.evidenceRefs, [
+        {
+          digest: `sha256:${"d".repeat(64)}`,
+          url: "https://stadtstack.example/public/options",
+        },
+      ]);
+      assert.deepEqual(
+        {
+          schemaVersion: thread.suggestion?.schemaVersion,
+          entryState: thread.suggestion?.entryState,
+          authorityBinding: thread.suggestion?.authorityBinding,
+          submittedToCivicWorkflow: thread.suggestion?.submittedToCivicWorkflow,
+        },
+        {
+          schemaVersion: "staging_participant_signed_topic_suggestion_v1",
+          entryState: "citizen_adoption_required",
+          authorityBinding: "none",
+          submittedToCivicWorkflow: false,
+        },
+      );
+      const feed = (await fetch(`${origin}/api/feed?profile=public`).then(
+        (response) => response.json(),
+      )) as {
+        posts: Array<{
+          meckyAnswered: boolean;
+          discussions?: Array<{
+            id: string;
+            meckyAnswered: boolean;
+            suggestionSigned: boolean;
+          }>;
+        }>;
+      };
+      const topic = feed.posts.find((entry) =>
+        entry.discussions?.some((entry) => entry.id === discussion.id),
+      );
+      assert.equal(topic?.meckyAnswered, true);
+      assert.equal(
+        feed.posts
+          .flatMap((entry) => entry.discussions ?? [])
+          .find((entry) => entry.id === discussion.id)?.suggestionSigned,
+        true,
+      );
+      assert.equal(
+        feed.posts
+          .flatMap((entry) => entry.discussions ?? [])
+          .find((entry) => entry.id === discussion.id)?.meckyAnswered,
+        true,
+      );
+    } finally {
+      await running.close();
+    }
+  });
+
   it("groups related signed discussion roots into one civic topic feed card", async () => {
     const config = parseWorkbenchConfig(environment());
     const events: Array<Record<string, unknown>> = [];
@@ -1605,7 +1918,7 @@ describe("Röbel E2E workbench boundary", () => {
     }
   });
 
-  it("marks a discussion answered only for a valid reply from the configured Mecky identity", async () => {
+  it("does not project a loosely tagged Mecky reply as a verified civic answer", async () => {
     const config = parseWorkbenchConfig({
       ...environment(),
       MECKY_PUBKEY: signedMecky.publicKey,
@@ -1649,9 +1962,11 @@ describe("Röbel E2E workbench boundary", () => {
         `${origin}/api/thread?root=${mentioned.id}`
       ).then((response) => response.json())) as {
         rootEvent: { id: string; pubkey: string };
+        mecky: unknown;
       };
       assert.equal(thread.rootEvent.id, mentioned.id);
       assert.equal(thread.rootEvent.pubkey, config.personas[0]?.publicKey);
+      assert.equal(thread.mecky, null);
       const second = (await fetch(`${origin}/api/feed`).then((response) =>
         response.json()
       )) as {
@@ -1659,7 +1974,7 @@ describe("Röbel E2E workbench boundary", () => {
       };
       assert.equal(
         second.posts.find((post) => post.id === mentioned.id)?.meckyAnswered,
-        true
+        false
       );
     } finally {
       await running.close();
@@ -1725,7 +2040,11 @@ describe("Röbel E2E workbench boundary", () => {
           state: "pending" | "answered";
           replyId: string | null;
         }>;
-        replies: Array<{ id: string }>;
+        replies: Array<{
+          id: string;
+          mentionEvent: Record<string, unknown>;
+          replyEvent: Record<string, unknown>;
+        }>;
       };
       assert.equal(projection.requestCount, 1);
       assert.deepEqual(projection.mentionIds, [mention.id]);
@@ -1786,6 +2105,8 @@ describe("Röbel E2E workbench boundary", () => {
         projection.replies.map((entry) => entry.id),
         [answer.id]
       );
+      assert.deepEqual(projection.replies[0]?.mentionEvent, mention);
+      assert.deepEqual(projection.replies[0]?.replyEvent, answer);
 
       const duplicate = await fetch(`${origin}/api/signed-event`, {
         method: "POST",

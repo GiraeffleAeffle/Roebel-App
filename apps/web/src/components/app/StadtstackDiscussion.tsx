@@ -37,6 +37,12 @@ import {
   type VerifiedPublicCaseBindingReceipt,
 } from "@/lib/stadtstack/public-case-binding-receipt-client";
 import { useCitizenSession } from "@/lib/citizen-session/CitizenSessionContext";
+import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
+import {
+  hasPendingStagingParticipantTopicSuggestion,
+  resumeStagingParticipantTopicSuggestion,
+  signStagingParticipantTopicSuggestion,
+} from "@/lib/staging-participant/topic-tracer";
 import { StadtstackAdministrationProgress } from "./StadtstackAdministrationProgress";
 import { CivicJourneyRail } from "./CivicJourneyRail";
 
@@ -119,6 +125,9 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
     useState(false);
   const meckyPollAttempts = useRef(0);
   const administrationRequestId = useRef(0);
+  const topicSuggestionResumeRoot = useRef<string | null>(null);
+  const [topicSuggestionReceiptPending, setTopicSuggestionReceiptPending] =
+    useState(false);
   const canonicalCaseId = bindingReceipt?.caseId ?? null;
 
   const reload = useCallback(async () => {
@@ -240,9 +249,57 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
   }, [thread]);
   const segments = useMemo(() => graph ? buildSunburstSegments(graph.root) : [], [graph]);
   const rootEvent = graph?.root.argument;
+  const syntheticLegacyMode = Boolean(rootEvent?.author.synthetic);
+  const participantTracerMode = Boolean(
+    resolveStadtstackStagingLab(process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB) &&
+      !syntheticLegacyMode,
+  );
   const citizenArgumentMode = Boolean(
     citizenSession && thread?.topic && !bindingReceipt,
   );
+
+  useEffect(() => {
+    if (
+      !participantTracerMode ||
+      !thread?.rootEvent ||
+      topicSuggestionResumeRoot.current === rootId
+    ) {
+      return;
+    }
+    let pending = false;
+    try {
+      pending = hasPendingStagingParticipantTopicSuggestion(rootId);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Der offene Vorschlagsschritt ist nicht lesbar.",
+      );
+      return;
+    }
+    if (!pending) return;
+    topicSuggestionResumeRoot.current = rootId;
+    setTopicSuggestionReceiptPending(true);
+    setWorkflowBusy(true);
+    void resumeStagingParticipantTopicSuggestion(rootId)
+      .then(async (receipt) => {
+        if (!receipt) {
+          setTopicSuggestionReceiptPending(false);
+          return;
+        }
+        setWorkflow((current) => ({ ...current, suggestion: receipt }));
+        setTopicSuggestionReceiptPending(false);
+        await reload();
+      })
+      .catch((cause) => {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Die Vorschlagsquittung konnte noch nicht abgeschlossen werden.",
+        );
+      })
+      .finally(() => setWorkflowBusy(false));
+  }, [participantTracerMode, reload, rootId, thread?.rootEvent]);
 
   const ensureCitizenRelayAdmitted = async (): Promise<string> => {
     if (!citizenSession) throw new Error("citizen_session_required");
@@ -310,38 +367,89 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
       ) {
         throw new Error("citizen_topic_suggestion_not_ready");
       }
-      const pubkey = await ensureCitizenRelayAdmitted();
-      const signed = await citizenSession.signTopicSuggestion({
-        binding: {
-          municipalityId: "roebel-mueritz",
-          topicId: thread.topic.id,
-        },
-        sourceDiscussion: thread.rootEvent,
-        sourceAnswer: thread.mecky.event,
-        agentPubkey: config.meckyPubkey,
-        title: proposalTitle.trim(),
-        summary: proposalSummary.trim(),
-        createdAt: Math.max(
-          Math.floor(Date.now() / 1_000),
-          thread.rootEvent.created_at + 1,
-          thread.mecky.event.created_at + 1
-        ),
-      });
-      if (signed.signerPubkey !== pubkey) {
-        throw new Error("citizen_topic_suggestion_signer_mismatch");
+      let published: Record<string, unknown>;
+      if (participantTracerMode) {
+        if (!thread.sourceAppPostId) {
+          throw new Error("staging_participant_source_post_required");
+        }
+        const witnesses = thread.sourceConversationWitnesses;
+        if (
+          !thread.sourceConversation ||
+          !witnesses ||
+          witnesses.mentionEvent.id !== thread.sourceConversation.mentionId ||
+          witnesses.replyEvent.id !== thread.sourceConversation.replyId
+        ) {
+          throw new Error("staging_participant_conversation_witness_required");
+        }
+        const signed = await citizenSession.signParticipantTopicSuggestion({
+          binding: {
+            municipalityId: "roebel-mueritz",
+            topicId: thread.topic.id,
+          },
+          sourcePost: witnesses.mentionEvent,
+          sourceDiscussion: thread.rootEvent,
+          sourceAnswer: thread.mecky.event,
+          conversationWitnesses: {
+            conversationTopic: witnesses.conversationTopic,
+            mentionEvent: witnesses.mentionEvent,
+            replyEvent: witnesses.replyEvent,
+          },
+          agentPubkey: config.meckyPubkey,
+          title: proposalTitle.trim(),
+          summary: proposalSummary.trim(),
+          createdAt: Math.max(
+            Math.floor(Date.now() / 1_000),
+            thread.rootEvent.created_at + 1,
+            thread.mecky.event.created_at + 1,
+          ),
+        });
+        if (signed.signerPubkey !== thread.rootEvent.pubkey) {
+          throw new Error("staging_participant_suggestion_signer_mismatch");
+        }
+        published = {
+          ...(await signStagingParticipantTopicSuggestion({
+            discussionRootEvent: thread.rootEvent,
+            meckyAnswerEvent: thread.mecky.event,
+            suggestionEvent: signed.event,
+          })),
+        };
+      } else if (syntheticLegacyMode) {
+        const pubkey = await ensureCitizenRelayAdmitted();
+        const signed = await citizenSession.signTopicSuggestion({
+          binding: {
+            municipalityId: "roebel-mueritz",
+            topicId: thread.topic.id,
+          },
+          sourceDiscussion: thread.rootEvent,
+          sourceAnswer: thread.mecky.event,
+          agentPubkey: config.meckyPubkey,
+          title: proposalTitle.trim(),
+          summary: proposalSummary.trim(),
+          createdAt: Math.max(
+            Math.floor(Date.now() / 1_000),
+            thread.rootEvent.created_at + 1,
+            thread.mecky.event.created_at + 1,
+          ),
+        });
+        if (signed.signerPubkey !== pubkey) {
+          throw new Error("citizen_topic_suggestion_signer_mismatch");
+        }
+        published = await stagingPost<{
+          status: "signed";
+          suggestion: Record<string, unknown>;
+        }>("/signed-event", {
+          intent: "suggestion",
+          event: signed.event,
+        });
+      } else {
+        throw new Error("staging_participant_gateway_required");
       }
-      const published = await stagingPost<{
-        status: "signed";
-        suggestion: Record<string, unknown>;
-      }>("/signed-event", {
-        intent: "suggestion",
-        event: signed.event,
-      });
       setWorkflow((current) => ({
         ...current,
         answer: thread.mecky!.event,
-        suggestion: published.suggestion,
+        suggestion: published,
       }));
+      setTopicSuggestionReceiptPending(false);
       await reload();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Vorschlagsfluss fehlgeschlagen");
@@ -350,7 +458,9 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
 
   const topicProposalMode = Boolean(thread?.topic && !bindingReceipt);
   const topicSuggestionSigned = Boolean(
-    topicProposalMode && (thread?.suggestion || workflow.suggestion)
+    topicProposalMode &&
+      !topicSuggestionReceiptPending &&
+      (thread?.suggestion || workflow.suggestion)
   );
   const proposalDisabled = Boolean(
     workflowBusy ||
@@ -512,11 +622,11 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
       </section>
 
       <section className="rounded-xl border border-border bg-card p-5">
-        <div className="flex items-start gap-3"><FileSignature className="mt-0.5 h-6 w-6 shrink-0 text-primary" /><div><h2 className="text-lg font-bold">Röbel-Verbesserungsvorschlag</h2><p className="mt-1 text-sm leading-6 text-muted-foreground">Aus Diskussion und Mecky-Antwort entsteht erst nach Bürger-Signatur und menschlicher Aufnahme ein Fall. Danach folgen Verwaltungsfeedback, Citizen Brief und ein beratendes Meinungsbild im Mitmachen-Bereich.</p></div></div>
+        <div className="flex items-start gap-3"><FileSignature className="mt-0.5 h-6 w-6 shrink-0 text-primary" /><div><h2 className="text-lg font-bold">Röbel-Verbesserungsvorschlag</h2><p className="mt-1 text-sm leading-6 text-muted-foreground">Aus Diskussion und Mecky-Antwort wird zunächst ein signierter Entwurf. Erst nach verifizierter Bürgerübernahme und menschlicher Aufnahme entsteht ein Fall. Danach folgen Verwaltungsfeedback, Citizen Brief und ein beratendes Meinungsbild im Mitmachen-Bereich.</p></div></div>
         <ol className="mt-5 space-y-4">
           <WorkflowStep label="Öffentliche Diskussion" done={true} detail="Signierte Nostr-Ereignisse, Pro/Contra-Struktur und @Mecky-Erwähnung." />
           <WorkflowStep label="Geprüfte Mecky-Antwort" done={Boolean(workflow.answer || thread.mecky)} detail="Mecky darf Quellen erklären, aber den Vorschlag nicht selbst einreichen." />
-          <WorkflowStep label="Bürger-signierter Vorschlag" done={Boolean(workflow.suggestion || thread.suggestion)} detail={topicProposalMode ? "Ein verbundenes Röbel-Konto bestätigt Titel und Zusammenfassung mit einer eigenen Nostr-Signatur." : "Die synthetische Testperson bestätigt Titel und Zusammenfassung."} />
+          <WorkflowStep label={participantTracerMode ? "Teilnahme-signierter Entwurf" : "Bürger-signierter Vorschlag"} done={Boolean(workflow.suggestion || thread.suggestion)} detail={participantTracerMode ? "Die Staging-Teilnahme signiert einen unveränderlichen Entwurf. Eine getrennt geprüfte Bürgerperson muss ihn später ausdrücklich übernehmen." : topicProposalMode ? "Ein verbundenes Röbel-Konto bestätigt Titel und Zusammenfassung mit einer eigenen Nostr-Signatur." : "Die synthetische Testperson bestätigt Titel und Zusammenfassung."} />
           <WorkflowStep label="Menschliche Aufnahme als CivicCase" done={Boolean(bindingReceipt)} detail="Nur eine checksum-verifizierte öffentliche Case-Steward-Quittung bestätigt die getrennte, autorisierte Aufnahme." />
           <WorkflowStep
             label="Verwaltungsfeedback und Citizen Brief"
@@ -549,11 +659,15 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
         {!bindingReceipt && (
           <>
             <div className={`mt-5 rounded-lg border p-3 text-sm ${topicSuggestionSigned ? "border-emerald-300 bg-emerald-50 text-emerald-950" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
-              <p className="font-semibold">{topicSuggestionSigned ? "Vorschlag bürger-signiert" : "Noch kein CivicCase"}</p>
+              <p className="font-semibold">{topicSuggestionSigned ? participantTracerMode ? "Teilnahme-Entwurf signiert" : "Vorschlag bürger-signiert" : "Noch kein CivicCase"}</p>
               <p className="mt-1 text-xs leading-5">
                 {topicSuggestionSigned
-                  ? "Der Vorschlag wartet auf die getrennte, rollenbasierte Prüfung durch einen Case Steward. Es wurde kein CivicCase automatisch angelegt. Diese öffentliche App kann die Aufnahme nicht auslösen; sie zeigt anschließend nur die öffentliche Aufnahme-Quittung."
-                  : "Ein bürger-signierter Vorschlag ist der nächste menschliche Schritt. Erst seine ausdrückliche Aufnahme darf einen neuen Fall anlegen."}
+                  ? participantTracerMode
+                    ? "Der Entwurf verlangt zuerst eine getrennte, verifizierte Bürgerübernahme. Er wurde nicht als Bürger-Vorschlag oder CivicCase relabelt und kann keinen Case Steward erreichen."
+                    : "Der Vorschlag wartet auf die getrennte, rollenbasierte Prüfung durch einen Case Steward. Es wurde kein CivicCase automatisch angelegt. Diese öffentliche App kann die Aufnahme nicht auslösen; sie zeigt anschließend nur die öffentliche Aufnahme-Quittung."
+                  : participantTracerMode
+                    ? "Als Nächstes kann die Staging-Teilnahme den unveränderten Entwurf signieren. Das ist noch keine Bürgerübernahme und legt keinen CivicCase an."
+                    : "Ein bürger-signierter Vorschlag ist der nächste menschliche Schritt. Erst seine ausdrückliche Aufnahme darf einen neuen Fall anlegen."}
               </p>
             </div>
             {!topicSuggestionSigned && (
@@ -581,7 +695,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
             )}
           </>
         )}
-        <button type="button" onClick={startProposal} disabled={proposalDisabled} className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50">{workflowBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> Vorschlag wird signiert…</> : bindingReceipt ? <><CheckCircle2 className="h-4 w-4" /> CivicCase quittiert</> : topicSuggestionSigned ? <><CheckCircle2 className="h-4 w-4" /> Wartet auf Case Steward</> : topicProposalMode && !citizenSession ? <><Landmark className="h-4 w-4" /> Anmelden, um Vorschlag zu signieren</> : <><FileSignature className="h-4 w-4" /> Vorschlag prüfen und signieren</>}</button>
+        <button type="button" onClick={startProposal} disabled={proposalDisabled} className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50">{workflowBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> {topicSuggestionReceiptPending ? "Quittung wird abgeschlossen…" : participantTracerMode ? "Entwurf wird signiert…" : "Vorschlag wird signiert…"}</> : bindingReceipt ? <><CheckCircle2 className="h-4 w-4" /> CivicCase quittiert</> : topicSuggestionSigned ? <><CheckCircle2 className="h-4 w-4" /> {participantTracerMode ? "Bürgerübernahme erforderlich" : "Wartet auf Case Steward"}</> : topicSuggestionReceiptPending ? <><RefreshCw className="h-4 w-4" /> Quittung erneut abschließen</> : topicProposalMode && !citizenSession ? <><Landmark className="h-4 w-4" /> Anmelden, um {participantTracerMode ? "Entwurf" : "Vorschlag"} zu signieren</> : <><FileSignature className="h-4 w-4" /> {participantTracerMode ? "Entwurf" : "Vorschlag"} prüfen und signieren</>}</button>
         <div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="rounded-lg border border-border bg-muted/50 p-3"><div className="flex items-center gap-2 text-sm font-bold"><Vote className="h-4 w-4" /> Keine echte Abstimmung</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Das Staging-Ergebnis ist ein beratendes Meinungsbild ohne formale Rats- oder Governance-Wirkung.</p></div><div className="rounded-lg border border-border bg-muted/50 p-3"><div className="flex items-center gap-2 text-sm font-bold"><CircleDollarSign className="h-4 w-4" /> Stadtkasse getrennt</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Budgetbedarf kann als Verwaltungsprüfung erscheinen; keine Auszahlung und keine Treasury-Transaktion wird ausgelöst.</p></div></div>
       </section>
     </div>

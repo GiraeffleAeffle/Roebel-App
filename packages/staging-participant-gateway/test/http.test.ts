@@ -3,8 +3,11 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import {
   buildBindingEvent,
+  buildCivicTopicPromotionEvent,
   buildNoteEvent,
+  buildParticipantTopicSuggestion,
   deriveNostrIdentity,
+  getPublicKeyHex,
 } from "@netizen-labs/nostr";
 
 import { createStagingParticipantGatewayHandler } from "../src/http.ts";
@@ -20,6 +23,9 @@ import type {
   MeckyMirrorAdapter,
   StagingParticipantDataAdapter,
   StagingParticipantMirrorReceipt,
+  StagingParticipantPromotionReceipt,
+  StagingParticipantSuggestionReceipt,
+  StagingParticipantTopicTracerAdapter,
   WalletSignatureVerifier,
 } from "../src/types.ts";
 
@@ -69,6 +75,11 @@ function fixture(input: Partial<{
   mirrorFails: boolean;
   ready: boolean;
   mirrorReceipts: Map<string, StagingParticipantMirrorReceipt>;
+  promotionReceipts: Map<string, StagingParticipantPromotionReceipt>;
+  suggestionReceipts: Map<string, StagingParticipantSuggestionReceipt>;
+  topicTracer: StagingParticipantTopicTracerAdapter;
+  meckyPubkey: string;
+  sourceBindingPubkey: string;
 }> = {}) {
   let nowMs = input.nowMs ?? Date.parse("2026-08-25T12:00:00.000Z");
   let mirrorFails = input.mirrorFails ?? false;
@@ -81,6 +92,8 @@ function fixture(input: Partial<{
     },
   };
   const mirrorReceipts = input.mirrorReceipts ?? new Map<string, StagingParticipantMirrorReceipt>();
+  const promotionReceipts = input.promotionReceipts ?? new Map<string, StagingParticipantPromotionReceipt>();
+  const suggestionReceipts = input.suggestionReceipts ?? new Map<string, StagingParticipantSuggestionReceipt>();
   const receiptKey = (walletAddress: string, sourcePostId: string) =>
     `${walletAddress.toLowerCase()}:${sourcePostId.toLowerCase()}`;
   const data: StagingParticipantDataAdapter = {
@@ -157,6 +170,83 @@ function fixture(input: Partial<{
       mirrorReceipts.set(key, published);
       return published;
     },
+    async bindPublishedNostrPostMirror({ walletAddress, sourcePostId, eventId, nostrPubkey }) {
+      return { wallet_address: walletAddress, source_post_id: sourcePostId, event_id: eventId, nostr_pubkey: nostrPubkey };
+    },
+    async resolvePublishedNostrPostMirror({ walletAddress, sourcePostId }) {
+      return {
+        wallet_address: walletAddress, source_post_id: sourcePostId,
+        event_id: "f".repeat(64), nostr_pubkey: input.sourceBindingPubkey ?? "e".repeat(64),
+      };
+    },
+    async reserveSourcePostPromotion(value): Promise<StagingParticipantPromotionReceipt> {
+      const key = `${value.namespace}:${value.sourcePostId}`;
+      const existing = promotionReceipts.get(key);
+      if (existing) {
+        if (existing.request_id !== value.requestId || existing.idempotency_key_sha256 !== value.idempotencyKeySha256 ||
+          existing.discussion_root_id !== value.discussionRootId || existing.discussion_root_sha256 !== value.discussionRootSha256 ||
+          existing.topic_id !== value.topicId || existing.policy_version !== value.policyVersion) {
+          throw new Error("staging_participant_promotion_conflict");
+        }
+        return existing;
+      }
+      const receipt: StagingParticipantPromotionReceipt = {
+        namespace: value.namespace, wallet_address: value.walletAddress, source_post_id: value.sourcePostId,
+        request_id: value.requestId, idempotency_key_sha256: value.idempotencyKeySha256,
+        discussion_root_id: value.discussionRootId, discussion_root_sha256: value.discussionRootSha256,
+        topic_id: value.topicId, policy_version: value.policyVersion, state: "reserved", receipt_checksum: "c".repeat(64),
+      };
+      promotionReceipts.set(key, receipt);
+      return receipt;
+    },
+    async completeSourcePostPromotion(value): Promise<StagingParticipantPromotionReceipt> {
+      const key = `${value.namespace}:${value.sourcePostId}`;
+      const receipt = promotionReceipts.get(key);
+      if (!receipt || receipt.request_id !== value.requestId || receipt.idempotency_key_sha256 !== value.idempotencyKeySha256 ||
+        receipt.discussion_root_id !== value.discussionRootId || receipt.discussion_root_sha256 !== value.discussionRootSha256) {
+        throw new Error("staging_participant_promotion_conflict");
+      }
+      const published: StagingParticipantPromotionReceipt = { ...receipt, state: "published" };
+      promotionReceipts.set(key, published);
+      return published;
+    },
+    async resolvePublishedSourcePostPromotion({ walletAddress, namespace, discussionRootId, sourceAuthorPubkey }) {
+      const receipt = [...promotionReceipts.values()].find((value) => value.wallet_address === walletAddress &&
+        value.namespace === namespace && value.discussion_root_id === discussionRootId && value.state === "published");
+      return receipt && sourceAuthorPubkey === (input.sourceBindingPubkey ?? "e".repeat(64)) ? receipt : null;
+    },
+    async reserveTopicSuggestion(value): Promise<StagingParticipantSuggestionReceipt> {
+      const key = `${value.namespace}:${value.discussionRootId}:${value.sourceAuthorPubkey}`;
+      const existing = suggestionReceipts.get(key);
+      if (existing) {
+        if (existing.request_id !== value.requestId || existing.idempotency_key_sha256 !== value.idempotencyKeySha256 ||
+          existing.suggestion_id !== value.suggestionId || existing.suggestion_sha256 !== value.suggestionSha256) {
+          throw new Error("staging_participant_suggestion_conflict");
+        }
+        return existing;
+      }
+      const receipt: StagingParticipantSuggestionReceipt = {
+        namespace: value.namespace, wallet_address: value.walletAddress, discussion_root_id: value.discussionRootId,
+        source_author_pubkey: value.sourceAuthorPubkey, request_id: value.requestId,
+        idempotency_key_sha256: value.idempotencyKeySha256, suggestion_id: value.suggestionId,
+        suggestion_sha256: value.suggestionSha256, mecky_answer_id: value.meckyAnswerId,
+        mecky_receipt_id: value.meckyReceiptId, topic_id: value.topicId, policy_version: value.policyVersion,
+        state: "reserved", receipt_checksum: "d".repeat(64),
+      };
+      suggestionReceipts.set(key, receipt);
+      return receipt;
+    },
+    async completeTopicSuggestion(value): Promise<StagingParticipantSuggestionReceipt> {
+      const key = `${value.namespace}:${value.discussionRootId}:${value.sourceAuthorPubkey}`;
+      const receipt = suggestionReceipts.get(key);
+      if (!receipt || receipt.request_id !== value.requestId || receipt.idempotency_key_sha256 !== value.idempotencyKeySha256 ||
+        receipt.suggestion_id !== value.suggestionId || receipt.suggestion_sha256 !== value.suggestionSha256) {
+        throw new Error("staging_participant_suggestion_conflict");
+      }
+      const published: StagingParticipantSuggestionReceipt = { ...receipt, state: "published" };
+      suggestionReceipts.set(key, published);
+      return published;
+    },
   };
   const mirrored: unknown[] = [];
   const mirror: MeckyMirrorAdapter = {
@@ -174,11 +264,18 @@ function fixture(input: Partial<{
       inviteSha256: INVITE_SHA256,
       allowedWallets: [WALLET],
       cookieSecure: true,
-      meckyPubkey: MECKY_PUBKEY,
+      meckyPubkey: input.meckyPubkey ?? MECKY_PUBKEY,
+      topicPolicy: {
+        municipalityId: "roebel-mueritz",
+        topicNamespace: "urn:stadtstack:topic:municipality:roebel-mueritz",
+        sourceConversationTopic: "roebel-app-conversation",
+        policyVersion: "staging-participant-topic-v1",
+      },
     },
     verifier,
     data,
     mirror,
+    ...(input.topicTracer ? { topicTracer: input.topicTracer } : {}),
     now: () => new Date(nowMs),
     randomId: () => (++count).toString(16).padStart(32, "0"),
     ...(input.ready === true ? {
@@ -189,12 +286,17 @@ function fixture(input: Partial<{
             databaseSchemaSha256: `sha256:${"d".repeat(64)}`,
           };
         },
+        async preflightTopicTracer() {
+          return { migrationId: "20260825_staging_participant_topic_tracer", databaseSchemaSha256: `sha256:${"e".repeat(64)}` };
+        },
       },
       readinessPins: {
         sourceRevision: "a".repeat(40),
         manifestDigest: `sha256:${"b".repeat(64)}`,
         migrationSha256: `sha256:${"c".repeat(64)}`,
         databaseSchemaSha256: `sha256:${"d".repeat(64)}`,
+        topicTracerMigrationSha256: `sha256:${"f".repeat(64)}`,
+        topicTracerDatabaseSchemaSha256: `sha256:${"e".repeat(64)}`,
       },
     } : {}),
   });
@@ -203,6 +305,8 @@ function fixture(input: Partial<{
     calls,
     mirrored,
     mirrorReceipts,
+    promotionReceipts,
+    suggestionReceipts,
     setNow: (value: number) => { nowMs = value; },
     setMirrorFails: (value: boolean) => { mirrorFails = value; },
   };
@@ -319,6 +423,145 @@ test("allows only a short-lived session to create personal main-feed text posts 
       content: "Ich habe die Stelle ebenfalls beobachtet.",
     },
   ]);
+});
+
+test("promotes one server-resolved source note that is exactly the @Mecky mention once", async () => {
+  const sourcePostId = "10000000-0000-4000-8000-000000000001";
+  const author = deriveNostrIdentity("0x" + "7".repeat(130));
+  const mecky = deriveNostrIdentity("0x" + "8".repeat(130));
+  const meckyPubkey = getPublicKeyHex(mecky.secretKey);
+  const sourcePost = buildNoteEvent(author.secretKey, "@Mecky, was ist hierzu bekannt?", {
+    createdAt: 1_787_659_110,
+    tags: [["p", meckyPubkey], ["source-app-post", sourcePostId], ["t", "roebel-app-conversation"]],
+  });
+  const mentionEvent = sourcePost;
+  const sourceReceipt = `urn:stadtstack:mecky-answer:${"a".repeat(64)}`;
+  const meckyReplyEvent = buildNoteEvent(mecky.secretKey, "Die Stelle sollte mit der Verwaltung abgeglichen werden.", {
+    createdAt: 1_787_659_120,
+    tags: [
+      ["netizen_agent", "Mecky", "roebel-staging"],
+      ["e", mentionEvent.id, "", "reply"],
+      ["p", sourcePost.pubkey],
+      ["source-app-post", sourcePostId],
+      ["mecky-receipt", sourceReceipt],
+      ["evidence", `sha256:${"b".repeat(64)}`, "https://example.invalid/source"],
+    ],
+  });
+  const topicId = "urn:stadtstack:topic:municipality:roebel-mueritz:marienfelder-strasse";
+  const rootEvent = buildCivicTopicPromotionEvent(author.secretKey, {
+    municipalityId: "roebel-mueritz", topicId, topicTitle: "Sichere Querung Marienfelder Straße",
+    sourcePost, agentPubkey: meckyPubkey, content: "@Mecky, wie kann die Querung nachvollziehbar verbessert werden?",
+    conversationSource: {
+      kind: "selected_conversation", sourceAppPostId, mentionEventId: mentionEvent.id,
+      replyEventId: meckyReplyEvent.id, receiptId: sourceReceipt,
+    },
+    createdAt: 1_787_659_130,
+  });
+  assert.equal(sourcePost.id, mentionEvent.id, "the published mirror is the exact @Mecky source note");
+  const answerReceipt = `urn:stadtstack:mecky-answer:${"c".repeat(64)}`;
+  const meckyAnswerEvent = buildNoteEvent(mecky.secretKey, "Eine eindeutige Markierung und Prüfung der Sichtachsen sind naheliegende Optionen.", {
+    createdAt: 1_787_659_140,
+    tags: [
+      ["netizen_agent", "Mecky", "roebel-staging"],
+      ["e", rootEvent.id, "", "reply"],
+      ["p", sourcePost.pubkey],
+      ["source-app-post", sourcePostId],
+      ["mecky-receipt", answerReceipt],
+      ["municipality", "roebel-mueritz"],
+      ["topic", topicId],
+      ["evidence", `sha256:${"d".repeat(64)}`, "https://example.invalid/answer"],
+    ],
+  });
+  const suggestionEvent = buildParticipantTopicSuggestion(author.secretKey, {
+    binding: { municipalityId: "roebel-mueritz", topicId }, sourcePost, sourceDiscussion: rootEvent,
+    sourceAnswer: meckyAnswerEvent, agentPubkey: meckyPubkey,
+    conversationWitnesses: { conversationTopic: "roebel-app-conversation", mentionEvent, replyEvent: meckyReplyEvent },
+    title: "Sichere Querung Marienfelder Straße", summary: "Sichtbarkeit, Querung und Beleuchtung gemeinsam prüfen.",
+    createdAt: 1_787_659_150,
+  }).event;
+  const publishedPromotions: string[] = [];
+  const publishedSuggestions: string[] = [];
+  const topicTracer: StagingParticipantTopicTracerAdapter = {
+    async resolvePromotionSource(input) {
+      assert.deepEqual(input, { sourceNoteEventId: "f".repeat(64), sourceAuthorPubkey: sourcePost.pubkey, sourceAppPostId: sourcePostId });
+      return { sourceNote: sourcePost, meckyReplyEvent, meckyReceiptId: sourceReceipt };
+    },
+    async publishPromotion({ event }) { publishedPromotions.push(event.id); return { status: "published", eventId: event.id }; },
+    async resolveTopicSuggestionSources(input) {
+      assert.deepEqual(input, { discussionRootId: rootEvent.id, sourceAuthorPubkey: sourcePost.pubkey, sourceNoteEventId: "f".repeat(64), sourceAppPostId: sourcePostId });
+      return { sourceNote: sourcePost, discussionRoot: rootEvent, meckyAnswer: meckyAnswerEvent, meckyReplyEvent, meckyReceiptId: sourceReceipt };
+    },
+    async publishTopicSuggestion({ event }) { publishedSuggestions.push(event.id); return { status: "published", eventId: event.id }; },
+  };
+  const { handler, sessionCookie } = await enrolledSession({ topicTracer, meckyPubkey, sourceBindingPubkey: sourcePost.pubkey });
+  const body = {
+    schemaVersion: "staging_source_post_promotion_v1",
+    requestId: "20000000-0000-4000-8000-000000000020",
+    idempotencyKey: "promotion-idempotency-0001",
+    sourcePostId,
+    rootEvent,
+  };
+  const [first, concurrent] = await Promise.all([
+    handler(jsonRequest("/api/staging-participant/v1/promote-source-post", body, sessionCookie)),
+    handler(jsonRequest("/api/staging-participant/v1/promote-source-post", body, sessionCookie)),
+  ]);
+  assert.equal(first.status, 201);
+  assert.equal(concurrent.status, 201);
+  assert.deepEqual(await first.json(), {
+    schemaVersion: "staging_source_post_promotion_receipt_v1", status: "promoted", sourcePostId,
+    discussionRootId: rootEvent.id, topicId,
+    sourceConversation: {
+      sourceAppPostId, mentionEventId: mentionEvent.id, meckyReplyEventId: meckyReplyEvent.id,
+      meckyReceiptId: sourceReceipt,
+    },
+    authorityBinding: "none", policyVersion: "staging-participant-topic-v1", receiptChecksum: "c".repeat(64),
+  });
+  assert.deepEqual([...new Set(publishedPromotions)], [rootEvent.id]);
+  const retry = await handler(jsonRequest("/api/staging-participant/v1/promote-source-post", body, sessionCookie));
+  assert.equal(retry.status, 200);
+  assert.equal((await retry.json() as { status: string }).status, "already_promoted");
+  const replacement = buildCivicTopicPromotionEvent(author.secretKey, {
+    municipalityId: "roebel-mueritz", topicId, topicTitle: "Andere Überschrift", sourcePost,
+    agentPubkey: meckyPubkey, content: "@Mecky, bitte diesmal anders erklären.",
+    conversationSource: {
+      kind: "selected_conversation", sourceAppPostId, mentionEventId: mentionEvent.id,
+      replyEventId: meckyReplyEvent.id, receiptId: sourceReceipt,
+    },
+    createdAt: 1_787_659_131,
+  });
+  assert.equal((await handler(jsonRequest("/api/staging-participant/v1/promote-source-post", {
+    ...body, requestId: "20000000-0000-4000-8000-000000000021", idempotencyKey: "promotion-idempotency-0002", rootEvent: replacement,
+  }, sessionCookie))).status, 409);
+
+  const suggestionBody = {
+    schemaVersion: "staging_topic_suggestion_signature_v1",
+    requestId: "20000000-0000-4000-8000-000000000022",
+    idempotencyKey: "suggestion-idempotency-0001",
+    discussionRootEvent: rootEvent,
+    meckyAnswerEvent,
+    suggestionEvent,
+  };
+  const [signed, signedConcurrent] = await Promise.all([
+    handler(jsonRequest("/api/staging-participant/v1/sign-topic-suggestion", suggestionBody, sessionCookie)),
+    handler(jsonRequest("/api/staging-participant/v1/sign-topic-suggestion", suggestionBody, sessionCookie)),
+  ]);
+  assert.equal(signed.status, 201);
+  assert.equal(signedConcurrent.status, 201);
+  assert.equal((await signed.json() as { suggestionId: string; entryState: string; authorityBinding: string }).suggestionId, suggestionEvent.id);
+  assert.deepEqual([...new Set(publishedSuggestions)], [suggestionEvent.id]);
+  const signedRetry = await handler(jsonRequest("/api/staging-participant/v1/sign-topic-suggestion", suggestionBody, sessionCookie));
+  assert.equal(signedRetry.status, 200);
+  assert.equal((await signedRetry.json() as { status: string }).status, "already_signed");
+  const replacementSuggestion = buildParticipantTopicSuggestion(author.secretKey, {
+    binding: { municipalityId: "roebel-mueritz", topicId }, sourcePost, sourceDiscussion: rootEvent,
+    sourceAnswer: meckyAnswerEvent, agentPubkey: meckyPubkey,
+    conversationWitnesses: { conversationTopic: "roebel-app-conversation", mentionEvent, replyEvent: meckyReplyEvent },
+    title: "Andere Zusammenfassung", summary: "Dieselbe Quelle mit abweichendem Entwurf.", createdAt: 1_787_659_151,
+  }).event;
+  assert.equal((await handler(jsonRequest("/api/staging-participant/v1/sign-topic-suggestion", {
+    ...suggestionBody, requestId: "20000000-0000-4000-8000-000000000023",
+    idempotencyKey: "suggestion-idempotency-0002", suggestionEvent: replacementSuggestion,
+  }, sessionCookie))).status, 409);
 });
 
 test("mirrors only the exact owner-signed @Mecky post after its source row exists", async () => {
@@ -563,6 +806,9 @@ test("fails before the data adapter for missing session, non-text payloads, and 
   assert.equal((await handler(jsonRequest("/api/staging-participant/v1/votes", {
     schemaVersion: "anything",
   }, sessionCookie))).status, 403);
+  assert.equal((await handler(jsonRequest("/api/staging-participant/v1/promote-source-post", {
+    schemaVersion: "wrong",
+  }, sessionCookie))).status, 400);
   assert.equal((await handler(jsonRequest("/api/staging-participant/v1/posts", {
     schemaVersion: "staging_participant_post_request_v1",
     requestId: POST_REQUEST_ID,
@@ -575,6 +821,26 @@ test("fails before the data adapter for missing session, non-text payloads, and 
     content: "https://example.invalid",
   }, sessionCookie))).status, 400);
   assert.equal(calls.length, 0);
+});
+
+test("admits the exact suggestion byte budget and rejects one UTF-8 byte over it", async () => {
+  const { handler } = fixture();
+  const envelope = (bytes: number) => {
+    const prefix = '{"padding":"';
+    const suffix = '"}';
+    const body = `${prefix}${"x".repeat(bytes - Buffer.byteLength(prefix) - Buffer.byteLength(suffix))}${suffix}`;
+    assert.equal(Buffer.byteLength(body, "utf8"), bytes);
+    return request("/api/staging-participant/v1/sign-topic-suggestion", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+  };
+
+  // Parsing succeeds at the exact route budget, then the request reaches the
+  // next boundary (session admission). The extra byte is rejected first.
+  assert.equal((await handler(envelope(64 * 1024))).status, 401);
+  assert.equal((await handler(envelope(64 * 1024 + 1))).status, 413);
 });
 
 test("expires sessions and exposes only the exact status route", async () => {

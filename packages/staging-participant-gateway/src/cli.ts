@@ -8,7 +8,10 @@ import {
   listenStagingParticipantGatewayServer,
 } from "./http.ts";
 import { createRestrictedSupabaseDataAdapter, createStagingParticipantReadinessAdapter } from "./supabase-adapter.ts";
-import { createPrivateWorkbenchMeckyMirrorAdapter } from "./workbench-adapter.ts";
+import {
+  createPrivateWorkbenchMeckyMirrorAdapter,
+  createPrivateWorkbenchTopicTracerAdapter,
+} from "./workbench-adapter.ts";
 
 async function main(): Promise<void> {
   const config = resolveProductionGatewayConfig(process.env, COMPILED_SOURCE_REVISION);
@@ -27,6 +30,7 @@ async function main(): Promise<void> {
     readiness: createStagingParticipantReadinessAdapter(supabase),
     readinessPins: config.readinessPins,
     mirror: createPrivateWorkbenchMeckyMirrorAdapter(config.workbench),
+    topicTracer: createPrivateWorkbenchTopicTracerAdapter(config.workbench),
   });
   await listenStagingParticipantGatewayServer({
     server,

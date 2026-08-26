@@ -34,6 +34,17 @@ const postPromotion = readFileSync(
   new URL("../src/components/app/StadtstackPostPromotion.tsx", import.meta.url),
   "utf8"
 );
+const participantTopicTracer = readFileSync(
+  new URL("../src/lib/staging-participant/topic-tracer.ts", import.meta.url),
+  "utf8"
+);
+const durableParticipantOperation = readFileSync(
+  new URL(
+    "../src/lib/staging-participant/durable-operation.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const commentSection = readFileSync(
   new URL("../src/components/app/CommentSection.tsx", import.meta.url),
   "utf8"
@@ -69,7 +80,9 @@ test("keeps the civic workflow native to ordinary Röbel posts and discussion ro
   assert.doesNotMatch(appPage, /StadtstackStagingLabCard/);
   assert.match(postCard, /StadtstackPostPromotion/);
   assert.match(postCard, /mode === "detail" && isAuthor/);
-  assert.match(postPromotion, /promoteAppPostToCivicTopic/);
+  assert.match(postPromotion, /promoteStagingParticipantSourcePost/);
+  assert.match(participantTopicTracer, /API_ROOT = "\/api\/staging-participant\/v1"/);
+  assert.match(participantTopicTracer, /request\("promote-source-post"/);
   assert.match(postPromotion, /\/app\/diskussion\//);
   assert.match(postPromotion, /Der ursprüngliche Beitrag bleibt unverändert/);
   assert.match(postPromotion, /Noch kein Vorschlag oder CivicCase/);
@@ -117,6 +130,8 @@ test("keeps ordinary posts distinct and requires an explicit human promotion act
   assert.match(postPromotion, /Nachvollziehbarer Ausgangspunkt/);
   assert.match(postPromotion, /@Mecky-Austausch von.*mitnehmen/);
   assert.match(postPromotion, /conversationSource/);
+  assert.match(postPromotion, /selectedReply\.mentionEvent/);
+  assert.match(postPromotion, /staging_participant_mecky_reply_required/);
 });
 
 test("makes the real signed promotion writer idempotent by source post", () => {
@@ -124,8 +139,30 @@ test("makes the real signed promotion writer idempotent by source post", () => {
   assert.match(workbenchServer, /status: "already_promoted"/);
 });
 
+test("replays exact promotion and suggestion envelopes until their receipts complete", () => {
+  assert.match(participantTopicTracer, /openDurableJsonOperation/);
+  assert.match(
+    participantTopicTracer,
+    /key: `promotion:\$\{input\.sourcePostId\.toLowerCase\(\)\}`/,
+  );
+  assert.match(
+    participantTopicTracer,
+    /key: `suggestion:\$\{input\.discussionRootEvent\.id\}`/,
+  );
+  assert.match(participantTopicTracer, /operation\.serializedBody/);
+  assert.match(participantTopicTracer, /operation\.complete\(\)/);
+  assert.match(postPromotion, /resumeStagingParticipantSourcePostPromotion/);
+  assert.match(discussion, /resumeStagingParticipantTopicSuggestion/);
+  assert.match(durableParticipantOperation, /current !== input\.raw/);
+  assert.match(
+    durableParticipantOperation,
+    /staging_participant_durable_operation_changed/,
+  );
+});
+
 test("lets explicit @Mecky mentions answer inside an ordinary app thread without auto-promotion", () => {
-  assert.match(postPromotion, /promoteAppPostToCivicTopic/);
+  assert.match(postPromotion, /selectedReply\.replyEvent/);
+  assert.match(postPromotion, /staging_participant_mecky_reply_required/);
   assert.match(
     readFileSync(
       new URL("../src/components/app/PostComposer.tsx", import.meta.url),
@@ -208,16 +245,28 @@ test("shows reviewed administration progress inside the same Civic Journey", () 
   assert.doesNotMatch(administrationProgress, /review_pending|review_rejected/);
 });
 
-test("lets the topic author sign a proposal without inventing a CivicCase", () => {
+test("lets the topic author sign a draft without inventing a CivicCase", () => {
   assert.match(discussion, /thread\.topic\?\.title/);
   assert.match(discussion, /thread\.caseBinding/);
   assert.match(discussion, /thread\.sourceAppPostId/);
   assert.match(discussion, /Zum ursprünglichen Beitrag/);
   assert.match(discussion, /Noch kein CivicCase/);
-  assert.match(discussion, /signTopicSuggestion/);
-  assert.match(discussion, /intent: "suggestion"/);
-  assert.match(discussion, /Vorschlag prüfen und\s+signieren/);
-  assert.match(discussion, /Wartet auf Case Steward/);
+  assert.match(discussion, /signParticipantTopicSuggestion/);
+  assert.match(discussion, /signStagingParticipantTopicSuggestion/);
+  assert.match(discussion, /thread\.sourceConversationWitnesses/);
+  assert.match(discussion, /conversationWitnesses:/);
+  assert.match(discussion, /mentionEvent: witnesses\.mentionEvent/);
+  assert.match(discussion, /replyEvent: witnesses\.replyEvent/);
+  assert.match(participantTopicTracer, /entryState: "citizen_adoption_required"/);
+  assert.match(
+    discussion,
+    /else if \(syntheticLegacyMode\)[\s\S]*?intent: "suggestion"/,
+  );
+  assert.match(
+    discussion,
+    /participantTracerMode \? "Entwurf" : "Vorschlag"\} prüfen und signieren/,
+  );
+  assert.match(discussion, /Bürgerübernahme erforderlich/);
   assert.match(discussion, /kein CivicCase automatisch angelegt/);
   assert.match(discussion, /Menschliche Aufnahme als CivicCase/);
   assert.match(discussion, /Diese öffentliche App kann die Aufnahme nicht auslösen/);
@@ -228,7 +277,8 @@ test("lets the topic author sign a proposal without inventing a CivicCase", () =
 test("promotes the displayed signed discussion without publishing or polling a duplicate", () => {
   assert.match(discussion, /sourceDiscussion: thread\.rootEvent/);
   assert.match(discussion, /sourceAnswer: thread\.mecky\.event/);
-  assert.match(discussion, /signTopicSuggestion/);
+  assert.match(discussion, /signStagingParticipantTopicSuggestion/);
+  assert.match(discussion, /syntheticLegacyMode/);
   assert.doesNotMatch(discussion, /stagingPost<[^>]+>\("\/discussion"/);
   assert.doesNotMatch(discussion, /\/reply\?parent=/);
   assert.match(discussion, /thread\.sourceConversation/);

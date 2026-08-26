@@ -4,9 +4,10 @@ import { test } from "node:test";
 import {
   APP_CONVERSATION_TOPIC,
   isAppConversationMentionEvent,
+  verifyAppConversationExchange,
 } from "../src/conversation";
 import { buildNoteEvent } from "../src/events";
-import { deriveNostrSecretKey } from "../src/keys";
+import { deriveNostrSecretKey, getPublicKeyHex } from "../src/keys";
 
 const SECRET_KEY = deriveNostrSecretKey(`0x${"12".repeat(65)}`);
 const AGENT = "d".repeat(64);
@@ -43,6 +44,30 @@ test("accepts only the exact signed ordinary-post conversation envelope", () => 
     ),
     false,
   );
+});
+
+test("accepts only one exact same-thread evidence-bearing agent exchange", () => {
+  const agentPubkey = getPublicKeyHex(SECRET_KEY);
+  const mention = buildNoteEvent(SECRET_KEY, "@Mecky, bitte einordnen", {
+    createdAt: 1_787_659_200,
+    tags: [["p", agentPubkey], ["source-app-post", POST], ["t", "roebel-app-conversation"]],
+  });
+  const reply = buildNoteEvent(SECRET_KEY, "Die Unterlagen weisen auf drei Prüfpfade hin.", {
+    createdAt: 1_787_659_201,
+    tags: [
+      ["netizen_agent", "Mecky", "mecky"], ["e", mention.id, "", "reply"], ["p", mention.pubkey],
+      ["source-app-post", POST], ["mecky-receipt", `urn:stadtstack:mecky-answer:${"a".repeat(64)}`],
+      ["municipality", "roebel-mueritz"], ["topic", "urn:stadtstack:topic:municipality:roebel-mueritz:marienfelder-strasse"],
+      ["evidence", `sha256:${"b".repeat(64)}`, "https://example.test/ris"],
+    ],
+  });
+  const expected = {
+    agentPubkey, sourceAppPostId: POST, conversationTopic: "roebel-app-conversation",
+    municipalityId: "roebel-mueritz", topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:marienfelder-strasse",
+  };
+  assert.ok(verifyAppConversationExchange(mention, reply, expected));
+  assert.equal(verifyAppConversationExchange(mention, { ...reply, tags: [...reply.tags, ["evidence", `sha256:${"c".repeat(64)}`, "https://example.test/too-many"]] }, expected), null);
+  assert.equal(verifyAppConversationExchange(mention, { ...reply, tags: reply.tags.map((tag) => tag[0] === "source-app-post" ? ["source-app-post", COMMENT] : tag) }, expected), null);
 });
 
 test("binds an optional comment in its one permitted tag position", () => {

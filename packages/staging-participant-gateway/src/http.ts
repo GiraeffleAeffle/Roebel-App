@@ -3,8 +3,11 @@ import { createHash } from "node:crypto";
 import {
   bindingStatement,
   isAppConversationMentionEvent,
+  verifyAppConversationExchange,
+  verifyCivicTopicPromotionEvent,
   verifyBindingEvent,
   verifyEvent,
+  verifyParticipantTopicSuggestion,
   type NostrEvent,
 } from "@netizen-labs/nostr";
 
@@ -33,10 +36,13 @@ import type {
   StagingParticipantMirrorReceipt,
   StagingParticipantReadinessAdapter,
   StagingParticipantReadinessPins,
+  StagingParticipantTopicTracerAdapter,
   WalletSignatureVerifier,
 } from "./types.ts";
 
-const MAX_REQUEST_BYTES = 8 * 1024;
+const DEFAULT_MAX_REQUEST_BYTES = 8 * 1024;
+const SOURCE_POST_PROMOTION_MAX_REQUEST_BYTES = 16 * 1024;
+const TOPIC_SUGGESTION_MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_CONTENT_BYTES = 2_000;
 const MAX_POST_CHARACTERS = 250;
 const MAX_COMMENT_CHARACTERS = 500;
@@ -45,6 +51,8 @@ const SESSION_SCHEMA = "staging_participant_session_request_v1";
 const POST_SCHEMA = "staging_participant_post_request_v1";
 const COMMENT_SCHEMA = "staging_participant_comment_request_v1";
 const NOSTR_POST_SCHEMA = "staging_participant_nostr_post_request_v1";
+const SOURCE_POST_PROMOTION_SCHEMA = "staging_source_post_promotion_v1";
+const TOPIC_SUGGESTION_SCHEMA = "staging_topic_suggestion_signature_v1";
 
 const STATUS_PATH = "/api/staging-participant/v1/status";
 const INTERNAL_STATUS_PATH = "/status";
@@ -54,6 +62,8 @@ const SESSION_PATH = "/api/staging-participant/v1/session";
 const POSTS_PATH = "/api/staging-participant/v1/posts";
 const COMMENTS_PATH = "/api/staging-participant/v1/comments";
 const NOSTR_POST_PATH = "/api/staging-participant/v1/nostr-post";
+const PROMOTE_SOURCE_POST_PATH = "/api/staging-participant/v1/promote-source-post";
+const SIGN_TOPIC_SUGGESTION_PATH = "/api/staging-participant/v1/sign-topic-suggestion";
 const AUTHORITY_PATHS = new Set([
   "/api/staging-participant/v1/cases",
   "/api/staging-participant/v1/votes",
@@ -66,6 +76,8 @@ export type StagingParticipantGatewayDependencies = Readonly<{
   verifier: WalletSignatureVerifier;
   data: StagingParticipantDataAdapter;
   mirror: MeckyMirrorAdapter;
+  /** Omitted until the separately reviewed ADR-0022 resolver is wired. */
+  topicTracer?: StagingParticipantTopicTracerAdapter;
   now?: () => Date;
   randomId?: () => string;
   /**
@@ -148,10 +160,11 @@ function validNostrEvent(value: unknown): NostrEvent | null {
   return verifyEvent(event) ? event : null;
 }
 
-function exactMeckyConversationEvent(event: NostrEvent, meckyPubkey: string, sourcePostId: string): boolean {
+function exactMeckyConversationEvent(event: NostrEvent, meckyPubkey: string, sourcePostId: string, conversationTopic: string): boolean {
   return isAppConversationMentionEvent(event, {
     agentPubkey: meckyPubkey,
     sourceAppPostId: sourcePostId,
+    conversationTopic,
   });
 }
 
@@ -164,6 +177,80 @@ function containsExplicitMeckyMention(content: string): boolean {
 
 function sha256Hex(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function eventSha256(event: NostrEvent): string {
+  // Fixed field order avoids any dependence on caller object insertion order.
+  return sha256Hex(JSON.stringify([
+    event.id, event.pubkey, event.created_at, event.kind, event.tags,
+    event.content, event.sig,
+  ]));
+}
+
+function exactTagValue(event: NostrEvent, name: string): string | null {
+  const matches = event.tags.filter((tag) => tag.length === 2 && tag[0] === name);
+  return matches.length === 1 && typeof matches[0]?.[1] === "string" ? matches[0][1] : null;
+}
+
+function validIdempotencyKey(value: unknown): string | null {
+  return typeof value === "string" && value === value.trim() &&
+    /^[A-Za-z0-9._~-]{16,128}$/u.test(value) ? value : null;
+}
+
+function topicPolicyValid(config: StagingParticipantGatewayConfig): boolean {
+  const policy = config.topicPolicy;
+  return /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u.test(policy.municipalityId) &&
+    policy.topicNamespace === `urn:stadtstack:topic:municipality:${policy.municipalityId}` &&
+    /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u.test(policy.sourceConversationTopic) &&
+    /^[a-z0-9][a-z0-9._-]{2,99}$/u.test(policy.policyVersion);
+}
+
+function policyTopic(config: StagingParticipantGatewayConfig, topicId: string): boolean {
+  return topicId.startsWith(`${config.topicPolicy.topicNamespace}:`) &&
+    topicId.length > config.topicPolicy.topicNamespace.length + 1;
+}
+
+function sameEvent(left: NostrEvent, right: NostrEvent): boolean {
+  return eventSha256(left) === eventSha256(right);
+}
+
+function resolvedConversationMatches(input: Readonly<{
+  sourcePostId: string;
+  sourcePost: NostrEvent;
+  mentionEvent: NostrEvent;
+  meckyReplyEvent: NostrEvent;
+  meckyReceiptId?: string;
+  rootConversation: Readonly<{
+    sourceAppPostId: string;
+    sourceAppCommentId?: string;
+    mentionEventId: string;
+    replyEventId: string;
+    receiptId?: string;
+  }>;
+  topicId: string;
+  config: StagingParticipantGatewayConfig;
+}>): boolean {
+  const { sourcePost, mentionEvent, meckyReplyEvent, rootConversation, config } = input;
+  const forbiddenAuthorityTag = (event: NostrEvent) => event.tags.some((tag) =>
+    ["case", "stadtstack-case", "vote", "treasury", "municipal-publication"].includes(tag[0] ?? ""),
+  );
+  const exchange = verifyAppConversationExchange(mentionEvent, meckyReplyEvent, {
+    agentPubkey: config.meckyPubkey,
+    sourceAppPostId: input.sourcePostId,
+    sourceAppCommentId: rootConversation.sourceAppCommentId,
+    conversationTopic: config.topicPolicy.sourceConversationTopic,
+    municipalityId: config.topicPolicy.municipalityId,
+    topicId: input.topicId,
+  });
+  return sameEvent(sourcePost, mentionEvent) && !forbiddenAuthorityTag(sourcePost) &&
+    !forbiddenAuthorityTag(meckyReplyEvent) && exchange !== null &&
+    rootConversation.sourceAppPostId === input.sourcePostId &&
+    rootConversation.mentionEventId === mentionEvent.id &&
+    rootConversation.replyEventId === meckyReplyEvent.id &&
+    rootConversation.receiptId === input.meckyReceiptId &&
+    (input.meckyReceiptId === undefined
+      ? exchange.receiptId === undefined
+      : exchange.receiptId === input.meckyReceiptId);
 }
 
 function admissionProof(value: unknown, walletAddress: string): Readonly<{
@@ -212,18 +299,24 @@ function isAllowedOrigin(request: Request, config: StagingParticipantGatewayConf
   return request.headers.get("origin") === config.origin;
 }
 
-async function readJson(request: Request): Promise<unknown> {
+function maxRequestBytesForPath(pathname: string): number {
+  if (pathname === PROMOTE_SOURCE_POST_PATH) return SOURCE_POST_PROMOTION_MAX_REQUEST_BYTES;
+  if (pathname === SIGN_TOPIC_SUGGESTION_PATH) return TOPIC_SUGGESTION_MAX_REQUEST_BYTES;
+  return DEFAULT_MAX_REQUEST_BYTES;
+}
+
+async function readJson(request: Request, maxRequestBytes: number): Promise<unknown> {
   const declaredLengthHeader = request.headers.get("content-length");
   const declaredLength = Number(declaredLengthHeader ?? 0);
   if (declaredLengthHeader !== null &&
-    (!Number.isSafeInteger(declaredLength) || declaredLength < 0 || declaredLength > MAX_REQUEST_BYTES)) {
-    throw new Error(declaredLength > MAX_REQUEST_BYTES ? "too_large" : "invalid");
+    (!Number.isSafeInteger(declaredLength) || declaredLength < 0 || declaredLength > maxRequestBytes)) {
+    throw new Error(declaredLength > maxRequestBytes ? "too_large" : "invalid");
   }
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim() !== "application/json") {
     throw new Error("content_type");
   }
   const raw = await request.text();
-  if (Buffer.byteLength(raw, "utf8") > MAX_REQUEST_BYTES) throw new Error("too_large");
+  if (Buffer.byteLength(raw, "utf8") > maxRequestBytes) throw new Error("too_large");
   try {
     return JSON.parse(raw) as unknown;
   } catch {
@@ -262,7 +355,7 @@ export function createStagingParticipantGatewayHandler(
     !/^[a-f0-9]{64}$/iu.test(config.inviteSha256) ||
     config.allowedWallets.length < 1 || config.allowedWallets.length > 8 ||
     config.allowedWallets.some((wallet) => !/^0x[0-9a-f]{40}$/u.test(wallet)) ||
-    !/^[0-9a-f]{64}$/u.test(config.meckyPubkey)) {
+    !/^[0-9a-f]{64}$/u.test(config.meckyPubkey) || !topicPolicyValid(config)) {
     throw new Error("staging_participant_gateway_config_invalid");
   }
   let origin: string;
@@ -288,9 +381,13 @@ export function createStagingParticipantGatewayHandler(
         return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
       }
       try {
-        const preflight = await dependencies.readiness.preflight();
+        const [preflight, topicPreflight] = await Promise.all([
+          dependencies.readiness.preflight(), dependencies.readiness.preflightTopicTracer(),
+        ]);
         if (preflight.migrationId !== "20260825_staging_participant_gateway" ||
-          preflight.databaseSchemaSha256 !== pins.databaseSchemaSha256) {
+          preflight.databaseSchemaSha256 !== pins.databaseSchemaSha256 ||
+          topicPreflight.migrationId !== "20260825_staging_participant_topic_tracer" ||
+          topicPreflight.databaseSchemaSha256 !== pins.topicTracerDatabaseSchemaSha256) {
           return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
         }
         return internalStatus({
@@ -300,6 +397,8 @@ export function createStagingParticipantGatewayHandler(
           manifestDigest: pins.manifestDigest,
           migrationSha256: pins.migrationSha256,
           databaseSchemaSha256: pins.databaseSchemaSha256,
+          topicTracerMigrationSha256: pins.topicTracerMigrationSha256,
+          topicTracerDatabaseSchemaSha256: pins.topicTracerDatabaseSchemaSha256,
         }, 200);
       } catch {
         return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
@@ -315,7 +414,10 @@ export function createStagingParticipantGatewayHandler(
       return json({ error: "authority_action_forbidden" }, 403, origin);
     }
     if (request.method === "OPTIONS" &&
-      [STATUS_PATH, CHALLENGE_PATH, SESSION_PATH, POSTS_PATH, COMMENTS_PATH, NOSTR_POST_PATH].includes(url.pathname)) {
+      [
+        STATUS_PATH, CHALLENGE_PATH, SESSION_PATH, POSTS_PATH, COMMENTS_PATH,
+        NOSTR_POST_PATH, PROMOTE_SOURCE_POST_PATH, SIGN_TOPIC_SUGGESTION_PATH,
+      ].includes(url.pathname)) {
       const response = new Response(null, {
         status: 204,
         headers: {
@@ -347,7 +449,8 @@ export function createStagingParticipantGatewayHandler(
       }, 200, origin);
     }
     if (url.pathname !== CHALLENGE_PATH && url.pathname !== SESSION_PATH &&
-      url.pathname !== POSTS_PATH && url.pathname !== COMMENTS_PATH && url.pathname !== NOSTR_POST_PATH) {
+      url.pathname !== POSTS_PATH && url.pathname !== COMMENTS_PATH && url.pathname !== NOSTR_POST_PATH &&
+      url.pathname !== PROMOTE_SOURCE_POST_PATH && url.pathname !== SIGN_TOPIC_SUGGESTION_PATH) {
       return json({ error: "not_found" }, 404, origin);
     }
     // Same-origin browser GET requests commonly omit Origin. Every mutating
@@ -359,7 +462,7 @@ export function createStagingParticipantGatewayHandler(
 
     let body: unknown;
     try {
-      body = await readJson(request);
+      body = await readJson(request, maxRequestBytesForPath(url.pathname));
     } catch (error) {
       const code = error instanceof Error ? error.message : "invalid";
       return json({ error: code === "too_large" ? "request_too_large" : code === "content_type" ? "content_type_invalid" : "request_invalid" }, code === "too_large" ? 413 : code === "content_type" ? 415 : 400, origin);
@@ -396,7 +499,7 @@ export function createStagingParticipantGatewayHandler(
     if (url.pathname === SESSION_PATH) {
       const record = parsedObject(body, ["schemaVersion", "signature"]);
       const signature = record && record.schemaVersion === SESSION_SCHEMA && typeof record.signature === "string" &&
-        /^0x[0-9a-f]+$/iu.test(record.signature) && Buffer.byteLength(record.signature, "utf8") <= MAX_REQUEST_BYTES
+        /^0x[0-9a-f]+$/iu.test(record.signature) && Buffer.byteLength(record.signature, "utf8") <= DEFAULT_MAX_REQUEST_BYTES
         ? record.signature
         : null;
       const claim = decodeSignedChallenge(
@@ -450,7 +553,7 @@ export function createStagingParticipantGatewayHandler(
         ? validNostrEvent(record.event) : null;
       if (!requestId || !sourcePostId || !proof || !event || event.kind !== 1 ||
         event.pubkey !== proof.nostrPubkey ||
-        !exactMeckyConversationEvent(event, config.meckyPubkey, sourcePostId)) {
+        !exactMeckyConversationEvent(event, config.meckyPubkey, sourcePostId, config.topicPolicy.sourceConversationTopic)) {
         return json({ error: "nostr_post_invalid" }, 400, origin);
       }
       let source;
@@ -493,6 +596,11 @@ export function createStagingParticipantGatewayHandler(
         return json({ error: "mirror_receipt_unavailable" }, 503, origin);
       }
       if (receipt.state === "published") {
+        try {
+          await dependencies.data.bindPublishedNostrPostMirror({
+            walletAddress: session.walletAddress, sourcePostId, eventId: receipt.event_id, nostrPubkey: proof.nostrPubkey,
+          });
+        } catch { return json({ error: "mirror_binding_unavailable" }, 503, origin); }
         return json({ status: "published", eventId: receipt.event_id, authority: "none" }, 200, origin);
       }
       try {
@@ -501,6 +609,9 @@ export function createStagingParticipantGatewayHandler(
           return json({ error: "mirror_unavailable" }, 503, origin);
         }
         const completed = await dependencies.data.completeNostrPostMirror(receiptInput);
+        await dependencies.data.bindPublishedNostrPostMirror({
+          walletAddress: session.walletAddress, sourcePostId, eventId: completed.event_id, nostrPubkey: proof.nostrPubkey,
+        });
         return json({ status: "published", eventId: completed.event_id, authority: "none" }, 201, origin);
       } catch (error) {
         if (error instanceof Error && error.message === "staging_participant_mirror_conflict") {
@@ -509,6 +620,252 @@ export function createStagingParticipantGatewayHandler(
         // The durable reservation deliberately remains. A retry can only ever
         // publish this exact event id; it cannot substitute a new signed note.
         return json({ error: "mirror_unavailable" }, 503, origin);
+      }
+    }
+
+    if (url.pathname === PROMOTE_SOURCE_POST_PATH) {
+      const record = parsedObject(body, ["schemaVersion", "requestId", "idempotencyKey", "sourcePostId", "rootEvent"]);
+      const requestId = record?.schemaVersion === SOURCE_POST_PROMOTION_SCHEMA
+        ? validRequestId(record.requestId) : null;
+      const idempotencyKey = record?.schemaVersion === SOURCE_POST_PROMOTION_SCHEMA
+        ? validIdempotencyKey(record.idempotencyKey) : null;
+      const sourcePostId = record?.schemaVersion === SOURCE_POST_PROMOTION_SCHEMA
+        ? validPostId(record.sourcePostId) : null;
+      const rootEvent = record?.schemaVersion === SOURCE_POST_PROMOTION_SCHEMA
+        ? validNostrEvent(record.rootEvent) : null;
+      if (!requestId || !idempotencyKey || !sourcePostId || !rootEvent) {
+        return json({ error: "source_post_promotion_invalid" }, 400, origin);
+      }
+      const tracer = dependencies.topicTracer;
+      if (!tracer) return json({ error: "topic_tracer_unavailable" }, 503, origin);
+      let mirrorBinding;
+      try {
+        mirrorBinding = await dependencies.data.resolvePublishedNostrPostMirror({ walletAddress: session.walletAddress, sourcePostId });
+      } catch {
+        return json({ error: "source_unavailable" }, 503, origin);
+      }
+      if (!mirrorBinding) return json({ error: "source_mismatch" }, 409, origin);
+      let resolved;
+      try {
+        resolved = await tracer.resolvePromotionSource({
+          sourceNoteEventId: mirrorBinding.event_id, sourceAuthorPubkey: mirrorBinding.nostr_pubkey, sourceAppPostId: mirrorBinding.source_post_id,
+        });
+      } catch { return json({ error: "source_unavailable" }, 503, origin); }
+      if (!resolved) return json({ error: "source_mismatch" }, 409, origin);
+      const promotion = verifyCivicTopicPromotionEvent({
+        event: rootEvent,
+        sourcePost: resolved.sourceNote,
+        municipalityId: config.topicPolicy.municipalityId,
+        agentPubkey: config.meckyPubkey,
+      });
+      if (!promotion || !promotion.conversationSource || !policyTopic(config, promotion.topicId) ||
+        !resolvedConversationMatches({
+          sourcePostId,
+          sourcePost: resolved.sourceNote,
+          mentionEvent: resolved.sourceNote,
+          meckyReplyEvent: resolved.meckyReplyEvent,
+          ...(resolved.meckyReceiptId === undefined ? {} : { meckyReceiptId: resolved.meckyReceiptId }),
+          rootConversation: promotion.conversationSource,
+          topicId: promotion.topicId,
+          config,
+        })) {
+        return json({ error: "source_mismatch" }, 409, origin);
+      }
+      const receiptInput = {
+        walletAddress: session.walletAddress,
+        namespace: config.topicPolicy.topicNamespace,
+        sourcePostId,
+        requestId,
+        idempotencyKeySha256: sha256Hex(idempotencyKey),
+        discussionRootId: rootEvent.id,
+        discussionRootSha256: eventSha256(rootEvent),
+        topicId: promotion.topicId,
+        policyVersion: config.topicPolicy.policyVersion,
+      };
+      let receipt;
+      try {
+        receipt = await dependencies.data.reserveSourcePostPromotion(receiptInput);
+      } catch (error) {
+        if (error instanceof Error && error.message === "staging_participant_promotion_conflict") {
+          return json({ error: "idempotency_conflict" }, 409, origin);
+        }
+        return json({ error: "promotion_receipt_unavailable" }, 503, origin);
+      }
+      const envelope = {
+        schemaVersion: "staging_source_post_promotion_receipt_v1",
+        status: receipt.state === "published" ? "already_promoted" : "promoted",
+        sourcePostId: receipt.source_post_id,
+        discussionRootId: receipt.discussion_root_id,
+        topicId: receipt.topic_id,
+        sourceConversation: {
+          sourceAppPostId: promotion.conversationSource.sourceAppPostId,
+          ...(promotion.conversationSource.sourceAppCommentId === undefined ? {} : {
+            sourceAppCommentId: promotion.conversationSource.sourceAppCommentId,
+          }),
+          mentionEventId: promotion.conversationSource.mentionEventId,
+          meckyReplyEventId: promotion.conversationSource.replyEventId,
+          ...(promotion.conversationSource.receiptId === undefined ? {} : {
+            meckyReceiptId: promotion.conversationSource.receiptId,
+          }),
+        },
+        authorityBinding: "none",
+        policyVersion: receipt.policy_version,
+        receiptChecksum: receipt.receipt_checksum,
+      } as const;
+      if (receipt.state === "published") return json(envelope, 200, origin);
+      try {
+        const published = await tracer.publishPromotion({ event: rootEvent });
+        if (published.status !== "published" || published.eventId !== receipt.discussion_root_id) {
+          return json({ error: "promotion_unavailable" }, 503, origin);
+        }
+        const completed = await dependencies.data.completeSourcePostPromotion(receiptInput);
+        return json({ ...envelope, status: "promoted", receiptChecksum: completed.receipt_checksum }, 201, origin);
+      } catch (error) {
+        if (error instanceof Error && error.message === "staging_participant_promotion_conflict") {
+          return json({ error: "idempotency_conflict" }, 409, origin);
+        }
+        return json({ error: "promotion_unavailable" }, 503, origin);
+      }
+    }
+
+    if (url.pathname === SIGN_TOPIC_SUGGESTION_PATH) {
+      const record = parsedObject(body, [
+        "schemaVersion", "requestId", "idempotencyKey", "discussionRootEvent", "meckyAnswerEvent", "suggestionEvent",
+      ]);
+      const requestId = record?.schemaVersion === TOPIC_SUGGESTION_SCHEMA
+        ? validRequestId(record.requestId) : null;
+      const idempotencyKey = record?.schemaVersion === TOPIC_SUGGESTION_SCHEMA
+        ? validIdempotencyKey(record.idempotencyKey) : null;
+      const discussionRootEvent = record?.schemaVersion === TOPIC_SUGGESTION_SCHEMA
+        ? validNostrEvent(record.discussionRootEvent) : null;
+      const meckyAnswerEvent = record?.schemaVersion === TOPIC_SUGGESTION_SCHEMA
+        ? validNostrEvent(record.meckyAnswerEvent) : null;
+      const suggestionEvent = record?.schemaVersion === TOPIC_SUGGESTION_SCHEMA
+        ? validNostrEvent(record.suggestionEvent) : null;
+      if (!requestId || !idempotencyKey || !discussionRootEvent || !meckyAnswerEvent || !suggestionEvent) {
+        return json({ error: "topic_suggestion_invalid" }, 400, origin);
+      }
+      const tracer = dependencies.topicTracer;
+      if (!tracer) return json({ error: "topic_tracer_unavailable" }, 503, origin);
+      let claimedPromotion;
+      try {
+        claimedPromotion = await dependencies.data.resolvePublishedSourcePostPromotion({
+          walletAddress: session.walletAddress,
+          namespace: config.topicPolicy.topicNamespace,
+          discussionRootId: discussionRootEvent.id,
+          sourceAuthorPubkey: suggestionEvent.pubkey,
+        });
+      } catch { return json({ error: "source_unavailable" }, 503, origin); }
+      if (!claimedPromotion) return json({ error: "source_mismatch" }, 409, origin);
+      let mirrorBinding;
+      try {
+        mirrorBinding = await dependencies.data.resolvePublishedNostrPostMirror({
+          walletAddress: session.walletAddress, sourcePostId: claimedPromotion.source_post_id,
+        });
+      } catch { return json({ error: "source_unavailable" }, 503, origin); }
+      if (!mirrorBinding || mirrorBinding.nostr_pubkey !== suggestionEvent.pubkey) return json({ error: "source_mismatch" }, 409, origin);
+      let resolved;
+      try {
+        resolved = await tracer.resolveTopicSuggestionSources({
+          discussionRootId: discussionRootEvent.id,
+          sourceAuthorPubkey: suggestionEvent.pubkey,
+          sourceNoteEventId: mirrorBinding.event_id,
+          sourceAppPostId: mirrorBinding.source_post_id,
+        });
+      } catch {
+        return json({ error: "source_unavailable" }, 503, origin);
+      }
+      if (!resolved || !sameEvent(discussionRootEvent, resolved.discussionRoot) ||
+        !sameEvent(meckyAnswerEvent, resolved.meckyAnswer)) {
+        return json({ error: "source_mismatch" }, 409, origin);
+      }
+      const promotion = verifyCivicTopicPromotionEvent({
+        event: resolved.discussionRoot,
+        sourcePost: resolved.sourceNote,
+        municipalityId: config.topicPolicy.municipalityId,
+        agentPubkey: config.meckyPubkey,
+      });
+      if (!promotion || !promotion.conversationSource || !policyTopic(config, promotion.topicId) ||
+        !resolvedConversationMatches({
+          sourcePostId: promotion.conversationSource.sourceAppPostId,
+          sourcePost: resolved.sourceNote,
+          mentionEvent: resolved.sourceNote,
+          meckyReplyEvent: resolved.meckyReplyEvent,
+          ...(resolved.meckyReceiptId === undefined ? {} : { meckyReceiptId: resolved.meckyReceiptId }),
+          rootConversation: promotion.conversationSource,
+          topicId: promotion.topicId,
+          config,
+        })) {
+        return json({ error: "source_mismatch" }, 409, origin);
+      }
+      let suggestion;
+      try {
+        suggestion = verifyParticipantTopicSuggestion({
+          binding: { municipalityId: config.topicPolicy.municipalityId, topicId: promotion.topicId },
+          sourcePost: resolved.sourceNote,
+          sourceDiscussion: resolved.discussionRoot,
+          sourceAnswer: resolved.meckyAnswer,
+          conversationWitnesses: {
+            conversationTopic: config.topicPolicy.sourceConversationTopic,
+            mentionEvent: resolved.sourceNote,
+            replyEvent: resolved.meckyReplyEvent,
+          },
+          agentPubkey: config.meckyPubkey,
+          event: suggestionEvent,
+        });
+      } catch {
+        return json({ error: "topic_suggestion_invalid" }, 400, origin);
+      }
+      const receiptInput = {
+        walletAddress: session.walletAddress,
+        namespace: config.topicPolicy.topicNamespace,
+        discussionRootId: resolved.discussionRoot.id,
+        sourceAuthorPubkey: suggestion.signerPubkey,
+        requestId,
+        idempotencyKeySha256: sha256Hex(idempotencyKey),
+        suggestionId: suggestion.suggestionId,
+        suggestionSha256: eventSha256(suggestion.event),
+        meckyAnswerId: resolved.meckyAnswer.id,
+        meckyReceiptId: suggestion.draft.sourceAnswerReceiptId,
+        topicId: suggestion.draft.topicId,
+        policyVersion: config.topicPolicy.policyVersion,
+      };
+      let receipt;
+      try {
+        receipt = await dependencies.data.reserveTopicSuggestion(receiptInput);
+      } catch (error) {
+        if (error instanceof Error && error.message === "staging_participant_suggestion_conflict") {
+          return json({ error: "suggestion_already_signed" }, 409, origin);
+        }
+        return json({ error: "suggestion_receipt_unavailable" }, 503, origin);
+      }
+      const envelope = {
+        schemaVersion: "staging_topic_suggestion_receipt_v1",
+        status: receipt.state === "published" ? "already_signed" : "signed",
+        suggestionId: receipt.suggestion_id,
+        discussionRootId: receipt.discussion_root_id,
+        meckyAnswerId: receipt.mecky_answer_id,
+        meckyReceiptId: receipt.mecky_receipt_id,
+        topicId: receipt.topic_id,
+        entryState: "citizen_adoption_required",
+        authorityBinding: "none",
+        submittedToCivicWorkflow: false,
+        policyVersion: receipt.policy_version,
+        receiptChecksum: receipt.receipt_checksum,
+      } as const;
+      if (receipt.state === "published") return json(envelope, 200, origin);
+      try {
+        const published = await tracer.publishTopicSuggestion({ event: suggestion.event });
+        if (published.status !== "published" || published.eventId !== receipt.suggestion_id) {
+          return json({ error: "suggestion_unavailable" }, 503, origin);
+        }
+        const completed = await dependencies.data.completeTopicSuggestion(receiptInput);
+        return json({ ...envelope, status: "signed", receiptChecksum: completed.receipt_checksum }, 201, origin);
+      } catch (error) {
+        if (error instanceof Error && error.message === "staging_participant_suggestion_conflict") {
+          return json({ error: "suggestion_already_signed" }, 409, origin);
+        }
+        return json({ error: "suggestion_unavailable" }, 503, origin);
       }
     }
 
@@ -543,13 +900,13 @@ export function createStagingParticipantGatewayHandler(
   };
 }
 
-async function readIncomingBody(request: IncomingMessage): Promise<Buffer> {
+async function readIncomingBody(request: IncomingMessage, maxRequestBytes: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let bytes = 0;
   for await (const value of request) {
     const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
     bytes += chunk.byteLength;
-    if (bytes > MAX_REQUEST_BYTES) throw new Error("request_too_large");
+    if (bytes > maxRequestBytes) throw new Error("request_too_large");
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
@@ -562,15 +919,17 @@ export function createStagingParticipantGatewayServer(
   const handle = createStagingParticipantGatewayHandler(dependencies);
   return createServer(async (incoming, outgoing) => {
     try {
+      const incomingUrl = new URL(incoming.url ?? "/", "http://staging-participant.internal");
+      const incomingPath = incomingUrl.pathname;
       const body = incoming.method === "GET" || incoming.method === "HEAD" || incoming.method === "OPTIONS"
         ? undefined
-        : await readIncomingBody(incoming);
+        : await readIncomingBody(incoming, maxRequestBytesForPath(incomingPath));
       const headers = new Headers();
       for (const [name, value] of Object.entries(incoming.headers)) {
         if (Array.isArray(value)) value.forEach((entry) => headers.append(name, entry));
         else if (value !== undefined) headers.set(name, value);
       }
-      const response = await handle(new Request(new URL(incoming.url ?? "/", "http://staging-participant.internal"), {
+      const response = await handle(new Request(incomingUrl, {
         method: incoming.method,
         headers,
         ...(body ? { body: new Uint8Array(body) } : {}),

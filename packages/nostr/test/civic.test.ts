@@ -1649,7 +1649,7 @@ test("a selected conversation is verified against the signed mention and agent r
   );
 });
 
-test("the topic answer envelope rejects unknown tags, empty content, and oversized content", () => {
+test("the topic answer envelope rejects unknown tags and oversized content or metadata", () => {
   const topicId =
     "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt";
   const sourcePost = buildNoteEvent(SECRET, "Treffpunkt", { createdAt: 720 });
@@ -1686,6 +1686,19 @@ test("the topic answer envelope rejects unknown tags, empty content, and oversiz
     buildAgentNoteEvent(MECKY_AGENT, "x".repeat(2_001), {
       createdAt: 722,
       tags: answerTags,
+    }),
+    buildAgentNoteEvent(
+      { ...MECKY_AGENT, name: "m".repeat(121) },
+      "Antwort",
+      { createdAt: 722, tags: answerTags },
+    ),
+    buildAgentNoteEvent(MECKY_AGENT, "Antwort", {
+      createdAt: 722,
+      tags: answerTags.map((tag) =>
+        tag[0] === "evidence"
+          ? [tag[0], tag[1]!, `https://stadtstack.example/${"a".repeat(2_049)}`]
+          : tag,
+      ),
     }),
   ]) {
     assert.throws(

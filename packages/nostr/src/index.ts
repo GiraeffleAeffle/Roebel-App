@@ -58,6 +58,11 @@ export type { AgentIdentity } from "./agent";
 export {
   APP_CONVERSATION_TOPIC,
   isAppConversationMentionEvent,
+  verifyAppConversationExchange,
+} from "./conversation";
+export type {
+  AppConversationExchangeExpectation,
+  VerifiedAppConversationExchange,
 } from "./conversation";
 
 export {

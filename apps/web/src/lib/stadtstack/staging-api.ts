@@ -1,5 +1,8 @@
 import type { StagingArgument } from "./discussion-tree";
-import type { CitizenSignedTopicSuggestionV1 } from "@netizen-labs/nostr";
+import type {
+  CitizenSignedTopicSuggestionV1,
+  ParticipantTopicSuggestionV1,
+} from "@netizen-labs/nostr";
 import {
   toStadtstackAdministrationProgress,
   type StadtstackAdministrationProgress,
@@ -118,6 +121,16 @@ export type StagingThreadResponse = {
   rootEvent: StagingSignedEvent | null;
   sourceAppPostId: string | null;
   sourceConversation: StagingSelectedConversation | null;
+  /**
+   * The closed, relay-verified source exchange needed to reconstruct an
+   * ADR-0022 participant suggestion. This is public evidence, not authority;
+   * absence or any mismatch must stop the browser-side hand-off.
+   */
+  sourceConversationWitnesses: null | {
+    conversationTopic: string;
+    mentionEvent: StagingSignedEvent;
+    replyEvent: StagingSignedEvent;
+  };
   topic: { id: string; title: string } | null;
   caseBinding: {
     municipalityId: string;
@@ -129,7 +142,8 @@ export type StagingThreadResponse = {
     author: { name: "Mecky"; kind: "mecky"; pubkey: string };
     evidenceRefs: { digest: string; url: string }[];
   };
-  suggestion: CitizenSignedTopicSuggestionV1 | null;
+  /** Synthetic legacy records may retain the earlier citizen shape only. */
+  suggestion: CitizenSignedTopicSuggestionV1 | ParticipantTopicSuggestionV1 | null;
   authorityBinding: "none";
 };
 
@@ -159,6 +173,8 @@ export type StagingConfigResponse = {
 export type StagingMeckyConversationReply = {
   id: string;
   mentionId: string;
+  mentionEvent: StagingSignedEvent;
+  replyEvent: StagingSignedEvent;
   mentionAuthor: StagingSelectedConversation["mentionAuthor"];
   sourceAppCommentId: string | null;
   receiptId: string | null;
