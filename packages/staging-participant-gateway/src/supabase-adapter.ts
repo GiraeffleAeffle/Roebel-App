@@ -3,7 +3,10 @@ import type {
   StagingParticipantDataAdapter,
   StagingParticipantMirrorReceipt,
   StagingParticipantPost,
+  StagingParticipantPromotionReceipt,
   StagingParticipantReadinessAdapter,
+  StagingParticipantSourceMirrorBinding,
+  StagingParticipantSuggestionReceipt,
 } from "./types.ts";
 
 const POST_RPC = "staging_participant_gateway_create_main_text_post";
@@ -11,7 +14,15 @@ const COMMENT_RPC = "staging_participant_gateway_create_main_text_comment";
 const OWNED_POST_RPC = "staging_participant_gateway_read_owned_main_text_post";
 const RESERVE_MIRROR_RPC = "staging_participant_gateway_reserve_nostr_post_mirror";
 const COMPLETE_MIRROR_RPC = "staging_participant_gateway_complete_nostr_post_mirror";
+const BIND_MIRROR_RPC = "staging_participant_gateway_bind_published_nostr_post_mirror";
+const RESOLVE_MIRROR_RPC = "staging_participant_gateway_resolve_published_nostr_post_mirror";
+const RESERVE_PROMOTION_RPC = "staging_participant_gateway_reserve_source_post_promotion";
+const COMPLETE_PROMOTION_RPC = "staging_participant_gateway_complete_source_post_promotion";
+const RESOLVE_PROMOTION_RPC = "staging_participant_gateway_resolve_published_source_post_promotion";
+const RESERVE_SUGGESTION_RPC = "staging_participant_gateway_reserve_topic_suggestion";
+const COMPLETE_SUGGESTION_RPC = "staging_participant_gateway_complete_topic_suggestion";
 const PREFLIGHT_RPC = "staging_participant_gateway_preflight";
+const TOPIC_TRACER_PREFLIGHT_RPC = "staging_participant_gateway_topic_tracer_preflight";
 
 export type RestrictedSupabaseRpcConfig = Readonly<{
   url: string;
@@ -98,6 +109,14 @@ export function createRestrictedSupabaseDataAdapter(
         /STAGING_PARTICIPANT_MIRROR_(?:SOURCE|REQUEST|RECEIPT)_/u.test(failure)) {
         throw new Error("staging_participant_mirror_conflict");
       }
+      if ((rpc === RESERVE_PROMOTION_RPC || rpc === COMPLETE_PROMOTION_RPC) &&
+        /STAGING_PARTICIPANT_PROMOTION_(?:SOURCE|REQUEST|CLAIM|RECEIPT)_/u.test(failure)) {
+        throw new Error("staging_participant_promotion_conflict");
+      }
+      if ((rpc === RESERVE_SUGGESTION_RPC || rpc === COMPLETE_SUGGESTION_RPC) &&
+        /STAGING_PARTICIPANT_SUGGESTION_(?:SOURCE|REQUEST|CLAIM|RECEIPT)_/u.test(failure)) {
+        throw new Error("staging_participant_suggestion_conflict");
+      }
       throw new Error("staging_participant_restricted_rpc_failed");
     }
     return await response.json() as unknown;
@@ -158,6 +177,53 @@ export function createRestrictedSupabaseDataAdapter(
       }
       return receipt;
     },
+    async bindPublishedNostrPostMirror(input): Promise<StagingParticipantSourceMirrorBinding> {
+      return readSourceMirrorBinding(await invoke(BIND_MIRROR_RPC, {
+        p_wallet_address: input.walletAddress,
+        p_source_post_id: input.sourcePostId,
+        p_event_id: input.eventId,
+        p_nostr_pubkey: input.nostrPubkey,
+      }), input);
+    },
+    async resolvePublishedNostrPostMirror(input): Promise<StagingParticipantSourceMirrorBinding | null> {
+      const value = await invoke(RESOLVE_MIRROR_RPC, {
+        p_wallet_address: input.walletAddress,
+        p_source_post_id: input.sourcePostId,
+      });
+      if (value === null) return null;
+      return readSourceMirrorBinding(value, input);
+    },
+    async reserveSourcePostPromotion(input): Promise<StagingParticipantPromotionReceipt> {
+      return readPromotionReceipt(await invoke(RESERVE_PROMOTION_RPC, promotionBody(input)), input);
+    },
+    async completeSourcePostPromotion(input): Promise<StagingParticipantPromotionReceipt> {
+      const receipt = readPromotionReceipt(await invoke(COMPLETE_PROMOTION_RPC, promotionCompletionBody(input)), input);
+      if (receipt.state !== "published") throw new Error("staging_participant_promotion_receipt_invalid");
+      return receipt;
+    },
+    async resolvePublishedSourcePostPromotion(input): Promise<StagingParticipantPromotionReceipt | null> {
+      const value = await invoke(RESOLVE_PROMOTION_RPC, {
+        p_wallet_address: input.walletAddress,
+        p_namespace: input.namespace,
+        p_discussion_root_id: input.discussionRootId,
+        p_source_author_pubkey: input.sourceAuthorPubkey,
+      });
+      if (value === null) return null;
+      if (!isPromotionReceipt(value) || value.state !== "published" ||
+        value.wallet_address.toLowerCase() !== input.walletAddress.toLowerCase() ||
+        value.namespace !== input.namespace || value.discussion_root_id !== input.discussionRootId.toLowerCase()) {
+        throw new Error("staging_participant_promotion_receipt_mismatch");
+      }
+      return value;
+    },
+    async reserveTopicSuggestion(input): Promise<StagingParticipantSuggestionReceipt> {
+      return readSuggestionReceipt(await invoke(RESERVE_SUGGESTION_RPC, suggestionBody(input)), input);
+    },
+    async completeTopicSuggestion(input): Promise<StagingParticipantSuggestionReceipt> {
+      const receipt = readSuggestionReceipt(await invoke(COMPLETE_SUGGESTION_RPC, suggestionCompletionBody(input)), input);
+      if (receipt.state !== "published") throw new Error("staging_participant_suggestion_receipt_invalid");
+      return receipt;
+    },
   };
 }
 
@@ -171,9 +237,8 @@ export function createStagingParticipantReadinessAdapter(
   const base = validateConfig(config);
   const request = config.fetch ?? globalThis.fetch;
   if (typeof request !== "function") throw new Error("staging_participant_fetch_unavailable");
-  return {
-    async preflight() {
-      const response = await request(new URL(`/rest/v1/rpc/${PREFLIGHT_RPC}`, base), {
+  const preflight = async (rpc: string) => {
+      const response = await request(new URL(`/rest/v1/rpc/${rpc}`, base), {
         method: "POST",
         headers: {
           apikey: config.anonKey,
@@ -194,7 +259,10 @@ export function createStagingParticipantReadinessAdapter(
         throw new Error("staging_participant_preflight_response_invalid");
       }
       return { migrationId: value.migration_id, databaseSchemaSha256: value.database_schema_sha256 };
-    },
+  };
+  return {
+    preflight: () => preflight(PREFLIGHT_RPC),
+    preflightTopicTracer: () => preflight(TOPIC_TRACER_PREFLIGHT_RPC),
   };
 }
 
@@ -216,6 +284,67 @@ function reserveMirrorBody(input: Readonly<{
   return { ...mirrorBody(input), p_event_created_at: String(input.eventCreatedAt) };
 }
 
+type PromotionInput = Parameters<StagingParticipantDataAdapter["reserveSourcePostPromotion"]>[0];
+type PromotionCompletionInput = Parameters<StagingParticipantDataAdapter["completeSourcePostPromotion"]>[0];
+type SuggestionInput = Parameters<StagingParticipantDataAdapter["reserveTopicSuggestion"]>[0];
+type SuggestionCompletionInput = Parameters<StagingParticipantDataAdapter["completeTopicSuggestion"]>[0];
+
+function promotionBody(input: PromotionInput): Record<string, string> {
+  return {
+    p_wallet_address: input.walletAddress,
+    p_namespace: input.namespace,
+    p_source_post_id: input.sourcePostId,
+    p_request_id: input.requestId,
+    p_idempotency_key_sha256: input.idempotencyKeySha256,
+    p_discussion_root_id: input.discussionRootId,
+    p_discussion_root_sha256: input.discussionRootSha256,
+    p_topic_id: input.topicId,
+    p_policy_version: input.policyVersion,
+  };
+}
+
+function promotionCompletionBody(input: PromotionCompletionInput): Record<string, string> {
+  return {
+    p_wallet_address: input.walletAddress,
+    p_namespace: input.namespace,
+    p_source_post_id: input.sourcePostId,
+    p_request_id: input.requestId,
+    p_idempotency_key_sha256: input.idempotencyKeySha256,
+    p_discussion_root_id: input.discussionRootId,
+    p_discussion_root_sha256: input.discussionRootSha256,
+  };
+}
+
+function suggestionBody(input: SuggestionInput): Record<string, string> {
+  return {
+    p_wallet_address: input.walletAddress,
+    p_namespace: input.namespace,
+    p_discussion_root_id: input.discussionRootId,
+    p_source_author_pubkey: input.sourceAuthorPubkey,
+    p_request_id: input.requestId,
+    p_idempotency_key_sha256: input.idempotencyKeySha256,
+    p_suggestion_id: input.suggestionId,
+    p_suggestion_sha256: input.suggestionSha256,
+    p_mecky_answer_id: input.meckyAnswerId,
+    p_mecky_receipt_id: input.meckyReceiptId,
+    p_topic_id: input.topicId,
+    p_policy_version: input.policyVersion,
+  };
+}
+
+function suggestionCompletionBody(input: SuggestionCompletionInput): Record<string, string> {
+  return {
+    p_wallet_address: input.walletAddress,
+    p_namespace: input.namespace,
+    p_discussion_root_id: input.discussionRootId,
+    p_source_author_pubkey: input.sourceAuthorPubkey,
+    p_request_id: input.requestId,
+    p_idempotency_key_sha256: input.idempotencyKeySha256,
+    p_suggestion_id: input.suggestionId,
+    p_suggestion_sha256: input.suggestionSha256,
+  };
+}
+
 function readMirrorReceipt(
   value: unknown,
   expected: Readonly<{ walletAddress: string; sourcePostId: string; requestId: string; eventId: string; eventCreatedAt?: number; contentSha256: string }>,
@@ -228,6 +357,61 @@ function readMirrorReceipt(
     (expected.eventCreatedAt !== undefined && value.event_created_at !== expected.eventCreatedAt) ||
     value.content_sha256 !== expected.contentSha256.toLowerCase()) {
     throw new Error("staging_participant_mirror_receipt_mismatch");
+  }
+  return value;
+}
+
+function readSourceMirrorBinding(
+  value: unknown,
+  expected: Readonly<{ walletAddress: string; sourcePostId: string; eventId?: string; nostrPubkey?: string }>,
+): StagingParticipantSourceMirrorBinding {
+  if (!isRecord(value) || !exactKeys(value, ["wallet_address", "source_post_id", "event_id", "nostr_pubkey"]) ||
+    typeof value.wallet_address !== "string" || typeof value.source_post_id !== "string" ||
+    typeof value.event_id !== "string" || !/^[a-f0-9]{64}$/u.test(value.event_id) ||
+    typeof value.nostr_pubkey !== "string" || !/^[a-f0-9]{64}$/u.test(value.nostr_pubkey) ||
+    value.wallet_address.toLowerCase() !== expected.walletAddress.toLowerCase() ||
+    value.source_post_id.toLowerCase() !== expected.sourcePostId.toLowerCase() ||
+    (expected.eventId !== undefined && value.event_id !== expected.eventId.toLowerCase()) ||
+    (expected.nostrPubkey !== undefined && value.nostr_pubkey !== expected.nostrPubkey.toLowerCase())) {
+    throw new Error("staging_participant_source_mirror_binding_mismatch");
+  }
+  return value as StagingParticipantSourceMirrorBinding;
+}
+
+function receiptHex(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
+}
+
+function readPromotionReceipt(value: unknown, expected: PromotionInput | PromotionCompletionInput): StagingParticipantPromotionReceipt {
+  if (!isPromotionReceipt(value) ||
+    value.namespace !== expected.namespace ||
+    value.wallet_address.toLowerCase() !== expected.walletAddress.toLowerCase() ||
+    value.source_post_id.toLowerCase() !== expected.sourcePostId.toLowerCase() ||
+    value.request_id.toLowerCase() !== expected.requestId.toLowerCase() ||
+    value.idempotency_key_sha256 !== expected.idempotencyKeySha256.toLowerCase() ||
+    value.discussion_root_id !== expected.discussionRootId.toLowerCase() ||
+    value.discussion_root_sha256 !== expected.discussionRootSha256.toLowerCase() ||
+    ("topicId" in expected && (value.topic_id !== expected.topicId || value.policy_version !== expected.policyVersion))) {
+    throw new Error("staging_participant_promotion_receipt_mismatch");
+  }
+  return value;
+}
+
+function readSuggestionReceipt(value: unknown, expected: SuggestionInput | SuggestionCompletionInput): StagingParticipantSuggestionReceipt {
+  if (!isSuggestionReceipt(value) ||
+    value.namespace !== expected.namespace ||
+    value.wallet_address.toLowerCase() !== expected.walletAddress.toLowerCase() ||
+    value.discussion_root_id !== expected.discussionRootId.toLowerCase() ||
+    value.source_author_pubkey !== expected.sourceAuthorPubkey.toLowerCase() ||
+    value.request_id.toLowerCase() !== expected.requestId.toLowerCase() ||
+    value.idempotency_key_sha256 !== expected.idempotencyKeySha256.toLowerCase() ||
+    value.suggestion_id !== expected.suggestionId.toLowerCase() ||
+    value.suggestion_sha256 !== expected.suggestionSha256.toLowerCase() ||
+    ("topicId" in expected &&
+      (value.mecky_answer_id !== expected.meckyAnswerId.toLowerCase() ||
+        value.mecky_receipt_id !== expected.meckyReceiptId ||
+        value.topic_id !== expected.topicId || value.policy_version !== expected.policyVersion))) {
+    throw new Error("staging_participant_suggestion_receipt_mismatch");
   }
   return value;
 }
@@ -263,11 +447,41 @@ function isStagingParticipantMirrorReceipt(value: unknown): value is StagingPart
     (value.state === "reserved" || value.state === "published");
 }
 
+function isPromotionReceipt(value: unknown): value is StagingParticipantPromotionReceipt {
+  if (!isRecord(value)) return false;
+  return stringField(value, "namespace") && stringField(value, "wallet_address") &&
+    stringField(value, "source_post_id") && stringField(value, "request_id") &&
+    receiptHex(value.idempotency_key_sha256) && receiptHex(value.discussion_root_id) &&
+    receiptHex(value.discussion_root_sha256) && stringField(value, "topic_id") &&
+    stringField(value, "policy_version") && receiptHex(value.receipt_checksum) &&
+    (value.state === "reserved" || value.state === "published");
+}
+
+function isSuggestionReceipt(value: unknown): value is StagingParticipantSuggestionReceipt {
+  if (!isRecord(value)) return false;
+  return stringField(value, "namespace") && stringField(value, "wallet_address") &&
+    receiptHex(value.discussion_root_id) && receiptHex(value.source_author_pubkey) &&
+    stringField(value, "request_id") && receiptHex(value.idempotency_key_sha256) &&
+    receiptHex(value.suggestion_id) && receiptHex(value.suggestion_sha256) &&
+    receiptHex(value.mecky_answer_id) && stringField(value, "mecky_receipt_id") &&
+    stringField(value, "topic_id") && stringField(value, "policy_version") &&
+    receiptHex(value.receipt_checksum) &&
+    (value.state === "reserved" || value.state === "published");
+}
+
 export const restrictedStagingParticipantRpcNames = {
   createMainTextPost: POST_RPC,
   createMainTextComment: COMMENT_RPC,
   readOwnedMainTextPost: OWNED_POST_RPC,
   reserveNostrPostMirror: RESERVE_MIRROR_RPC,
   completeNostrPostMirror: COMPLETE_MIRROR_RPC,
+  bindPublishedNostrPostMirror: BIND_MIRROR_RPC,
+  resolvePublishedNostrPostMirror: RESOLVE_MIRROR_RPC,
+  reserveSourcePostPromotion: RESERVE_PROMOTION_RPC,
+  completeSourcePostPromotion: COMPLETE_PROMOTION_RPC,
+  resolvePublishedSourcePostPromotion: RESOLVE_PROMOTION_RPC,
+  reserveTopicSuggestion: RESERVE_SUGGESTION_RPC,
+  completeTopicSuggestion: COMPLETE_SUGGESTION_RPC,
   preflight: PREFLIGHT_RPC,
+  topicTracerPreflight: TOPIC_TRACER_PREFLIGHT_RPC,
 } as const;

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createPrivateWorkbenchMeckyMirrorAdapter } from "../src/workbench-adapter.ts";
+import {
+  createPrivateWorkbenchMeckyMirrorAdapter,
+  createPrivateWorkbenchTopicTracerAdapter,
+} from "../src/workbench-adapter.ts";
 
 const EVENT = {
   id: "1".repeat(64), pubkey: "2".repeat(64), created_at: 1_756_124_701,
@@ -46,4 +49,23 @@ test("private mirror rejects public URLs and arbitrary workbench capability head
     url: "http://e2e-workbench.stadtstack-roebel-web-preview.svc.cluster.local:18083/",
     admissionHeader: { name: "x-stadtstack-e2e", value: "1" },
   }));
+});
+
+test("ADR-0022 publication has its own fixed internal path and never reuses the diagnostic signed-event path", async () => {
+  const calls: string[] = [];
+  const adapter = createPrivateWorkbenchTopicTracerAdapter({
+    url: "http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/",
+    admissionHeader: { name: "x-stadtstack-e2e", value: "1" },
+    fetch: async (url) => {
+      calls.push(String(url));
+      return new Response(JSON.stringify({ status: "published", event: { id: EVENT.id } }), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    },
+  });
+  assert.deepEqual(await adapter.publishPromotion({ event: EVENT }), { status: "published", eventId: EVENT.id });
+  assert.deepEqual(calls, [
+    "http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/api/staging-participant/topic-tracer/promotions",
+  ]);
+  assert.ok(!calls.some((url) => url.endsWith("/api/signed-event")));
 });

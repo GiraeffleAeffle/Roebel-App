@@ -22,6 +22,9 @@ const env = {
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET: "r".repeat(32),
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_PORT: "18085",
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_MECKY_PUBKEY: "a".repeat(64),
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_MUNICIPALITY_ID: "roebel-mueritz",
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_SOURCE_CONVERSATION_TOPIC: "roebel-app-conversation",
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_TOPIC_POLICY_VERSION: "staging-participant-topic-v1",
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_URL:
     "http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/",
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_ADMISSION_HEADER: "x-stadtstack-e2e:1",
@@ -29,6 +32,8 @@ const env = {
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_MANIFEST_DIGEST: `sha256:${"b".repeat(64)}`,
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_MIGRATION_SHA256: `sha256:${"c".repeat(64)}`,
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_DATABASE_SCHEMA_SHA256: `sha256:${"d".repeat(64)}`,
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_TOPIC_TRACER_MIGRATION_SHA256: `sha256:${"e".repeat(64)}`,
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_TOPIC_TRACER_DATABASE_SCHEMA_SHA256: `sha256:${"f".repeat(64)}`,
 };
 
 const BAKED_SOURCE_REVISION = "a".repeat(40);
@@ -91,11 +96,45 @@ const MIRROR_RECEIPT = {
   state: "reserved",
 };
 
+const PROMOTION_RECEIPT = {
+  namespace: "urn:stadtstack:topic:municipality:roebel-mueritz",
+  wallet_address: POST.wallet_address,
+  source_post_id: POST.id,
+  request_id: "20000000-0000-4000-8000-000000000004",
+  idempotency_key_sha256: "a".repeat(64),
+  discussion_root_id: "b".repeat(64),
+  discussion_root_sha256: "c".repeat(64),
+  topic_id: "urn:stadtstack:topic:municipality:roebel-mueritz:marienfelder-strasse",
+  policy_version: "staging-participant-topic-v1",
+  state: "reserved",
+  receipt_checksum: "d".repeat(64),
+};
+
+const SUGGESTION_RECEIPT = {
+  namespace: PROMOTION_RECEIPT.namespace,
+  wallet_address: POST.wallet_address,
+  discussion_root_id: PROMOTION_RECEIPT.discussion_root_id,
+  source_author_pubkey: "e".repeat(64),
+  request_id: "20000000-0000-4000-8000-000000000005",
+  idempotency_key_sha256: "f".repeat(64),
+  suggestion_id: "1".repeat(64),
+  suggestion_sha256: "2".repeat(64),
+  mecky_answer_id: "3".repeat(64),
+  mecky_receipt_id: `urn:stadtstack:mecky-answer:${"4".repeat(64)}`,
+  topic_id: PROMOTION_RECEIPT.topic_id,
+  policy_version: PROMOTION_RECEIPT.policy_version,
+  state: "reserved",
+  receipt_checksum: "5".repeat(64),
+};
+
 test("production configuration fails closed unless explicit staging mode and every dedicated input is present", () => {
   assert.equal(productionConfig({}), null);
   assert.equal(productionConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY: "true" }), null);
   assert.equal(productionConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_SESSION_KEY: "short" }), null);
   assert.equal(productionConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_ALLOWED_WALLETS: "" }), null);
+  assert.equal(productionConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_MUNICIPALITY_ID: undefined }), null);
+  assert.equal(productionConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_SOURCE_CONVERSATION_TOPIC: "not a slug" }), null);
+  assert.equal(productionConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_TOPIC_POLICY_VERSION: "!!" }), null);
   assert.equal(productionConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_ALLOWED_WALLETS: "0xABC" }), null);
   assert.equal(productionConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_ORIGIN: "https://app.example/path" }), null);
   assert.equal(productionConfig({ ...env, ROEBEL_STAGING_PARTICIPANT_GATEWAY_ORIGIN: "http://app.example" }), null);
@@ -238,6 +277,64 @@ test("Supabase adapter invokes only named Vault-checked RPCs and never a service
     anonKey: "sb_secret_this-is-not-a-public-key",
     rpcSecret: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET,
   }));
+});
+
+test("ADR-0022 ledger adapter sends only closed claim bodies and rejects a drifted receipt", async () => {
+  const calls: Array<{ url: string; body: Record<string, string> }> = [];
+  const adapter = createRestrictedSupabaseDataAdapter({
+    url: "https://example.supabase.co",
+    anonKey: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_ANON_KEY,
+    rpcSecret: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET,
+    fetch: async (url, init) => {
+      const target = String(url);
+      calls.push({ url: target, body: JSON.parse(String(init?.body)) as Record<string, string> });
+      const isPromotion = target.includes("source_post_promotion");
+      const isComplete = target.includes("complete_");
+      const receipt = isPromotion ? PROMOTION_RECEIPT : SUGGESTION_RECEIPT;
+      return new Response(JSON.stringify(isComplete ? { ...receipt, state: "published" } : receipt), { status: 200 });
+    },
+  });
+  const promotion = {
+    walletAddress: POST.wallet_address, namespace: PROMOTION_RECEIPT.namespace, sourcePostId: POST.id,
+    requestId: PROMOTION_RECEIPT.request_id, idempotencyKeySha256: PROMOTION_RECEIPT.idempotency_key_sha256,
+    discussionRootId: PROMOTION_RECEIPT.discussion_root_id,
+    discussionRootSha256: PROMOTION_RECEIPT.discussion_root_sha256,
+    topicId: PROMOTION_RECEIPT.topic_id, policyVersion: PROMOTION_RECEIPT.policy_version,
+  };
+  const suggestion = {
+    walletAddress: POST.wallet_address, namespace: SUGGESTION_RECEIPT.namespace,
+    discussionRootId: SUGGESTION_RECEIPT.discussion_root_id,
+    sourceAuthorPubkey: SUGGESTION_RECEIPT.source_author_pubkey,
+    requestId: SUGGESTION_RECEIPT.request_id, idempotencyKeySha256: SUGGESTION_RECEIPT.idempotency_key_sha256,
+    suggestionId: SUGGESTION_RECEIPT.suggestion_id, suggestionSha256: SUGGESTION_RECEIPT.suggestion_sha256,
+    meckyAnswerId: SUGGESTION_RECEIPT.mecky_answer_id, meckyReceiptId: SUGGESTION_RECEIPT.mecky_receipt_id,
+    topicId: SUGGESTION_RECEIPT.topic_id, policyVersion: SUGGESTION_RECEIPT.policy_version,
+  };
+  assert.equal((await adapter.reserveSourcePostPromotion(promotion)).state, "reserved");
+  assert.equal((await adapter.completeSourcePostPromotion(promotion)).state, "published");
+  assert.equal((await adapter.reserveTopicSuggestion(suggestion)).state, "reserved");
+  assert.equal((await adapter.completeTopicSuggestion(suggestion)).state, "published");
+  assert.deepEqual(calls.map(({ url }) => url), [
+    `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.reserveSourcePostPromotion}`,
+    `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.completeSourcePostPromotion}`,
+    `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.reserveTopicSuggestion}`,
+    `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.completeTopicSuggestion}`,
+  ]);
+  assert.deepEqual(Object.keys(calls[0]!.body).sort(), [
+    "p_discussion_root_id", "p_discussion_root_sha256", "p_idempotency_key_sha256", "p_namespace",
+    "p_policy_version", "p_request_id", "p_source_post_id", "p_topic_id", "p_wallet_address",
+  ]);
+  assert.deepEqual(Object.keys(calls[2]!.body).sort(), [
+    "p_discussion_root_id", "p_idempotency_key_sha256", "p_mecky_answer_id", "p_mecky_receipt_id",
+    "p_namespace", "p_policy_version", "p_request_id", "p_source_author_pubkey", "p_suggestion_id",
+    "p_suggestion_sha256", "p_topic_id", "p_wallet_address",
+  ]);
+  const malformed = createRestrictedSupabaseDataAdapter({
+    url: "https://example.supabase.co", anonKey: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_ANON_KEY,
+    rpcSecret: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET,
+    fetch: async () => new Response(JSON.stringify({ ...PROMOTION_RECEIPT, topic_id: "drifted" }), { status: 200 }),
+  });
+  await assert.rejects(malformed.reserveSourcePostPromotion(promotion), /promotion_receipt_mismatch/u);
 });
 
 test("readiness adapter can call only the fixed empty preflight RPC and rejects drifted rows", async () => {

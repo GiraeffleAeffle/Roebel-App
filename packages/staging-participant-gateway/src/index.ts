@@ -9,7 +9,10 @@ export {
   createStagingParticipantReadinessAdapter,
   restrictedStagingParticipantRpcNames,
 } from "./supabase-adapter.ts";
-export { createPrivateWorkbenchMeckyMirrorAdapter } from "./workbench-adapter.ts";
+export {
+  createPrivateWorkbenchMeckyMirrorAdapter,
+  createPrivateWorkbenchTopicTracerAdapter,
+} from "./workbench-adapter.ts";
 export {
   PARTICIPANT_LABEL,
   CHALLENGE_COOKIE,
@@ -21,5 +24,7 @@ export type {
   StagingParticipantGatewayConfig,
   StagingParticipantReadinessAdapter,
   StagingParticipantReadinessPins,
+  StagingParticipantTopicPolicy,
+  StagingParticipantTopicTracerAdapter,
   WalletSignatureVerifier,
 } from "./types.ts";

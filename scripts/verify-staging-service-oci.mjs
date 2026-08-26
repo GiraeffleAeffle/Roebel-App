@@ -24,11 +24,30 @@ function exactKeys(value, expected, label) {
   }
 }
 
-export function verifyStagingServiceOci(root, sourceRevision, component) {
+function releasePins(path) {
+  if (path === undefined) return null;
+  const value = JSON.parse(readFileSync(path, "utf8"));
+  exactKeys(value, [
+    "databaseSchemaSha256",
+    "deactivationSha256",
+    "migrationSha256",
+    "schemaVersion",
+    "topicTracerDatabaseSchemaSha256",
+    "topicTracerMigrationSha256",
+  ], "release_pins");
+  if (value.schemaVersion !== "roebel_staging_participant_gateway_release_pins_v2" ||
+    !SHA256.test(value.migrationSha256) || !SHA256.test(value.databaseSchemaSha256) ||
+    !SHA256.test(value.deactivationSha256) || !SHA256.test(value.topicTracerMigrationSha256) ||
+    !SHA256.test(value.topicTracerDatabaseSchemaSha256)) throw new Error("release_pins_invalid");
+  return { ...value, sha256: digest(readFileSync(path)) };
+}
+
+export function verifyStagingServiceOci(root, sourceRevision, component, releasePinsPath) {
   const expectedEntrypoint = COMPONENTS[component];
   if (typeof root !== "string" || !SOURCE_REVISION.test(sourceRevision ?? "") || !expectedEntrypoint) {
     throw new Error("usage");
   }
+  const release = releasePins(releasePinsPath);
   const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
   const readBlob = (descriptor, label) => {
     if (!descriptor || !SHA256.test(descriptor.digest ?? "") || !Number.isSafeInteger(descriptor.size) || descriptor.size < 1) {
@@ -107,12 +126,17 @@ export function verifyStagingServiceOci(root, sourceRevision, component) {
     layerDigests,
     user: runtime.User,
     entrypoint: runtime.Entrypoint,
+    ...(release === null ? {} : {
+      releasePinsSha256: release.sha256,
+      topicTracerMigrationSha256: release.topicTracerMigrationSha256,
+      topicTracerDatabaseSchemaSha256: release.topicTracerDatabaseSchemaSha256,
+    }),
   };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const [root, sourceRevision, component, outputPath] = process.argv.slice(2);
-  const receipt = verifyStagingServiceOci(root, sourceRevision, component);
+  const [root, sourceRevision, component, outputPath, releasePinsPath] = process.argv.slice(2);
+  const receipt = verifyStagingServiceOci(root, sourceRevision, component, releasePinsPath);
   const bytes = `${JSON.stringify(receipt, null, 2)}\n`;
   if (outputPath) writeFileSync(outputPath, bytes);
   process.stdout.write(bytes);

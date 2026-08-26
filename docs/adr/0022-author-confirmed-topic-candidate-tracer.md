@@ -1,6 +1,6 @@
 # ADR 0022: Author-confirmed source-post promotion and participant suggestion tracer
 
-- Status: Accepted boundary for staging; protocol kernel implemented, gateway/UI pending
+- Status: Accepted boundary; source implementation complete, staging activation pending
 - Date: 2026-08-25
 
 ## Context
@@ -217,7 +217,7 @@ characters. The signed kind-1 event uses exactly these ordered tag arrays:
 ["credential-class", "staging-participant"]
 ```
 
-The future implementation must introduce distinct
+The implementation introduces distinct
 `buildParticipantTopicSuggestion` and `verifyParticipantTopicSuggestion`
 functions (or equivalently explicit names) for this schema. It must not call
 the existing `buildCitizenSignedTopicSuggestion` or
@@ -242,9 +242,19 @@ evidence, not new authority.
   sourceAuthorNpub)`. The first valid participant suggestion wins. A retry with
   the same suggestion returns `already_signed`; a different suggestion for that
   root and signer returns `suggestion_already_signed`.
-- The claim and publication receipt are atomic at the writer boundary. A
-  relay retry may re-submit the same event ID, but a partial relay outage never
-  authorizes creation of a new event with a new ID.
+- The claim is durable before relay publication, and completion advances only
+  that exact claim to `published`. Because publication and completion are two
+  effects, the browser retains the exact public-signed request envelope in a
+  compare-and-delete outbox until it receives and verifies the durable receipt.
+  A reload replays the same request ID, idempotency key, and event bytes. A
+  relay retry may re-submit the same event ID, but a partial relay or receipt
+  outage never authorizes creation of a replacement event with a new ID.
+- Request-size admission is identical in the browser outbox and gateway: the
+  promotion envelope is limited to 16 KiB UTF-8 and the complete suggestion
+  envelope to 64 KiB (the original gateway routes remain at 8 KiB). The
+  browser rejects an oversized envelope before persisting it. Evidence URLs
+  are limited to 2,048 characters and agent name/node tag values to 120, so a
+  protocol-valid envelope always has a bounded retry representation.
 - A session wallet, source app row, bound Nostr key, root signer, and suggestion
   signer must all resolve to the same source author. A post owner check is a
   server-side fact, not a client `isAuthor` flag.
@@ -268,15 +278,16 @@ topic-only. Mecky can answer, cite, explain uncertainty, and suggest the next
 human action; Mecky cannot promote, sign, admit, vote, publish for a
 municipality, or spend funds. ADR 0014 supplies only the provider-neutral
 session and signing seam; it does not establish civic eligibility. The
-participant suggestion must first be adopted and re-signed under a separate,
-reviewed citizen-eligibility and adoption policy that is still pending. That
-transition needs a new exact versioned shape, for example
-`citizen_adopted_topic_suggestion_v1`, which references the immutable
+participant suggestion must first be adopted and re-signed under the separate,
+reviewed citizen-eligibility and adoption policy in ADR 0023. Its protocol
+kernel defines the exact `citizen_adopted_topic_suggestion_v1` shape, which
+references the immutable
 participant-suggestion event and a public-safe eligibility receipt. The current
 `citizen_signed_topic_suggestion_v1` does not carry that reference and must not
 be presented as adoption. Only an eligibility-verified adopted candidate may
 be presented to a separately authenticated **Case Steward** under ADR 0019.
-Neither later operation is reachable from either gateway method.
+The real issuer, gateway, ledger, and Case wiring remain pending. Neither later
+operation is reachable from either gateway method.
 
 Direct `citizen_signed_topic_suggestion_v1` and future
 `citizen_adopted_topic_suggestion_v1` candidates both require separately
@@ -385,8 +396,8 @@ details. These are the required internal rejection codes:
   be deployable by other municipalities with their own policy and identity.
 - **Relabel the participant suggestion as citizen-signed:** rejected because a
   staging invite and wallet proof do not establish citizenship. Citizen
-  adoption is governed by the still-pending eligibility/adoption policy; staff
-  admission is a separate authority transition governed by ADR 0019.
+  adoption is governed by ADR 0023 and its still-pending issuer/gateway wiring;
+  staff admission is a separate authority transition governed by ADR 0019.
 
 ## Acceptance matrix
 
@@ -403,7 +414,7 @@ details. These are the required internal rejection codes:
 | A suggestion claims a citizen credential, changes its title/source/receipt, or adds a `case`/authority field | Suggestion verification fails; no workflow submission. |
 | A separately verified citizen adopts the suggestion under the future adoption policy | A new `citizen_adopted_topic_suggestion_v1` candidate references the immutable suggestion and public-safe eligibility receipt; the participant event remains unchanged. The existing direct-candidate v1 is not used as adoption. |
 | Any request targets generic events, argument writes, Case, openDesk, admin, vote, or treasury | `unsupported_intent`; no side effect. |
-| Relay, resolver, evidence, or claim store is unavailable midway | `upstream_unavailable`; the operation returns no false success and can be retried safely. |
+| Relay, resolver, evidence, or claim store is unavailable midway | `upstream_unavailable`; the operation returns no false success, retains the exact signed request in the bounded browser outbox, and replays it safely until the durable receipt completes. |
 
 ## Rollback
 

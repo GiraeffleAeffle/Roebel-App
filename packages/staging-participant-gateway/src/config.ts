@@ -37,6 +37,16 @@ function meckyPubkey(value: string | undefined): string | null {
   return pubkey && /^[a-f0-9]{64}$/u.test(pubkey) ? pubkey : null;
 }
 
+function slug(value: string | undefined): string | null {
+  const parsed = nonEmpty(value)?.toLowerCase() ?? null;
+  return parsed && /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u.test(parsed) ? parsed : null;
+}
+
+function policyVersion(value: string | undefined): string | null {
+  const parsed = nonEmpty(value) ?? null;
+  return parsed && /^[a-z0-9][a-z0-9._-]{2,99}$/u.test(parsed) ? parsed : null;
+}
+
 function workbenchAdmissionHeader(value: string | undefined): PrivateWorkbenchMirrorConfig["admissionHeader"] | null {
   // Keep the existing workbench gate fixed. An arbitrary header would turn
   // this resolver into a generic internal request capability.
@@ -74,6 +84,9 @@ export function resolveProductionGatewayConfig(
   const host = nonEmpty(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_HOST) ?? "127.0.0.1";
   const port = integerPort(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_PORT);
   const configuredMeckyPubkey = meckyPubkey(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_MECKY_PUBKEY);
+  const municipalityId = slug(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_MUNICIPALITY_ID);
+  const sourceConversationTopic = slug(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SOURCE_CONVERSATION_TOPIC);
+  const configuredPolicyVersion = policyVersion(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_TOPIC_POLICY_VERSION);
   const workbenchUrl = nonEmpty(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_URL);
   const admissionHeader = workbenchAdmissionHeader(
     env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_ADMISSION_HEADER,
@@ -85,14 +98,17 @@ export function resolveProductionGatewayConfig(
   const manifestDigest = sha256Digest(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_MANIFEST_DIGEST);
   const migrationSha256 = sha256Digest(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_MIGRATION_SHA256);
   const databaseSchemaSha256 = sha256Digest(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_DATABASE_SCHEMA_SHA256);
+  const topicTracerMigrationSha256 = sha256Digest(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_TOPIC_TRACER_MIGRATION_SHA256);
+  const topicTracerDatabaseSchemaSha256 = sha256Digest(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_TOPIC_TRACER_DATABASE_SCHEMA_SHA256);
   if (!origin || !sessionHmacKey || sessionHmacKey.length < 32 || !inviteSha256 ||
     !allowedWallets ||
     !/^[a-f0-9]{64}$/iu.test(inviteSha256) || !gnosisRpcUrl || !supabaseUrl ||
     !supabaseAnonKey || supabaseAnonKey.length < 16 || !supabaseRpcSecret ||
-    supabaseRpcSecret.length < 32 || !port || !configuredMeckyPubkey || !workbenchUrl ||
+    supabaseRpcSecret.length < 32 || !port || !configuredMeckyPubkey || !municipalityId ||
+    !sourceConversationTopic || !configuredPolicyVersion || !workbenchUrl ||
     !admissionHeader || !immutableSourceRevision || !deployedSourceRevision ||
     immutableSourceRevision !== deployedSourceRevision || !manifestDigest || !migrationSha256 ||
-    !databaseSchemaSha256) return null;
+    !databaseSchemaSha256 || !topicTracerMigrationSha256 || !topicTracerDatabaseSchemaSha256) return null;
   let originUrl: URL;
   let gnosisUrl: URL;
   let supabaseUrlValue: URL;
@@ -121,6 +137,12 @@ export function resolveProductionGatewayConfig(
       allowedWallets,
       cookieSecure: true,
       meckyPubkey: configuredMeckyPubkey,
+      topicPolicy: {
+        municipalityId,
+        topicNamespace: `urn:stadtstack:topic:municipality:${municipalityId}`,
+        sourceConversationTopic,
+        policyVersion: configuredPolicyVersion,
+      },
     },
     gnosisRpcUrl,
     supabaseUrl,
@@ -129,6 +151,7 @@ export function resolveProductionGatewayConfig(
     host,
     port,
     workbench: { url: workbenchUrl, admissionHeader },
-    readinessPins: { sourceRevision: immutableSourceRevision, manifestDigest, migrationSha256, databaseSchemaSha256 },
+    readinessPins: { sourceRevision: immutableSourceRevision, manifestDigest, migrationSha256, databaseSchemaSha256,
+      topicTracerMigrationSha256, topicTracerDatabaseSchemaSha256 },
   };
 }

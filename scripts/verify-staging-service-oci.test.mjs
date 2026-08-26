@@ -213,3 +213,28 @@ test("rejects a participant RPC capability embedded in the gateway image", () =>
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("binds gateway OCI verification to the exact additive readiness release pins", () => {
+  const root = mkdtempSync(join(tmpdir(), "roebel-service-oci-gateway-pins-"));
+  try {
+    const revision = "a".repeat(40);
+    const result = writeLayout(root, revision, "staging-participant-gateway", ["node", "/app/staging-participant-gateway.cjs"]);
+    const pinsPath = join(root, "gateway-release-pins.json");
+    const pins = {
+      schemaVersion: "roebel_staging_participant_gateway_release_pins_v2",
+      migrationSha256: `sha256:${"b".repeat(64)}`,
+      databaseSchemaSha256: `sha256:${"c".repeat(64)}`,
+      deactivationSha256: `sha256:${"d".repeat(64)}`,
+      topicTracerMigrationSha256: `sha256:${"e".repeat(64)}`,
+      topicTracerDatabaseSchemaSha256: `sha256:${"f".repeat(64)}`,
+    };
+    writeFileSync(pinsPath, JSON.stringify(pins));
+    const receipt = verifyStagingServiceOci(root, revision, "staging-participant-gateway", pinsPath);
+    assert.equal(receipt.manifestDigest, result.manifest.digest);
+    assert.equal(receipt.releasePinsSha256, `sha256:${sha256(Buffer.from(JSON.stringify(pins)))}`);
+    assert.equal(receipt.topicTracerMigrationSha256, pins.topicTracerMigrationSha256);
+    assert.equal(receipt.topicTracerDatabaseSchemaSha256, pins.topicTracerDatabaseSchemaSha256);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

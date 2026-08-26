@@ -2,7 +2,11 @@ import { sha256 } from "@noble/hashes/sha256";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils";
 
 import { buildNoteEvent, verifyEvent, type NostrEvent } from "./events";
+import { verifyAppConversationExchange } from "./conversation";
 import { getPublicKeyHex } from "./keys";
+
+const MAX_EVIDENCE_URL_CHARACTERS = 2_048;
+const MAX_AGENT_TAG_CHARACTERS = 120;
 
 export type CivicCaseBinding = {
   municipalityId: string;
@@ -656,12 +660,7 @@ function validSuggestionEvidence(event: NostrEvent): boolean {
     if (tag.length !== 3 || !/^sha256:[0-9a-f]{64}$/.test(tag[1] ?? "")) {
       return false;
     }
-    try {
-      const url = new URL(tag[2]!);
-      return url.protocol === "https:" && !url.username && !url.password;
-    } catch {
-      return false;
-    }
+    return isSafeHttpsUrl(tag[2] ?? "");
   });
 }
 
@@ -1222,6 +1221,7 @@ function validateParticipantConversationWitnesses(input: {
     ["t", input.witnesses.conversationTopic],
   ];
   if (
+    input.sourcePost.id !== input.witnesses.mentionEvent.id ||
     !sourcePostTag ||
     sourcePostTag[1] !== selected.sourceAppPostId ||
     !verifyEvent(input.witnesses.mentionEvent) ||
@@ -1240,6 +1240,18 @@ function validateParticipantConversationWitnesses(input: {
   }
 
   const reply = input.witnesses.replyEvent;
+  const sharedExchange = verifyAppConversationExchange(
+    input.witnesses.mentionEvent,
+    reply,
+    {
+      agentPubkey: input.agentPubkey,
+      sourceAppPostId: selected.sourceAppPostId,
+      sourceAppCommentId: selected.sourceAppCommentId,
+      conversationTopic: input.witnesses.conversationTopic,
+      municipalityId: input.binding.municipalityId,
+      topicId: input.binding.topicId,
+    },
+  );
   if (!exactNostrEvent(reply)) {
     rejectParticipantProtocol("civic_topic_suggestion_conversation_invalid");
   }
@@ -1267,13 +1279,16 @@ function validateParticipantConversationWitnesses(input: {
       : null;
   const evidence = reply.tags.slice(index);
   if (
+    sharedExchange === null ||
     !verifyEvent(reply) ||
     reply.kind !== 1 ||
     !replyAgent ||
     !replyAgent[1] ||
     replyAgent[1] !== replyAgent[1].trim() ||
+    replyAgent[1].length > MAX_AGENT_TAG_CHARACTERS ||
     !replyAgent[2] ||
     replyAgent[2] !== replyAgent[2].trim() ||
+    replyAgent[2].length > MAX_AGENT_TAG_CHARACTERS ||
     !replyParent ||
     replyParent[1] !== input.witnesses.mentionEvent.id ||
     replyParent[2] !== "" ||
@@ -1375,6 +1390,14 @@ function validateParticipantSources(
 }
 
 function isSafeHttpsUrl(value: string): boolean {
+  if (
+    value.length < 1 ||
+    value.length > MAX_EVIDENCE_URL_CHARACTERS ||
+    value !== value.trim() ||
+    /[\u0000-\u001f\u007f]/u.test(value)
+  ) {
+    return false;
+  }
   try {
     const url = new URL(value);
     return url.protocol === "https:" && !url.username && !url.password;
@@ -1434,8 +1457,10 @@ function validateParticipantAnswer(
     !agent ||
     !agent[1] ||
     agent[1] !== agent[1].trim() ||
+    agent[1].length > MAX_AGENT_TAG_CHARACTERS ||
     !agent[2] ||
     agent[2] !== agent[2].trim() ||
+    agent[2].length > MAX_AGENT_TAG_CHARACTERS ||
     !parent ||
     parent[1] !== sourceDiscussion.id ||
     parent[2] !== "" ||
@@ -1930,12 +1955,7 @@ export function buildCitizenSignedSuggestion(
       evidenceValid = false;
       continue;
     }
-    try {
-      const url = new URL(tag[2]!);
-      if (url.protocol !== "https:" || url.username || url.password) {
-        evidenceValid = false;
-      }
-    } catch {
+    if (!isSafeHttpsUrl(tag[2] ?? "")) {
       evidenceValid = false;
     }
   }

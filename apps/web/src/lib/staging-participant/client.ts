@@ -391,6 +391,14 @@ export async function mirrorStagingParticipantMeckyPost(input: Readonly<{
       true,
     );
     if (result.success) {
+      if (result.data?.status !== "published" || result.data.eventId !== pending.event.id) {
+        savePendingStagingParticipantMeckyMirror(pending);
+        return {
+          success: false,
+          error: "Die signierte Mecky-Anfrage wurde nicht mit dem erwarteten Ereignis bestätigt",
+          pending,
+        };
+      }
       clearPendingStagingParticipantMeckyMirror(walletAddress);
       return result;
     }
