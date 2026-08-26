@@ -131,7 +131,8 @@ test("a successful participant post can produce only one same-thread Mecky mirro
   let call: { path: string; body: Record<string, unknown> } | undefined;
   globalThis.fetch = async (input, init) => {
     call = { path: String(input), body: JSON.parse(String(init?.body)) };
-    return new Response(JSON.stringify({ status: "published", eventId: "a".repeat(64) }), {
+    const eventId = (call.body.event as { id: string }).id;
+    return new Response(JSON.stringify({ status: "published", eventId }), {
       status: 201, headers: { "content-type": "application/json" },
     });
   };

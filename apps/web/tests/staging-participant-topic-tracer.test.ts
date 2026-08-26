@@ -311,7 +311,6 @@ test("a participant suggestion replays its exact adoption-required hand-off unti
       ["netizen_agent", "Mecky", "roebel-staging"],
       ["e", root.id, "", "reply"],
       ["p", author.publicKey],
-      ["source-app-post", SOURCE_POST_ID],
       ["mecky-receipt", receiptId],
       ["municipality", "roebel-mueritz"],
       ["topic", topicId],
