@@ -56,7 +56,7 @@ const TOPIC_SUGGESTION_SCHEMA = "staging_topic_suggestion_signature_v1";
 
 const STATUS_PATH = "/api/staging-participant/v1/status";
 const INTERNAL_STATUS_PATH = "/status";
-const INTERNAL_STATUS_SCHEMA = "roebel_staging_participant_gateway_status_v1";
+const INTERNAL_STATUS_SCHEMA = "roebel_staging_participant_gateway_status_v2";
 const CHALLENGE_PATH = "/api/staging-participant/v1/challenge";
 const SESSION_PATH = "/api/staging-participant/v1/session";
 const POSTS_PATH = "/api/staging-participant/v1/posts";
@@ -393,6 +393,9 @@ export function createStagingParticipantGatewayHandler(
         return internalStatus({
           schemaVersion: INTERNAL_STATUS_SCHEMA,
           status: "ready",
+          municipalityId: config.topicPolicy.municipalityId,
+          sourceConversationTopic: config.topicPolicy.sourceConversationTopic,
+          topicPolicyVersion: config.topicPolicy.policyVersion,
           sourceRevision: pins.sourceRevision,
           manifestDigest: pins.manifestDigest,
           migrationSha256: pins.migrationSha256,

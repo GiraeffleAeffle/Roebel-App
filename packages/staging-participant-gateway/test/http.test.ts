@@ -865,8 +865,11 @@ test("internal readiness stays non-ingressed, rejects browser-shaped requests, a
   const ready = await handler(new Request("http://gateway.internal/status"));
   assert.equal(ready.status, 200);
   assert.deepEqual(await ready.json(), {
-    schemaVersion: "roebel_staging_participant_gateway_status_v1",
+    schemaVersion: "roebel_staging_participant_gateway_status_v2",
     status: "ready",
+    municipalityId: "roebel-mueritz",
+    sourceConversationTopic: "roebel-app-conversation",
+    topicPolicyVersion: "staging-participant-topic-v1",
     sourceRevision: "a".repeat(40),
     manifestDigest: `sha256:${"b".repeat(64)}`,
     migrationSha256: `sha256:${"c".repeat(64)}`,
@@ -883,7 +886,7 @@ test("internal readiness stays non-ingressed, rejects browser-shaped requests, a
     const response = await handler(request);
     assert.equal(response.status, 503);
     assert.deepEqual(await response.json(), {
-      schemaVersion: "roebel_staging_participant_gateway_status_v1",
+      schemaVersion: "roebel_staging_participant_gateway_status_v2",
       status: "not_ready",
     });
     assert.equal(response.headers.get("access-control-allow-origin"), null);
