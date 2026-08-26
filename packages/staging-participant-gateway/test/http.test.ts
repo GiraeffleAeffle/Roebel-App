@@ -427,6 +427,7 @@ test("allows only a short-lived session to create personal main-feed text posts 
 
 test("promotes one server-resolved source note that is exactly the @Mecky mention once", async () => {
   const sourcePostId = "10000000-0000-4000-8000-000000000001";
+  const sourceAppPostId = sourcePostId;
   const author = deriveNostrIdentity("0x" + "7".repeat(130));
   const mecky = deriveNostrIdentity("0x" + "8".repeat(130));
   const meckyPubkey = getPublicKeyHex(mecky.secretKey);
@@ -870,6 +871,8 @@ test("internal readiness stays non-ingressed, rejects browser-shaped requests, a
     manifestDigest: `sha256:${"b".repeat(64)}`,
     migrationSha256: `sha256:${"c".repeat(64)}`,
     databaseSchemaSha256: `sha256:${"d".repeat(64)}`,
+    topicTracerMigrationSha256: `sha256:${"f".repeat(64)}`,
+    topicTracerDatabaseSchemaSha256: `sha256:${"e".repeat(64)}`,
   });
   for (const request of [
     new Request("http://gateway.internal/status?x=1"),

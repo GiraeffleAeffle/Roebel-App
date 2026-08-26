@@ -939,28 +939,28 @@ function verifiedTopicSuggestionFor(
         agentEvents
       )
     : undefined;
-  return (
-    citizenEvents
-      .filter(verifyEvent)
-      .filter(
-        (candidate) => {
-          const schema = tagValue(candidate, "schema");
-          return (
-            (schema === "citizen_signed_topic_suggestion_v1" ||
-              schema === "staging_participant_signed_topic_suggestion_v1") &&
-            candidate.tags.some(
-              (tag) =>
-                tag[0] === "e" &&
-                tag[1] === rootEvent.id &&
-                tag[3] === "root"
-            )
-          );
-        }
-      )
-      .sort(
-        (a, b) => b.created_at - a.created_at || b.id.localeCompare(a.id)
-      )
-      .flatMap((candidate) => {
+  const suggestions = citizenEvents
+    .filter(verifyEvent)
+    .filter((candidate) => {
+      const schema = tagValue(candidate, "schema");
+      return (
+        (schema === "citizen_signed_topic_suggestion_v1" ||
+          schema === "staging_participant_signed_topic_suggestion_v1") &&
+        candidate.tags.some(
+          (tag) =>
+            tag[0] === "e" &&
+            tag[1] === rootEvent.id &&
+            tag[3] === "root"
+        )
+      );
+    })
+    .sort(
+      (a, b) => b.created_at - a.created_at || b.id.localeCompare(a.id)
+    )
+    .flatMap(
+      (
+        candidate
+      ): Array<CitizenSignedTopicSuggestionV1 | ParticipantTopicSuggestionV1> => {
         const receiptId = tagValue(candidate, "mecky-receipt");
         const sourceAnswer = agentEvents
           .filter(
@@ -1006,8 +1006,9 @@ function verifiedTopicSuggestionFor(
         } catch {
           return [];
         }
-      })[0] ?? null
-  );
+      }
+    );
+  return suggestions[0] ?? null;
 }
 
 function authorFor(config: WorkbenchConfig, event: NostrEvent): PublicAuthor {
@@ -2363,9 +2364,17 @@ export async function startWorkbench(
         if (!exactRecord(body, ["sourceNoteEventId", "sourceAuthorPubkey", "sourceAppPostId"]) ||
           typeof body.sourceNoteEventId !== "string" || typeof body.sourceAuthorPubkey !== "string" || typeof body.sourceAppPostId !== "string")
           throw new Error("topic_tracer_source_invalid");
-        const sourceNote = await exactSourceNote(body);
+        const sourceNoteInput: Parameters<typeof exactSourceNote>[0] = {
+          sourceNoteEventId: body.sourceNoteEventId as string,
+          sourceAuthorPubkey: body.sourceAuthorPubkey as string,
+          sourceAppPostId: body.sourceAppPostId as string,
+        };
+        const sourceNote = await exactSourceNote(sourceNoteInput);
         if (!sourceNote) return json(response, 200, null);
-        const exchange = await exactExchangeForSource(sourceNote, body.sourceAppPostId);
+        const exchange = await exactExchangeForSource(
+          sourceNote,
+          sourceNoteInput.sourceAppPostId
+        );
         if (!exchange) return json(response, 200, null);
         return json(response, 200, {
           status: "resolved", sourceNote, meckyReplyEvent: exchange.reply,
