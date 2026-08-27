@@ -43,10 +43,57 @@ lowercase tester wallet addresses. Challenge issuance requires both allowlist
 membership and the invite, so disclosure of the invite cannot enroll another
 wallet.
 
+For a value-safe local preparation step, first place the allowlist, Mecky public
+key, and the existing public staging JSON in separate owner-only `0600` files.
+Create an external private secret root outside every Git worktree/source
+checkout, for example `~/.config/stadtstack/staging-participant-private`, and
+make that root (and the generated child) owner-only `0700`.  The enclosing
+directories must be owned by the operator or root and must not be
+group/world-writable; path components must not be symlinks.  The tool refuses
+an output path that is merely an untracked directory in a repository, a shared
+parent, or a renamed/symlinked root.  Then run the repository tool with
+`python3 -I` and a new direct-child output path (the path must not already
+exist):
+
+```bash
+python3 -I scripts/materialize-staging-participant-secrets.py \
+  --wallets-file /absolute/path/wallets.txt \
+  --mecky-pubkey-file /absolute/path/mecky.pub \
+  --public-config-file /absolute/path/public-staging-config.json \
+  --secret-root /absolute/path/staging-participant-private \
+  --output-dir /absolute/path/staging-participant-private/staging-participant-material-<timestamp>
+```
+
+The tool creates owner-only `config.env`, `runtime.env`, `dba.env`, and
+`participant-invite.txt`, plus a value-free `receipt.json`. The first two files
+use exactly the Secret data keys consumed by `kubectl create secret
+--from-env-file`: `allowed-wallets`, `invite-sha256`, `mecky-pubkey`, and
+`session-key`, `supabase-anon-key`, `supabase-rpc-secret`, respectively. The
+Deployment maps those data keys explicitly to
+`ROEBEL_STAGING_PARTICIPANT_GATEWAY_ALLOWED_WALLETS`,
+`ROEBEL_STAGING_PARTICIPANT_GATEWAY_INVITE_SHA256`,
+`ROEBEL_STAGING_PARTICIPANT_GATEWAY_MECKY_PUBKEY`,
+`ROEBEL_STAGING_PARTICIPANT_GATEWAY_SESSION_KEY`,
+`ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_ANON_KEY`, and
+`ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET`; do not use them as an
+unrestricted `envFrom` source. It generates the
+session material, invite, and RPC capability locally, records only hashes in
+the receipt, and refuses to overwrite an existing output directory. The
+`VAULT_ROEBEL_STAGING_PARTICIPANT_RPC_SECRET` line in `dba.env` is the same
+capability as
+`ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET` in `runtime.env`; put
+that value in Vault under the exact name
+`roebel_staging_participant_rpc_secret`. This preparation step is local-only:
+it does not apply the migration, write a Kubernetes Secret, activate Flux, or
+contact any remote service.
+
 The public Web receives none of them. The Supabase anon/publishable key is a
 routing key, not the writer capability. Never substitute a service-role key,
 database password, custom writer JWT, Hetzner inference token, or cluster-admin
-credential.
+credential. For a legacy JWT-shaped anon key, the local tool only decodes the
+header/payload to enforce its type and `role=anon` guard; it does not and cannot
+authenticate the JWT signature. Use it only when it came from an already
+controlled public staging configuration, never as proof of authority.
 
 ## 3. Apply and verify the migration
 
@@ -79,7 +126,18 @@ armed staging project. Then verify:
 ## 4. GitOps boundary
 
 Deploy the gateway as its own immutable image and ServiceAccount with exactly
-one replica. Route only the six reviewed method/path pairs from ingress.
+one replica. Expose exactly these eight reviewed paths from ingress, with no
+other participant path or method:
+
+- `GET` and `OPTIONS` `/api/staging-participant/v1/status`;
+- `POST` and `OPTIONS` `/api/staging-participant/v1/challenge`;
+- `POST` and `OPTIONS` `/api/staging-participant/v1/session`;
+- `POST` and `OPTIONS` `/api/staging-participant/v1/posts`;
+- `POST` and `OPTIONS` `/api/staging-participant/v1/comments`;
+- `POST` and `OPTIONS` `/api/staging-participant/v1/nostr-post`;
+- `POST` and `OPTIONS` `/api/staging-participant/v1/promote-source-post`;
+- `POST` and `OPTIONS` `/api/staging-participant/v1/sign-topic-suggestion`.
+
 Verify that both challenge and session cookies are scoped to
 `/api/staging-participant/v1`; requests to `/app`, other `/api` paths and static
 assets must not carry them.
@@ -91,8 +149,9 @@ only for this gateway workload. These are activation prerequisites—not a claim
 that operations manifests already contain them. Do not mount a Kubernetes API
 token. Keep the current read-only Web and exact Mecky route unchanged.
 
-The ingress must also apply a dedicated request-rate limit to the six gateway
-paths. The single-replica challenge store prunes expired/consumed entries,
+The ingress must also apply a dedicated request-rate limit to the eight gateway
+paths (with the read-only status path subject to its own appropriate read
+budget). The single-replica challenge store prunes expired/consumed entries,
 replaces a wallet's older pending challenge, and caps pending entries; the
 ingress limit is the outer protection if an invite is disclosed.
 
@@ -123,7 +182,7 @@ produced safely.
 
 ## 5. Deactivation and compatibility rollback
 
-Remove the six ingress routes and roll Flux back to the previous immutable
+Remove the eight ingress paths and roll Flux back to the previous immutable
 release first. Then run `supabase/staging_participant_gateway_deactivate.sql`.
 That transaction revokes all five gateway RPCs, revokes every admission, restores
 the exact prior posting-trigger definition and table/function grants captured
