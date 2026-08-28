@@ -14,15 +14,11 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import {
-  projectPublicCivicTopicDetail,
   projectPublicCivicTopicJourney,
   type PublicCivicTopicDetail,
 } from "@/lib/stadtstack/civic-topic-detail";
-import {
-  stagingGet,
-  loadStadtstackAdministrationProgress,
-  type StagingFeedResponse,
-} from "@/lib/stadtstack/staging-api";
+import { loadPublicCivicTopicDetail } from "@/lib/stadtstack/civic-projection-client";
+import { loadStadtstackAdministrationProgress } from "@/lib/stadtstack/staging-api";
 import type { StadtstackAdministrationProgress as AdministrationProgress } from "@/lib/stadtstack/administration-progress";
 import {
   loadVerifiedPublicCaseBindingReceipt,
@@ -84,10 +80,9 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
     let active = true;
     setLoading(true);
     setError(null);
-    void stagingGet<StagingFeedResponse>("/feed?profile=public")
-      .then((feed) => {
+    void loadPublicCivicTopicDetail(topicId)
+      .then((projected) => {
         if (!active) return;
-        const projected = projectPublicCivicTopicDetail(feed, topicId);
         if (!projected) throw new Error("civic_topic_not_found");
         setDetail(projected);
       })

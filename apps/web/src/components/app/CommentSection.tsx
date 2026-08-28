@@ -23,11 +23,8 @@ import {
   requestAppMeckyConversationAnswer,
 } from "@/lib/stadtstack/app-mecky-conversation";
 import { appMeckyConversationGateway } from "@/lib/stadtstack/app-mecky-gateway";
-import {
-  stagingGet,
-  type StagingMeckyConversationReply,
-  type StagingMeckyConversationResponse,
-} from "@/lib/stadtstack/staging-api";
+import type { StagingMeckyConversationReply } from "@/lib/stadtstack/staging-api";
+import { loadPublicMeckyConversation } from "@/lib/stadtstack/civic-projection-client";
 import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
 import { useStagingTestParticipant } from "@/hooks/useStagingTestParticipant";
 
@@ -359,9 +356,7 @@ export function CommentSection({
 
   const refreshMeckyConversation = useCallback(async () => {
     if (!stagingEnabled) return null;
-    const response = await stagingGet<StagingMeckyConversationResponse>(
-      `/conversation?post=${encodeURIComponent(postId)}`
-    );
+    const response = await loadPublicMeckyConversation(postId);
     setMeckyConversation(response);
     return response;
   }, [postId, stagingEnabled]);

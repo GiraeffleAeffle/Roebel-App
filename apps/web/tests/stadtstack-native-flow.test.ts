@@ -34,6 +34,14 @@ const postPromotion = readFileSync(
   new URL("../src/components/app/StadtstackPostPromotion.tsx", import.meta.url),
   "utf8"
 );
+const postDetail = readFileSync(
+  new URL("../src/app/app/posts/[id]/page.tsx", import.meta.url),
+  "utf8"
+);
+const civicProjectionClient = readFileSync(
+  new URL("../src/lib/stadtstack/civic-projection-client.ts", import.meta.url),
+  "utf8"
+);
 const participantTopicTracer = readFileSync(
   new URL("../src/lib/staging-participant/topic-tracer.ts", import.meta.url),
   "utf8"
@@ -139,13 +147,16 @@ test("brings a promoted source post back into its one visible civic journey", ()
     new URL("../src/components/app/StadtstackPostJourney.tsx", import.meta.url),
     "utf8"
   );
-  assert.match(postJourney, /projectPublicCivicPostLink/);
+  assert.match(postJourney, /loadPublicCivicPostLink/);
   assert.match(postJourney, /Bürgerprozess aus diesem Beitrag/);
   assert.match(postJourney, /Der ursprüngliche Beitrag bleibt unverändert/);
   assert.match(postJourney, /Bürgerprozess öffnen/);
   assert.match(postJourney, /Nächster Schritt/);
   assert.match(postJourney, /<StadtstackPostPromotion/);
   assert.match(postJourney, /\/app\/themen\//);
+  assert.match(civicProjectionClient, /PUBLIC_CIVIC_API = "\/api\/civic\/v1"/);
+  assert.doesNotMatch(postDetail, /StadtstackStagingPostDetail/);
+  assert.doesNotMatch(postDetail, /findStagingPostMirror/);
   assert.match(
     readFileSync(
       new URL("../src/components/app/PostCard.tsx", import.meta.url),

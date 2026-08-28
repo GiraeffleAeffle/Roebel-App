@@ -31,11 +31,12 @@ test("uses GET-only public feed transport instead of Next Server Actions", () =>
   assert.match(postRoute, /export async function GET/);
 });
 
-test("resolves a legacy staging source ID and always clears the detail skeleton", () => {
+test("keeps ordinary post detail on the public feed and never substitutes a synthetic mirror", () => {
   assert.match(stagingApi, /findStagingPostMirror/);
   assert.match(stagingApi, /post\.sourceAppPostId === sourceAppPostId/);
-  assert.match(detailPage, /findStagingPostMirror\(feed\.posts, id\)/);
-  assert.match(detailPage, /StadtstackStagingPostDetail/);
+  assert.doesNotMatch(detailPage, /findStagingPostMirror/);
+  assert.doesNotMatch(detailPage, /StadtstackStagingPostDetail/);
+  assert.match(detailPage, /const result = await getPublicFeedPost\(id\)/);
   assert.match(detailPage, /finally \{\s*setIsLoading\(false\)/s);
   assert.match(detailPage, /Erneut laden/);
 });
@@ -46,15 +47,14 @@ test("keeps staging reader dependencies stable across state updates", () => {
   const unstableObject =
     /const stagingEnabled = resolveStadtstackStagingLab\(/;
 
-  assert.match(detailPage, stableFlag);
   assert.match(comments, stableFlag);
-  assert.doesNotMatch(detailPage, unstableObject);
   assert.doesNotMatch(comments, unstableObject);
-  assert.match(detailPage, /\[id, retry, stagingEnabled\]/);
+  assert.match(detailPage, /\[id, retry\]/);
+  assert.doesNotMatch(detailPage, /stagingEnabled/);
   assert.match(comments, /\[postId, stagingEnabled\]/);
 });
 
-test("bounds a failed public-feed read and still attempts the labelled staging mirror", () => {
+test("bounds a failed public-feed read without falling back to synthetic test content", () => {
   assert.match(client, /export const PUBLIC_FEED_REQUEST_TIMEOUT_MS = \d+_\d+;/);
   assert.match(client, /new AbortController\(\)/);
   assert.match(client, /signal: controller\.signal/);
@@ -63,9 +63,9 @@ test("bounds a failed public-feed read and still attempts the labelled staging m
     /setTimeout\(\s*\(\) => controller\.abort\(\),\s*PUBLIC_FEED_REQUEST_TIMEOUT_MS\s*\)/s
   );
   assert.match(client, /catch \{\s*return \{\s*success: false,/s);
-  assert.match(detailPage, /async function loadStagingMirror\(\)/);
-  assert.match(detailPage, /const stagingMirror = await loadStagingMirror\(\);/);
-  assert.match(detailPage, /if \(stagingMirror\) \{\s*setStagingMirror\(stagingMirror\);\s*return;/s);
+  assert.match(detailPage, /setError\(primaryError\)/);
+  assert.doesNotMatch(detailPage, /loadStagingMirror/);
+  assert.doesNotMatch(detailPage, /setStagingMirror/);
 });
 
 test("keeps the Talos server reader on the namespace-local public gateway", () => {

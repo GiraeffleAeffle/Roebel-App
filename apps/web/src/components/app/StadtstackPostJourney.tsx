@@ -4,14 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowRight, Check, Circle, GitFork } from "lucide-react";
 
-import {
-  projectPublicCivicPostLink,
-  type PublicCivicPostLink,
-} from "@/lib/stadtstack/civic-topic-detail";
-import {
-  stagingGet,
-  type StagingFeedResponse,
-} from "@/lib/stadtstack/staging-api";
+import type { PublicCivicPostLink } from "@/lib/stadtstack/civic-topic-detail";
+import { loadPublicCivicPostLink } from "@/lib/stadtstack/civic-projection-client";
 import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
 import { StadtstackPostPromotion } from "./StadtstackPostPromotion";
 
@@ -44,22 +38,25 @@ export function StadtstackPostJourney({
   );
   const [link, setLink] = useState<PublicCivicPostLink | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [projectionAvailable, setProjectionAvailable] = useState(true);
 
   useEffect(() => {
     let active = true;
     setLink(null);
     setLoaded(false);
+    setProjectionAvailable(true);
     if (!enabled)
       return () => {
         active = false;
       };
-    void stagingGet<StagingFeedResponse>("/feed?profile=public")
-      .then((feed) => {
-        if (active) setLink(projectPublicCivicPostLink(feed, sourceAppPostId));
+    void loadPublicCivicPostLink(sourceAppPostId)
+      .then((nextLink) => {
+        if (active) setLink(nextLink);
       })
       .catch(() => {
         // Civic linkage is additive. A temporary projection outage must not
         // make the ordinary source post unreadable.
+        if (active) setProjectionAvailable(false);
       })
       .finally(() => {
         if (active) setLoaded(true);
@@ -69,7 +66,7 @@ export function StadtstackPostJourney({
     };
   }, [enabled, sourceAppPostId]);
 
-  if (!enabled || !loaded) return null;
+  if (!enabled || !loaded || !projectionAvailable) return null;
   if (!link)
     return promotionPost ? (
       <StadtstackPostPromotion post={promotionPost} />
