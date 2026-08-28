@@ -23,13 +23,16 @@ import {
   type StagingArgument,
 } from "@/lib/stadtstack/discussion-tree";
 import {
-  stagingGet,
   stagingPost,
   loadStadtstackAdministrationProgress,
   type StagingConfigResponse,
   type StagingPersona,
   type StagingThreadResponse,
 } from "@/lib/stadtstack/staging-api";
+import {
+  loadPublicCivicDiscussion,
+  loadPublicCivicInstance,
+} from "@/lib/stadtstack/civic-projection-client";
 import type { StadtstackAdministrationProgress as AdministrationProgress } from "@/lib/stadtstack/administration-progress";
 import { projectCivicJourney } from "@/lib/stadtstack/civic-journey";
 import {
@@ -134,8 +137,8 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
     try {
       setError(null);
       const [nextThread, nextConfig] = await Promise.all([
-        stagingGet<StagingThreadResponse>(`/thread?root=${encodeURIComponent(rootId)}`),
-        stagingGet<StagingConfigResponse>("/config"),
+        loadPublicCivicDiscussion(rootId),
+        loadPublicCivicInstance(),
       ]);
       setThread(nextThread);
       setConfig(nextConfig);

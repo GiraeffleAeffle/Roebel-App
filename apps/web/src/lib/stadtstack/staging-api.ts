@@ -11,6 +11,10 @@ import {
   toStadtstackAdvisoryCase,
   type StadtstackAdvisoryCase,
 } from "./advisory-participation";
+import {
+  loadPublicCivicAdministration,
+  loadPublicCivicTopics,
+} from "./civic-projection-client";
 
 export const STADTSTACK_STAGING_API = "/stadtstack-test/api" as const;
 
@@ -88,17 +92,7 @@ export type StagingFeedResponse = {
 export async function loadPublicCivicTopicActivity(): Promise<
   StagingTopicPost[]
 > {
-  const feed = await stagingGet<StagingFeedResponse>("/feed?profile=public");
-  if (
-    feed.schemaVersion !== "roebel_staging_mixed_feed_v1" ||
-    feed.authorityBinding !== "none" ||
-    !Array.isArray(feed.posts)
-  )
-    throw new StagingUnavailableError();
-  return feed.posts.filter(
-    (entry): entry is StagingTopicPost =>
-      entry.entryType === "topic" && entry.synthetic === false
-  );
+  return loadPublicCivicTopics();
 }
 
 /** Resolve legacy staging mirrors without pretending they are Supabase rows. */
@@ -270,9 +264,7 @@ async function loadStadtstackPublicCaseProjection(
   caseId: string
 ): Promise<unknown> {
   if (!ROEBEL_CIVIC_CASE_ID.test(caseId)) throw new StagingUnavailableError();
-  return stagingGet<unknown>(
-    `/administration?case=${encodeURIComponent(caseId)}`
-  );
+  return loadPublicCivicAdministration(caseId);
 }
 
 /**

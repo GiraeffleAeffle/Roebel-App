@@ -5,12 +5,11 @@ import { useRouter } from "next/navigation";
 import { GitFork, Loader2 } from "lucide-react";
 
 import { useCitizenSession } from "@/lib/citizen-session/CitizenSessionContext";
+import type { StagingMeckyConversationReply } from "@/lib/stadtstack/staging-api";
 import {
-  stagingGet,
-  type StagingConfigResponse,
-  type StagingMeckyConversationReply,
-  type StagingMeckyConversationResponse,
-} from "@/lib/stadtstack/staging-api";
+  loadPublicCivicInstance,
+  loadPublicMeckyConversation,
+} from "@/lib/stadtstack/civic-projection-client";
 import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
 import {
   promoteStagingParticipantSourcePost,
@@ -88,9 +87,7 @@ export function StadtstackPostPromotion({
         router.push(`/app/diskussion/${resumed.discussionRootId}`);
         return;
       }
-      const conversation = await stagingGet<StagingMeckyConversationResponse>(
-        `/conversation?post=${encodeURIComponent(post.id)}`,
-      );
+      const conversation = await loadPublicMeckyConversation(post.id);
       const replies = conversation.replies.filter(
         (reply) =>
           reply.evidenceRefs.length > 0 && reply.sourceAppCommentId === null,
@@ -129,7 +126,7 @@ export function StadtstackPostPromotion({
       ) {
         throw new Error("staging_participant_source_exchange_invalid");
       }
-      const config = await stagingGet<StagingConfigResponse>("/config");
+      const config = await loadPublicCivicInstance();
       const topicId = toTopicId(topicTitle);
       const rootEvent = await session.promotePublicPostToTopic({
         sourcePost: selectedReply.mentionEvent,

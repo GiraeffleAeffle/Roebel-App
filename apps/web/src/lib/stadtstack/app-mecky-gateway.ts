@@ -1,14 +1,11 @@
 import type { NostrEvent } from "@netizen-labs/nostr";
 
 import type { AppMeckyConversationGateway } from "./app-mecky-conversation";
-import {
-  stagingGet,
-  stagingPost,
-  type StagingConfigResponse,
-} from "./staging-api";
+import { stagingPost } from "./staging-api";
+import { loadPublicCivicInstance } from "./civic-projection-client";
 
 export const appMeckyConversationGateway: AppMeckyConversationGateway = {
-  getConfig: () => stagingGet<StagingConfigResponse>("/config"),
+  getConfig: loadPublicCivicInstance,
   admit: (proof) =>
     stagingPost<{ status: "admitted"; pubkey: string }>(
       "/session/admit",
