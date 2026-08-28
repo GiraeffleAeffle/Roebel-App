@@ -104,6 +104,15 @@ const PUBLIC_BRIEF_KEYS = [
 ];
 const PUBLIC_SIGNED_FORBIDDEN_INPUTS = [
   "CASE_STEWARD_TOKEN",
+  "GNOSIS_PROXY_ALLOWED_METHODS",
+  "GNOSIS_PROXY_BIND_HOST",
+  "GNOSIS_PROXY_EXPECTED_CHAIN_ID",
+  "GNOSIS_PROXY_MAX_BODY_BYTES",
+  "GNOSIS_PROXY_MAX_CONCURRENT",
+  "GNOSIS_PROXY_PORT",
+  "GNOSIS_PROXY_REQUEST_BODY_TIMEOUT_MS",
+  "GNOSIS_PROXY_UPSTREAM_TIMEOUT_MS",
+  "GNOSIS_PROXY_UPSTREAM_URL",
   "STADTSTACK_CONTROL_BASE_URL",
   "STADTSTACK_PUBLIC_BASE_URL",
   "SYNTHETIC_CITIZENS_JSON",
@@ -239,6 +248,19 @@ function externalHttpsUrl(value: string, name: string): string {
   return parsed.toString().replace(/\/$/, "");
 }
 
+function gnosisRpcUrl(
+  value: string,
+  mode: "isolated-fixture" | "public-signed-only"
+): string {
+  if (mode === "public-signed-only") {
+    const expected =
+      "http://gnosis-private-rpc.stadtstack-roebel-web-preview.svc.cluster.local:8545";
+    if (value !== expected) throw new Error("workbench_gnosis_rpc_url_invalid");
+    return value;
+  }
+  return externalHttpsUrl(value, "gnosis_rpc_url");
+}
+
 export function parseWorkbenchConfig(
   environment: Record<string, string | undefined>
 ): WorkbenchConfig {
@@ -337,10 +359,7 @@ export function parseWorkbenchConfig(
           ),
         }
       : {}),
-    gnosisRpcUrl: externalHttpsUrl(
-      environment.GNOSIS_RPC_URL ?? "",
-      "gnosis_rpc_url"
-    ),
+    gnosisRpcUrl: gnosisRpcUrl(environment.GNOSIS_RPC_URL ?? "", mode),
     meckyPubkey,
     mode,
     personas,

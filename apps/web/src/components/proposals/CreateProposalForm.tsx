@@ -1,11 +1,19 @@
 "use client";
 
-import { useActiveAccount, useActiveWallet, useReadContract, useSendTransaction } from "thirdweb/react";
+import {
+  useActiveAccount,
+  useActiveWallet,
+  useReadContract,
+  useSendTransaction,
+} from "thirdweb/react";
 import { governorContract, nftContract } from "@/lib/contracts";
 import { balanceOf } from "thirdweb/extensions/erc721";
 import { prepareContractCall, toWei, waitForReceipt } from "thirdweb";
 import { ethers } from "ethers";
-import { hasHighGasBundler, sendViaHighGasBundler } from "@/lib/highgas-bundler";
+import {
+  hasHighGasBundler,
+  sendViaHighGasBundler,
+} from "@/lib/highgas-bundler";
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -16,7 +24,13 @@ import { useVerificationStatus } from "@/hooks/useVerificationStatus";
 import { IrysBalanceCard } from "@/components/admin/IrysBalanceCard";
 import { de } from "@/lib/translations/de";
 
-type UploadStage = "idle" | "uploading" | "submitting" | "confirming" | "success" | "error";
+type UploadStage =
+  | "idle"
+  | "uploading"
+  | "submitting"
+  | "confirming"
+  | "success"
+  | "error";
 
 interface PollInfo {
   proposalId: string;
@@ -69,9 +83,12 @@ export function CreateProposalForm({
   // proposal in Supabase, then redirect.
   const handleProposalConfirmed = async (
     transactionHash: `0x${string}`,
-    irysReceipt: { id: string; url: string },
+    irysReceipt: { id: string; url: string }
   ) => {
-    console.log("✅ Step 2 complete: Proposal created on-chain", transactionHash);
+    console.log(
+      "✅ Step 2 complete: Proposal created on-chain",
+      transactionHash
+    );
     try {
       const receipt = await waitForReceipt({
         client,
@@ -80,24 +97,33 @@ export function CreateProposalForm({
       });
 
       // ProposalCreated(uint256,address,address[],uint256[],string[],bytes[],uint256,uint256,string)
-      const PROPOSAL_CREATED_TOPIC = "0x7d84a6263ae0d98d3329bd7b46bb4e8d6f98cd35a7adb45c274c8b7fd5ebd5e0";
-      const proposalCreatedLog = receipt.logs.find((log) =>
-        log.address.toLowerCase() === governorContract.address.toLowerCase() &&
-        log.topics[0] === PROPOSAL_CREATED_TOPIC
+      const PROPOSAL_CREATED_TOPIC =
+        "0x7d84a6263ae0d98d3329bd7b46bb4e8d6f98cd35a7adb45c274c8b7fd5ebd5e0";
+      const proposalCreatedLog = receipt.logs.find(
+        (log) =>
+          log.address.toLowerCase() ===
+            governorContract.address.toLowerCase() &&
+          log.topics[0] === PROPOSAL_CREATED_TOPIC
       );
       if (!proposalCreatedLog) {
-        console.error("❌ No ProposalCreated event found in receipt logs:", receipt.logs);
-        throw new Error("No ProposalCreated event found in transaction receipt");
+        console.error(
+          "❌ No ProposalCreated event found in receipt logs:",
+          receipt.logs
+        );
+        throw new Error(
+          "No ProposalCreated event found in transaction receipt"
+        );
       }
 
       const iface = new ethers.Interface([
-        "event ProposalCreated(uint256 proposalId, address proposer, address[] targets, uint256[] values, string[] signatures, bytes[] calldatas, uint256 voteStart, uint256 voteEnd, string description)"
+        "event ProposalCreated(uint256 proposalId, address proposer, address[] targets, uint256[] values, string[] signatures, bytes[] calldatas, uint256 voteStart, uint256 voteEnd, string description)",
       ]);
       const decodedEvent = iface.parseLog({
         topics: proposalCreatedLog.topics,
         data: proposalCreatedLog.data,
       });
-      if (!decodedEvent) throw new Error("Failed to decode ProposalCreated event");
+      if (!decodedEvent)
+        throw new Error("Failed to decode ProposalCreated event");
 
       const numericProposalId = decodedEvent.args.proposalId.toString();
       const voteStart = decodedEvent.args.voteStart.toString();
@@ -105,14 +131,18 @@ export function CreateProposalForm({
 
       // MACI-specific: decode PollLinked(uint256 indexed proposalId, address poll, address tally, uint256 pollId)
       try {
-        const POLL_LINKED_TOPIC = ethers.id("PollLinked(uint256,address,address,uint256)");
-        const pollLinkedLog = receipt.logs.find((log) =>
-          log.address.toLowerCase() === governorContract.address.toLowerCase() &&
-          log.topics[0] === POLL_LINKED_TOPIC
+        const POLL_LINKED_TOPIC = ethers.id(
+          "PollLinked(uint256,address,address,uint256)"
+        );
+        const pollLinkedLog = receipt.logs.find(
+          (log) =>
+            log.address.toLowerCase() ===
+              governorContract.address.toLowerCase() &&
+            log.topics[0] === POLL_LINKED_TOPIC
         );
         if (pollLinkedLog) {
           const pollIface = new ethers.Interface([
-            "event PollLinked(uint256 indexed proposalId, address poll, address tally, uint256 pollId)"
+            "event PollLinked(uint256 indexed proposalId, address poll, address tally, uint256 pollId)",
           ]);
           const decodedPoll = pollIface.parseLog({
             topics: pollLinkedLog.topics,
@@ -127,10 +157,15 @@ export function CreateProposalForm({
             });
           }
         } else {
-          console.warn("PollLinked event not found — is the MACI Governor wired correctly?");
+          console.warn(
+            "PollLinked event not found — is the MACI Governor wired correctly?"
+          );
         }
       } catch (pollErr) {
-        console.warn("PollLinked decode failed (proposal still on-chain):", pollErr);
+        console.warn(
+          "PollLinked decode failed (proposal still on-chain):",
+          pollErr
+        );
       }
 
       // Store in Supabase for fast retrieval (non-fatal if it fails).
@@ -155,7 +190,9 @@ export function CreateProposalForm({
           }),
         });
         if (!storeResponse.ok) {
-          console.warn("⚠️ Failed to store in Supabase, but proposal is on-chain");
+          console.warn(
+            "⚠️ Failed to store in Supabase, but proposal is on-chain"
+          );
         }
       } catch (supabaseError) {
         console.error("❌ Supabase storage error:", supabaseError);
@@ -166,7 +203,8 @@ export function CreateProposalForm({
     } catch (eventError) {
       console.error("❌ Failed to extract proposalId from event:", eventError);
       setError(
-        "Proposal created on-chain, but failed to extract proposal ID. Check the block explorer for transaction: " + transactionHash
+        "Proposal created on-chain, but failed to extract proposal ID. Check the block explorer for transaction: " +
+          transactionHash
       );
       setUploadStage("error");
     }
@@ -200,7 +238,9 @@ export function CreateProposalForm({
       console.log("⛓️ Step 2: Creating proposal on-chain...");
 
       // Prepare proposal parameters
-      const targets = [(targetAddress || governorContract.address) as `0x${string}`];
+      const targets = [
+        (targetAddress || governorContract.address) as `0x${string}`,
+      ];
       const values = [value ? toWei(value) : 0n];
       const calldatas = [(calldata || "0x") as `0x${string}`];
 
@@ -209,28 +249,34 @@ export function CreateProposalForm({
 
       console.log("📋 On-chain description:", fullDescription);
 
-      // Caller-chosen voting period (seconds), clamped to the contract's 1h–30d.
-      const votingPeriodSeconds = Math.min(
-        Math.max(Math.round(periodDays * 86400), 3600),
-        2592000,
-      );
-
+      const useHighGasBundler = hasHighGasBundler();
+      // Both bundler paths preserve the caller-chosen period. The high-gas
+      // proxy validates this exact Governor entrypoint and its contract range.
       const transaction = prepareContractCall({
         contract: governorContract,
         method:
           "function proposeWithPeriod(address[] targets, uint256[] values, bytes[] calldatas, string description, uint32 votingPeriodSeconds) returns (uint256)",
-        params: [targets, values, calldatas, fullDescription, votingPeriodSeconds],
+        params: [
+          targets,
+          values,
+          calldatas,
+          fullDescription,
+          Math.min(Math.max(Math.round(periodDays * 86400), 3600), 2592000),
+        ],
       });
 
       setUploadStage("confirming");
 
-      if (hasHighGasBundler()) {
+      if (useHighGasBundler) {
         // Proposal creation deploys a MACI Poll (~15.7M gas) — over thirdweb's
         // 12M sponsored-bundler cap. Route THIS tx through the higher-cap
         // bundler, self-paying from the (funded) attester smart account. Same
         // account address ⇒ OnlyAttestersCanPropose still passes.
         if (!activeWallet) throw new Error("Wallet ist nicht verbunden.");
-        const { transactionHash } = await sendViaHighGasBundler(activeWallet, transaction);
+        const { transactionHash } = await sendViaHighGasBundler(
+          activeWallet,
+          transaction
+        );
         await handleProposalConfirmed(transactionHash, irysReceipt);
       } else {
         sendTransaction(transaction, {
@@ -242,7 +288,8 @@ export function CreateProposalForm({
             setError(
               txError instanceof Error
                 ? txError.message
-                : "Transaction failed. Your content is saved on Irys at: " + irysReceipt.url
+                : "Transaction failed. Your content is saved on Irys at: " +
+                    irysReceipt.url
             );
             setUploadStage("error");
           },
@@ -278,12 +325,21 @@ export function CreateProposalForm({
     }
   };
 
-  const isProcessing = ["uploading", "submitting", "confirming", "success"].includes(uploadStage);
+  const isProcessing = [
+    "uploading",
+    "submitting",
+    "confirming",
+    "success",
+  ].includes(uploadStage);
 
   return (
     <div className="bg-card border border-border rounded-xl shadow-sm p-4 md:p-8 lg:p-12">
-      <h1 className="text-3xl font-medium mb-2 text-foreground">{de.proposals.createProposalForm.title}</h1>
-      <p className="text-muted-foreground mb-8">{de.proposals.createProposalForm.subtitle}</p>
+      <h1 className="text-3xl font-medium mb-2 text-foreground">
+        {de.proposals.createProposalForm.title}
+      </h1>
+      <p className="text-muted-foreground mb-8">
+        {de.proposals.createProposalForm.subtitle}
+      </p>
 
       {statusLoading ? (
         <div className="text-center py-12">
@@ -319,10 +375,11 @@ export function CreateProposalForm({
               Verschlüsselte Abstimmung (MACI v2)
             </p>
             <p className="text-sm text-blue-800">
-              Vorschläge laufen ab jetzt mit privater, kollusionsresistenter Abstimmung
-              auf Gnosis Chain. Sobald du diesen Vorschlag einreichst, wird automatisch
-              eine eigene MACI-Abstimmung erzeugt — Bürger:innen stimmen verschlüsselt ab
-              und nur das aggregierte Endergebnis erscheint öffentlich auf der Blockchain.
+              Vorschläge laufen ab jetzt mit privater, kollusionsresistenter
+              Abstimmung auf Gnosis Chain. Sobald du diesen Vorschlag
+              einreichst, wird automatisch eine eigene MACI-Abstimmung erzeugt —
+              Bürger:innen stimmen verschlüsselt ab und nur das aggregierte
+              Endergebnis erscheint öffentlich auf der Blockchain.
             </p>
             <p className="text-sm text-blue-800">
               Deine Beschreibung wird dauerhaft auf Irys (Arweave) gespeichert.
@@ -338,9 +395,10 @@ export function CreateProposalForm({
                     Verschlüsselte Abstimmung erfolgreich erzeugt
                   </p>
                   <p className="text-sm text-emerald-800">
-                    Bürger:innen können in der mobilen App ab sofort verschlüsselt
-                    abstimmen. Nach Ablauf der Frist veröffentlicht der Koordinator das
-                    Ergebnis mit einem Zero-Knowledge-Beweis on-chain.
+                    Bürger:innen können in der mobilen App ab sofort
+                    verschlüsselt abstimmen. Nach Ablauf der Frist
+                    veröffentlicht der Koordinator das Ergebnis mit einem
+                    Zero-Knowledge-Beweis on-chain.
                   </p>
                   <dl className="text-xs text-emerald-900 space-y-1 font-mono">
                     <div className="flex gap-2">
@@ -354,7 +412,12 @@ export function CreateProposalForm({
                     <div className="flex gap-2">
                       <dt className="opacity-70 w-24">Poll:</dt>
                       <dd className="break-all">
-                        <a href={`https://gnosisscan.io/address/${pollInfo.pollAddress}`} target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">
+                        <a
+                          href={`https://gnosisscan.io/address/${pollInfo.pollAddress}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline hover:no-underline"
+                        >
                           {pollInfo.pollAddress}
                         </a>
                       </dd>
@@ -362,7 +425,12 @@ export function CreateProposalForm({
                     <div className="flex gap-2">
                       <dt className="opacity-70 w-24">Tally:</dt>
                       <dd className="break-all">
-                        <a href={`https://gnosisscan.io/address/${pollInfo.tallyAddress}`} target="_blank" rel="noopener noreferrer" className="underline hover:no-underline">
+                        <a
+                          href={`https://gnosisscan.io/address/${pollInfo.tallyAddress}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline hover:no-underline"
+                        >
                           {pollInfo.tallyAddress}
                         </a>
                       </dd>
@@ -400,7 +468,10 @@ export function CreateProposalForm({
           )}
 
           <div>
-            <label htmlFor="title" className="block text-sm font-medium text-foreground mb-2">
+            <label
+              htmlFor="title"
+              className="block text-sm font-medium text-foreground mb-2"
+            >
               {de.proposals.createProposalForm.proposalTitle} *
             </label>
             <input
@@ -409,20 +480,27 @@ export function CreateProposalForm({
               required
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder={de.proposals.createProposalForm.proposalTitlePlaceholder}
+              placeholder={
+                de.proposals.createProposalForm.proposalTitlePlaceholder
+              }
               disabled={isProcessing}
               className="w-full bg-card border border-border rounded-lg px-4 py-3 text-foreground focus:outline-none focus:border-black focus:ring-1 focus:ring-black disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
 
           <div>
-            <label htmlFor="description" className="block text-sm font-medium text-foreground mb-2">
+            <label
+              htmlFor="description"
+              className="block text-sm font-medium text-foreground mb-2"
+            >
               {de.proposals.createProposalForm.proposalDescription} *
             </label>
             <RichTextEditor
               content={description}
               onChange={setDescription}
-              placeholder={de.proposals.createProposalForm.proposalDescriptionPlaceholder}
+              placeholder={
+                de.proposals.createProposalForm.proposalDescriptionPlaceholder
+              }
             />
             <p className="text-xs text-muted-foreground mt-2">
               Nutze die Toolbar für Überschriften, Listen, Bilder und mehr
@@ -447,9 +525,9 @@ export function CreateProposalForm({
                 Gemeinschaftskasse-Stand anhängen
               </span>
               <span className="block text-muted-foreground mt-0.5">
-                Hängt den aktuellen Kontostand der Gemeinschaftskasse an diesen Vorschlag.
-                Bürger:innen sehen beim Abstimmen, wie viel gerade im Topf ist — der Stand
-                wird beim Einreichen festgehalten.
+                Hängt den aktuellen Kontostand der Gemeinschaftskasse an diesen
+                Vorschlag. Bürger:innen sehen beim Abstimmen, wie viel gerade im
+                Topf ist — der Stand wird beim Einreichen festgehalten.
               </span>
             </span>
           </label>
@@ -488,11 +566,14 @@ export function CreateProposalForm({
                   disabled={isProcessing}
                   onChange={(e) => {
                     const n = Math.round(Number(e.target.value));
-                    if (Number.isFinite(n)) setPeriodDays(Math.min(30, Math.max(1, n)));
+                    if (Number.isFinite(n))
+                      setPeriodDays(Math.min(30, Math.max(1, n)));
                   }}
                   className="w-20 bg-card border border-border rounded-lg px-3 py-2 text-foreground text-sm focus:outline-none focus:border-black focus:ring-1 focus:ring-black disabled:opacity-50"
                 />
-                <span className="text-sm text-muted-foreground">Tage (1–30)</span>
+                <span className="text-sm text-muted-foreground">
+                  Tage (1–30)
+                </span>
               </div>
             </div>
           </div>
@@ -507,7 +588,10 @@ export function CreateProposalForm({
 
             <div className="space-y-4">
               <div>
-                <label htmlFor="targetAddress" className="block text-sm font-medium text-foreground mb-2">
+                <label
+                  htmlFor="targetAddress"
+                  className="block text-sm font-medium text-foreground mb-2"
+                >
                   {de.proposals.createProposalForm.targetAddress}
                 </label>
                 <input
@@ -515,14 +599,19 @@ export function CreateProposalForm({
                   type="text"
                   value={targetAddress}
                   onChange={(e) => setTargetAddress(e.target.value)}
-                  placeholder={de.proposals.createProposalForm.targetAddressPlaceholder}
+                  placeholder={
+                    de.proposals.createProposalForm.targetAddressPlaceholder
+                  }
                   disabled={isProcessing}
                   className="w-full bg-card border border-border rounded-lg px-4 py-3 text-foreground font-mono text-sm focus:outline-none focus:border-black focus:ring-1 focus:ring-black disabled:opacity-50"
                 />
               </div>
 
               <div>
-                <label htmlFor="value" className="block text-sm font-medium text-foreground mb-2">
+                <label
+                  htmlFor="value"
+                  className="block text-sm font-medium text-foreground mb-2"
+                >
                   {de.proposals.createProposalForm.ethAmount}
                 </label>
                 <input
@@ -530,14 +619,19 @@ export function CreateProposalForm({
                   type="text"
                   value={value}
                   onChange={(e) => setValue(e.target.value)}
-                  placeholder={de.proposals.createProposalForm.ethAmountPlaceholder}
+                  placeholder={
+                    de.proposals.createProposalForm.ethAmountPlaceholder
+                  }
                   disabled={isProcessing}
                   className="w-full bg-card border border-border rounded-lg px-4 py-3 text-foreground font-mono focus:outline-none focus:border-black focus:ring-1 focus:ring-black disabled:opacity-50"
                 />
               </div>
 
               <div>
-                <label htmlFor="calldata" className="block text-sm font-medium text-foreground mb-2">
+                <label
+                  htmlFor="calldata"
+                  className="block text-sm font-medium text-foreground mb-2"
+                >
                   {de.proposals.createProposalForm.calldata}
                 </label>
                 <input
@@ -545,7 +639,9 @@ export function CreateProposalForm({
                   type="text"
                   value={calldata}
                   onChange={(e) => setCalldata(e.target.value)}
-                  placeholder={de.proposals.createProposalForm.calldataPlaceholder}
+                  placeholder={
+                    de.proposals.createProposalForm.calldataPlaceholder
+                  }
                   disabled={isProcessing}
                   className="w-full bg-card border border-border rounded-lg px-4 py-3 text-foreground font-mono text-sm focus:outline-none focus:border-black focus:ring-1 focus:ring-black disabled:opacity-50"
                 />
@@ -558,7 +654,9 @@ export function CreateProposalForm({
               <div className="flex items-center gap-3">
                 <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
                 <div className="flex-1">
-                  <p className="font-medium text-sm text-foreground">{getButtonText()}</p>
+                  <p className="font-medium text-sm text-foreground">
+                    {getButtonText()}
+                  </p>
                   {uploadStage === "uploading" && (
                     <p className="text-xs text-muted-foreground mt-1">
                       Lade deinen Vorschlag zu permanentem Speicher hoch...
@@ -582,9 +680,14 @@ export function CreateProposalForm({
           <div className="bg-muted border border-border rounded-lg p-4">
             <h4 className="font-medium mb-2 text-foreground">Zeitplan</h4>
             <div className="space-y-1 text-sm text-muted-foreground">
-              <p>• Abstimmungsverzögerung: Durch Governance-Parameter festgelegt</p>
+              <p>
+                • Abstimmungsverzögerung: Durch Governance-Parameter festgelegt
+              </p>
               <p>• Abstimmungsdauer: Durch Governance-Parameter festgelegt</p>
-              <p>• Nach Abstimmungsende können erfolgreiche Vorschläge ausgeführt werden</p>
+              <p>
+                • Nach Abstimmungsende können erfolgreiche Vorschläge ausgeführt
+                werden
+              </p>
             </div>
           </div>
 
@@ -596,8 +699,8 @@ export function CreateProposalForm({
                 uploadStage === "success"
                   ? "bg-green-600 hover:bg-green-700"
                   : uploadStage === "error"
-                  ? "bg-red-600 hover:bg-red-700"
-                  : "bg-black hover:bg-foreground/90"
+                    ? "bg-red-600 hover:bg-red-700"
+                    : "bg-black hover:bg-foreground/90"
               } disabled:bg-muted disabled:cursor-not-allowed text-white`}
             >
               {isProcessing && (
@@ -614,7 +717,8 @@ export function CreateProposalForm({
           </div>
 
           <p className="text-sm text-muted-foreground text-center">
-            * Dein Vorschlag wird dauerhaft auf Irys gespeichert und on-chain referenziert
+            * Dein Vorschlag wird dauerhaft auf Irys gespeichert und on-chain
+            referenziert
           </p>
         </form>
       )}

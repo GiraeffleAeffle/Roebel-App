@@ -53,3 +53,9 @@ test("missing comparison history fails closed to every service", () => {
   assert.match(detector, /changedPaths\.includes\("__all__"\)/u);
   assert.match(detector, /service_build_matrix/u);
 });
+
+test("the hosted service build runs the workbench's mandatory package tests", () => {
+  assert.match(detector, /package: "@roebel\/e2e-workbench"/u);
+  assert.match(workflow, /--filter "\$PACKAGE" test/u);
+  assert.doesNotMatch(workflow, /ROEBEL_LOCKED_VIEM_WEBPACK_SERVER/u);
+});

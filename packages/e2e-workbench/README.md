@@ -16,9 +16,10 @@ writes: `POST /api/session/admit` and `POST /api/signed-event` (both beneath
 `/stadtstack-test` and both with the exact staging header).
 
 Administrative projection reads and every fixture-only mutation route return
-`404` in this mode. The deployment must not mount a Case Steward token or a
-control-plane URL into this runtime. Presence of any of those four forbidden
-variables—even an empty string or `[]`—fails startup.
+`404` in this mode. The deployment must not mount a Case Steward token, a
+control-plane URL, fixture personas, or any `GNOSIS_PROXY_*` management input
+into this runtime. Presence of any forbidden variable—even an empty string or
+`[]`—fails startup.
 
 ## GitOps input
 
@@ -27,8 +28,15 @@ two-component `roebel_e2e_runtime_pin_v1` artifact. A reviewed operations PR
 must consume the two image **digests** from that pin, never a mutable tag:
 
 - `roebel-e2e-workbench`: `WORKBENCH_MODE=public-signed-only`, Mecky public
-  key, Gnosis RPC, citizen/agent relay URLs, and the relay-admission token
-  Secret only;
+  key, the exact private Gnosis proxy Service URL, citizen/agent relay URLs,
+  and the relay-admission token Secret only;
+- `roebel-e2e-workbench` also supplies a separate tokenless
+  `ROEBEL_RUNTIME_ROLE=gnosis-rpc-proxy` Deployment from the same immutable
+  image digest. It accepts only `eth_chainId`, `eth_blockNumber`,
+  `eth_getCode`, and bounded `eth_call`, including only the pinned viem 2.53.1
+  deployless signature-verifier form described below, verifies chain `0x64`
+  before every forwarded request, and rejects every transaction/debug/admin
+  method;
 - `roebel-staging-relay`: separate citizen and agent deployments, each with a
   bounded owned event volume; only the citizen relay receives the internal
   admission token and admission volume;
@@ -47,13 +55,46 @@ The workbench verifies both signatures, then sends only the admitted public key
 to the relay's internal endpoint. Posts and promotions arrive as complete
 browser-signed Nostr events; this service never receives a Nostr secret.
 
-Private deployment inputs:
+Deployment inputs:
 
-- `GNOSIS_RPC_URL`: server-only Gnosis RPC used for EOA/ERC-1271 verification;
+- `GNOSIS_RPC_URL`: the exact internal
+  `http://gnosis-private-rpc.stadtstack-roebel-web-preview.svc.cluster.local:8545`
+  Service URL used for EOA/ERC-1271 verification;
 - `CITIZEN_RELAY_ADMISSION_TOKEN`: the same high-entropy value mounted into the
   citizen relay as `RELAY_ADMISSION_TOKEN`;
 - the existing relay URLs and Mecky pubkey. Fixture configuration and the
   Case Steward control inputs are only for `isolated-fixture` mode.
+
+The proxy upstream is not secret configuration. Its runtime accepts only
+`https://rpc.gnosischain.com`, checks chain ID 100, follows no redirect, forwards
+no caller header or credential, and returns only bounded JSON-RPC. The staging
+NetworkPolicy separately pins outbound TCP/443 to the reviewed `/32`; if DNS or
+the provider address changes, the proxy fails closed until a new review updates
+both the policy and its evidence.
+
+The proxy matches only the exact raw request targets `POST /`,
+`GET|HEAD /healthz`, and `GET|HEAD /readyz`. One global limit admits at most 16
+RPC or readiness operations, an incomplete request body is terminated after two
+seconds, and shutdown aborts upstream work and closes every accepted socket.
+
+Normal `eth_call` accepts exactly `{to,data}`. The only contract-creation call
+accepts exactly `{data}` plus block tag `latest` and must match viem 2.53.1's
+1,684-byte ERC-6492/universal-signature validator creation bytecode (SHA-256
+`d46b6085a6558eb925573e4e395ccbc669a1db1b7aa49196cbb1a7540db6a470`),
+followed by canonical ABI encoding of `(address,bytes32,bytes)`. Its signature
+argument is non-empty and at most 8 KiB. Gas, sender, value, access-list, state
+override, alternative bytecode, extra keys, and alternative block tags are all
+rejected. This exact exception is required by relay-sync's locked viem
+`verifyMessage` path for counterfactual/ERC-6492 and ordinary smart-account
+verification. Both relay-sync and the workbench's transport test pin exact
+`2.53.1` in their manifests and lock importers. The normal workbench test
+command imports those installed workspace dependencies directly, drives the
+real verifier through an in-process HTTP proxy, and fails if the version,
+bytecode, or emitted request shape drifts. It has no external bundle, fixture
+environment variable, or skip path. Both scoped PR CI and the protected runtime
+publisher run that command before building. Changing the viem version or
+bytecode requires a reviewed source, test fixture, ADR, and activation-evidence
+update.
 
 The admission token must be sourced from a Kubernetes Secret and must never be
 placed in this repository, an image environment layer, or a browser variable.
