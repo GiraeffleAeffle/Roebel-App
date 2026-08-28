@@ -170,7 +170,9 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
         status:
           administrationProgress.status === "citizen_brief_current"
             ? ("brief_current" as const)
-            : ("in_review" as const),
+            : administrationProgress.briefCorrection
+              ? ("brief_withdrawn" as const)
+              : ("in_review" as const),
       }
     : null;
   const journey = projectPublicCivicTopicJourney(

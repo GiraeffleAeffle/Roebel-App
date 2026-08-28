@@ -75,6 +75,31 @@ test("shows public brief and advisory participation without unlocking effects", 
   );
 });
 
+test("keeps a withdrawn Citizen Brief visible and participation gated", () => {
+  const journey = projectCivicJourney({
+    ...base,
+    meckyAnswered: true,
+    proposalSigned: true,
+    caseAdmitted: true,
+    administrationStatus: "brief_withdrawn",
+  });
+
+  assert.ok(journey);
+  assert.equal(journey.currentStageId, "administration");
+  assert.equal(
+    journey.stages.find((stage) => stage.id === "administration")?.state,
+    "current"
+  );
+  assert.match(
+    journey.stages.find((stage) => stage.id === "administration")?.detail ?? "",
+    /zurückgezogen/
+  );
+  assert.equal(
+    journey.stages.find((stage) => stage.id === "participation")?.state,
+    "gated"
+  );
+});
+
 test("does not invent a missing public proposal receipt for an existing case", () => {
   const journey = projectCivicJourney({
     ...base,

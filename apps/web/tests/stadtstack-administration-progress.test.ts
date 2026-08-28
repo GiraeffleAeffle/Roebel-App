@@ -153,6 +153,7 @@ test("marks eight reviewed packages ready without deriving the brief", () => {
   assert.equal(progress.status, "ready_for_case_steward");
   assert.equal(progress.acceptedCount, 8);
   assert.equal(progress.currentBrief, null);
+  assert.equal(progress.briefCorrection, null);
   assert.equal(progress.authorityBinding, "none");
 });
 
@@ -164,6 +165,7 @@ test("accepts a checksum-bound current Citizen Brief covering the exact set", ()
   assert.equal(progress.status, "citizen_brief_current");
   assert.equal(progress.currentBrief?.title, "Sichere Querung prüfen");
   assert.equal(progress.currentBrief?.briefChecksum, sha(400));
+  assert.equal(progress.briefCorrection, null);
 });
 
 test("does not let an invalidated old brief hide current public review progress", () => {
@@ -179,6 +181,12 @@ test("does not let an invalidated old brief hide current public review progress"
   assert.equal(progress.status, "waiting_for_department_review");
   assert.equal(progress.acceptedCount, 7);
   assert.equal(progress.currentBrief, null);
+  assert.deepEqual(progress.briefCorrection, {
+    state: "invalidated",
+    id: "urn:stadtstack:citizen-brief:fixture:1",
+    title: "Sichere Querung prüfen",
+    briefChecksum: sha(400),
+  });
   assert.equal(progress.departments[0]?.state, "not_publicly_reviewed");
 });
 

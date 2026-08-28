@@ -633,7 +633,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
             done={administrationProgress?.status === "citizen_brief_current"}
             detail={
               administrationProgress
-                ? `${administrationProgress.acceptedCount} von ${administrationProgress.requiredCount} Fachantworten sind öffentlich geprüft${administrationProgress.currentBrief ? "; der Citizen Brief ist aktuell." : "."}`
+                ? `${administrationProgress.acceptedCount} von ${administrationProgress.requiredCount} Fachantworten sind öffentlich geprüft${administrationProgress.currentBrief ? "; der Citizen Brief ist aktuell." : administrationProgress.briefCorrection ? "; der bisherige Citizen Brief wurde sichtbar zurückgezogen." : "."}`
                 : "Acht getrennte Fachpakete werden geprüft und öffentlich verständlich zusammengeführt."
             }
           />

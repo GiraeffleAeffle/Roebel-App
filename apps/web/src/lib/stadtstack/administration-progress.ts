@@ -51,6 +51,12 @@ export type StadtstackAdministrationProgress = {
     summary: string;
     briefChecksum: string;
   } | null;
+  briefCorrection: {
+    state: "invalidated";
+    id: string;
+    title: string;
+    briefChecksum: string;
+  } | null;
   authorityBinding: "none";
   effects: {
     civicCaseMutation: false;
@@ -191,6 +197,10 @@ type ReviewedDepartment = {
   publicSummary: string;
   publicCitations: string[];
 };
+type ParsedCitizenBrief = Readonly<{
+  current: StadtstackAdministrationProgress["currentBrief"];
+  correction: StadtstackAdministrationProgress["briefCorrection"];
+}>;
 
 function reviewedDepartment(
   value: unknown,
@@ -341,12 +351,12 @@ function validateBriefProvenance(
   }
 }
 
-function currentBrief(
+function parseCitizenBrief(
   value: unknown,
   policyVersion: string,
   departments: ReadonlyMap<StadtstackDepartmentId, ReviewedDepartment>
-): StadtstackAdministrationProgress["currentBrief"] {
-  if (value === undefined) return null;
+): ParsedCitizenBrief {
+  if (value === undefined) return { current: null, correction: null };
   const brief = record(value, "stadtstack_public_brief_invalid");
   exactKeys(
     brief,
@@ -393,7 +403,10 @@ function currentBrief(
     if (brief.responses.length !== 0 || summary !== "") {
       fail("stadtstack_public_brief_invalidated_shape");
     }
-    return null;
+    return {
+      current: null,
+      correction: { state: "invalidated", id, title, briefChecksum },
+    };
   }
   if (
     departments.size !== STADTSTACK_REQUIRED_DEPARTMENTS.length ||
@@ -433,7 +446,10 @@ function currentBrief(
     }
     responseIds.add(departmentId);
   }
-  return { id, title, summary, briefChecksum };
+  return {
+    current: { id, title, summary, briefChecksum },
+    correction: null,
+  };
 }
 
 /**
@@ -520,12 +536,12 @@ export function toStadtstackAdministrationProgress(
     }
   }
 
-  const brief = currentBrief(
+  const brief = parseCitizenBrief(
     projection.reviewedCitizenBrief,
     policyVersion,
     reviewed
   );
-  const status: StadtstackAdministrationProgressStatus = brief
+  const status: StadtstackAdministrationProgressStatus = brief.current
     ? "citizen_brief_current"
     : reviewed.size === STADTSTACK_REQUIRED_DEPARTMENTS.length
       ? "ready_for_case_steward"
@@ -569,7 +585,8 @@ export function toStadtstackAdministrationProgress(
             publicCitations: [],
           };
     }),
-    currentBrief: brief,
+    currentBrief: brief.current,
+    briefCorrection: brief.correction,
     authorityBinding: "none",
     effects: { ...EFFECTS },
   };

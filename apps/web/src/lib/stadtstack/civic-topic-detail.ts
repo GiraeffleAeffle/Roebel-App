@@ -17,9 +17,15 @@ export type PublicCivicTopicDetail = Readonly<{
   caseBindingConflict: boolean;
 }>;
 
+export type PublicCivicPostLink = Readonly<{
+  detail: PublicCivicTopicDetail;
+  discussionId: string;
+  journey: CivicJourney;
+}>;
+
 export type PublicCivicTopicAdministrationStage = Readonly<{
   caseId: string;
-  status: "not_available" | "in_review" | "brief_current";
+  status: "not_available" | "in_review" | "brief_current" | "brief_withdrawn";
 }>;
 
 export function projectPublicCivicTopicJourney(
@@ -127,4 +133,69 @@ export function projectPublicCivicTopicDetail(
     caseBinding: bindings.size === 1 ? [...bindings.values()][0]! : null,
     caseBindingConflict: bindings.size > 1,
   };
+}
+
+/**
+ * Resolve the public civic journey that was explicitly started from one app
+ * post. The source post remains a normal app record; this function only
+ * follows the signed mirror and selected-conversation references already
+ * present in the public projection.
+ *
+ * Ambiguous topic or discussion bindings fail closed instead of guessing
+ * which journey a source post belongs to.
+ */
+export function projectPublicCivicPostLink(
+  feed: StagingFeedResponse,
+  sourceAppPostId: string
+): PublicCivicPostLink | null {
+  if (
+    feed.schemaVersion !== "roebel_staging_mixed_feed_v1" ||
+    feed.authorityBinding !== "none" ||
+    typeof sourceAppPostId !== "string" ||
+    sourceAppPostId.length === 0 ||
+    sourceAppPostId.length > 200 ||
+    sourceAppPostId !== sourceAppPostId.trim() ||
+    /[\u0000-\u001f\u007f]/u.test(sourceAppPostId)
+  ) {
+    return null;
+  }
+
+  const mirrors = feed.posts.filter(
+    (entry): entry is StagingOrdinaryPost =>
+      entry.entryType === "post" &&
+      entry.synthetic === false &&
+      entry.sourceAppPostId === sourceAppPostId
+  );
+  const topicIds = new Set<string>();
+  const discussionIds = new Set<string>();
+
+  for (const mirror of mirrors) {
+    if (mirror.promotedTopicId) topicIds.add(mirror.promotedTopicId);
+    if (mirror.promotedDiscussionId)
+      discussionIds.add(mirror.promotedDiscussionId);
+  }
+  for (const entry of feed.posts) {
+    if (entry.entryType !== "topic" || entry.synthetic) continue;
+    for (const discussion of entry.discussions) {
+      if (discussion.sourceConversation?.sourceAppPostId !== sourceAppPostId)
+        continue;
+      topicIds.add(entry.topicId);
+      discussionIds.add(discussion.id);
+    }
+  }
+
+  if (topicIds.size !== 1 || discussionIds.size !== 1) return null;
+  const topicId = [...topicIds][0]!;
+  const discussionId = [...discussionIds][0]!;
+  const detail = projectPublicCivicTopicDetail(feed, topicId);
+  if (
+    !detail ||
+    !detail.topic.discussions.some(
+      (discussion) => discussion.id === discussionId
+    )
+  ) {
+    return null;
+  }
+  const journey = projectPublicCivicTopicJourney(detail);
+  return journey ? { detail, discussionId, journey } : null;
 }
