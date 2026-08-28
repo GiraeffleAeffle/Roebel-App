@@ -78,7 +78,7 @@ const workbenchServer = readFileSync(
 test("keeps the civic workflow native to ordinary Röbel posts and discussion routes", () => {
   assert.doesNotMatch(appPage, /StadtstackStagingFeed/);
   assert.doesNotMatch(appPage, /StadtstackStagingLabCard/);
-  assert.match(postCard, /StadtstackPostPromotion/);
+  assert.match(postCard, /StadtstackPostJourney/);
   assert.match(postCard, /mode === "detail" && isAuthor/);
   assert.match(postPromotion, /promoteStagingParticipantSourcePost/);
   assert.match(participantTopicTracer, /API_ROOT = "\/api\/staging-participant\/v1"/);
@@ -132,6 +132,27 @@ test("keeps ordinary posts distinct and requires an explicit human promotion act
   assert.match(postPromotion, /conversationSource/);
   assert.match(postPromotion, /selectedReply\.mentionEvent/);
   assert.match(postPromotion, /staging_participant_mecky_reply_required/);
+});
+
+test("brings a promoted source post back into its one visible civic journey", () => {
+  const postJourney = readFileSync(
+    new URL("../src/components/app/StadtstackPostJourney.tsx", import.meta.url),
+    "utf8"
+  );
+  assert.match(postJourney, /projectPublicCivicPostLink/);
+  assert.match(postJourney, /Bürgerprozess aus diesem Beitrag/);
+  assert.match(postJourney, /Der ursprüngliche Beitrag bleibt unverändert/);
+  assert.match(postJourney, /Bürgerprozess öffnen/);
+  assert.match(postJourney, /Nächster Schritt/);
+  assert.match(postJourney, /<StadtstackPostPromotion/);
+  assert.match(postJourney, /\/app\/themen\//);
+  assert.match(
+    readFileSync(
+      new URL("../src/components/app/PostCard.tsx", import.meta.url),
+      "utf8"
+    ),
+    /<StadtstackPostJourney/
+  );
 });
 
 test("makes the real signed promotion writer idempotent by source post", () => {

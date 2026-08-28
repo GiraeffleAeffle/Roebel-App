@@ -16,7 +16,7 @@ import { ReportButton } from "@/components/app/ReportButton";
 import { CategoryBadge } from "@/components/app/CategoryBadge";
 import { PollDisplay } from "@/components/app/PollDisplay";
 import { CommentSection } from "@/components/app/CommentSection";
-import { StadtstackPostPromotion } from "@/components/app/StadtstackPostPromotion";
+import { StadtstackPostJourney } from "@/components/app/StadtstackPostJourney";
 import { deletePost } from "@/app/actions/posts";
 import type { PostWithEngagement } from "@/types/post";
 import { toast } from "sonner";
@@ -363,14 +363,19 @@ export function PostCard({
         </div>
 
         {mode === "detail" && isAuthor && (
-          <StadtstackPostPromotion
-            post={{
+          <StadtstackPostJourney
+            sourceAppPostId={id}
+            promotionPost={{
               id,
               walletAddress: wallet_address,
               content,
               createdAt: created_at,
             }}
           />
+        )}
+
+        {mode === "detail" && !isAuthor && (
+          <StadtstackPostJourney sourceAppPostId={id} />
         )}
 
         {/* Comments section */}

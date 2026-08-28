@@ -30,7 +30,11 @@ export type CivicJourneyInput = Readonly<{
   meckyAnswered: boolean;
   proposalSigned: boolean;
   caseAdmitted: boolean;
-  administrationStatus?: "not_available" | "in_review" | "brief_current";
+  administrationStatus?:
+    | "not_available"
+    | "in_review"
+    | "brief_current"
+    | "brief_withdrawn";
   participationStatus?: "not_available" | "brief_ready" | "result_current";
 }>;
 
@@ -147,9 +151,11 @@ export function projectCivicJourney(
       detail:
         administrationStatus === "brief_current"
           ? "Geprüfte Fachantworten und ein aktueller Citizen Brief sind öffentlich."
-          : administrationStatus === "in_review"
-            ? "Öffentlich geprüfte Fachantworten werden zusammengeführt."
-            : "Private openDesk-Arbeit wird erst nach öffentlicher Prüfung sichtbar.",
+          : administrationStatus === "brief_withdrawn"
+            ? "Der bisherige Citizen Brief wurde sichtbar zurückgezogen; ein neuer Brief braucht erneut eine geprüfte Projektion."
+            : administrationStatus === "in_review"
+              ? "Öffentlich geprüfte Fachantworten werden zusammengeführt."
+              : "Private openDesk-Arbeit wird erst nach öffentlicher Prüfung sichtbar.",
       authority: "Verwaltung / Review",
     },
     {

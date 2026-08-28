@@ -13,6 +13,7 @@ import type {
   StagingMeckyConversationResponse,
   StagingOrdinaryPost,
 } from "@/lib/stadtstack/staging-api";
+import { StadtstackPostJourney } from "./StadtstackPostJourney";
 
 function linkify(text: string) {
   return text.split(/(https?:\/\/[^\s]+)/g).map((part, index) =>
@@ -98,6 +99,10 @@ export function StadtstackStagingPostDetail({
           </div>
         </div>
       </section>
+
+      {post.sourceAppPostId && (
+        <StadtstackPostJourney sourceAppPostId={post.sourceAppPostId} />
+      )}
 
       <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900/60 dark:bg-amber-950/30">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  AlertTriangle,
   CheckCircle2,
   ChevronRight,
   CircleDollarSign,
@@ -121,6 +122,30 @@ export function StadtstackAdministrationProgress({
           <p className="text-xs leading-5 text-muted-foreground">
             {status!.detail}
           </p>
+          {progress.briefCorrection && (
+            <div
+              role="status"
+              className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950"
+            >
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide">
+                <AlertTriangle className="h-4 w-4" />
+                Citizen Brief zurückgezogen
+              </div>
+              <p className="mt-2 text-sm font-semibold">
+                „{progress.briefCorrection.title}“ wird nicht mehr als aktuelle
+                Fassung angezeigt.
+              </p>
+              <p className="mt-1 text-xs leading-5">
+                Die Korrektur bleibt nachvollziehbar. Geprüfte Fachantworten
+                bleiben sichtbar, bis ein neuer checksum-gebundener Citizen
+                Brief veröffentlicht wird.
+              </p>
+              <p className="mt-2 text-[11px] font-medium">
+                Brief {progress.briefCorrection.id} · Prüfsumme{" "}
+                {progress.briefCorrection.briefChecksum.slice(7, 19)}…
+              </p>
+            </div>
+          )}
 
           <ul className="grid gap-2 sm:grid-cols-2">
             {progress.departments.map((department) => (
