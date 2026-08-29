@@ -38,6 +38,7 @@ test("a participant signed post reaches the real workbench, watcher, and cited c
   });
   const running = await startWorkbench(parseWorkbenchConfig({
     WORKBENCH_MODE: "public-signed-only",
+    LEGACY_SYNTHETIC_PUBKEYS_JSON: "[]",
     MECKY_PUBKEY: agent.publicKey,
     CITIZEN_RELAY_ADMISSION_TOKEN: "r".repeat(40),
     GNOSIS_RPC_URL: "https://rpc.gnosischain.com",

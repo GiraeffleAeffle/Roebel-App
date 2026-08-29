@@ -61,6 +61,7 @@ function publicSignedEnvironment() {
   } = environment();
   return {
     ...publicEnvironment,
+    LEGACY_SYNTHETIC_PUBKEYS_JSON: "[]",
     WORKBENCH_MODE: "public-signed-only",
   };
 }
@@ -71,7 +72,33 @@ describe("Röbel E2E workbench boundary", () => {
     assert.equal(config.mode, "public-signed-only");
     assert.equal(config.caseStewardToken, undefined);
     assert.equal(config.controlBaseUrl, undefined);
+    assert.deepEqual(config.legacySyntheticPubkeys, []);
     assert.deepEqual(config.personas, []);
+    const {
+      LEGACY_SYNTHETIC_PUBKEYS_JSON: _legacySyntheticPubkeys,
+      ...missingLegacySyntheticBoundary
+    } = publicSignedEnvironment();
+    assert.throws(
+      () => parseWorkbenchConfig(missingLegacySyntheticBoundary),
+      /workbench_legacy_synthetic_pubkeys_invalid/
+    );
+    for (const value of [
+      "not-json",
+      "{}",
+      JSON.stringify(["A".repeat(64)]),
+      JSON.stringify(["a".repeat(64), "a".repeat(64)]),
+      JSON.stringify(["b".repeat(64), "a".repeat(64)]),
+      JSON.stringify([mecky]),
+    ]) {
+      assert.throws(
+        () =>
+          parseWorkbenchConfig({
+            ...publicSignedEnvironment(),
+            LEGACY_SYNTHETIC_PUBKEYS_JSON: value,
+          }),
+        /workbench_(legacy_synthetic_pubkeys|identity)_invalid/
+      );
+    }
     for (const [name, value] of [
       ["CASE_STEWARD_TOKEN", ""],
       ["STADTSTACK_CONTROL_BASE_URL", ""],
@@ -142,6 +169,824 @@ describe("Röbel E2E workbench boundary", () => {
         assert.equal(head.headers.get("content-length"), get.headers.get("content-length"));
         assert.equal(await head.text(), "");
       }
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("keeps configured legacy synthetic authors out of every public-mode feed", async () => {
+    const legacySecret = Uint8Array.from(Buffer.from("44".repeat(32), "hex"));
+    const participantSecret = Uint8Array.from(
+      Buffer.from("55".repeat(32), "hex")
+    );
+    const legacyPost = buildNoteEvent(
+      legacySecret,
+      "Dieser frühere Fixture-Beitrag darf nicht öffentlich erscheinen.",
+      { createdAt: 101 }
+    );
+    const participantPost = buildNoteEvent(
+      participantSecret,
+      "Dieser zugelassene, signierte Beitrag bleibt sichtbar.",
+      { createdAt: 102 }
+    );
+    const legacyWrite = buildNoteEvent(
+      legacySecret,
+      "Auch ein neuer Schreibversuch dieser Fixture-Identität wird abgelehnt.",
+      { createdAt: 103 }
+    );
+    const config = parseWorkbenchConfig({
+      ...publicSignedEnvironment(),
+      LEGACY_SYNTHETIC_PUBKEYS_JSON: JSON.stringify([legacyPost.pubkey]),
+    });
+    const publishedIds: string[] = [];
+    const citizenRelay = {
+      query: async () => [legacyPost, participantPost],
+      publish: async (event: typeof legacyPost) => {
+        publishedIds.push(event.id);
+        return { ok: true, message: "stored" };
+      },
+      close: () => {},
+    };
+    const agentRelay = {
+      query: async () => [],
+      publish: async () => ({ ok: true, message: "stored" }),
+      close: () => {},
+    };
+    const running = await startWorkbench(config, {
+      citizenRelay,
+      agentRelay,
+    });
+    try {
+      const origin = `http://127.0.0.1:${running.port}`;
+      for (const path of ["/api/feed", "/api/feed?profile=public"]) {
+        const response = await fetch(`${origin}${path}`);
+        assert.equal(response.status, 200);
+        const feed = (await response.json()) as {
+          posts: Array<{ id: string; synthetic: boolean }>;
+        };
+        assert.deepEqual(feed.posts, [
+          {
+            ...feed.posts[0],
+            id: participantPost.id,
+            synthetic: false,
+          },
+        ]);
+      }
+      const writeResponse = await fetch(`${origin}/api/signed-event`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stadtstack-e2e": "1",
+        },
+        body: JSON.stringify({ intent: "post", event: legacyWrite }),
+      });
+      assert.equal(writeResponse.status, 422);
+      assert.deepEqual(await writeResponse.json(), {
+        error: "signed_event_legacy_identity",
+      });
+      assert.deepEqual(publishedIds, []);
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("refuses admission for a configured legacy synthetic identity", async () => {
+    const legacySecret = Uint8Array.from(Buffer.from("44".repeat(32), "hex"));
+    const legacyPubkey = getPublicKeyHex(legacySecret);
+    const address = "0x1111111111111111111111111111111111111111";
+    const statement = bindingStatement({
+      account: address,
+      npub: npubEncode(legacyPubkey),
+    });
+    const bindingEvent = buildBindingEvent(legacySecret, address, {
+      createdAt: 100,
+    });
+    const admitted: string[] = [];
+    const config = parseWorkbenchConfig({
+      ...publicSignedEnvironment(),
+      LEGACY_SYNTHETIC_PUBKEYS_JSON: JSON.stringify([legacyPubkey]),
+    });
+    const relay = {
+      query: async () => [],
+      publish: async () => ({ ok: true, message: "stored" }),
+      close: () => {},
+    };
+    const running = await startWorkbench(config, {
+      citizenRelay: relay,
+      agentRelay: relay,
+      verifyWalletSignature: async () => {
+        throw new Error("wallet_verifier_must_not_be_called");
+      },
+      admitPubkey: async (pubkey) => {
+        admitted.push(pubkey);
+      },
+    });
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${running.port}/api/session/admit`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-stadtstack-e2e": "1",
+          },
+          body: JSON.stringify({
+            schemaVersion: "roebel_citizen_admission_proof_v1",
+            credential: {
+              kind: "thirdweb_smart_account",
+              address,
+              chainId: 100,
+            },
+            statement,
+            walletSignature: `0x${"44".repeat(65)}`,
+            bindingEvent,
+          }),
+        }
+      );
+      assert.equal(response.status, 422);
+      assert.deepEqual(await response.json(), {
+        error: "citizen_admission_legacy_identity",
+      });
+      assert.deepEqual(admitted, []);
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("keeps configured legacy synthetic mentions out of public conversations", async () => {
+    const legacySecret = Uint8Array.from(Buffer.from("44".repeat(32), "hex"));
+    const participantSecret = Uint8Array.from(
+      Buffer.from("55".repeat(32), "hex")
+    );
+    const sourceAppPostId = "40000000-0000-4000-8000-000000000004";
+    const mention = (secretKey: Uint8Array, createdAt: number) =>
+      buildNoteEvent(secretKey, "@Mecky, welche Quellen liegen dazu vor?", {
+        createdAt,
+        tags: [
+          ["p", mecky],
+          ["source-app-post", sourceAppPostId],
+          ["t", "roebel-app-conversation"],
+        ],
+      });
+    const legacyMention = mention(legacySecret, 101);
+    const participantMention = mention(participantSecret, 102);
+    const config = parseWorkbenchConfig({
+      ...publicSignedEnvironment(),
+      LEGACY_SYNTHETIC_PUBKEYS_JSON: JSON.stringify([legacyMention.pubkey]),
+    });
+    const running = await startWorkbench(config, {
+      citizenRelay: {
+        query: async () => [legacyMention, participantMention],
+        publish: async () => ({ ok: true, message: "stored" }),
+        close: () => {},
+      },
+      agentRelay: {
+        query: async () => [],
+        publish: async () => ({ ok: true, message: "stored" }),
+        close: () => {},
+      },
+    });
+    try {
+      const conversation = (await fetch(
+        `http://127.0.0.1:${running.port}/api/conversation?post=${sourceAppPostId}`
+      ).then((response) => response.json())) as {
+        requestCount: number;
+        mentionIds: string[];
+        pendingCount: number;
+      };
+      assert.deepEqual(conversation, {
+        ...conversation,
+        requestCount: 1,
+        mentionIds: [participantMention.id],
+        pendingCount: 1,
+      });
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("keeps configured legacy synthetic roots out of public threads", async () => {
+    const legacySecret = Uint8Array.from(Buffer.from("44".repeat(32), "hex"));
+    const participantSecret = Uint8Array.from(
+      Buffer.from("55".repeat(32), "hex")
+    );
+    const legacySource = buildNoteEvent(legacySecret, "Alter Fixture-Hinweis", {
+      createdAt: 101,
+    });
+    const participantSource = buildNoteEvent(
+      participantSecret,
+      "Neuer signierter Hinweis",
+      { createdAt: 102 }
+    );
+    const promotion = (sourcePost: typeof legacySource, createdAt: number) =>
+      buildCivicTopicPromotionEvent(
+        sourcePost.pubkey === legacySource.pubkey
+          ? legacySecret
+          : participantSecret,
+        {
+          sourcePost,
+          municipalityId: "roebel-mueritz",
+          topicId:
+            "urn:stadtstack:topic:municipality:roebel-mueritz:uferweg",
+          topicTitle: "Uferweg",
+          agentPubkey: mecky,
+          content: "@Mecky, welche geprüften Informationen liegen dazu vor?",
+          createdAt,
+        }
+      );
+    const legacyRoot = promotion(legacySource, 103);
+    const participantRoot = promotion(participantSource, 104);
+    const citizenEvents = [
+      legacySource,
+      participantSource,
+      legacyRoot,
+      participantRoot,
+    ];
+    const config = parseWorkbenchConfig({
+      ...publicSignedEnvironment(),
+      LEGACY_SYNTHETIC_PUBKEYS_JSON: JSON.stringify([legacyRoot.pubkey]),
+    });
+    const running = await startWorkbench(config, {
+      citizenRelay: {
+        query: async (filters: Array<Record<string, unknown>>) => {
+          const filter = filters[0] ?? {};
+          return citizenEvents.filter((entry) => {
+            if (Array.isArray(filter.ids) && !filter.ids.includes(entry.id))
+              return false;
+            if (
+              Array.isArray(filter.kinds) &&
+              !filter.kinds.includes(entry.kind)
+            )
+              return false;
+            const parents = filter["#e"];
+            return (
+              !Array.isArray(parents) ||
+              entry.tags.some(
+                (tag) => tag[0] === "e" && parents.includes(tag[1])
+              )
+            );
+          });
+        },
+        publish: async () => ({ ok: true, message: "stored" }),
+        close: () => {},
+      },
+      agentRelay: {
+        query: async () => [],
+        publish: async () => ({ ok: true, message: "stored" }),
+        close: () => {},
+      },
+    });
+    try {
+      const origin = `http://127.0.0.1:${running.port}`;
+      const legacyThread = (await fetch(
+        `${origin}/api/thread?root=${legacyRoot.id}`
+      ).then((response) => response.json())) as {
+        arguments: unknown[];
+        rootEvent: null | { id: string };
+      };
+      assert.deepEqual(legacyThread.arguments, []);
+      assert.equal(legacyThread.rootEvent, null);
+
+      const participantThread = (await fetch(
+        `${origin}/api/thread?root=${participantRoot.id}`
+      ).then((response) => response.json())) as {
+        rootEvent: null | { id: string };
+      };
+      assert.equal(participantThread.rootEvent?.id, participantRoot.id);
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("rejects and hides arguments whose public parent was a legacy fixture", async () => {
+    const legacySecret = Uint8Array.from(Buffer.from("44".repeat(32), "hex"));
+    const participantSecret = Uint8Array.from(
+      Buffer.from("55".repeat(32), "hex")
+    );
+    const sourcePost = buildNoteEvent(
+      participantSecret,
+      "Ein echter Ausgangsbeitrag für eine öffentliche Diskussion.",
+      { createdAt: 101 }
+    );
+    const root = buildCivicTopicPromotionEvent(participantSecret, {
+      sourcePost,
+      municipalityId: "roebel-mueritz",
+      topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:uferweg",
+      topicTitle: "Uferweg",
+      agentPubkey: mecky,
+      content: "@Mecky, welche Optionen sollten wir abwägen?",
+      createdAt: 102,
+    });
+    const legacyParent = buildCivicArgumentEvent(legacySecret, {
+      rootEvent: root,
+      parentEvent: root,
+      municipalityId: "roebel-mueritz",
+      topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:uferweg",
+      stance: "pro",
+      content: "Dieses alte Fixture-Argument bleibt ausgeschlossen.",
+      createdAt: 103,
+    });
+    const participantChild = buildCivicArgumentEvent(participantSecret, {
+      rootEvent: root,
+      parentEvent: legacyParent,
+      municipalityId: "roebel-mueritz",
+      topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:uferweg",
+      stance: "con",
+      content: "Diese Antwort darf ohne sichtbaren Elternknoten nicht verwaisen.",
+      createdAt: 104,
+    });
+    const missingParent = buildCivicArgumentEvent(participantSecret, {
+      rootEvent: root,
+      parentEvent: root,
+      municipalityId: "roebel-mueritz",
+      topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:uferweg",
+      stance: "pro",
+      content: "Dieser Zwischenknoten fehlt im Relay.",
+      createdAt: 103,
+    });
+    const orphanParent = buildCivicArgumentEvent(participantSecret, {
+      rootEvent: root,
+      parentEvent: missingParent,
+      municipalityId: "roebel-mueritz",
+      topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:uferweg",
+      stance: "con",
+      content: "Dieser bereits gespeicherte Knoten hat keinen sichtbaren Pfad.",
+      createdAt: 104,
+    });
+    const orphanChild = buildCivicArgumentEvent(participantSecret, {
+      rootEvent: root,
+      parentEvent: orphanParent,
+      municipalityId: "roebel-mueritz",
+      topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:uferweg",
+      stance: "pro",
+      content: "Auch unter einem nicht verbundenen Elternknoten wird abgelehnt.",
+      createdAt: 105,
+    });
+    const citizenEvents = [sourcePost, root, legacyParent, orphanParent];
+    const publishedIds: string[] = [];
+    const config = parseWorkbenchConfig({
+      ...publicSignedEnvironment(),
+      LEGACY_SYNTHETIC_PUBKEYS_JSON: JSON.stringify([legacyParent.pubkey]),
+    });
+    const running = await startWorkbench(config, {
+      citizenRelay: {
+        query: async (filters: Array<Record<string, unknown>>) => {
+          const filter = filters[0] ?? {};
+          return citizenEvents.filter((entry) => {
+            if (Array.isArray(filter.ids) && !filter.ids.includes(entry.id))
+              return false;
+            if (
+              Array.isArray(filter.authors) &&
+              !filter.authors.includes(entry.pubkey)
+            )
+              return false;
+            if (
+              Array.isArray(filter.kinds) &&
+              !filter.kinds.includes(entry.kind)
+            )
+              return false;
+            const parents = filter["#e"];
+            return (
+              !Array.isArray(parents) ||
+              entry.tags.some(
+                (tag) => tag[0] === "e" && parents.includes(tag[1])
+              )
+            );
+          });
+        },
+        publish: async (event) => {
+          publishedIds.push(event.id);
+          citizenEvents.push(event);
+          return { ok: true, message: "stored" };
+        },
+        close: () => {},
+      },
+      agentRelay: {
+        query: async () => [],
+        publish: async () => ({ ok: true, message: "stored" }),
+        close: () => {},
+      },
+    });
+    try {
+      const origin = `http://127.0.0.1:${running.port}`;
+      const response = await fetch(`${origin}/api/signed-event`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stadtstack-e2e": "1",
+        },
+        body: JSON.stringify({ intent: "argument", event: participantChild }),
+      });
+      assert.equal(response.status, 422);
+      assert.deepEqual(await response.json(), {
+        error: "signed_argument_invalid",
+      });
+      assert.deepEqual(publishedIds, []);
+
+      const orphanResponse = await fetch(`${origin}/api/signed-event`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stadtstack-e2e": "1",
+        },
+        body: JSON.stringify({ intent: "argument", event: orphanChild }),
+      });
+      assert.equal(orphanResponse.status, 422);
+      assert.deepEqual(await orphanResponse.json(), {
+        error: "signed_argument_invalid",
+      });
+      assert.deepEqual(publishedIds, []);
+
+      citizenEvents.push(participantChild);
+      const thread = (await fetch(
+        `${origin}/api/thread?root=${root.id}`
+      ).then((result) => result.json())) as {
+        arguments: Array<{ id: string }>;
+      };
+      assert.deepEqual(
+        thread.arguments.map((argument) => argument.id),
+        [root.id]
+      );
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("does not connect an argument to a parent from another discussion root", async () => {
+    const firstSecret = Uint8Array.from(Buffer.from("55".repeat(32), "hex"));
+    const secondSecret = Uint8Array.from(Buffer.from("66".repeat(32), "hex"));
+    const childSecret = Uint8Array.from(Buffer.from("77".repeat(32), "hex"));
+    const firstSource = buildNoteEvent(firstSecret, "Erster Ausgangsbeitrag", {
+      createdAt: 101,
+    });
+    const secondSource = buildNoteEvent(secondSecret, "Zweiter Ausgangsbeitrag", {
+      createdAt: 102,
+    });
+    const firstRoot = buildCivicTopicPromotionEvent(firstSecret, {
+      sourcePost: firstSource,
+      municipalityId: "roebel-mueritz",
+      topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:uferweg",
+      topicTitle: "Uferweg",
+      agentPubkey: mecky,
+      content: "@Mecky, welche Optionen hat der Uferweg?",
+      createdAt: 103,
+    });
+    const secondRoot = buildCivicTopicPromotionEvent(secondSecret, {
+      sourcePost: secondSource,
+      municipalityId: "roebel-mueritz",
+      topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:marktplatz",
+      topicTitle: "Marktplatz",
+      agentPubkey: mecky,
+      content: "@Mecky, welche Optionen hat der Marktplatz?",
+      createdAt: 104,
+    });
+    const crossRootChild = buildNoteEvent(
+      childSecret,
+      "Dieser Knoten darf nicht über zwei Diskussionen verbunden werden.",
+      {
+        createdAt: 105,
+        tags: [
+          ["e", firstRoot.id, "", "root"],
+          ["e", secondRoot.id, "", "reply"],
+          ["argument-root", firstRoot.id],
+          ["stance", "pro"],
+          ["t", "stadtstack-argument"],
+          ["municipality", "roebel-mueritz"],
+          [
+            "topic",
+            "urn:stadtstack:topic:municipality:roebel-mueritz:uferweg",
+          ],
+        ],
+      }
+    );
+    const citizenEvents = [
+      firstSource,
+      secondSource,
+      firstRoot,
+      secondRoot,
+      crossRootChild,
+    ];
+    const config = parseWorkbenchConfig(publicSignedEnvironment());
+    const running = await startWorkbench(config, {
+      citizenRelay: {
+        query: async () => citizenEvents,
+        publish: async () => ({ ok: true, message: "stored" }),
+        close: () => {},
+      },
+      agentRelay: {
+        query: async () => [],
+        publish: async () => ({ ok: true, message: "stored" }),
+        close: () => {},
+      },
+    });
+    try {
+      const feed = (await fetch(
+        `http://127.0.0.1:${running.port}/api/feed?profile=public`
+      ).then((response) => response.json())) as {
+        posts: Array<{
+          discussions?: Array<{ id: string; replyCount: number }>;
+        }>;
+      };
+      const firstDiscussion = feed.posts
+        .flatMap((post) => post.discussions ?? [])
+        .find((discussion) => discussion.id === firstRoot.id);
+      assert.equal(firstDiscussion?.replyCount, 0);
+    } finally {
+      await running.close();
+    }
+  });
+
+  it("does not reintroduce a legacy synthetic mention through a selected conversation", async () => {
+    const legacySecret = Uint8Array.from(Buffer.from("44".repeat(32), "hex"));
+    const participantSecret = Uint8Array.from(
+      Buffer.from("55".repeat(32), "hex")
+    );
+    const meckySecret = Uint8Array.from(Buffer.from("33".repeat(32), "hex"));
+    const sourceAppPostId = "50000000-0000-4000-8000-000000000005";
+    const sourcePost = buildNoteEvent(
+      participantSecret,
+      "Ein echter, signierter Beitrag bleibt im gemischten Feed sichtbar.",
+      {
+        createdAt: 101,
+        tags: [["source-app-post", sourceAppPostId]],
+      }
+    );
+    const legacyMention = buildNoteEvent(
+      legacySecret,
+      "@Mecky, dieser frühere Fixture-Dialog darf nicht wieder erscheinen.",
+      {
+        createdAt: 102,
+        tags: [
+          ["p", mecky],
+          ["source-app-post", sourceAppPostId],
+          ["t", "roebel-app-conversation"],
+        ],
+      }
+    );
+    const legacyReply = buildNoteEvent(
+      meckySecret,
+      "Diese alte Antwort besitzt zwar Belege, gehört aber zum Fixture-Dialog.",
+      {
+        createdAt: 103,
+        tags: [
+          ["netizen_agent", "Mecky", "roebel-staging"],
+          ["e", legacyMention.id, "", "reply"],
+          ["p", legacyMention.pubkey],
+          ["source-app-post", sourceAppPostId],
+          [
+            "evidence",
+            `sha256:${"b".repeat(64)}`,
+            "https://roebel.example/evidence/legacy-fixture",
+          ],
+        ],
+      }
+    );
+    const promotion = buildCivicTopicPromotionEvent(participantSecret, {
+      sourcePost,
+      municipalityId: "roebel-mueritz",
+      topicId:
+        "urn:stadtstack:topic:municipality:roebel-mueritz:legacy-fixture",
+      topicTitle: "Legacy-Fixture",
+      agentPubkey: mecky,
+      content: "@Mecky, welche Optionen sollten gemeinsam geprüft werden?",
+      conversationSource: {
+        kind: "selected_conversation",
+        sourceAppPostId,
+        mentionEventId: legacyMention.id,
+        replyEventId: legacyReply.id,
+      },
+      createdAt: 104,
+    });
+    const retryPromotion = buildCivicTopicPromotionEvent(participantSecret, {
+      sourcePost,
+      municipalityId: "roebel-mueritz",
+      topicId:
+        "urn:stadtstack:topic:municipality:roebel-mueritz:legacy-fixture",
+      topicTitle: "Legacy-Fixture",
+      agentPubkey: mecky,
+      content: "@Mecky, welche Optionen sollten gemeinsam geprüft werden?",
+      createdAt: 108,
+    });
+    const legacyPrivatePromotion = buildCivicTopicPromotionEvent(legacySecret, {
+      sourcePost: legacyMention,
+      municipalityId: "roebel-mueritz",
+      topicId:
+        "urn:stadtstack:topic:municipality:roebel-mueritz:legacy-fixture",
+      topicTitle: "Legacy-Fixture",
+      agentPubkey: mecky,
+      content: "@Mecky, dieser private Fixture-Pfad bleibt ebenfalls gesperrt.",
+      conversationSource: {
+        kind: "selected_conversation",
+        sourceAppPostId,
+        mentionEventId: legacyMention.id,
+        replyEventId: legacyReply.id,
+      },
+      createdAt: 104,
+    });
+    const invalidRootArgument = buildCivicArgumentEvent(participantSecret, {
+      rootEvent: promotion,
+      parentEvent: promotion,
+      municipalityId: "roebel-mueritz",
+      topicId:
+        "urn:stadtstack:topic:municipality:roebel-mueritz:legacy-fixture",
+      stance: "pro",
+      content: "Ein unsichtbarer Diskussionsknoten darf keine Argumente annehmen.",
+      createdAt: 105,
+    });
+    const invalidRootAnswerReceipt =
+      `urn:stadtstack:mecky-answer:${"c".repeat(64)}`;
+    const invalidRootAnswer = buildNoteEvent(
+      meckySecret,
+      "Diese Antwort ist signiert, aber ihr Diskussionsursprung bleibt unsichtbar.",
+      {
+        createdAt: 106,
+        tags: [
+          ["netizen_agent", "Mecky", "roebel-staging"],
+          ["e", promotion.id, "", "reply"],
+          ["p", promotion.pubkey],
+          ["source-app-post", sourceAppPostId],
+          ["mecky-receipt", invalidRootAnswerReceipt],
+          ["municipality", "roebel-mueritz"],
+          [
+            "topic",
+            "urn:stadtstack:topic:municipality:roebel-mueritz:legacy-fixture",
+          ],
+          [
+            "evidence",
+            `sha256:${"d".repeat(64)}`,
+            "https://roebel.example/evidence/invisible-root",
+          ],
+        ],
+      }
+    );
+    const invalidRootSuggestion = buildCitizenSignedTopicSuggestion(
+      participantSecret,
+      {
+        binding: {
+          municipalityId: "roebel-mueritz",
+          topicId:
+            "urn:stadtstack:topic:municipality:roebel-mueritz:legacy-fixture",
+        },
+        sourceDiscussion: promotion,
+        sourceAnswer: invalidRootAnswer,
+        agentPubkey: mecky,
+        title: "Unsichtbaren Ursprung nicht fortsetzen",
+        summary:
+          "Ein Vorschlag darf nur aus einer öffentlich gültigen Diskussion entstehen.",
+        createdAt: 107,
+      }
+    );
+    const citizenEvents = [sourcePost, legacyMention];
+    const agentEvents = [legacyReply, invalidRootAnswer];
+    const publishedIds: string[] = [];
+    const config = parseWorkbenchConfig({
+      ...publicSignedEnvironment(),
+      LEGACY_SYNTHETIC_PUBKEYS_JSON: JSON.stringify([legacyMention.pubkey]),
+    });
+    const running = await startWorkbench(config, {
+      citizenRelay: {
+        query: async () => citizenEvents,
+        publish: async (event) => {
+          publishedIds.push(event.id);
+          citizenEvents.push(event);
+          return { ok: true, message: "stored" };
+        },
+        close: () => {},
+      },
+      agentRelay: {
+        query: async () => agentEvents,
+        publish: async () => ({ ok: true, message: "stored" }),
+        close: () => {},
+      },
+    });
+    try {
+      const origin = `http://127.0.0.1:${running.port}`;
+      const privateSourceResponse = await fetch(
+        `${origin}/api/staging-participant/topic-tracer/promotion-source`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-stadtstack-e2e": "1",
+          },
+          body: JSON.stringify({
+            sourceNoteEventId: legacyMention.id,
+            sourceAuthorPubkey: legacyMention.pubkey,
+            sourceAppPostId,
+          }),
+        }
+      );
+      assert.equal(privateSourceResponse.status, 200);
+      assert.equal(await privateSourceResponse.json(), null);
+
+      const privatePromotionResponse = await fetch(
+        `${origin}/api/staging-participant/topic-tracer/promotions`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-stadtstack-e2e": "1",
+          },
+          body: JSON.stringify({ event: legacyPrivatePromotion }),
+        }
+      );
+      assert.equal(privatePromotionResponse.status, 422);
+      assert.deepEqual(await privatePromotionResponse.json(), {
+        error: "signed_event_legacy_identity",
+      });
+      assert.deepEqual(publishedIds, []);
+
+      const excludedResponse = await fetch(`${origin}/api/signed-event`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stadtstack-e2e": "1",
+        },
+        body: JSON.stringify({ intent: "promotion", event: promotion }),
+      });
+      assert.equal(excludedResponse.status, 422);
+      assert.deepEqual(await excludedResponse.json(), {
+        error: "signed_promotion_conversation_invalid",
+      });
+      assert.deepEqual(publishedIds, []);
+
+      citizenEvents.push(promotion);
+      const invalidArgumentResponse = await fetch(
+        `${origin}/api/signed-event`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-stadtstack-e2e": "1",
+          },
+          body: JSON.stringify({
+            intent: "argument",
+            event: invalidRootArgument,
+          }),
+        }
+      );
+      assert.equal(invalidArgumentResponse.status, 422);
+      assert.deepEqual(await invalidArgumentResponse.json(), {
+        error: "signed_argument_invalid",
+      });
+      assert.deepEqual(publishedIds, []);
+
+      const invalidSuggestionResponse = await fetch(
+        `${origin}/api/signed-event`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-stadtstack-e2e": "1",
+          },
+          body: JSON.stringify({
+            intent: "suggestion",
+            event: invalidRootSuggestion.event,
+          }),
+        }
+      );
+      assert.equal(invalidSuggestionResponse.status, 422);
+      assert.deepEqual(await invalidSuggestionResponse.json(), {
+        error: "signed_suggestion_sources_invalid",
+      });
+      assert.deepEqual(publishedIds, []);
+
+      const retryResponse = await fetch(`${origin}/api/signed-event`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-stadtstack-e2e": "1",
+        },
+        body: JSON.stringify({ intent: "promotion", event: retryPromotion }),
+      });
+      assert.equal(retryResponse.status, 200);
+      const retry = (await retryResponse.json()) as {
+        status: string;
+        event: { id: string };
+      };
+      assert.equal(retry.status, "promoted");
+      assert.equal(retry.event.id, retryPromotion.id);
+      assert.deepEqual(publishedIds, [retryPromotion.id]);
+
+      const feed = (await fetch(
+        `${origin}/api/feed?profile=public`
+      ).then((response) => response.json())) as {
+        posts: Array<{
+          id: string;
+          entryType: "post" | "topic";
+          sourceConversation?: unknown;
+        }>;
+      };
+      const topic = feed.posts.find((entry) => entry.entryType === "topic");
+      assert.equal(topic?.id, retryPromotion.id);
+      assert.equal(topic?.sourceConversation, null);
+      assert.equal(
+        feed.posts.some(
+          (entry) => entry.entryType === "post" && entry.id === sourcePost.id
+        ),
+        true
+      );
+      assert.equal(JSON.stringify(feed).includes(legacyMention.pubkey), false);
     } finally {
       await running.close();
     }

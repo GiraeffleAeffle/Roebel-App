@@ -20,6 +20,13 @@ Administrative projection reads and every fixture-only mutation route return
 control-plane URL into this runtime. Presence of any of those four forbidden
 variables—even an empty string or `[]`—fails startup.
 
+Public mode also requires `LEGACY_SYNTHETIC_PUBKEYS_JSON`: a canonical sorted
+JSON array of unique, lowercase 64-hex Nostr public keys whose historical
+fixture events must remain excluded. Use the explicit value `[]` only when the
+relay has no legacy fixture authors. These are public identifiers, not secrets;
+the deployment must pin the exact known list rather than discovering it at
+runtime.
+
 ## GitOps input
 
 The separate `Röbel signed-Nostr E2E runtime publisher` produces one immutable
@@ -27,8 +34,8 @@ two-component `roebel_e2e_runtime_pin_v1` artifact. A reviewed operations PR
 must consume the two image **digests** from that pin, never a mutable tag:
 
 - `roebel-e2e-workbench`: `WORKBENCH_MODE=public-signed-only`, Mecky public
-  key, Gnosis RPC, citizen/agent relay URLs, and the relay-admission token
-  Secret only;
+  key, the exact `LEGACY_SYNTHETIC_PUBKEYS_JSON` boundary, Gnosis RPC,
+  citizen/agent relay URLs, and the relay-admission token Secret only;
 - `roebel-staging-relay`: separate citizen and agent deployments, each with a
   bounded owned event volume; only the citizen relay receives the internal
   admission token and admission volume;
@@ -52,8 +59,11 @@ Private deployment inputs:
 - `GNOSIS_RPC_URL`: server-only Gnosis RPC used for EOA/ERC-1271 verification;
 - `CITIZEN_RELAY_ADMISSION_TOKEN`: the same high-entropy value mounted into the
   citizen relay as `RELAY_ADMISSION_TOKEN`;
-- the existing relay URLs and Mecky pubkey. Fixture configuration and the
-  Case Steward control inputs are only for `isolated-fixture` mode.
+- the existing relay URLs and Mecky pubkey.
+
+`LEGACY_SYNTHETIC_PUBKEYS_JSON` contains only public keys and is therefore a
+reviewed GitOps configuration input, not a Secret. Fixture configuration and
+the Case Steward control inputs are only for `isolated-fixture` mode.
 
 The admission token must be sourced from a Kubernetes Secret and must never be
 placed in this repository, an image environment layer, or a browser variable.
