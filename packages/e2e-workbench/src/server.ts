@@ -138,6 +138,7 @@ export interface WorkbenchConfig {
   citizenRelayAdmissionToken: string;
   citizenRelayUrl: string;
   gnosisRpcUrl: string;
+  legacySyntheticPubkeys: string[];
   meckyPubkey: string;
   mode: "isolated-fixture" | "public-signed-only";
   personas: Persona[];
@@ -293,6 +294,40 @@ export function parseWorkbenchConfig(
     publicKeys.add(publicKey);
     return { id, name, secretKeyHex, publicKey };
   });
+  const rawLegacySyntheticPubkeys =
+    environment.LEGACY_SYNTHETIC_PUBKEYS_JSON;
+  let parsedLegacySyntheticPubkeys: unknown;
+  try {
+    parsedLegacySyntheticPubkeys =
+      rawLegacySyntheticPubkeys === undefined
+        ? undefined
+        : JSON.parse(rawLegacySyntheticPubkeys);
+  } catch {
+    throw new Error("workbench_legacy_synthetic_pubkeys_invalid");
+  }
+  if (
+    (mode === "public-signed-only" &&
+      (!Array.isArray(parsedLegacySyntheticPubkeys) ||
+        parsedLegacySyntheticPubkeys.length > 100)) ||
+    (mode === "isolated-fixture" &&
+      parsedLegacySyntheticPubkeys !== undefined)
+  ) {
+    throw new Error("workbench_legacy_synthetic_pubkeys_invalid");
+  }
+  const legacySyntheticPubkeys =
+    mode === "public-signed-only"
+      ? (parsedLegacySyntheticPubkeys as unknown[])
+      : [];
+  if (
+    !legacySyntheticPubkeys.every(
+      (entry): entry is string => typeof entry === "string" && HEX64.test(entry)
+    ) ||
+    new Set(legacySyntheticPubkeys).size !== legacySyntheticPubkeys.length ||
+    JSON.stringify([...legacySyntheticPubkeys].sort()) !==
+      JSON.stringify(legacySyntheticPubkeys)
+  ) {
+    throw new Error("workbench_legacy_synthetic_pubkeys_invalid");
+  }
   const meckyPubkey = environment.MECKY_PUBKEY ?? "";
   const caseStewardToken = environment.CASE_STEWARD_TOKEN ?? "";
   const citizenRelayAdmissionToken =
@@ -302,6 +337,7 @@ export function parseWorkbenchConfig(
   if (
     !HEX64.test(meckyPubkey) ||
     publicKeys.has(meckyPubkey) ||
+    legacySyntheticPubkeys.includes(meckyPubkey) ||
     citizenRelayAdmissionToken.length < 32 ||
     /\s/.test(citizenRelayAdmissionToken)
   )
@@ -341,6 +377,7 @@ export function parseWorkbenchConfig(
       environment.GNOSIS_RPC_URL ?? "",
       "gnosis_rpc_url"
     ),
+    legacySyntheticPubkeys,
     meckyPubkey,
     mode,
     personas,
@@ -916,6 +953,33 @@ function isExactSeededMarienfelderGraphRoot(
   );
 }
 
+function hasValidDiscussionRootEnvelope(
+  config: WorkbenchConfig,
+  candidate: NostrEvent,
+  citizenEvents: readonly NostrEvent[]
+): boolean {
+  const sourcePostId = tagValue(candidate, "source-post");
+  if (sourcePostId === null) {
+    return (
+      isExactInteractiveMarienfelderRoot(config, candidate) ||
+      isExactSeededMarienfelderGraphRoot(config, candidate)
+    );
+  }
+  const sourcePost = citizenEvents.find(
+    (entry) => entry.id === sourcePostId && verifyEvent(entry)
+  );
+  return (
+    sourcePost !== undefined &&
+    (verifyCivicTopicPromotionEvent({
+      event: candidate,
+      sourcePost,
+      municipalityId: "roebel-mueritz",
+      agentPubkey: config.meckyPubkey,
+    }) !== null ||
+      isExactLegacyMarienfelderPromotion(config, candidate, sourcePost))
+  );
+}
+
 function verifiedTopicSuggestionFor(
   config: WorkbenchConfig,
   citizenEvents: readonly NostrEvent[],
@@ -1038,7 +1102,10 @@ function authorFor(config: WorkbenchConfig, event: NostrEvent): PublicAuthor {
 }
 
 function isSyntheticCitizen(config: WorkbenchConfig, pubkey: string): boolean {
-  return config.personas.some((candidate) => candidate.publicKey === pubkey);
+  return (
+    config.personas.some((candidate) => candidate.publicKey === pubkey) ||
+    config.legacySyntheticPubkeys.includes(pubkey)
+  );
 }
 
 function asArgument(
@@ -1092,6 +1159,37 @@ function asArgument(
     content: event.content,
     createdAt: new Date(event.created_at * 1_000).toISOString(),
   };
+}
+
+function connectedArgumentsFor(
+  rootIds: ReadonlySet<string>,
+  candidates: readonly PublicArgument[]
+): PublicArgument[] {
+  const connectedRootById = new Map(
+    [...rootIds].map((rootId) => [rootId, rootId] as const)
+  );
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const candidate of candidates) {
+      if (
+        candidate.stance === "root" ||
+        connectedRootById.has(candidate.id) ||
+        !rootIds.has(candidate.rootId) ||
+        candidate.parentId === null ||
+        connectedRootById.get(candidate.parentId) !== candidate.rootId
+      ) {
+        continue;
+      }
+      connectedRootById.set(candidate.id, candidate.rootId);
+      changed = true;
+    }
+  }
+  return candidates.filter((candidate) =>
+    candidate.stance === "root"
+      ? rootIds.has(candidate.id)
+      : connectedRootById.get(candidate.id) === candidate.rootId
+  );
 }
 
 async function publishSeed(
@@ -1496,6 +1594,15 @@ export async function startWorkbench(
   const admitPubkey =
     dependencies.admitPubkey ??
     ((pubkey: string) => admitToCitizenRelay(config, fetcher, pubkey));
+  const signedEventForWrite = (value: unknown): NostrEvent => {
+    const signed = event(value);
+    if (
+      config.mode === "public-signed-only" &&
+      isSyntheticCitizen(config, signed.pubkey)
+    )
+      throw new Error("signed_event_legacy_identity");
+    return signed;
+  };
   const signedPromotionWrites = new Map<string, Promise<NostrEvent>>();
   const signedSuggestionWrites = new Map<string, Promise<NostrEvent>>();
   const publishSignedPromotionOnce = async (
@@ -1560,7 +1667,16 @@ export async function startWorkbench(
             selectedConversationProjectionFor(
               config,
               candidate,
-              [sourcePost, ...mentions.filter(verifyEvent)],
+              [
+                sourcePost,
+                ...mentions
+                  .filter(verifyEvent)
+                  .filter(
+                    (mention) =>
+                      config.mode !== "public-signed-only" ||
+                      !isSyntheticCitizen(config, mention.pubkey)
+                  ),
+              ],
               replies.filter(verifyEvent)
             ) === null
           ) {
@@ -1592,6 +1708,11 @@ export async function startWorkbench(
   };
   const exactSourceNote = async (input: { sourceNoteEventId: string; sourceAuthorPubkey: string; sourceAppPostId: string }) => {
     if (!HEX64.test(input.sourceNoteEventId) || !HEX64.test(input.sourceAuthorPubkey) || !UUID.test(input.sourceAppPostId)) return null;
+    if (
+      config.mode === "public-signed-only" &&
+      isSyntheticCitizen(config, input.sourceAuthorPubkey)
+    )
+      return null;
     const notes = await citizenRelay.query([{ ids: [input.sourceNoteEventId], authors: [input.sourceAuthorPubkey], kinds: [1], limit: 1 }]);
     const note = notes.find((candidate) => candidate.id === input.sourceNoteEventId && candidate.pubkey === input.sourceAuthorPubkey &&
       isAppConversationMentionEvent(candidate, { agentPubkey: config.meckyPubkey, sourceAppPostId: input.sourceAppPostId,
@@ -1608,6 +1729,75 @@ export async function startWorkbench(
       agentPubkey: config.meckyPubkey, sourceAppPostId, sourceAppCommentId: sourceAppCommentIdFor(sourceNote), conversationTopic: APP_CONVERSATION_TOPIC,
     });
     return projection ? { reply: valid[0]!, projection } : null;
+  };
+  const visibleDiscussionContextFor = async (
+    rootEvent: NostrEvent,
+    relatedCitizenEvents: readonly NostrEvent[] = []
+  ): Promise<{
+    rootEvent: NostrEvent;
+    citizenEvents: NostrEvent[];
+    agentEvents: NostrEvent[];
+  } | null> => {
+    const selectedConversation = selectedConversationSourceFor(rootEvent);
+    const linkedCitizenIds = [
+      tagValue(rootEvent, "source-post"),
+      selectedConversation?.mentionEventId ?? null,
+    ].filter(
+      (value): value is string => value !== null && HEX64.test(value)
+    );
+    const [threadEvents, linkedCitizenEvents, linkedAgentEvents] =
+      await Promise.all([
+        citizenRelay.query([
+          { kinds: [1], "#e": [rootEvent.id], limit: 200 },
+        ]),
+        linkedCitizenIds.length === 0
+          ? Promise.resolve([])
+          : citizenRelay.query([
+              {
+                ids: [...new Set(linkedCitizenIds)],
+                kinds: [1],
+                limit: linkedCitizenIds.length,
+              },
+            ]),
+        selectedConversation === null
+          ? Promise.resolve([])
+          : agentRelay.query([
+              {
+                ids: [selectedConversation.replyEventId],
+                authors: [config.meckyPubkey],
+                kinds: [1],
+                limit: 1,
+              },
+            ]),
+      ]);
+    const citizenEvents = uniqueEvents(
+      [rootEvent],
+      relatedCitizenEvents.filter(verifyEvent),
+      threadEvents.filter(verifyEvent),
+      linkedCitizenEvents.filter(verifyEvent)
+    ).filter(
+      (candidate) =>
+        config.mode !== "public-signed-only" ||
+        !isSyntheticCitizen(config, candidate.pubkey)
+    );
+    const visibleRoot = citizenEvents.find(
+      (candidate) => candidate.id === rootEvent.id
+    );
+    const agentEvents = linkedAgentEvents.filter(verifyEvent);
+    if (
+      visibleRoot === undefined ||
+      !hasValidDiscussionRootEnvelope(config, visibleRoot, citizenEvents) ||
+      (selectedConversation !== null &&
+        selectedConversationProjectionFor(
+          config,
+          visibleRoot,
+          citizenEvents,
+          agentEvents
+        ) === null)
+    ) {
+      return null;
+    }
+    return { rootEvent: visibleRoot, citizenEvents, agentEvents };
   };
   const publishParticipantSuggestionOnce = async (signed: NostrEvent, claimKey: string) => {
     const active = signedSuggestionWrites.get(claimKey);
@@ -1707,9 +1897,12 @@ export async function startWorkbench(
             .query([{ kinds: [1], authors: [config.meckyPubkey], limit: 100 }])
             .then((entries) => entries.filter(verifyEvent)),
         ]);
-        const visibleEvents = publicProfile
-          ? events.filter((entry) => !isSyntheticCitizen(config, entry.pubkey))
-          : events;
+        const visibleEvents =
+          publicProfile || config.mode === "public-signed-only"
+            ? events.filter(
+                (entry) => !isSyntheticCitizen(config, entry.pubkey)
+              )
+            : events;
         const discoveredRoots = visibleEvents.filter(
           (entry) => asArgument(config, entry)?.stance === "root"
         );
@@ -1757,6 +1950,10 @@ export async function startWorkbench(
         const projectionCitizenEvents = uniqueEvents(
           visibleEvents,
           linkedCitizenEvents.filter(verifyEvent)
+        ).filter(
+          (entry) =>
+            config.mode !== "public-signed-only" ||
+            !isSyntheticCitizen(config, entry.pubkey)
         );
         const agentEvents = uniqueEvents(
           recentAgentEvents,
@@ -1764,31 +1961,14 @@ export async function startWorkbench(
           rootAgentEvents.filter(verifyEvent)
         );
         const validatedRoots = discoveredRoots.filter((candidate) => {
-          const sourcePostId = tagValue(candidate, "source-post");
-          if (sourcePostId === null) {
-            return (
-              isExactInteractiveMarienfelderRoot(config, candidate) ||
-              isExactSeededMarienfelderGraphRoot(config, candidate)
-            );
-          }
-          const sourcePost = projectionCitizenEvents.find(
-            (entry) => entry.id === sourcePostId
-          );
-          if (sourcePost === undefined) return false;
-          const topicOnlyValid =
-            verifyCivicTopicPromotionEvent({
-              event: candidate,
-              sourcePost,
-              municipalityId: "roebel-mueritz",
-              agentPubkey: config.meckyPubkey,
-            }) !== null;
-          if (!topicOnlyValid) {
-            return isExactLegacyMarienfelderPromotion(
+          if (
+            !hasValidDiscussionRootEnvelope(
               config,
               candidate,
-              sourcePost
-            );
-          }
+              projectionCitizenEvents
+            )
+          )
+            return false;
           const selected = selectedConversationSourceFor(candidate);
           return (
             selected === null ||
@@ -1817,12 +1997,15 @@ export async function startWorkbench(
           visibleRoots.push(candidate);
         }
         const visibleRootIds = new Set(visibleRoots.map((entry) => entry.id));
-        const argumentsList = visibleEvents
-          .map((entry) => asArgument(config, entry))
-          .filter(
-            (entry): entry is PublicArgument =>
-              entry !== null && visibleRootIds.has(entry.rootId)
-          );
+        const argumentsList = connectedArgumentsFor(
+          visibleRootIds,
+          visibleEvents
+            .map((entry) => asArgument(config, entry))
+            .filter(
+              (entry): entry is PublicArgument =>
+                entry !== null && visibleRootIds.has(entry.rootId)
+            )
+        );
         const promotionBySourcePost = new Map<
           string,
           { discussionId: string; topicId: string }
@@ -2043,6 +2226,11 @@ export async function startWorkbench(
         const mentionsBySource = new Map<string, NostrEvent>();
         for (const mention of citizenEvents
           .filter(verifyEvent)
+          .filter(
+            (entry) =>
+              config.mode !== "public-signed-only" ||
+              !isSyntheticCitizen(config, entry.pubkey)
+          )
           .filter((entry) => isAppConversationMention(config, entry))
           .filter((entry) => sourceAppPostIdFor(entry) === postId)
           .sort(
@@ -2128,7 +2316,9 @@ export async function startWorkbench(
           .find(
             (entry) =>
               entry.id === rootId &&
-              asArgument(config, entry)?.stance === "root"
+              asArgument(config, entry)?.stance === "root" &&
+              (config.mode !== "public-signed-only" ||
+                !isSyntheticCitizen(config, entry.pubkey))
           );
         const selectedSource = rootCandidate
           ? selectedConversationSourceFor(rootCandidate)
@@ -2184,6 +2374,10 @@ export async function startWorkbench(
           rootCandidate ? [rootCandidate] : [],
           threadCitizenEvents.filter(verifyEvent),
           linkedCitizenEvents.filter(verifyEvent)
+        ).filter(
+          (entry) =>
+            config.mode !== "public-signed-only" ||
+            !isSyntheticCitizen(config, entry.pubkey)
         );
         const meckyEvents = uniqueEvents(
           rootMeckyEvents.filter(verifyEvent),
@@ -2196,21 +2390,11 @@ export async function startWorkbench(
           : null;
         const rootEnvelopeValid =
           rootCandidate !== undefined &&
-          ((sourceEvent !== null &&
-            (verifyCivicTopicPromotionEvent({
-              event: rootCandidate,
-              sourcePost: sourceEvent,
-              municipalityId: "roebel-mueritz",
-              agentPubkey: config.meckyPubkey,
-            }) !== null ||
-              isExactLegacyMarienfelderPromotion(
-                config,
-                rootCandidate,
-                sourceEvent
-              ))) ||
-            (sourceEvent === null &&
-              (isExactInteractiveMarienfelderRoot(config, rootCandidate) ||
-                isExactSeededMarienfelderGraphRoot(config, rootCandidate))));
+          hasValidDiscussionRootEnvelope(
+            config,
+            rootCandidate,
+            citizenEvents
+          );
         const rootConversationValid =
           rootCandidate !== undefined &&
           (selectedSource === null ||
@@ -2224,12 +2408,15 @@ export async function startWorkbench(
           rootCandidate && rootEnvelopeValid && rootConversationValid
             ? rootCandidate
             : null;
-        const argumentsList = citizenEvents
-          .map((entry) => asArgument(config, entry))
-          .filter(
-            (entry): entry is PublicArgument =>
-              rootEvent !== null && entry !== null && entry.rootId === rootId
-          );
+        const argumentsList = connectedArgumentsFor(
+          new Set(rootEvent === null ? [] : [rootId]),
+          citizenEvents
+            .map((entry) => asArgument(config, entry))
+            .filter(
+              (entry): entry is PublicArgument =>
+                rootEvent !== null && entry !== null && entry.rootId === rootId
+            )
+        );
         const meckyReply = rootEvent
           ? meckyEvents
               .flatMap((entry) => {
@@ -2383,7 +2570,7 @@ export async function startWorkbench(
       }
       if (path === "/api/staging-participant/topic-tracer/promotions") {
         if (!exactRecord(body, ["event"])) throw new Error("topic_tracer_promotion_invalid");
-        const signed = event(body.event);
+        const signed = signedEventForWrite(body.event);
         const sourceId = tagValue(signed, "source-post");
         if (!sourceId || !HEX64.test(sourceId)) throw new Error("topic_tracer_promotion_invalid");
         const sourceNotes = await citizenRelay.query([{ ids: [sourceId], authors: [signed.pubkey], kinds: [1], limit: 1 }]);
@@ -2418,7 +2605,7 @@ export async function startWorkbench(
       }
       if (path === "/api/staging-participant/topic-tracer/suggestions") {
         if (!exactRecord(body, ["event"])) throw new Error("topic_tracer_suggestion_invalid");
-        const signed = event(body.event);
+        const signed = signedEventForWrite(body.event);
         const rootId = signed.tags.find((tag) => tag[0] === "e" && tag[3] === "root")?.[1];
         if (!rootId || !HEX64.test(rootId)) throw new Error("topic_tracer_suggestion_invalid");
         const roots = await citizenRelay.query([{ ids: [rootId], authors: [signed.pubkey], kinds: [1], limit: 1 }]);
@@ -2469,6 +2656,11 @@ export async function startWorkbench(
         );
         if (!binding.valid)
           throw new Error(`citizen_binding_${binding.reason}`);
+        if (
+          config.mode === "public-signed-only" &&
+          isSyntheticCitizen(config, binding.pubkey)
+        )
+          throw new Error("citizen_admission_legacy_identity");
         const expectedStatement = bindingStatement({
           account: body.credential.address,
           npub: binding.npub,
@@ -2505,7 +2697,7 @@ export async function startWorkbench(
             body.intent !== "suggestion")
         )
           throw new Error("signed_event_invalid");
-        const signed = event(body.event);
+        const signed = signedEventForWrite(body.event);
         const maxSignedContent = body.intent === "suggestion" ? 4_000 : 2_000;
         if (
           signed.kind !== 1 ||
@@ -2624,7 +2816,16 @@ export async function startWorkbench(
               selectedConversationProjectionFor(
                 config,
                 signed,
-                [sourcePost, ...mentions.filter(verifyEvent)],
+                [
+                  sourcePost,
+                  ...mentions
+                    .filter(verifyEvent)
+                    .filter(
+                      (mention) =>
+                        config.mode !== "public-signed-only" ||
+                        !isSyntheticCitizen(config, mention.pubkey)
+                    ),
+                ],
                 replies.filter(verifyEvent)
               ) === null
             ) {
@@ -2658,7 +2859,14 @@ export async function startWorkbench(
           const sourceDiscussion = relatedCitizenEvents.find(
             (candidate) => candidate.id === rootId
           );
-          const topic = sourceDiscussion ? topicFor(sourceDiscussion) : null;
+          const discussionContext = sourceDiscussion
+            ? await visibleDiscussionContextFor(
+                sourceDiscussion,
+                relatedCitizenEvents
+              )
+            : null;
+          const visibleDiscussion = discussionContext?.rootEvent;
+          const topic = visibleDiscussion ? topicFor(visibleDiscussion) : null;
           const sourceAnswers =
             rootId && receiptId
               ? (
@@ -2676,10 +2884,11 @@ export async function startWorkbench(
             (candidate) => tagValue(candidate, "mecky-receipt") === receiptId
           );
           if (
-            !sourceDiscussion ||
+            !discussionContext ||
+            !visibleDiscussion ||
             !sourceAnswer ||
             !topic ||
-            caseBindingFor(sourceDiscussion) !== null
+            caseBindingFor(visibleDiscussion) !== null
           ) {
             throw new Error("signed_suggestion_sources_invalid");
           }
@@ -2688,7 +2897,7 @@ export async function startWorkbench(
               municipalityId: "roebel-mueritz",
               topicId: topic.id,
             },
-            sourceDiscussion,
+            sourceDiscussion: visibleDiscussion,
             sourceAnswer,
             agentPubkey: config.meckyPubkey,
             event: signed,
@@ -2721,24 +2930,43 @@ export async function startWorkbench(
           const rootEvent = relatedEvents.find(
             (candidate) => candidate.id === rootId
           );
-          const parentEvent = relatedEvents.find(
+          const discussionContext = rootEvent
+            ? await visibleDiscussionContextFor(rootEvent, relatedEvents)
+            : null;
+          const visibleRoot = discussionContext?.rootEvent;
+          const visibleParent = discussionContext?.citizenEvents.find(
             (candidate) => candidate.id === parentId
           );
-          const rootArgument = rootEvent ? asArgument(config, rootEvent) : null;
-          const parentArgument = parentEvent
-            ? asArgument(config, parentEvent)
+          const rootArgument = visibleRoot
+            ? asArgument(config, visibleRoot)
             : null;
-          const rootTopic = rootEvent ? topicFor(rootEvent) : null;
+          const parentArgument = visibleParent
+            ? asArgument(config, visibleParent)
+            : null;
+          const rootTopic = visibleRoot ? topicFor(visibleRoot) : null;
+          const connectedArguments = connectedArgumentsFor(
+            new Set(discussionContext !== null && rootId ? [rootId] : []),
+            (discussionContext?.citizenEvents ?? [])
+              .map((candidate) => asArgument(config, candidate))
+              .filter(
+                (candidate): candidate is PublicArgument =>
+                  candidate !== null && candidate.rootId === rootId
+              )
+          );
           if (
             !rootId ||
             !parentId ||
-            !rootEvent ||
-            !parentEvent ||
+            !visibleRoot ||
+            !visibleParent ||
+            !discussionContext ||
             rootArgument?.stance !== "root" ||
             parentArgument?.rootId !== rootId ||
+            !connectedArguments.some(
+              (candidate) => candidate.id === parentId
+            ) ||
             !rootTopic ||
-            signed.created_at <= rootEvent.created_at ||
-            signed.created_at <= parentEvent.created_at ||
+            signed.created_at <= visibleRoot.created_at ||
+            signed.created_at <= visibleParent.created_at ||
             JSON.stringify(signed.tags) !==
               JSON.stringify([
                 ["e", rootId, "", "root"],
