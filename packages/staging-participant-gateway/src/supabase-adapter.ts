@@ -8,6 +8,10 @@ import type {
   StagingParticipantSourceMirrorBinding,
   StagingParticipantSuggestionReceipt,
 } from "./types.ts";
+import {
+  parseRestrictedPostgrestOrigin,
+  type RestrictedPostgrestOrigin,
+} from "./restricted-postgrest-origin.ts";
 
 const POST_RPC = "staging_participant_gateway_create_main_text_post";
 const COMMENT_RPC = "staging_participant_gateway_create_main_text_comment";
@@ -60,18 +64,20 @@ function unsafeAnonKey(value: string): boolean {
   return payload !== null && payload.role !== "anon";
 }
 
-function validateConfig(config: RestrictedSupabaseRpcConfig): URL {
-  let url: URL;
-  try {
-    url = new URL(config.url);
-  } catch {
-    throw new Error("staging_participant_supabase_url_invalid");
-  }
-  if (url.protocol !== "https:" || config.anonKey.length < 16 ||
+function validateConfig(
+  config: RestrictedSupabaseRpcConfig,
+): RestrictedPostgrestOrigin {
+  const endpoint = parseRestrictedPostgrestOrigin(config.url);
+  if (!endpoint || config.anonKey.length < 16 ||
     unsafeAnonKey(config.anonKey) || config.rpcSecret.length < 32) {
     throw new Error("staging_participant_supabase_rpc_config_invalid");
   }
-  return url;
+  return endpoint;
+}
+
+function rpcUrl(endpoint: RestrictedPostgrestOrigin, rpc: string): URL {
+  const prefix = endpoint.directPostgrest ? "/rpc" : "/rest/v1/rpc";
+  return new URL(`${prefix}/${rpc}`, endpoint.base);
 }
 
 /**
@@ -83,12 +89,12 @@ function validateConfig(config: RestrictedSupabaseRpcConfig): URL {
 export function createRestrictedSupabaseDataAdapter(
   config: RestrictedSupabaseRpcConfig,
 ): StagingParticipantDataAdapter {
-  const base = validateConfig(config);
+  const endpoint = validateConfig(config);
   const request = config.fetch ?? globalThis.fetch;
   if (typeof request !== "function") throw new Error("staging_participant_fetch_unavailable");
 
   const invoke = async (rpc: string, body: Record<string, string>): Promise<unknown> => {
-    const response = await request(new URL(`/rest/v1/rpc/${rpc}`, base), {
+    const response = await request(rpcUrl(endpoint, rpc), {
       method: "POST",
       headers: {
         apikey: config.anonKey,
@@ -234,11 +240,11 @@ export function createRestrictedSupabaseDataAdapter(
 export function createStagingParticipantReadinessAdapter(
   config: RestrictedSupabaseRpcConfig,
 ): StagingParticipantReadinessAdapter {
-  const base = validateConfig(config);
+  const endpoint = validateConfig(config);
   const request = config.fetch ?? globalThis.fetch;
   if (typeof request !== "function") throw new Error("staging_participant_fetch_unavailable");
   const preflight = async (rpc: string) => {
-      const response = await request(new URL(`/rest/v1/rpc/${rpc}`, base), {
+      const response = await request(rpcUrl(endpoint, rpc), {
         method: "POST",
         headers: {
           apikey: config.anonKey,

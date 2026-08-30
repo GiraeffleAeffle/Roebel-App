@@ -1,5 +1,6 @@
 import type { StagingParticipantGatewayConfig, StagingParticipantReadinessPins } from "./types.ts";
 import { PRIVATE_WORKBENCH_URL, type PrivateWorkbenchMirrorConfig } from "./workbench-adapter.ts";
+import { parseRestrictedPostgrestOrigin } from "./restricted-postgrest-origin.ts";
 
 export type ProductionGatewayConfig = Readonly<{
   gateway: StagingParticipantGatewayConfig;
@@ -16,7 +17,6 @@ export type ProductionGatewayConfig = Readonly<{
 function nonEmpty(value: string | undefined): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
-
 function integerPort(value: string | undefined): number | null {
   const parsed = Number(value ?? "");
   return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 65_535 ? parsed : null;
@@ -122,7 +122,7 @@ export function resolveProductionGatewayConfig(
     return null;
   }
   if (originUrl.origin !== origin || originUrl.protocol !== "https:" ||
-    gnosisUrl.protocol !== "https:" || supabaseUrlValue.protocol !== "https:" ||
+    gnosisUrl.protocol !== "https:" || !parseRestrictedPostgrestOrigin(supabaseUrlValue.href) ||
     workbenchUrl !== PRIVATE_WORKBENCH_URL ||
     workbenchUrlValue.href !== PRIVATE_WORKBENCH_URL ||
     workbenchUrlValue.protocol !== "http:" ||

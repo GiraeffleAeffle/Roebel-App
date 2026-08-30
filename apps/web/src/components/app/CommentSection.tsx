@@ -215,6 +215,10 @@ function MeckyCommentItem({ reply }: { reply: StagingMeckyConversationReply }) {
               ))}
             </div>
           )}
+          <p className="mt-2 text-[10px] leading-4 text-amber-800 dark:text-amber-200">
+            Beratende KI-Antwort · keine Verwaltungs- oder
+            Entscheidungsbefugnis
+          </p>
         </div>
         <span className="ml-3 text-xs text-muted-foreground">
           {formatRelativeTime(reply.createdAt)}

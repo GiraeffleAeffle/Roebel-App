@@ -9,6 +9,7 @@ import {
   createStagingParticipantReadinessAdapter,
   restrictedStagingParticipantRpcNames,
 } from "../src/supabase-adapter.ts";
+import { IN_CLUSTER_TRACER_POSTGREST_ORIGIN } from "../src/restricted-postgrest-origin.ts";
 
 const env = {
   ROEBEL_STAGING_PARTICIPANT_GATEWAY: "enabled",
@@ -142,6 +143,16 @@ test("production configuration fails closed unless explicit staging mode and eve
   assert.equal(productionConfig(env)?.port, 18085);
   assert.equal(productionConfig({
     ...env,
+    ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_URL:
+      IN_CLUSTER_TRACER_POSTGREST_ORIGIN,
+  })?.supabaseUrl, IN_CLUSTER_TRACER_POSTGREST_ORIGIN);
+  assert.equal(productionConfig({
+    ...env,
+    ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_URL:
+      "http://unreviewed.stadtstack-roebel-staging-lab.svc.cluster.local:3000",
+  }), null);
+  assert.equal(productionConfig({
+    ...env,
     ROEBEL_STAGING_PARTICIPANT_GATEWAY_PRIVATE_WORKBENCH_URL: "https://public.example",
   }), null);
   assert.equal(productionConfig({
@@ -191,6 +202,31 @@ test("production configuration fails closed unless explicit staging mode and eve
     turboConfig.tasks["@roebel/staging-participant-gateway#build"].env,
     ["SOURCE_REVISION"],
   );
+});
+test("the exact NetworkPolicy-bound PostgREST origin uses its raw RPC path", async () => {
+  const calls: string[] = [];
+  const adapter = createRestrictedSupabaseDataAdapter({
+    url: IN_CLUSTER_TRACER_POSTGREST_ORIGIN,
+    anonKey: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_ANON_KEY,
+    rpcSecret: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET,
+    fetch: async (url) => {
+      calls.push(String(url));
+      return new Response(JSON.stringify(POST), { status: 200 });
+    },
+  });
+  await adapter.createMainTextPost({
+    walletAddress: POST.wallet_address,
+    content: POST.content,
+    requestId: "20000000-0000-4000-8000-000000000001",
+  });
+  assert.deepEqual(calls, [
+    `${IN_CLUSTER_TRACER_POSTGREST_ORIGIN}/rpc/${restrictedStagingParticipantRpcNames.createMainTextPost}`,
+  ]);
+  assert.throws(() => createRestrictedSupabaseDataAdapter({
+    url: `${IN_CLUSTER_TRACER_POSTGREST_ORIGIN}/unexpected`,
+    anonKey: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_ANON_KEY,
+    rpcSecret: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET,
+  }));
 });
 
 test("Supabase adapter rejects a valid-looking row that is not correlated to its request", async () => {

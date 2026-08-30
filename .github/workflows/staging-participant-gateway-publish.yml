@@ -23,6 +23,7 @@ on:
       - "scripts/verify-staging-service-oci.test.mjs"
       - "supabase/migrations/20260825_staging_participant_gateway.sql"
       - "supabase/migrations/20260825_staging_participant_topic_tracer.sql"
+      - "supabase/staging_incluster_tracer_baseline_v1.sql"
       - "supabase/staging_participant_gateway_deactivate.sql"
       - "supabase/staging-participant-gateway-schema-contract-v1.json"
       - "supabase/staging-participant-topic-tracer-schema-contract-v1.json"
@@ -45,6 +46,7 @@ on:
       - "scripts/verify-staging-service-oci.test.mjs"
       - "supabase/migrations/20260825_staging_participant_gateway.sql"
       - "supabase/migrations/20260825_staging_participant_topic_tracer.sql"
+      - "supabase/staging_incluster_tracer_baseline_v1.sql"
       - "supabase/staging_participant_gateway_deactivate.sql"
       - "supabase/staging-participant-gateway-schema-contract-v1.json"
       - "supabase/staging-participant-topic-tracer-schema-contract-v1.json"
@@ -157,6 +159,8 @@ jobs:
             "$RUNNER_TEMP/test-context/supabase/migrations/"
           cp supabase/migrations/20260825_staging_participant_topic_tracer.sql \
             "$RUNNER_TEMP/test-context/supabase/migrations/"
+          cp supabase/staging_incluster_tracer_baseline_v1.sql \
+            "$RUNNER_TEMP/test-context/supabase/"
           cp supabase/staging_participant_gateway_deactivate.sql \
             "$RUNNER_TEMP/test-context/supabase/"
           cp supabase/staging-participant-gateway-schema-contract-v1.json \
