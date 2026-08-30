@@ -214,7 +214,7 @@ export function StadtstackAdministrationProgress({
                   href={participationHref}
                   className="mt-3 inline-flex min-h-10 items-center gap-1 rounded-full bg-emerald-700 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-800"
                 >
-                  Im Mitmachen-Bereich ansehen
+                  Citizen Brief im beratenden Mitmachen ansehen
                   <ChevronRight className="h-4 w-4" />
                 </Link>
               )}
