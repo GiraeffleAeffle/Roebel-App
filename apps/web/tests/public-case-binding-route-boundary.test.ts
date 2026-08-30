@@ -49,8 +49,15 @@ test("keeps the case-binding BFF credential-free and read-only", () => {
 
 test("advances civic stages only from the verified receipt, not a legacy tag", () => {
   assert.match(discussion, /loadVerifiedPublicCaseBindingReceipt\(rootId\)/);
-  assert.match(discussion, /const canonicalCaseId = bindingReceipt\?\.caseId/);
-  assert.match(discussion, /thread\.caseBinding && !bindingReceipt/);
+  assert.match(
+    discussion,
+    /thread\?\.topic\?\.id === bindingReceipt\.topicId/
+  );
+  assert.match(
+    discussion,
+    /const canonicalCaseId = topicBindingReceipt\?\.caseId/
+  );
+  assert.match(discussion, /thread\.caseBinding && !topicBindingReceipt/);
   assert.doesNotMatch(discussion, /thread\.caseBinding\?\.canonicalCaseId/);
   assert.match(topic, /loadVerifiedPublicCaseBindingReceipt\(rootId\)/);
   assert.match(topic, /bindingReceipt\.caseId/);

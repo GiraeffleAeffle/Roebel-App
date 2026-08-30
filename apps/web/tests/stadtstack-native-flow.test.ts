@@ -79,6 +79,13 @@ const administrationProgress = readFileSync(
   ),
   "utf8"
 );
+const proposalReceipts = readFileSync(
+  new URL(
+    "../src/components/app/StadtstackProposalReceipts.tsx",
+    import.meta.url
+  ),
+  "utf8"
+);
 const workbenchServer = readFileSync(
   new URL(
     "../../../packages/e2e-workbench/src/server.ts",
@@ -270,6 +277,13 @@ test("labels the civic handoff and keeps vote and treasury authority disabled", 
   assert.match(discussion, /Beratendes Meinungsbild/);
   assert.match(discussion, /Keine echte Abstimmung/);
   assert.match(discussion, /keine\s+Auszahlung/i);
+  assert.match(discussion, /<StadtstackProposalReceipts/);
+  assert.match(proposalReceipts, /Nostr-Signatur geprüft/);
+  assert.match(proposalReceipts, /Bürgerberechtigung noch nicht nachgewiesen/);
+  assert.match(proposalReceipts, /CivicCase öffentlich quittiert/);
+  assert.match(proposalReceipts, /schreibt nicht in openDesk/);
+  assert.match(proposalReceipts, /kein kommunaler Beschluss/);
+  assert.match(discussion, /thread\?\.topic\?\.id === bindingReceipt\.topicId/);
 });
 
 test("shows reviewed administration progress inside the same Civic Journey", () => {
@@ -345,6 +359,9 @@ test("shows the reviewed Citizen Brief in Mitmachen without merging it into form
   assert.match(proposalsPage, /topicId=\{stadtstackTopicId\}/);
   assert.match(proposalsPage, /Formale Governance · technisch und rechtlich/);
   assert.match(advisoryParticipation, /Beratendes Mitmachen · Staging/);
+  assert.match(advisoryParticipation, /Kein Bürgerentscheid/);
+  assert.match(advisoryParticipation, /keine Ratsabstimmung/);
+  assert.match(advisoryParticipation, /kein Governance-Vote/);
   assert.match(advisoryParticipation, /loadStadtstackAdvisoryCase/);
   assert.match(advisoryParticipation, /caseId/);
   assert.match(advisoryParticipation, /Zurück zum Bürger-Thema/);
@@ -361,5 +378,10 @@ test("shows the reviewed Citizen Brief in Mitmachen without merging it into form
     /castVote|createProposal|executeProposal/
   );
   assert.match(civicTopic, /participationHref/);
-  assert.match(administrationProgress, /Im Mitmachen-Bereich ansehen/);
+  assert.match(discussion, /participationHref/);
+  assert.match(discussion, /\/app\/proposals\?case=/);
+  assert.match(
+    administrationProgress,
+    /Citizen Brief im beratenden Mitmachen ansehen/
+  );
 });

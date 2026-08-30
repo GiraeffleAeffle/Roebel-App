@@ -49,6 +49,7 @@ import {
 } from "@/lib/staging-participant/topic-tracer";
 import { StadtstackAdministrationProgress } from "./StadtstackAdministrationProgress";
 import { CivicJourneyRail } from "./CivicJourneyRail";
+import { StadtstackProposalReceipts } from "./StadtstackProposalReceipts";
 
 type WorkflowState = {
   answer?: Record<string, unknown>;
@@ -132,7 +133,8 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
   const topicSuggestionResumeRoot = useRef<string | null>(null);
   const [topicSuggestionReceiptPending, setTopicSuggestionReceiptPending] =
     useState(false);
-  const canonicalCaseId = bindingReceipt?.caseId ?? null;
+  const topicBindingReceipt = bindingReceipt && thread?.topic?.id === bindingReceipt.topicId ? bindingReceipt : null;
+  const canonicalCaseId = topicBindingReceipt?.caseId ?? null;
 
   const reload = useCallback(async () => {
     try {
@@ -218,7 +220,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
   }, [canonicalCaseId, refreshAdministrationProgress]);
 
   useEffect(() => {
-    if (!thread?.topic || bindingReceipt || thread.suggestion) return;
+    if (!thread?.topic || topicBindingReceipt || thread.suggestion) return;
     setProposalTitle((current) =>
       current || `${thread.topic!.title} prüfen`
     );
@@ -227,7 +229,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
         current ||
         "Die in der öffentlichen Diskussion genannten Optionen sollen durch die zuständigen Menschen geprüft und nachvollziehbar zurückgespielt werden."
     );
-  }, [bindingReceipt, thread]);
+  }, [thread, topicBindingReceipt]);
 
   useEffect(() => {
     if (loading || !thread || thread.mecky || meckyPollAttempts.current >= MECKY_POLL_ATTEMPT_LIMIT) return;
@@ -263,7 +265,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
       !syntheticLegacyMode,
   );
   const citizenArgumentMode = Boolean(
-    citizenSession && thread?.topic && !bindingReceipt,
+    citizenSession && thread?.topic && !topicBindingReceipt,
   );
 
   useEffect(() => {
@@ -364,7 +366,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
     if (!thread?.mecky || !thread.rootEvent || !rootEvent) return;
     setWorkflowBusy(true);
     try {
-      if (!thread.topic || bindingReceipt) {
+      if (!thread.topic || topicBindingReceipt) {
         throw new Error("case_steward_admission_is_separate");
       }
       if (
@@ -464,7 +466,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
     } finally { setWorkflowBusy(false); }
   };
 
-  const topicProposalMode = Boolean(thread?.topic && !bindingReceipt);
+  const topicProposalMode = Boolean(thread?.topic && !topicBindingReceipt);
   const topicSuggestionSigned = Boolean(
     topicProposalMode &&
       !topicSuggestionReceiptPending &&
@@ -488,7 +490,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
   );
   const journey = useMemo(() => {
     if (!thread?.topic) return null;
-    const admitted = Boolean(bindingReceipt);
+    const admitted = Boolean(topicBindingReceipt);
     const administrationStatus =
       administrationProgress?.status === "citizen_brief_current"
         ? "brief_current"
@@ -512,7 +514,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
           ? "brief_ready"
           : "not_available",
     });
-  }, [administrationProgress, bindingReceipt, config?.meckyPubkey, thread, workflow]);
+  }, [administrationProgress, config?.meckyPubkey, thread, topicBindingReceipt, workflow]);
 
   if (loading) return <div className="flex min-h-60 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>;
   if (!thread || !graph || !rootEvent) return <div className="rounded-xl border border-rose-300 bg-rose-50 p-5 text-rose-900">{error ?? "Diskussion nicht gefunden"}</div>;
@@ -652,7 +654,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
           <WorkflowStep label="Öffentliche Diskussion" done={true} detail="Signierte Nostr-Ereignisse, Pro/Contra-Struktur und @Mecky-Erwähnung." />
           <WorkflowStep label="Geprüfte Mecky-Antwort" done={Boolean(workflow.answer || thread.mecky)} detail="Mecky darf Quellen erklären, aber den Vorschlag nicht selbst einreichen." />
           <WorkflowStep label={participantTracerMode ? "Teilnahme-signierter Entwurf" : "Bürger-signierter Vorschlag"} done={Boolean(workflow.suggestion || thread.suggestion)} detail={participantTracerMode ? "Die Staging-Teilnahme signiert einen unveränderlichen Entwurf. Eine getrennt geprüfte Bürgerperson muss ihn später ausdrücklich übernehmen." : topicProposalMode ? "Ein verbundenes Röbel-Konto bestätigt Titel und Zusammenfassung mit einer eigenen Nostr-Signatur." : "Die synthetische Testperson bestätigt Titel und Zusammenfassung."} />
-          <WorkflowStep label="Menschliche Aufnahme als CivicCase" done={Boolean(bindingReceipt)} detail="Nur eine checksum-verifizierte öffentliche Case-Steward-Quittung bestätigt die getrennte, autorisierte Aufnahme." />
+          <WorkflowStep label="Menschliche Aufnahme als CivicCase" done={Boolean(topicBindingReceipt)} detail="Nur eine checksum-verifizierte öffentliche Case-Steward-Quittung bestätigt die getrennte, autorisierte Aufnahme." />
           <WorkflowStep
             label="Verwaltungsfeedback und Citizen Brief"
             done={administrationProgress?.status === "citizen_brief_current"}
@@ -662,17 +664,18 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
                 : "Acht getrennte Fachpakete werden geprüft und öffentlich verständlich zusammengeführt."
             }
           />
-          <WorkflowStep label="Beratendes Meinungsbild im Mitmachen-Bereich" done={false} detail="In Staging erst nach einem aktuellen Citizen Brief sichtbar und immer ausdrücklich nicht bindend." />
+          <WorkflowStep label="Beratendes Meinungsbild im Mitmachen-Bereich" done={false} detail={administrationProgress?.status === "citizen_brief_current" ? "Der aktuelle Citizen Brief ist im Mitmachen-Bereich sichtbar; die Beteiligung ist noch nicht geöffnet und hat keine Entscheidungswirkung." : "Erst nach einem aktuellen Citizen Brief sichtbar und immer ausdrücklich nicht bindend."} />
         </ol>
-        {bindingReceipt && (
+        {topicBindingReceipt && (
           <StadtstackAdministrationProgress
             progress={administrationProgress}
             loading={administrationProgressLoading}
             error={administrationProgressError}
             onRefresh={() => void refreshAdministrationProgress()}
+            participationHref={administrationProgress?.status === "citizen_brief_current" && thread.topic ? `/app/proposals?case=${encodeURIComponent(topicBindingReceipt.caseId)}&topic=${encodeURIComponent(thread.topic.id)}` : null}
           />
         )}
-        {thread.caseBinding && !bindingReceipt && (
+        {thread.caseBinding && !topicBindingReceipt && (
           <div className="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
             <p className="font-semibold">Synthetische Legacy-Case-Markierung</p>
             <p className="mt-1 text-xs leading-5">Ein Nostr-Tag bleibt als Staging-Historie sichtbar. Er ist keine öffentliche Case-Steward-Quittung, öffnet keinen Verwaltungsstand und setzt keinen CivicCase fort.</p>
@@ -681,7 +684,10 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
         {bindingReceiptUnavailable && (
           <div className="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">Die öffentliche Case-Steward-Quittung ist gerade nicht erreichbar; der Journey-Stand bleibt unverändert.</div>
         )}
-        {!bindingReceipt && (
+        {thread.topic && (thread.suggestion || topicBindingReceipt) && (
+          <StadtstackProposalReceipts suggestion={thread.suggestion} bindingReceipt={topicBindingReceipt} rootId={rootId} topicId={thread.topic.id} />
+        )}
+        {!topicBindingReceipt && (
           <>
             <div className={`mt-5 rounded-lg border p-3 text-sm ${topicSuggestionSigned ? "border-emerald-300 bg-emerald-50 text-emerald-950" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
               <p className="font-semibold">{topicSuggestionSigned ? participantTracerMode ? "Teilnahme-Entwurf signiert" : "Vorschlag bürger-signiert" : "Noch kein CivicCase"}</p>
@@ -730,7 +736,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
             )}
           </>
         )}
-        <button type="button" onClick={startProposal} disabled={proposalDisabled} className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50">{workflowBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> {topicSuggestionReceiptPending ? "Quittung wird abgeschlossen…" : participantTracerMode ? "Entwurf wird signiert…" : "Vorschlag wird signiert…"}</> : bindingReceipt ? <><CheckCircle2 className="h-4 w-4" /> CivicCase quittiert</> : topicSuggestionSigned ? <><CheckCircle2 className="h-4 w-4" /> {participantTracerMode ? "Bürgerübernahme erforderlich" : "Wartet auf Case Steward"}</> : topicSuggestionReceiptPending ? <><RefreshCw className="h-4 w-4" /> Quittung erneut abschließen</> : topicProposalMode && !citizenSession ? <><Landmark className="h-4 w-4" /> Anmelden, um {participantTracerMode ? "Entwurf" : "Vorschlag"} zu signieren</> : <><FileSignature className="h-4 w-4" /> {participantTracerMode ? "Entwurf" : "Vorschlag"} prüfen und signieren</>}</button>
+        <button type="button" onClick={startProposal} disabled={proposalDisabled} className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50">{workflowBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> {topicSuggestionReceiptPending ? "Quittung wird abgeschlossen…" : participantTracerMode ? "Entwurf wird signiert…" : "Vorschlag wird signiert…"}</> : topicBindingReceipt ? <><CheckCircle2 className="h-4 w-4" /> CivicCase quittiert</> : topicSuggestionSigned ? <><CheckCircle2 className="h-4 w-4" /> {participantTracerMode ? "Bürgerübernahme erforderlich" : "Wartet auf Case Steward"}</> : topicSuggestionReceiptPending ? <><RefreshCw className="h-4 w-4" /> Quittung erneut abschließen</> : topicProposalMode && !citizenSession ? <><Landmark className="h-4 w-4" /> Anmelden, um {participantTracerMode ? "Entwurf" : "Vorschlag"} zu signieren</> : <><FileSignature className="h-4 w-4" /> {participantTracerMode ? "Entwurf" : "Vorschlag"} prüfen und signieren</>}</button>
         <div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="rounded-lg border border-border bg-muted/50 p-3"><div className="flex items-center gap-2 text-sm font-bold"><Vote className="h-4 w-4" /> Keine echte Abstimmung</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Das Staging-Ergebnis ist ein beratendes Meinungsbild ohne formale Rats- oder Governance-Wirkung.</p></div><div className="rounded-lg border border-border bg-muted/50 p-3"><div className="flex items-center gap-2 text-sm font-bold"><CircleDollarSign className="h-4 w-4" /> Stadtkasse getrennt</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Budgetbedarf kann als Verwaltungsprüfung erscheinen; keine Auszahlung und keine Treasury-Transaktion wird ausgelöst.</p></div></div>
       </section>
     </div>

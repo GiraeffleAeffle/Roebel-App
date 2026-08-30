@@ -89,6 +89,7 @@ export function StadtstackAdvisoryParticipation({
   return (
     <section
       aria-labelledby="stadtstack-advisory-title"
+      data-civic-authority="none"
       className="mb-8 overflow-hidden rounded-xl border border-emerald-700/30 bg-card shadow-sm"
     >
       <header className="bg-emerald-950 px-5 py-5 text-white sm:px-6">
@@ -100,6 +101,11 @@ export function StadtstackAdvisoryParticipation({
         </h2>
         <p className="mt-1 text-sm leading-6 text-emerald-100">
           Getrennt von formaler Governance, Ratsentscheidung und Stadtkasse.
+        </p>
+        <p className="mt-3 rounded-lg border border-emerald-600/50 bg-emerald-900/70 p-3 text-xs font-semibold leading-5 text-emerald-50">
+          Kein Bürgerentscheid, keine Ratsabstimmung und kein Governance-Vote:
+          Dieser Bereich zeigt nur einen geprüften Citizen Brief und – falls
+          separat veröffentlicht – ein beratendes Meinungsbild.
         </p>
         {topicId && (
           <Link
