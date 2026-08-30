@@ -1,6 +1,7 @@
 "use server"
 
 import { createClient } from "@/lib/supabase/server"
+import { createFeedServerClient } from "@/lib/supabase/feed-server"
 import { revalidatePath } from "next/cache"
 import type {
   Post,
@@ -69,7 +70,7 @@ async function optionalPublicMeckyRead<T>(
 }
 
 async function loadPublicMeckyReplyCounts(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: Awaited<ReturnType<typeof createFeedServerClient>>,
   postIds: string[]
 ): Promise<Map<string, number>> {
   if (postIds.length === 0) return new Map()
@@ -96,7 +97,7 @@ async function loadPublicMeckyReplyCounts(
 }
 
 async function loadPublicMeckyReplyRows(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: Awaited<ReturnType<typeof createFeedServerClient>>,
   postId: string,
   maximum: number
 ): Promise<unknown[]> {
@@ -132,7 +133,7 @@ async function loadPublicMeckyReplyRows(
 // ============================================
 
 async function buildPollMap(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: Awaited<ReturnType<typeof createFeedServerClient>>,
   postIds: string[],
   viewerWallet?: string
 ): Promise<Map<string, PollWithResults>> {
@@ -281,7 +282,7 @@ export async function getPostsForFeed(
 
   const { viewerWallet, category } = options
   try {
-    const supabase = await createClient()
+    const supabase = await createFeedServerClient()
 
     let query = supabase
       .from("posts")
@@ -495,7 +496,7 @@ export async function getPostById(
   }
 
   try {
-    const supabase = await createClient()
+    const supabase = await createFeedServerClient()
 
     const { data: post, error } = await supabase
       .from("posts")
@@ -931,7 +932,7 @@ export async function getComments(
   }
 
   try {
-    const supabase = await createClient()
+    const supabase = await createFeedServerClient()
 
     const maximum = Math.max(0, offset) + Math.max(0, limit)
     if (maximum === 0) return { success: true, data: [] }

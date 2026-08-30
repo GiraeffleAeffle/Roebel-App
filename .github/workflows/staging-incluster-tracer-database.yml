@@ -1,0 +1,51 @@
+name: In-cluster tracer database integration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/staging-incluster-tracer-database.yml"
+      - ".github/workflows/staging-incluster-tracer-database.static.test.mjs"
+      - "supabase/tests/test_staging_incluster_tracer_database.sh"
+      - "supabase/staging_incluster_tracer_baseline_v1.sql"
+      - "supabase/migrations/20260825_staging_participant_gateway.sql"
+      - "supabase/migrations/20260825_staging_participant_topic_tracer.sql"
+      - "supabase/tests/staging_incluster_tracer_*.sql"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/staging-incluster-tracer-database.yml"
+      - ".github/workflows/staging-incluster-tracer-database.static.test.mjs"
+      - "supabase/tests/test_staging_incluster_tracer_database.sh"
+      - "supabase/staging_incluster_tracer_baseline_v1.sql"
+      - "supabase/migrations/20260825_staging_participant_gateway.sql"
+      - "supabase/migrations/20260825_staging_participant_topic_tracer.sql"
+      - "supabase/tests/staging_incluster_tracer_*.sql"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  database-integration:
+    name: Pinned PostgreSQL tracer contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Verify the bounded workflow contract
+        run: >-
+          node --test
+          .github/workflows/staging-incluster-tracer-database.static.test.mjs
+
+      - name: Exercise the reviewed participant RPC path
+        run: bash supabase/tests/test_staging_incluster_tracer_database.sh
