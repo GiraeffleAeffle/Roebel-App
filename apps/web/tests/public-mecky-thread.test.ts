@@ -130,7 +130,16 @@ describe("normal Röbel comment thread with Public Mecky", () => {
     assert.match(actions, /publicMeckyCounts\.get\(row\.id as string\)/);
     assert.match(comments, /data-public-mecky-reply/);
     assert.match(comments, /KI · geprüfte Quellen/);
-    assert.match(comments, /keine Verwaltungs- oder\s+Entscheidungsbefugnis/);
+    assert.match(comments, /data-mecky-authority-binding="none"/);
+    assert.match(
+      comments,
+      /Beratende KI-Antwort · keine Verwaltungs- oder Entscheidungsbefugnis/
+    );
+    assert.equal(
+      (comments.match(/<MeckyAuthorityNotice \/>/g) ?? []).length,
+      2
+    );
+    assert.match(comments, /Geprüfter Nachweis \{index \+ 1\}/);
     assert.match(comments, /!projectedReplyIds\.has\(reply\.id\)/);
   });
 });

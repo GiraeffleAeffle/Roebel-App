@@ -57,6 +57,10 @@ const commentSection = readFileSync(
   new URL("../src/components/app/CommentSection.tsx", import.meta.url),
   "utf8"
 );
+const postComposer = readFileSync(
+  new URL("../src/components/app/PostComposer.tsx", import.meta.url),
+  "utf8"
+);
 const proposalsPage = readFileSync(
   new URL("../src/app/app/proposals/page.tsx", import.meta.url),
   "utf8"
@@ -193,22 +197,29 @@ test("replays exact promotion and suggestion envelopes until their receipts comp
 });
 
 test("lets explicit @Mecky mentions answer inside an ordinary app thread without auto-promotion", () => {
+  assert.doesNotMatch(appPage, /<StadtstackStagingFeed/);
+  assert.match(appPage, /<PostComposer[^>]+defaultFeedType="main"/);
+  assert.match(
+    postComposer,
+    /stagingParticipant\.createPost\(submittedContent\)/
+  );
+  assert.match(postComposer, /mirrorStagingParticipantMeckyPost/);
+  assert.match(
+    postComposer,
+    /router\.push\(`\/app\/posts\/\$\{result\.data\.id\}`\)/
+  );
   assert.match(postPromotion, /selectedReply\.replyEvent/);
   assert.match(postPromotion, /staging_participant_mecky_reply_required/);
-  assert.match(
-    readFileSync(
-      new URL("../src/components/app/PostComposer.tsx", import.meta.url),
-      "utf8"
-    ),
-    /requestAppMeckyConversationAnswer/
+  assert.match(postComposer, /requestAppMeckyConversationAnswer/);
+  assert.match(commentSection, /data-mecky-conversation-reply/);
+  assert.match(commentSection, /Geprüfter Nachweis \{index \+ 1\}/);
+  assert.match(commentSection, /data-mecky-authority-binding="none"/);
+  assert.equal(
+    (commentSection.match(/<MeckyAuthorityNotice \/>/g) ?? []).length,
+    2
   );
-  assert.match(
-    readFileSync(
-      new URL("../src/components/app/CommentSection.tsx", import.meta.url),
-      "utf8"
-    ),
-    /data-mecky-conversation-reply/
-  );
+  assert.match(postPromotion, /promoteStagingParticipantSourcePost/);
+  assert.match(postPromotion, /\/app\/diskussion\//);
 });
 
 test("invites a signed-out reader into the same public post conversation", () => {
