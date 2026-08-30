@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   buildArgumentTree,
   buildSunburstSegments,
+  summarizeArgumentTree,
   type StagingArgument,
 } from "../src/lib/stadtstack/discussion-tree";
 
@@ -67,6 +68,16 @@ test("maps the same tree to non-overlapping sunburst arcs without inventing clai
   assert.equal(firstLevel.at(-1)?.endAngle, Math.PI * 2);
 });
 
+test("summarises connected branches as structure rather than support", () => {
+  const tree = buildArgumentTree(argumentsFixture);
+  assert.deepEqual(summarizeArgumentTree(tree.root), {
+    argumentCount: 3,
+    proArgumentCount: 2,
+    conArgumentCount: 1,
+    maxDepth: 2,
+  });
+});
+
 test("fails closed on duplicate ids and keeps cycles outside the rendered tree", () => {
   assert.throws(
     () => buildArgumentTree([...argumentsFixture, { ...argumentsFixture[1]! }]),
@@ -81,4 +92,10 @@ test("fails closed on duplicate ids and keeps cycles outside the rendered tree",
   const tree = buildArgumentTree(cycle);
   assert.deepEqual(tree.root.children, []);
   assert.deepEqual(tree.orphans.map((entry) => entry.id), ["cycle-a", "cycle-b"]);
+  assert.deepEqual(summarizeArgumentTree(tree.root), {
+    argumentCount: 0,
+    proArgumentCount: 0,
+    conArgumentCount: 0,
+    maxDepth: 0,
+  });
 });

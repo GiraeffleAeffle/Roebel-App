@@ -259,6 +259,13 @@ test("refreshes a pending Mecky mention automatically without polling forever", 
 
 test("labels the civic handoff and keeps vote and treasury authority disabled", () => {
   assert.match(discussion, /Verbesserungsvorschlag/);
+  assert.match(discussion, /Diskussionsgrundlage für die Anfrage/);
+  assert.match(discussion, /Argumentzweige, keine Stimmen/);
+  assert.match(discussion, /Zur Prüfung angefragt/);
+  assert.match(discussion, /thread\?\.suggestion\?\.draft\.title/);
+  assert.match(discussion, /thread\?\.suggestion\?\.draft\.summary/);
+  assert.match(discussion, /Keine Verwaltungsfreigabe/);
+  assert.match(discussion, /kein bindender kommunaler Beschluss/);
   assert.match(discussion, /Citizen Brief/);
   assert.match(discussion, /Beratendes Meinungsbild/);
   assert.match(discussion, /Keine echte Abstimmung/);
