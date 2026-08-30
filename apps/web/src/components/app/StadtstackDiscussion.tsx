@@ -19,6 +19,7 @@ import {
 import {
   buildArgumentTree,
   buildSunburstSegments,
+  summarizeArgumentTree,
   type ArgumentTreeNode,
   type StagingArgument,
 } from "@/lib/stadtstack/discussion-tree";
@@ -251,6 +252,10 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
     try { return buildArgumentTree(thread.arguments); } catch { return null; }
   }, [thread]);
   const segments = useMemo(() => graph ? buildSunburstSegments(graph.root) : [], [graph]);
+  const argumentSummary = useMemo(
+    () => graph ? summarizeArgumentTree(graph.root) : null,
+    [graph],
+  );
   const rootEvent = graph?.root.argument;
   const syntheticLegacyMode = Boolean(rootEvent?.author.synthetic);
   const participantTracerMode = Boolean(
@@ -465,6 +470,12 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
       !topicSuggestionReceiptPending &&
       (thread?.suggestion || workflow.suggestion)
   );
+  const visibleProposalRequest = topicSuggestionSigned
+    ? {
+        title: thread?.suggestion?.draft.title ?? proposalTitle.trim(),
+        summary: thread?.suggestion?.draft.summary ?? proposalSummary.trim(),
+      }
+    : null;
   const proposalDisabled = Boolean(
     workflowBusy ||
       !topicProposalMode ||
@@ -626,6 +637,17 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
 
       <section className="rounded-xl border border-border bg-card p-5">
         <div className="flex items-start gap-3"><FileSignature className="mt-0.5 h-6 w-6 shrink-0 text-primary" /><div><h2 className="text-lg font-bold">Röbel-Verbesserungsvorschlag</h2><p className="mt-1 text-sm leading-6 text-muted-foreground">Aus Diskussion und Mecky-Antwort wird zunächst ein signierter Entwurf. Erst nach verifizierter Bürgerübernahme und menschlicher Aufnahme entsteht ein Fall. Danach folgen Verwaltungsfeedback, Citizen Brief und ein beratendes Meinungsbild im Mitmachen-Bereich.</p></div></div>
+        {argumentSummary && (
+          <div className="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-3 text-blue-950">
+            <p className="text-xs font-bold uppercase tracking-wide">Diskussionsgrundlage für die Anfrage</p>
+            <p className="mt-1 text-sm font-semibold">
+              {argumentSummary.argumentCount} {argumentSummary.argumentCount === 1 ? "verbundenes Argument" : "verbundene Argumente"} · {argumentSummary.proArgumentCount} Pro · {argumentSummary.conArgumentCount} Contra
+            </p>
+            <p className="mt-1 text-xs leading-5 text-blue-900">
+              Argumentbaum, Sunburst und Vorschlagsanfrage verwenden dieselbe signierte Diskussion. Das sind Argumentzweige, keine Stimmen, Mehrheiten oder Abstimmungsergebnisse.
+            </p>
+          </div>
+        )}
         <ol className="mt-5 space-y-4">
           <WorkflowStep label="Öffentliche Diskussion" done={true} detail="Signierte Nostr-Ereignisse, Pro/Contra-Struktur und @Mecky-Erwähnung." />
           <WorkflowStep label="Geprüfte Mecky-Antwort" done={Boolean(workflow.answer || thread.mecky)} detail="Mecky darf Quellen erklären, aber den Vorschlag nicht selbst einreichen." />
@@ -673,6 +695,16 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
                     : "Ein bürger-signierter Vorschlag ist der nächste menschliche Schritt. Erst seine ausdrückliche Aufnahme darf einen neuen Fall anlegen."}
               </p>
             </div>
+            {visibleProposalRequest && (
+              <article className="mt-4 rounded-xl border border-emerald-300 bg-white p-4" aria-label="Angefragter Röbel-Verbesserungsvorschlag">
+                <p className="text-xs font-bold uppercase tracking-wide text-emerald-800">Zur Prüfung angefragt</p>
+                <h3 className="mt-2 text-base font-bold text-foreground">{visibleProposalRequest.title}</h3>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{visibleProposalRequest.summary}</p>
+                <p className="mt-3 text-xs leading-5 text-emerald-950">
+                  Quelle: signierte Diskussion {rootId.slice(0, 12)}… · Keine Verwaltungsfreigabe, kein bindender kommunaler Beschluss, kein CivicCase, keine Abstimmung und keine Auszahlung.
+                </p>
+              </article>
+            )}
             {!topicSuggestionSigned && (
               <div className="mt-4 grid gap-3">
                 <label className="text-xs font-semibold">

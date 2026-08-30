@@ -35,6 +35,13 @@ export type SunburstSegment = {
   outerRadius: number;
 };
 
+export type ArgumentStructureSummary = {
+  argumentCount: number;
+  proArgumentCount: number;
+  conArgumentCount: number;
+  maxDepth: number;
+};
+
 function ordered(left: StagingArgument, right: StagingArgument): number {
   return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
 }
@@ -103,4 +110,32 @@ export function buildSunburstSegments(root: ArgumentTreeNode): SunburstSegment[]
   };
   visit(root, 0, 0, Math.PI * 2);
   return segments;
+}
+
+/**
+ * Summarise only the connected argument tree. These are structure counts for
+ * the discussion-to-proposal handoff, never support totals or vote weights.
+ */
+export function summarizeArgumentTree(
+  root: ArgumentTreeNode,
+): ArgumentStructureSummary {
+  const summary: ArgumentStructureSummary = {
+    argumentCount: 0,
+    proArgumentCount: 0,
+    conArgumentCount: 0,
+    maxDepth: 0,
+  };
+
+  const visit = (node: ArgumentTreeNode, depth: number) => {
+    for (const child of node.children) {
+      summary.argumentCount += 1;
+      summary.maxDepth = Math.max(summary.maxDepth, depth + 1);
+      if (child.argument.stance === "pro") summary.proArgumentCount += 1;
+      if (child.argument.stance === "con") summary.conArgumentCount += 1;
+      visit(child, depth + 1);
+    }
+  };
+
+  visit(root, 0);
+  return summary;
 }

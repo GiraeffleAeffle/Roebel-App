@@ -56,12 +56,13 @@ test("only feed/detail/comment readers can select the staging overlay", () => {
 });
 
 test("both signed Mecky reply renderers state the no-authority boundary", () => {
+  assert.match(comments, /data-mecky-authority-binding="none"/u);
+  assert.match(
+    comments,
+    /Beratende KI-Antwort · keine Verwaltungs- oder Entscheidungsbefugnis/u
+  );
   assert.equal(
-    (
-      comments.match(
-        /Beratende KI-Antwort · keine Verwaltungs- oder\s+Entscheidungsbefugnis/gu
-      ) ?? []
-    ).length,
+    (comments.match(/<MeckyAuthorityNotice \/>/gu) ?? []).length,
     2
   );
 });

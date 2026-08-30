@@ -23,7 +23,10 @@ import {
   requestAppMeckyConversationAnswer,
 } from "@/lib/stadtstack/app-mecky-conversation";
 import { appMeckyConversationGateway } from "@/lib/stadtstack/app-mecky-gateway";
-import type { StagingMeckyConversationReply } from "@/lib/stadtstack/staging-api";
+import type {
+  StagingMeckyConversationReply,
+  StagingMeckyConversationResponse,
+} from "@/lib/stadtstack/staging-api";
 import { loadPublicMeckyConversation } from "@/lib/stadtstack/civic-projection-client";
 import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
 import { useStagingTestParticipant } from "@/hooks/useStagingTestParticipant";
@@ -134,6 +137,17 @@ function linkifyMeckyText(text: string) {
   );
 }
 
+function MeckyAuthorityNotice() {
+  return (
+    <p
+      data-mecky-authority-binding="none"
+      className="mt-2 text-[10px] leading-4 text-amber-800 dark:text-amber-200"
+    >
+      Beratende KI-Antwort · keine Verwaltungs- oder Entscheidungsbefugnis
+    </p>
+  );
+}
+
 function PublicMeckyCommentItem({ comment }: { comment: PostComment }) {
   const agent = comment.agent!;
   const hasEvidence = agent.evidenceRefs.length > 0;
@@ -170,10 +184,7 @@ function PublicMeckyCommentItem({ comment }: { comment: PostComment }) {
               ))}
             </div>
           )}
-          <p className="mt-2 text-[10px] leading-4 text-amber-800 dark:text-amber-200">
-            Beratende KI-Antwort · keine Verwaltungs- oder
-            Entscheidungsbefugnis
-          </p>
+          <MeckyAuthorityNotice />
         </div>
         <span className="ml-3 text-xs text-muted-foreground">
           {formatRelativeTime(comment.created_at)}
@@ -202,7 +213,7 @@ function MeckyCommentItem({ reply }: { reply: StagingMeckyConversationReply }) {
           </p>
           {reply.evidenceRefs.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">
-              {reply.evidenceRefs.map((evidence) => (
+              {reply.evidenceRefs.map((evidence, index) => (
                 <a
                   key={evidence.digest}
                   href={evidence.url}
@@ -210,15 +221,13 @@ function MeckyCommentItem({ reply }: { reply: StagingMeckyConversationReply }) {
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                 >
-                  Geprüfter Nachweis <ExternalLink className="h-3 w-3" />
+                  Geprüfter Nachweis {index + 1}{" "}
+                  <ExternalLink className="h-3 w-3" />
                 </a>
               ))}
             </div>
           )}
-          <p className="mt-2 text-[10px] leading-4 text-amber-800 dark:text-amber-200">
-            Beratende KI-Antwort · keine Verwaltungs- oder
-            Entscheidungsbefugnis
-          </p>
+          <MeckyAuthorityNotice />
         </div>
         <span className="ml-3 text-xs text-muted-foreground">
           {formatRelativeTime(reply.createdAt)}
