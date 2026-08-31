@@ -2579,7 +2579,7 @@ export async function startWorkbench(
         const selected = promotion?.conversationSource;
         if (!sourceNote || !promotion || !selected || selected.mentionEventId !== sourceNote.id) throw new Error("topic_tracer_promotion_invalid");
         const exchange = await exactExchangeForSource(sourceNote, selected.sourceAppPostId);
-        if (!exchange || exchange.reply.id !== selected.replyEventId || (exchange.projection.receiptId ?? null) !== selected.receiptId)
+        if (!exchange || exchange.reply.id !== selected.replyEventId || exchange.projection.receiptId !== selected.receiptId)
           throw new Error("topic_tracer_promotion_invalid");
         const published = await publishSignedPromotionOnce(signed, sourceNote);
         return json(response, 200, { status: "published", event: published.event, authorityBinding: "none" });
