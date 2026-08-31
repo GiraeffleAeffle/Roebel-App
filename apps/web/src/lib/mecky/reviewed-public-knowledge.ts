@@ -6,7 +6,7 @@
  * The consumer independently checks the canonical envelope hash before use.
  */
 
-const GENERATED_AT = "2026-08-31T00:25:00.000Z";
+const GENERATED_AT = "2026-08-31T18:58:00.000Z";
 
 export const ROEBEL_REVIEWED_PUBLIC_KNOWLEDGE = Object.freeze({
   local_news: Object.freeze({
@@ -17,25 +17,23 @@ export const ROEBEL_REVIEWED_PUBLIC_KNOWLEDGE = Object.freeze({
     records: Object.freeze([
       Object.freeze({
         evidenceId:
-          "sha256:d4fe2a94057c7803a8d96e9443392b3ad758334a4660aa9d7cd2f0df6bf8cd37",
+          "sha256:7160c777b757786cbaca10e3bdd34ae75c15f51bc87e5708cbe527e771570178",
         municipalityId: "roebel-mueritz",
         sourceKind: "local_news",
         authority: "editorial_report",
-        title:
-          "Stadtvertreter in Röbel starten ins neue Jahr – Haushalt beschlossen, Investitionen geplant",
+        title: "MV17a Dambeck–Bollewick (geplant: Stuer–Röbel)",
         summary:
-          "Müritz Tipp berichtet über die erste Stadtvertretungssitzung 2026: Der Haushalt 2026 wurde beschlossen; außerdem werden Investitionen, eine Ausfallbürgschaft, Spenden und Gremienneubesetzungen genannt.",
-        publishedAt: "2026-03-07T00:00:00.000Z",
+          "Die Fachseite dokumentiert als belegten Ausgangspunkt den 4,6 km langen, asphaltierten Radweg Dambeck–Bollewick, eröffnet am 31. Mai 2022, und nennt weitere 15 km bis Röbel als geplant. Das sind prüfbare Anknüpfungspunkte für Bürger und zuständige Stellen; die Quelle belegt keine beschlossene weitere Maßnahme und nennt den Zeitplan als offen.",
+        publishedAt: "2022-06-06T00:00:00.000Z",
         admissionState: "admitted",
         lifecycle: "current",
-        publisher: "Müritz Tipp",
-        articleUrl:
-          "https://ol.wittich.de/titel/3520/ausgabe/4/2026/artikel/00000000000052270197-OL-3520-2026-10-4-0",
+        publisher: "Bahntrassenradeln — Achim Bartoschek",
+        articleUrl: "https://www.bahntrassenradeln.de/details/mv17a.htm",
         reviewedAt: GENERATED_AT,
       }),
     ]),
     contentSha256:
-      "sha256:5aac6e2807a6631bb5333ad536fd29322c3c5b630e1bdbaffba87665054af26e",
+      "sha256:d7dcc103886e9f4e7c4cd5636b8e26bbc5d9d81b417b09e65f60b279973f14be",
   }),
   ratsinformation: Object.freeze({
     schemaVersion: "reviewed_public_knowledge_projection_v1",
@@ -45,27 +43,27 @@ export const ROEBEL_REVIEWED_PUBLIC_KNOWLEDGE = Object.freeze({
     records: Object.freeze([
       Object.freeze({
         evidenceId:
-          "sha256:a19c4665c19ca36dc67906744c09273865aeecf51239380083a35d65f0d6f236",
+          "sha256:648c2c27fb9508f440de2fcc67978b0f5b68972835ad4b90582016afb84ed097",
         municipalityId: "roebel-mueritz",
         sourceKind: "ratsinformation",
         authority: "official_record",
         title:
-          "Beschlussvorlage BV-25-2026-007: Haushalt 2026 der Stadt Röbel/Müritz",
+          "Einwohnerfragestunde: Verkehrssicherheit B 198 am Abzweig Bollewick/Erlenkamp",
         summary:
-          "Die öffentliche ALLRIS-Vorlage dokumentiert die Entscheidung der Stadtvertretung vom 24. Februar 2026: Der Haushalt 2026 wurde unverändert beschlossen.",
-        publishedAt: "2026-02-24T00:00:00.000Z",
+          "Das genehmigte öffentliche Wortprotokoll dokumentiert ein Bürgeranliegen zur Verkehrssicherheit an der B 198 am Abzweig Bollewick/Erlenkamp. Eine 70er-Zone oder ein Überholverbot wurden als Anliegen genannt; Frau Siegmund nahm das Thema zur Weitergabe mit. Es dokumentiert, was zuständige Stellen prüfen könnten; es ist kein Beschluss über eine Maßnahme.",
+        publishedAt: "2025-12-17T00:00:00.000Z",
         admissionState: "admitted",
         lifecycle: "current",
         body:
-          "Öffentliche Beschlussvorlage des Amts für Finanzen; Entscheidung der Stadtvertretung Röbel/Müritz am 24.02.2026: unverändert beschlossen.",
-        recordId: "BV-25-2026-007",
+          "Öffentliche Einwohnerfragestunde, TOP Ö 7, Sitzung des Amtsausschusses Röbel-Müritz am 17.12.2025. Das Protokoll gibt ein Einwohneranliegen wieder und hält fest, dass Frau Siegmund das Thema mitnimmt und weitergibt; es enthält keinen Maßnahmenbeschluss.",
+        recordId: "Amtsausschuss-2025-12-17-Oe7",
         recordUrl:
-          "https://roebelmueritz.sitzung-mv.de/public/vo020?TOLFDNR=1014873&VOLFDNR=1002054&refresh=false",
+          "https://roebelmueritz.sitzung-mv.de/public/to020?SILFDNR=1000579&TOLFDNR=1014284",
         reviewedAt: GENERATED_AT,
       }),
     ]),
     contentSha256:
-      "sha256:3c92888db5544104ca781492a675f9a807970d0be813a366434c88a46ed0d358",
+      "sha256:577bd781debe3d3465cfd34ad0127612bdc1827d6eae15fe3d7446fd32ac9089",
   }),
 } as const);
 
