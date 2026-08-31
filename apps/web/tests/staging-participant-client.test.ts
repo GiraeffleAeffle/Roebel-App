@@ -342,19 +342,193 @@ test("an exact pending mirror bypasses the public instance and replays without s
   assert.deepEqual(paths, ["/api/staging-participant/v1/nostr-post"]);
 });
 
-test("an expired pending mirror is rejected before projection, signing, or publishing", async () => {
+test("an authoritative stale response re-signs the same source once without creating another feed post", async () => {
+  const pending = {
+    ...pendingParticipantMirror(),
+    event: {
+      ...pendingParticipantMirror().event,
+      created_at: Math.floor(Date.now() / 1_000) - 10 * 60,
+    },
+    expiresAt: Date.now() - 1,
+  };
+  const paths: string[] = [];
+  const mirrorBodies: Array<Record<string, unknown>> = [];
+  let admissions = 0;
+  let signed = 0;
+  globalThis.fetch = async (input, init) => {
+    const path = String(input);
+    paths.push(path);
+    if (path === "/api/civic/v1/instance") return publicCivicInstanceResponse();
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    mirrorBodies.push(body);
+    if (mirrorBodies.length === 1) {
+      return new Response(JSON.stringify({ error: "nostr_post_stale" }), {
+        status: 400, headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({
+      status: "published",
+      eventId: (body.event as NostrEvent).id,
+    }), { status: 201, headers: { "content-type": "application/json" } });
+  };
+  const result = await mirrorStagingParticipantMeckyPost({
+    sourcePost: PARTICIPANT_SOURCE_POST,
+    session: {
+      snapshot: {
+        credential: {
+          kind: "thirdweb_smart_account",
+          address: PARTICIPANT_WALLET,
+          chainId: 100,
+        },
+      },
+      async createAdmissionProof() {
+        admissions += 1;
+        return { schemaVersion: "roebel_citizen_admission_proof_v1", attempt: admissions };
+      },
+      async signConversationMention(input: { content: string; createdAt: number; agentPubkey: string; sourceAppPostId: string }) {
+        signed += 1;
+        return {
+          id: "f".repeat(64), pubkey: "e".repeat(64), created_at: input.createdAt, kind: 1,
+          tags: [["p", input.agentPubkey], ["source-app-post", input.sourceAppPostId], ["t", "roebel-app-conversation"]],
+          content: input.content, sig: "1".repeat(128),
+        };
+      },
+    } as never,
+    retry: pending,
+  });
+  assert.equal(result.success, true);
+  assert.equal(admissions, 2);
+  assert.equal(signed, 1);
+  assert.deepEqual(paths, [
+    "/api/staging-participant/v1/nostr-post",
+    "/api/civic/v1/instance",
+    "/api/staging-participant/v1/nostr-post",
+  ]);
+  assert.equal(mirrorBodies.length, 2);
+  assert.equal(mirrorBodies[0]?.sourcePostId, PARTICIPANT_SOURCE_POST.id);
+  assert.equal(mirrorBodies[1]?.sourcePostId, PARTICIPANT_SOURCE_POST.id);
+  assert.notEqual(mirrorBodies[0]?.requestId, mirrorBodies[1]?.requestId);
+  assert.deepEqual(mirrorBodies[0]?.event, pending.event);
+  assert.notDeepEqual(mirrorBodies[1]?.event, pending.event);
+  assert.equal((mirrorBodies[1]?.event as NostrEvent).content, PARTICIPANT_SOURCE_POST.content);
+  assert.deepEqual((mirrorBodies[1]?.event as NostrEvent).tags, [
+    ["p", PARTICIPANT_MECKY_PUBKEY],
+    ["source-app-post", PARTICIPANT_SOURCE_POST.id],
+    ["t", "roebel-app-conversation"],
+  ]);
+});
+
+test("a stale-looking ambiguous failure never signs a replacement event", async () => {
+  const pending = pendingParticipantMirror();
+  const bodies: string[] = [];
+  let signed = 0;
+  globalThis.fetch = async (input, init) => {
+    assert.notEqual(String(input), "/api/civic/v1/instance");
+    bodies.push(String(init?.body));
+    return new Response(JSON.stringify({ error: "nostr_post_stale" }), {
+      status: 503, headers: { "content-type": "application/json" },
+    });
+  };
+  const result = await mirrorStagingParticipantMeckyPost({
+    sourcePost: PARTICIPANT_SOURCE_POST,
+    session: {
+      snapshot: {
+        credential: {
+          kind: "thirdweb_smart_account",
+          address: PARTICIPANT_WALLET,
+          chainId: 100,
+        },
+      },
+      async createAdmissionProof() {
+        return { schemaVersion: "roebel_citizen_admission_proof_v1" };
+      },
+      async signConversationMention() {
+        signed += 1;
+        throw new Error("must not sign after an ambiguous failure");
+      },
+    } as never,
+    retry: pending,
+  });
+  assert.equal(result.success, false);
+  assert.equal(signed, 0);
+  assert.deepEqual(result.pending, pending);
+  assert.equal(bodies.length, 2);
+  assert.equal(bodies[0], bodies[1]);
+});
+
+test("a transient failure after authoritative stale recovery retains only the fresh exact event", async () => {
+  const pending = {
+    ...pendingParticipantMirror(),
+    event: {
+      ...pendingParticipantMirror().event,
+      created_at: Math.floor(Date.now() / 1_000) - 10 * 60,
+    },
+    expiresAt: Date.now() - 1,
+  };
+  const mirrorBodies: Array<Record<string, unknown>> = [];
+  let signed = 0;
+  globalThis.fetch = async (input, init) => {
+    if (String(input) === "/api/civic/v1/instance") return publicCivicInstanceResponse();
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    mirrorBodies.push(body);
+    if (mirrorBodies.length === 1) {
+      return new Response(JSON.stringify({ error: "nostr_post_stale" }), {
+        status: 400, headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ error: "mirror_unavailable" }), {
+      status: 503, headers: { "content-type": "application/json" },
+    });
+  };
+  const result = await mirrorStagingParticipantMeckyPost({
+    sourcePost: PARTICIPANT_SOURCE_POST,
+    session: {
+      snapshot: {
+        credential: {
+          kind: "thirdweb_smart_account",
+          address: PARTICIPANT_WALLET,
+          chainId: 100,
+        },
+      },
+      async createAdmissionProof() {
+        return { schemaVersion: "roebel_citizen_admission_proof_v1" };
+      },
+      async signConversationMention(input: { content: string; createdAt: number; agentPubkey: string; sourceAppPostId: string }) {
+        signed += 1;
+        return {
+          id: "f".repeat(64), pubkey: "e".repeat(64), created_at: input.createdAt, kind: 1,
+          tags: [["p", input.agentPubkey], ["source-app-post", input.sourceAppPostId], ["t", "roebel-app-conversation"]],
+          content: input.content, sig: "1".repeat(128),
+        };
+      },
+    } as never,
+    retry: pending,
+  });
+  assert.equal(result.success, false);
+  assert.equal(signed, 1);
+  assert.ok(result.pending);
+  assert.notEqual(result.pending?.requestId, pending.requestId);
+  assert.notDeepEqual(result.pending?.event, pending.event);
+  assert.deepEqual(result.pending?.event, mirrorBodies[1]?.event);
+  assert.equal(mirrorBodies.length, 3);
+  assert.equal(JSON.stringify(mirrorBodies[1]), JSON.stringify(mirrorBodies[2]));
+});
+
+test("an over-retained pending mirror is rejected before projection, signing, or publishing", async () => {
   let fetches = 0;
   let signingAttempts = 0;
   globalThis.fetch = async () => {
     fetches += 1;
     throw new Error("must not fetch");
   };
+  const old = Math.floor(Date.now() / 1_000) - 25 * 60 * 60;
   const result = await mirrorStagingParticipantMeckyPost({
     sourcePost: PARTICIPANT_SOURCE_POST,
     session: sessionThatMustNotSign(() => { signingAttempts += 1; }),
     retry: {
       ...pendingParticipantMirror(),
-      expiresAt: Date.now() - 1,
+      event: { ...pendingParticipantMirror().event, created_at: old },
+      expiresAt: old * 1_000 + 15 * 60 * 1_000,
     },
   });
   assert.equal(result.success, false);
@@ -486,6 +660,21 @@ test("reload persistence keeps only one bounded public event and never an admiss
     assert.match(serialized, /roebel_staging_participant_mecky_mirror_v1/u);
     assert.doesNotMatch(serialized, /admissionProof|walletSignature|bindingEvent/u);
     assert.deepEqual(loadPendingStagingParticipantMeckyMirror(walletAddress), pending);
+
+    const recentlyExpired = {
+      ...pending,
+      event: {
+        ...pending.event,
+        created_at: Math.floor(Date.now() / 1_000) - 10 * 60,
+      },
+      expiresAt: Date.now() - 1,
+    };
+    savePendingStagingParticipantMeckyMirror(recentlyExpired);
+    assert.deepEqual(
+      loadPendingStagingParticipantMeckyMirror(walletAddress),
+      recentlyExpired,
+      "reload must retain the public source/event long enough for the gateway to distinguish an exact receipt retry from a never-reserved stale event",
+    );
 
     clearPendingStagingParticipantMeckyMirror(walletAddress);
     assert.equal(loadPendingStagingParticipantMeckyMirror(walletAddress), null);
