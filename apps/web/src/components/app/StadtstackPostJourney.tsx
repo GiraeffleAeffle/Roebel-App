@@ -2,10 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, Check, Circle, GitFork } from "lucide-react";
+import { ArrowRight, Check, Circle, GitFork, RotateCw } from "lucide-react";
 
-import type { PublicCivicPostLink } from "@/lib/stadtstack/civic-topic-detail";
 import { loadPublicCivicPostLink } from "@/lib/stadtstack/civic-projection-client";
+import {
+  presentCivicPostJourney,
+  resolveCivicPostJourney,
+  type CivicPostJourneyState,
+} from "@/lib/stadtstack/civic-post-journey-policy";
 import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
 import { StadtstackPostPromotion } from "./StadtstackPostPromotion";
 
@@ -33,44 +37,72 @@ export function StadtstackPostJourney({
   sourceAppPostId: string;
   promotionPost?: PromotionPost;
 }) {
-  const enabled = resolveStadtstackStagingLab(
-    process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB
+  const enabled = Boolean(
+    resolveStadtstackStagingLab(
+      process.env.NEXT_PUBLIC_STADTSTACK_STAGING_LAB,
+    ),
   );
-  const [link, setLink] = useState<PublicCivicPostLink | null>(null);
-  const [loaded, setLoaded] = useState(false);
-  const [projectionAvailable, setProjectionAvailable] = useState(true);
+  const [state, setState] = useState<CivicPostJourneyState | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
     let active = true;
-    setLink(null);
-    setLoaded(false);
-    setProjectionAvailable(true);
+    setState(null);
     if (!enabled)
       return () => {
         active = false;
       };
-    void loadPublicCivicPostLink(sourceAppPostId)
-      .then((nextLink) => {
-        if (active) setLink(nextLink);
-      })
-      .catch(() => {
-        // Civic linkage is additive. A temporary projection outage must not
-        // make the ordinary source post unreadable.
-        if (active) setProjectionAvailable(false);
-      })
-      .finally(() => {
-        if (active) setLoaded(true);
-      });
+    void resolveCivicPostJourney({
+      sourceAppPostId,
+      loadPostLink: loadPublicCivicPostLink,
+    }).then((nextState) => {
+      if (active) setState(nextState);
+    });
     return () => {
       active = false;
     };
-  }, [enabled, sourceAppPostId]);
+  }, [enabled, retryToken, sourceAppPostId]);
 
-  if (!enabled || !loaded || !projectionAvailable) return null;
-  if (!link)
+  if (!enabled || state === null) return null;
+
+  const presentation = presentCivicPostJourney(
+    state,
+    promotionPost !== undefined,
+  );
+  if (presentation.kind === "hidden") return null;
+  if (presentation.kind === "unavailable") {
+    return (
+      <section
+        aria-live="polite"
+        className="border-t border-amber-300 bg-amber-50 px-4 py-3 text-amber-950"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold">{presentation.message}</p>
+            <p className="mt-0.5 text-xs">
+              Der normale Beitrag bleibt sichtbar. Bevor eine Diskussion
+              gestartet wird, prüfen wir die bestehende Verknüpfung erneut.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRetryToken((current) => current + 1)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/50 px-3 py-1.5 text-xs font-semibold hover:bg-amber-100"
+          >
+            <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
+            {presentation.retryLabel}
+          </button>
+        </div>
+      </section>
+    );
+  }
+  if (presentation.kind === "promotion") {
     return promotionPost ? (
       <StadtstackPostPromotion post={promotionPost} />
     ) : null;
+  }
+
+  const link = presentation.link;
 
   const current = link.journey.stages.find(
     (stage) => stage.id === link.journey.currentStageId
