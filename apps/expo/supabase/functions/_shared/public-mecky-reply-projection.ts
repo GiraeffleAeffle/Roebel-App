@@ -40,6 +40,7 @@ const HEX128 = /^[0-9a-f]{128}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const APP_SOURCE_ID =
   /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9a-f]{64})$/;
+const DECIMAL_ID = /^[0-9]{1,12}$/;
 const ALLOWED_TAGS = new Set([
   "netizen_agent",
   "e",
@@ -77,6 +78,41 @@ function oneTag(tags: string[][], name: string, optional = false): string[] | nu
   return matches[0] ?? null;
 }
 
+function exactQueryEntries(url: URL, expectedKeys: readonly string[]): boolean {
+  const entries = [...url.searchParams.entries()];
+  return entries.length === expectedKeys.length &&
+    entries.map(([key]) => key).sort().join(",") === [...expectedKeys].sort().join(",");
+}
+
+function safeEvidenceDestination(url: URL): boolean {
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.hash
+  ) {
+    return false;
+  }
+  if (!url.search) return true;
+  if (
+    url.origin === "https://index.roebel.app" &&
+    url.pathname === "/events" &&
+    exactQueryEntries(url, ["ids"])
+  ) {
+    return HEX64.test(url.searchParams.get("ids") ?? "");
+  }
+  if (
+    url.origin === "https://roebelmueritz.sitzung-mv.de" &&
+    url.pathname === "/public/vo020" &&
+    exactQueryEntries(url, ["TOLFDNR", "VOLFDNR", "refresh"])
+  ) {
+    return DECIMAL_ID.test(url.searchParams.get("TOLFDNR") ?? "") &&
+      DECIMAL_ID.test(url.searchParams.get("VOLFDNR") ?? "") &&
+      url.searchParams.get("refresh") === "false";
+  }
+  return false;
+}
+
 function evidenceRef(tag: string[]): { digest: string; url: string } {
   if (tag.length !== 3 || !DIGEST.test(tag[1] ?? "")) {
     fail("public_mecky_projection_evidence_invalid");
@@ -87,13 +123,7 @@ function evidenceRef(tag: string[]): { digest: string; url: string } {
   } catch {
     fail("public_mecky_projection_evidence_invalid");
   }
-  if (
-    url.protocol !== "https:" ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash
-  ) {
+  if (!safeEvidenceDestination(url)) {
     fail("public_mecky_projection_evidence_invalid");
   }
   return { digest: tag[1]!, url: url.href };

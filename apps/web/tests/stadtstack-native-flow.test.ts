@@ -219,7 +219,10 @@ test("lets explicit @Mecky mentions answer inside an ordinary app thread without
   assert.match(postPromotion, /staging_participant_mecky_reply_required/);
   assert.match(postComposer, /requestAppMeckyConversationAnswer/);
   assert.match(commentSection, /data-mecky-conversation-reply/);
-  assert.match(commentSection, /Geprüfter Nachweis \{index \+ 1\}/);
+  assert.match(
+    commentSection,
+    /Nachweis \{index \+ 1\} · \{publicEvidenceDestinationLabel\(evidence\.url\)\}/,
+  );
   assert.match(commentSection, /data-mecky-authority-binding="none"/);
   assert.equal(
     (commentSection.match(/<MeckyAuthorityNotice \/>/g) ?? []).length,

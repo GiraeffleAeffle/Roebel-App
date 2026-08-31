@@ -576,6 +576,8 @@ export interface StadtstackPublicEvidenceRetrieverOptions
   extends StadtstackReviewedEvidenceReaderOptions {
   /** Explicitly enabled reviewed source projections; omitted keeps the current Civic Case-only path. */
   reviewedSourceKinds?: readonly ReviewedPublicKnowledgeSourceKind[];
+  /** Exact origin for reviewed news/RIS projections; never reused as the Civic Case origin. */
+  reviewedKnowledgeBaseUrl?: string;
   /** Test seam only; production uses credential-free global fetch. */
   reviewedSourceFetch?: typeof globalThis.fetch;
 }
@@ -693,9 +695,15 @@ export function createStadtstackPublicEvidenceRetriever(
   ) {
     throw new Error("Invalid reviewed public knowledge source declaration.");
   }
+  if (
+    (configuredSourceKinds.length > 0 && !options.reviewedKnowledgeBaseUrl) ||
+    (configuredSourceKinds.length === 0 && options.reviewedKnowledgeBaseUrl)
+  ) {
+    throw new Error("Reviewed public knowledge source kinds and origin must be declared together.");
+  }
   const reviewedSourceAdapters = configuredSourceKinds.map((sourceKind) =>
     createReviewedPublicKnowledgeSourceAdapter({
-      baseUrl: options.baseUrl,
+      baseUrl: options.reviewedKnowledgeBaseUrl!,
       sourceKind,
       allowClusterInternalHttp: true,
       ...(options.reviewedSourceFetch ? { fetch: options.reviewedSourceFetch } : {}),

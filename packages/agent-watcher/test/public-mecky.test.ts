@@ -428,6 +428,7 @@ describe("Public Mecky", () => {
       baseUrl: "https://stadtstack.example",
       municipalityId: "roebel-mueritz",
       reviewedSourceKinds: ["local_news", "ratsinformation"],
+      reviewedKnowledgeBaseUrl: "https://knowledge.example",
       loadReviewedCases: async () => ({
         municipality: { id: "roebel-mueritz" },
         cases: [],
@@ -447,8 +448,8 @@ describe("Public Mecky", () => {
       "Was berichten Kurier und Ausschuss über die Querung der Marienfelder Straße?",
     ));
     assert.deepEqual(requested.sort(), [
-      "https://stadtstack.example/api/federation/v1/municipalities/roebel-mueritz/public-knowledge/local-news",
-      "https://stadtstack.example/api/federation/v1/municipalities/roebel-mueritz/public-knowledge/ratsinformation",
+      "https://knowledge.example/api/federation/v1/municipalities/roebel-mueritz/public-knowledge/local-news",
+      "https://knowledge.example/api/federation/v1/municipalities/roebel-mueritz/public-knowledge/ratsinformation",
     ]);
     assert.deepEqual(
       packet.passages.map(({ evidence }) => [evidence.sourceKind, evidence.authority]).sort(),
@@ -477,8 +478,13 @@ describe("Public Mecky", () => {
       assert.throws(() => createStadtstackPublicEvidenceRetriever({
         ...options,
         reviewedSourceKinds: reviewedSourceKinds as never,
+        reviewedKnowledgeBaseUrl: "https://knowledge.example",
       }));
     }
+    assert.throws(() => createStadtstackPublicEvidenceRetriever({
+      ...options,
+      reviewedSourceKinds: ["local_news"],
+    }), /source kinds and origin must be declared together/u);
   });
 
   it("keeps a valid reviewed source when the other enabled source is unavailable", async () => {
@@ -506,6 +512,7 @@ describe("Public Mecky", () => {
       baseUrl: "https://stadtstack.example",
       municipalityId: "roebel-mueritz",
       reviewedSourceKinds: ["local_news", "ratsinformation"],
+      reviewedKnowledgeBaseUrl: "https://knowledge.example",
       loadReviewedCases: async () => ({
         municipality: { id: "roebel-mueritz" },
         cases: [],

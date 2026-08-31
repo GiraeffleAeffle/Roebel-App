@@ -64,6 +64,12 @@ async function main(): Promise<void> {
   const enabledReviewedSourceKinds = parseReviewedPublicKnowledgeSourceKinds(
     process.env.MECKY_REVIEWED_SOURCE_KINDS,
   );
+  const reviewedKnowledgeBaseUrl = enabledReviewedSourceKinds.length > 0
+    ? required("MECKY_REVIEWED_KNOWLEDGE_BASE_URL")
+    : process.env.MECKY_REVIEWED_KNOWLEDGE_BASE_URL?.trim();
+  if (reviewedKnowledgeBaseUrl && enabledReviewedSourceKinds.length === 0) {
+    throw new Error("Reviewed public knowledge origin requires enabled source kinds.");
+  }
   const projectReply = replyProjectionUrl
     ? createPublicMeckyReplyProjectionSink({ endpoint: replyProjectionUrl })
     : undefined;
@@ -91,6 +97,7 @@ async function main(): Promise<void> {
             baseUrl: publicEvidenceBaseUrl,
             municipalityId,
             reviewedSourceKinds: enabledReviewedSourceKinds,
+            ...(reviewedKnowledgeBaseUrl ? { reviewedKnowledgeBaseUrl } : {}),
           }),
         }),
     infer: createPiPublicMeckyInference({
@@ -115,6 +122,7 @@ async function main(): Promise<void> {
   console.log(`  public evidence: ${syntheticEvidenceMode ? "synthetic checksum-bound snapshot" : publicEvidenceBaseUrl} (${municipalityId})`);
   console.log(`  conversation evidence: ${!syntheticEvidenceMode && publicIndexBaseUrl ? publicIndexBaseUrl : "disabled"}`);
   console.log(`  reviewed source projections: ${enabledReviewedSourceKinds.length > 0 ? enabledReviewedSourceKinds.join(",") : "disabled"}`);
+  console.log(`  reviewed knowledge origin: ${reviewedKnowledgeBaseUrl ?? "disabled"}`);
   console.log(`  inference: ${inferenceBaseUrl} (${inferenceModel})`);
   console.log(`  app reply projection: ${replyProjectionUrl ?? "disabled"}`);
   console.log(`  bounds: ${bounds.perAuthorPerHour}/author/h, ${bounds.perDay}/day, enabled=${bounds.enabled}`);
