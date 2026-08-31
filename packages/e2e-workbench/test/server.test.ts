@@ -992,6 +992,110 @@ describe("Röbel E2E workbench boundary", () => {
     }
   });
 
+  it("publishes a participant topic promotion from an evidence-bearing Mecky exchange without an optional receipt", async () => {
+    const config = parseWorkbenchConfig({
+      ...publicSignedEnvironment(),
+      MECKY_PUBKEY: signedMecky.publicKey,
+    });
+    const participantSecret = Uint8Array.from(
+      Buffer.from("56".repeat(32), "hex")
+    );
+    const sourceAppPostId = "50000000-0000-4000-8000-000000000006";
+    const mention = buildNoteEvent(
+      participantSecret,
+      "@Mecky, welche belegten Optionen sollten wir gemeinsam prüfen?",
+      {
+        createdAt: 201,
+        tags: [
+          ["p", config.meckyPubkey],
+          ["source-app-post", sourceAppPostId],
+          ["t", "roebel-app-conversation"],
+        ],
+      }
+    );
+    const reply = buildAgentNoteEvent(
+      signedMecky,
+      "Eine belegte Option ist sichtbar; die Entscheidung bleibt bei den zuständigen Stellen.",
+      {
+        createdAt: 202,
+        tags: [
+          ["e", mention.id, "", "reply"],
+          ["p", mention.pubkey],
+          ["source-app-post", sourceAppPostId],
+          [
+            "evidence",
+            `sha256:${"c".repeat(64)}`,
+            "https://roebel.example/evidence/receiptless-exchange",
+          ],
+        ],
+      }
+    );
+    const promotion = buildCivicTopicPromotionEvent(participantSecret, {
+      sourcePost: mention,
+      municipalityId: "roebel-mueritz",
+      topicId:
+        "urn:stadtstack:topic:municipality:roebel-mueritz:receiptless-exchange",
+      topicTitle: "Belegte Verbesserungsoptionen",
+      agentPubkey: config.meckyPubkey,
+      content: "@Mecky, welche belegten Optionen sollten gemeinsam geprüft werden?",
+      conversationSource: {
+        kind: "selected_conversation",
+        sourceAppPostId,
+        mentionEventId: mention.id,
+        replyEventId: reply.id,
+      },
+      createdAt: 203,
+    });
+    const citizenEvents = [mention];
+    const publishedIds: string[] = [];
+    const running = await startWorkbench(config, {
+      citizenRelay: {
+        query: async () => citizenEvents,
+        publish: async (event) => {
+          publishedIds.push(event.id);
+          citizenEvents.push(event);
+          return { ok: true, message: "stored" };
+        },
+        close: () => {},
+      },
+      agentRelay: {
+        query: async () => [reply],
+        publish: async () => ({ ok: true, message: "stored" }),
+        close: () => {},
+      },
+    });
+    try {
+      assert.equal(
+        reply.tags.some((tag) => tag[0] === "mecky-receipt"),
+        false
+      );
+      assert.equal(
+        promotion.tags.some((tag) => tag[0] === "source-mecky-receipt"),
+        false
+      );
+      const response = await fetch(
+        `http://127.0.0.1:${running.port}/api/staging-participant/topic-tracer/promotions`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-stadtstack-e2e": "1",
+          },
+          body: JSON.stringify({ event: promotion }),
+        }
+      );
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        status: "published",
+        event: promotion,
+        authorityBinding: "none",
+      });
+      assert.deepEqual(publishedIds, [promotion.id]);
+    } finally {
+      await running.close();
+    }
+  });
+
   it("keeps participant topic-tracer RPCs off the public staging prefix", async () => {
     const config = parseWorkbenchConfig(publicSignedEnvironment());
     const relay = {
