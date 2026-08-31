@@ -76,6 +76,20 @@ describe("Public Mecky reply projection", () => {
       }).evidence_refs[0]?.url,
       "https://roebelmueritz.sitzung-mv.de/public/vo020?TOLFDNR=1014873&VOLFDNR=1002054&refresh=false",
     );
+
+    const allrisAgendaItem = event();
+    allrisAgendaItem.tags[5] = [
+      "evidence",
+      `sha256:${"e".repeat(64)}`,
+      "https://roebelmueritz.sitzung-mv.de/public/to020?SILFDNR=1000579&TOLFDNR=1014284",
+    ];
+    assert.equal(
+      parsePublicMeckyReplyProjection(allrisAgendaItem, {
+        expectedPubkey: PUBKEY,
+        verifyEvent: () => true,
+      }).evidence_refs[0]?.url,
+      "https://roebelmueritz.sitzung-mv.de/public/to020?SILFDNR=1000579&TOLFDNR=1014284",
+    );
   });
 
   it("rejects forgery, wrong agent identity and ambiguous source bindings", () => {

@@ -110,6 +110,14 @@ function safeEvidenceDestination(url: URL): boolean {
       DECIMAL_ID.test(url.searchParams.get("VOLFDNR") ?? "") &&
       url.searchParams.get("refresh") === "false";
   }
+  if (
+    url.origin === "https://roebelmueritz.sitzung-mv.de" &&
+    url.pathname === "/public/to020" &&
+    exactQueryEntries(url, ["SILFDNR", "TOLFDNR"])
+  ) {
+    return DECIMAL_ID.test(url.searchParams.get("SILFDNR") ?? "") &&
+      DECIMAL_ID.test(url.searchParams.get("TOLFDNR") ?? "");
+  }
   return false;
 }
 

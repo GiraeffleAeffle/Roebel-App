@@ -102,7 +102,7 @@ describe("normal Röbel comment thread with Public Mecky", () => {
   it("keeps canonical Nostr and ALLRIS citations while exposing their destinations", () => {
     const nostrUrl = `https://index.roebel.app/events?ids=${"d".repeat(64)}`;
     const allrisUrl =
-      "https://roebelmueritz.sitzung-mv.de/public/vo020?TOLFDNR=1014873&VOLFDNR=1002054&refresh=false";
+      "https://roebelmueritz.sitzung-mv.de/public/to020?SILFDNR=1000579&TOLFDNR=1014284";
     const page = mergePublicMeckyThread({
       humanComments: [],
       projectedRows: [projection({
