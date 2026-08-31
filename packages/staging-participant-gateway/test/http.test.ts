@@ -73,6 +73,7 @@ function fixture(input: Partial<{
   verify: boolean;
   nowMs: number;
   mirrorFails: boolean;
+  promotionCompletionFails: boolean;
   ready: boolean;
   mirrorReceipts: Map<string, StagingParticipantMirrorReceipt>;
   promotionReceipts: Map<string, StagingParticipantPromotionReceipt>;
@@ -200,6 +201,7 @@ function fixture(input: Partial<{
       return receipt;
     },
     async completeSourcePostPromotion(value): Promise<StagingParticipantPromotionReceipt> {
+      if (input.promotionCompletionFails) throw new Error("database unavailable");
       const key = `${value.namespace}:${value.sourcePostId}`;
       const receipt = promotionReceipts.get(key);
       if (!receipt || receipt.request_id !== value.requestId || receipt.idempotency_key_sha256 !== value.idempotencyKeySha256 ||
@@ -563,6 +565,82 @@ test("promotes one server-resolved source note that is exactly the @Mecky mentio
     ...suggestionBody, requestId: "20000000-0000-4000-8000-000000000023",
     idempotencyKey: "suggestion-idempotency-0002", suggestionEvent: replacementSuggestion,
   }, sessionCookie))).status, 409);
+});
+
+test("distinguishes safe workbench publication failures from PostgREST completion failures", async () => {
+  const sourcePostId = "10000000-0000-4000-8000-000000000001";
+  const author = deriveNostrIdentity("0x" + "7".repeat(130));
+  const mecky = deriveNostrIdentity("0x" + "8".repeat(130));
+  const meckyPubkey = getPublicKeyHex(mecky.secretKey);
+  const sourcePost = buildNoteEvent(author.secretKey, "@Mecky, was ist hierzu bekannt?", {
+    createdAt: 1_787_659_110,
+    tags: [["p", meckyPubkey], ["source-app-post", sourcePostId], ["t", "roebel-app-conversation"]],
+  });
+  const meckyReceiptId = `urn:stadtstack:mecky-answer:${"a".repeat(64)}`;
+  const meckyReplyEvent = buildNoteEvent(mecky.secretKey, "Die Stelle sollte geprüft werden.", {
+    createdAt: 1_787_659_120,
+    tags: [
+      ["netizen_agent", "Mecky", "roebel-staging"],
+      ["e", sourcePost.id, "", "reply"],
+      ["p", sourcePost.pubkey],
+      ["source-app-post", sourcePostId],
+      ["mecky-receipt", meckyReceiptId],
+      ["evidence", `sha256:${"b".repeat(64)}`, "https://example.invalid/source"],
+    ],
+  });
+  const topicId = "urn:stadtstack:topic:municipality:roebel-mueritz:marienfelder-strasse";
+  const rootEvent = buildCivicTopicPromotionEvent(author.secretKey, {
+    municipalityId: "roebel-mueritz", topicId, topicTitle: "Sichere Querung Marienfelder Straße",
+    sourcePost, agentPubkey: meckyPubkey, content: "@Mecky, wie kann die Querung verbessert werden?",
+    conversationSource: {
+      kind: "selected_conversation", sourceAppPostId: sourcePostId,
+      mentionEventId: sourcePost.id, replyEventId: meckyReplyEvent.id, receiptId: meckyReceiptId,
+    },
+    createdAt: 1_787_659_130,
+  });
+  let publishError: Error | null = new Error("staging_participant_topic_publish_contract_invalid");
+  const topicTracer: StagingParticipantTopicTracerAdapter = {
+    async resolvePromotionSource() {
+      return { sourceNote: sourcePost, meckyReplyEvent, meckyReceiptId };
+    },
+    async publishPromotion() {
+      if (publishError) throw publishError;
+      return { status: "published", eventId: rootEvent.id };
+    },
+    async resolveTopicSuggestionSources() { return null; },
+    async publishTopicSuggestion() { throw new Error("must not publish a suggestion"); },
+  };
+  const { handler, sessionCookie } = await enrolledSession({
+    topicTracer, meckyPubkey, sourceBindingPubkey: sourcePost.pubkey, promotionCompletionFails: true,
+  });
+  const requestId = "20000000-0000-4000-8000-000000000024";
+  const response = await handler(jsonRequest("/api/staging-participant/v1/promote-source-post", {
+    schemaVersion: "staging_source_post_promotion_v1",
+    requestId,
+    idempotencyKey: "promotion-idempotency-safe-stage",
+    sourcePostId,
+    rootEvent,
+  }, sessionCookie));
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), {
+    error: "promotion_workbench_contract_invalid",
+    stage: "workbench_publish",
+    requestId,
+  });
+  publishError = null;
+  const completionResponse = await handler(jsonRequest("/api/staging-participant/v1/promote-source-post", {
+    schemaVersion: "staging_source_post_promotion_v1",
+    requestId,
+    idempotencyKey: "promotion-idempotency-safe-stage",
+    sourcePostId,
+    rootEvent,
+  }, sessionCookie));
+  assert.equal(completionResponse.status, 503);
+  assert.deepEqual(await completionResponse.json(), {
+    error: "promotion_completion_unavailable",
+    stage: "postgrest_complete",
+    requestId,
+  });
 });
 
 test("mirrors only the exact owner-signed @Mecky post after its source row exists", async () => {

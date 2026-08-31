@@ -187,6 +187,24 @@ function eventSha256(event: NostrEvent): string {
   ]));
 }
 
+function safePromotionWorkbenchError(error: unknown): string {
+  if (!(error instanceof Error)) return "promotion_workbench_unavailable";
+  switch (error.message) {
+    case "staging_participant_topic_publish_contract_invalid":
+      return "promotion_workbench_contract_invalid";
+    case "staging_participant_topic_publish_identity_forbidden":
+      return "promotion_workbench_identity_forbidden";
+    case "staging_participant_topic_publish_event_invalid":
+      return "promotion_workbench_event_invalid";
+    case "staging_participant_topic_publish_author_forbidden":
+      return "promotion_workbench_author_forbidden";
+    case "staging_participant_topic_publish_capacity":
+      return "promotion_workbench_capacity";
+    default:
+      return "promotion_workbench_unavailable";
+  }
+}
+
 function exactTagValue(event: NostrEvent, name: string): string | null {
   const matches = event.tags.filter((tag) => tag.length === 2 && tag[0] === name);
   return matches.length === 1 && typeof matches[0]?.[1] === "string" ? matches[0][1] : null;
@@ -716,18 +734,35 @@ export function createStagingParticipantGatewayHandler(
         receiptChecksum: receipt.receipt_checksum,
       } as const;
       if (receipt.state === "published") return json(envelope, 200, origin);
+      let published;
       try {
-        const published = await tracer.publishPromotion({ event: rootEvent });
-        if (published.status !== "published" || published.eventId !== receipt.discussion_root_id) {
-          return json({ error: "promotion_unavailable" }, 503, origin);
-        }
+        published = await tracer.publishPromotion({ event: rootEvent });
+      } catch (error) {
+        return json({
+          error: safePromotionWorkbenchError(error),
+          stage: "workbench_publish",
+          requestId,
+        }, 503, origin);
+      }
+      if (published.status !== "published" || published.eventId !== receipt.discussion_root_id) {
+        return json({
+          error: "promotion_workbench_receipt_invalid",
+          stage: "workbench_publish",
+          requestId,
+        }, 503, origin);
+      }
+      try {
         const completed = await dependencies.data.completeSourcePostPromotion(receiptInput);
         return json({ ...envelope, status: "promoted", receiptChecksum: completed.receipt_checksum }, 201, origin);
       } catch (error) {
         if (error instanceof Error && error.message === "staging_participant_promotion_conflict") {
           return json({ error: "idempotency_conflict" }, 409, origin);
         }
-        return json({ error: "promotion_unavailable" }, 503, origin);
+        return json({
+          error: "promotion_completion_unavailable",
+          stage: "postgrest_complete",
+          requestId,
+        }, 503, origin);
       }
     }
 
