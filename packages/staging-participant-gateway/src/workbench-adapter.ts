@@ -92,9 +92,10 @@ function nostrEvent(value: unknown): NostrEvent | null {
 }
 
 function published(value: unknown, expectedEventId: string): boolean {
-  const result = closedRecord(value, ["status", "event"]);
+  const result = closedRecord(value, ["status", "event", "authorityBinding"]);
   const event = result && record(result.event);
-  return result?.status === "published" && event?.id === expectedEventId;
+  return result?.status === "published" && result?.authorityBinding === "none" &&
+    event?.id === expectedEventId;
 }
 
 /**

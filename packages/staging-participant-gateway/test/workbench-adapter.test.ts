@@ -58,7 +58,11 @@ test("ADR-0022 publication has its own fixed internal path and never reuses the 
     admissionHeader: { name: "x-stadtstack-e2e", value: "1" },
     fetch: async (url) => {
       calls.push(String(url));
-      return new Response(JSON.stringify({ status: "published", event: { id: EVENT.id } }), {
+      return new Response(JSON.stringify({
+        status: "published",
+        event: { id: EVENT.id },
+        authorityBinding: "none",
+      }), {
         status: 200, headers: { "content-type": "application/json" },
       });
     },
@@ -68,4 +72,25 @@ test("ADR-0022 publication has its own fixed internal path and never reuses the 
     "http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/api/staging-participant/topic-tracer/promotions",
   ]);
   assert.ok(!calls.some((url) => url.endsWith("/api/signed-event")));
+});
+
+test("ADR-0022 publication rejects any envelope without the exact no-authority binding", async () => {
+  const invalid = [
+    { status: "published", event: { id: EVENT.id } },
+    { status: "published", event: { id: EVENT.id }, authorityBinding: "municipal" },
+    { status: "published", event: { id: EVENT.id }, authorityBinding: "none", extra: true },
+  ];
+  for (const value of invalid) {
+    const adapter = createPrivateWorkbenchTopicTracerAdapter({
+      url: "http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/",
+      admissionHeader: { name: "x-stadtstack-e2e", value: "1" },
+      fetch: async () => new Response(JSON.stringify(value), {
+        status: 200, headers: { "content-type": "application/json" },
+      }),
+    });
+    await assert.rejects(
+      adapter.publishPromotion({ event: EVENT }),
+      /staging_participant_topic_publish_invalid/u,
+    );
+  }
 });
