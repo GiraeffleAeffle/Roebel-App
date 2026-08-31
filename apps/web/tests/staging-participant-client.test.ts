@@ -329,3 +329,31 @@ test("participant UI never sends its writes through the public Web server action
   assert.match(composer, /loadPendingStagingParticipantMeckyMirror/u);
   assert.match(composer, /Mecky-Anfrage erneut senden/u);
 });
+
+test("participant enrollment uses one accessible in-page form and never a browser prompt", () => {
+  const composer = readFileSync(
+    new URL("../src/components/app/PostComposer.tsx", import.meta.url),
+    "utf8",
+  );
+  const comments = readFileSync(
+    new URL("../src/components/app/CommentSection.tsx", import.meta.url),
+    "utf8",
+  );
+  const enrollment = readFileSync(
+    new URL(
+      "../src/components/app/StagingParticipantEnrollment.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.doesNotMatch(composer, /(?:window\.)?prompt\s*\(/u);
+  assert.doesNotMatch(comments, /(?:window\.)?prompt\s*\(/u);
+  assert.match(composer, /<StagingParticipantEnrollment/u);
+  assert.match(comments, /<StagingParticipantEnrollment/u);
+  assert.match(enrollment, /<form[\s\S]*onSubmit=/u);
+  assert.match(enrollment, /<label[\s\S]*Staging-Einladung/u);
+  assert.match(enrollment, /type="password"/u);
+  assert.match(enrollment, /inviteToken\.trim\(\)\s*\|\|\s*undefined/u);
+  assert.doesNotMatch(enrollment, /(?:window\.)?prompt\s*\(/u);
+});
