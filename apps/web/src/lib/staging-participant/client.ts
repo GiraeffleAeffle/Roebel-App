@@ -1,6 +1,7 @@
 import type { Post, PostComment } from "@/types/post";
 import type { CitizenSession } from "@/lib/citizen-session/session";
 import type { NostrEvent } from "@netizen-labs/nostr";
+import { loadPublicCivicInstance } from "../stadtstack/civic-projection-client";
 
 const API_ROOT = "/api/staging-participant/v1";
 const CHALLENGE_SCHEMA = "staging_participant_challenge_request_v1";
@@ -319,10 +320,6 @@ export async function mirrorStagingParticipantMeckyPost(input: Readonly<{
 }>): Promise<StagingParticipantResult<{ status: "published"; eventId: string }> & {
   pending?: PendingStagingParticipantMeckyMirror;
 }> {
-  const meckyPubkey = (input.meckyPubkey ?? process.env.NEXT_PUBLIC_STAGING_PARTICIPANT_MECKY_PUBKEY ?? "").toLowerCase();
-  if (!/^[0-9a-f]{64}$/u.test(meckyPubkey)) {
-    return { success: false, error: "Mecky ist für diese Staging-Teilnahme noch nicht konfiguriert" };
-  }
   let pendingForRetry: PendingStagingParticipantMeckyMirror | undefined;
   try {
     const session = input.session;
@@ -341,7 +338,26 @@ export async function mirrorStagingParticipantMeckyPost(input: Readonly<{
         pending: input.retry,
       };
     }
-    const pending = input.retry ?? await (async () => {
+    let pending = input.retry;
+    if (!pending) {
+      let meckyPubkey = input.meckyPubkey;
+      if (meckyPubkey === undefined) {
+        try {
+          meckyPubkey = (await loadPublicCivicInstance()).meckyPubkey;
+        } catch {
+          return {
+            success: false,
+            error: "Mecky ist für diese Staging-Teilnahme noch nicht konfiguriert",
+          };
+        }
+      }
+      meckyPubkey = meckyPubkey.toLowerCase();
+      if (!/^[0-9a-f]{64}$/u.test(meckyPubkey)) {
+        return {
+          success: false,
+          error: "Mecky ist für diese Staging-Teilnahme noch nicht konfiguriert",
+        };
+      }
       // The source row already exists at this point. The gateway independently
       // proves ownership/content before it is allowed to forward either proof.
       // Save the public event before requesting the wallet-bound admission proof
@@ -365,8 +381,8 @@ export async function mirrorStagingParticipantMeckyPost(input: Readonly<{
       };
       pendingForRetry = created;
       savePendingStagingParticipantMeckyMirror(created);
-      return created;
-    })();
+      pending = created;
+    }
     pendingForRetry = pending;
     if (!pending || pending.sourcePost.id !== input.sourcePost.id ||
       pending.sourcePost.content !== input.sourcePost.content ||
