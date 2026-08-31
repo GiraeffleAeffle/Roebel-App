@@ -3,6 +3,10 @@ import {
   type CitizenSignedTopicSuggestionV1,
   type ParticipantTopicSuggestionV1,
 } from "@netizen-labs/nostr";
+import type {
+  VerifiedPublicAdoptedCaseBindingReceipt,
+  VerifiedPublicCaseBindingReceipt,
+} from "./public-case-binding-receipt-client";
 
 export type PublicProposalSignature = Readonly<{
   kind: "participant_request" | "legacy_citizen_candidate";
@@ -14,6 +18,28 @@ export type PublicProposalSignature = Readonly<{
   civicEligibilityProven: false;
   civicCaseCreated: false;
   administrativeEndorsement: false;
+  authorityBinding: "none";
+}>;
+
+export type PublicCitizenAdoptionEvidence = Readonly<{
+  adoptionId: string;
+  adoptionEventId: string;
+  participantSuggestionEventId: string;
+  adopterPubkey: string;
+  eligibilityReceiptId: string;
+  eligibilityReceiptChecksum: string;
+  eligibilityPolicyVersion: string;
+  eligibilityIssuer: string;
+  adoptionAcceptanceReceiptChecksum: string;
+  civicEligibilityProven: true;
+  civicCaseCreated: true;
+  administrativeEndorsement: false;
+  bindingVote: false;
+  councilDecision: false;
+  openDeskWrite: false;
+  treasuryEffect: false;
+  paymentEffect: false;
+  eligibilityAuthorityBinding: "civic_eligibility_only";
   authorityBinding: "none";
 }>;
 
@@ -114,6 +140,97 @@ export function projectPublicProposalSignature(
     civicEligibilityProven: false as const,
     civicCaseCreated: false as const,
     administrativeEndorsement: false as const,
+    authorityBinding: "none" as const,
+  });
+}
+
+/**
+ * Correlate a trusted public Case receipt with the proposal evidence currently
+ * projected in this discussion. A participant event can advance only through
+ * the ADR-0023 receipt; the legacy direct-candidate receipt cannot silently
+ * relabel it as citizen-adopted.
+ *
+ * A receipt remains independently useful if the proposal projection is
+ * temporarily absent: the trusted Case projection has already verified the
+ * full admission bundle. Whenever local evidence is present, every available
+ * root, topic, answer, suggestion and candidate binding must match.
+ */
+export function bindPublicCaseReceiptToProposal(
+  input: Readonly<{
+    suggestion:
+      | CitizenSignedTopicSuggestionV1
+      | ParticipantTopicSuggestionV1
+      | null;
+    receipt: VerifiedPublicCaseBindingReceipt | null;
+    rootEventId: string;
+    topicId: string;
+  }>
+): VerifiedPublicCaseBindingReceipt | null {
+  const { receipt, suggestion, rootEventId, topicId } = input;
+  if (
+    !receipt ||
+    receipt.rootEventId !== rootEventId ||
+    receipt.topicId !== topicId
+  ) {
+    return null;
+  }
+  if (!suggestion) return receipt;
+  const signature = projectPublicProposalSignature(suggestion);
+  if (
+    !signature ||
+    suggestion.draft.sourceDiscussionId !== rootEventId ||
+    suggestion.draft.topicId !== topicId
+  ) {
+    return null;
+  }
+  if (
+    suggestion.schemaVersion ===
+    "staging_participant_signed_topic_suggestion_v1"
+  ) {
+    return receipt.schemaVersion === "public_case_binding_receipt_v2" &&
+      receipt.participantSuggestionEventId === suggestion.event.id &&
+      receipt.sourceAnswerEventId === suggestion.draft.sourceAnswerId &&
+      receipt.sourceAnswerReceiptId === suggestion.draft.sourceAnswerReceiptId
+      ? receipt
+      : null;
+  }
+  return receipt.schemaVersion === "public_case_binding_receipt_v1" &&
+    receipt.candidateEventId === signature.eventId &&
+    receipt.candidateId === suggestion.candidateId
+    ? receipt
+    : null;
+}
+
+/**
+ * Derive display-only adoption provenance from the checksum-verified v2 Case
+ * receipt. The evidence proves eligibility for this exact adoption and human
+ * Case admission only; all authority-bearing effects remain explicitly false.
+ */
+export function projectPublicCitizenAdoptionEvidence(
+  receipt: VerifiedPublicCaseBindingReceipt | null
+): PublicCitizenAdoptionEvidence | null {
+  if (receipt?.schemaVersion !== "public_case_binding_receipt_v2") return null;
+  const adoptedReceipt: VerifiedPublicAdoptedCaseBindingReceipt = receipt;
+  return Object.freeze({
+    adoptionId: adoptedReceipt.candidateId,
+    adoptionEventId: adoptedReceipt.candidateEventId,
+    participantSuggestionEventId: adoptedReceipt.participantSuggestionEventId,
+    adopterPubkey: adoptedReceipt.adopterPubkey,
+    eligibilityReceiptId: adoptedReceipt.eligibilityReceiptId,
+    eligibilityReceiptChecksum: adoptedReceipt.eligibilityReceiptChecksum,
+    eligibilityPolicyVersion: adoptedReceipt.eligibilityPolicyVersion,
+    eligibilityIssuer: adoptedReceipt.eligibilityIssuer,
+    adoptionAcceptanceReceiptChecksum:
+      adoptedReceipt.adoptionAcceptanceReceiptChecksum,
+    civicEligibilityProven: true as const,
+    civicCaseCreated: true as const,
+    administrativeEndorsement: false as const,
+    bindingVote: false as const,
+    councilDecision: false as const,
+    openDeskWrite: false as const,
+    treasuryEffect: false as const,
+    paymentEffect: false as const,
+    eligibilityAuthorityBinding: "civic_eligibility_only" as const,
     authorityBinding: "none" as const,
   });
 }

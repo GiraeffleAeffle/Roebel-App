@@ -3,6 +3,7 @@ export type CivicJourneyStageId =
   | "discussion"
   | "mecky"
   | "proposal"
+  | "adoption"
   | "case"
   | "administration"
   | "participation"
@@ -29,6 +30,7 @@ export type CivicJourneyInput = Readonly<{
   meckyMentioned: boolean;
   meckyAnswered: boolean;
   proposalSigned: boolean;
+  citizenAdoptionVerified: boolean;
   caseAdmitted: boolean;
   administrationStatus?:
     | "not_available"
@@ -69,6 +71,8 @@ export function projectCivicJourney(
   else if (!input.meckyAnswered) currentStageId = "mecky";
   else if (!input.proposalSigned && !input.caseAdmitted)
     currentStageId = "proposal";
+  else if (!input.citizenAdoptionVerified && !input.caseAdmitted)
+    currentStageId = "adoption";
   else if (!input.caseAdmitted) currentStageId = "case";
   else if (!administrationComplete) currentStageId = "administration";
   else if (!participationComplete) currentStageId = "participation";
@@ -125,16 +129,31 @@ export function projectCivicJourney(
         input.meckyAnswered && !input.caseAdmitted
       ),
       detail: input.proposalSigned
-        ? "Ein Mensch hat den topic-gebundenen Vorschlag signiert."
+        ? "Ein Mensch hat den topic-gebundenen Entwurf signiert."
         : input.caseAdmitted
           ? "Der Fall ist gebunden; eine getrennte Vorschlagssignatur ist hier nicht öffentlich projiziert."
-          : "Titel und Zusammenfassung brauchen eine eigene Bürger-Signatur.",
-      authority: "Bürger-Signatur",
+          : "Titel und Zusammenfassung brauchen eine eigene Signatur.",
+      authority: "Vorschlagssignatur",
+    },
+    {
+      id: "adoption",
+      label: "Bürgerübernahme",
+      state: state(
+        "adoption",
+        input.citizenAdoptionVerified,
+        input.proposalSigned && !input.caseAdmitted
+      ),
+      detail: input.citizenAdoptionVerified
+        ? "Bürger-Signatur, kommunale Berechtigung und Ledger-Annahme sind öffentlich gebunden."
+        : input.caseAdmitted
+          ? "Der Fall ist gebunden; ein eigener ADR-0023-Bürgernachweis ist hier nicht öffentlich projiziert."
+          : "Eine berechtigte Bürgerperson muss den unveränderten Entwurf ausdrücklich übernehmen.",
+      authority: "Bürger:in / Berechtigungsprüfer",
     },
     {
       id: "case",
       label: "CivicCase",
-      state: state("case", input.caseAdmitted, input.proposalSigned),
+      state: state("case", input.caseAdmitted, input.citizenAdoptionVerified),
       detail: input.caseAdmitted
         ? "Die getrennte menschliche Aufnahme ist öffentlich gebunden."
         : "Nur ein autorisierter Mensch darf den append-only Fall aufnehmen.",

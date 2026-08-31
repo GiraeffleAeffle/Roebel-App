@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import {
+  type PublicAdoptedCaseBindingReceiptV2,
   type PublicCaseBindingReceiptV1,
   verifyPublicCaseBindingReceipt,
 } from "../src/lib/stadtstack/public-case-binding-receipt-contract";
 import { fetchVerifiedPublicCaseBindingReceipt } from "../src/lib/stadtstack/public-case-binding-receipt-transport";
 import { respondPublicCaseBindingRequest } from "../src/lib/stadtstack/public-case-binding-bff";
+import { loadVerifiedPublicCaseBindingReceipt } from "../src/lib/stadtstack/public-case-binding-receipt-client";
 
 const ROOT = "a".repeat(64);
 const CANDIDATE = "b".repeat(64);
@@ -37,7 +39,8 @@ function receipt(
   const unsigned = {
     schemaVersion: "public_case_binding_receipt_v1" as const,
     rootEventId: ROOT,
-    topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt",
+    topicId:
+      "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt",
     candidateId: `urn:stadtstack:signed-topic-suggestion:${CANDIDATE}`,
     candidateEventId: CANDIDATE,
     sourceAnswerEventId: ANSWER,
@@ -57,12 +60,105 @@ function receipt(
   return { ...unsigned, receiptChecksum: checksum(unsigned) };
 }
 
+function adoptedReceipt(
+  overrides: Partial<
+    Omit<PublicAdoptedCaseBindingReceiptV2, "receiptChecksum">
+  > = {}
+): PublicAdoptedCaseBindingReceiptV2 {
+  const eligibilityChecksum = "1".repeat(64);
+  const unsigned = {
+    schemaVersion: "public_case_binding_receipt_v2" as const,
+    rootEventId: ROOT,
+    topicId:
+      "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt",
+    candidateKind: "eligible_citizen_adopted_topic_suggestion_v1" as const,
+    candidateId: `urn:stadtstack:citizen-topic-suggestion-adoption:${"f".repeat(64)}`,
+    candidateEventId: "e".repeat(64),
+    participantSuggestionEventId: CANDIDATE,
+    adopterPubkey: "9".repeat(64),
+    eligibilityReceiptId: `urn:stadtstack:municipal-civic-eligibility-receipt:${eligibilityChecksum}`,
+    eligibilityReceiptChecksum: eligibilityChecksum,
+    eligibilityPolicyVersion: "roebel-civic-eligibility-2026-08",
+    eligibilityIssuer: "roebel-citizen-verifier",
+    adoptionAcceptanceReceiptChecksum: "2".repeat(64),
+    sourceAnswerEventId: ANSWER,
+    sourceAnswerReceiptId: `urn:stadtstack:mecky-answer:${"3".repeat(64)}`,
+    caseId: CASE_ID,
+    caseVersion: 3 as const,
+    caseEventIds: [
+      `urn:stadtstack:case-event:${CASE_ID}:1`,
+      `urn:stadtstack:case-event:${CASE_ID}:2`,
+      `urn:stadtstack:case-event:${CASE_ID}:3`,
+    ] as const,
+    journalHeadChecksum: HEAD,
+    admissionEventChecksum: HEAD,
+    authorityBinding: "none" as const,
+    administrativeEndorsement: false as const,
+    bindingVote: false as const,
+    councilDecision: false as const,
+    openDeskWrite: false as const,
+    treasuryEffect: false as const,
+    paymentEffect: false as const,
+    ...overrides,
+  };
+  return { ...unsigned, receiptChecksum: checksum(unsigned) };
+}
+
 test("accepts only an exact canonical public Case Steward receipt", () => {
   const verified = verifyPublicCaseBindingReceipt(receipt());
   assert.equal(verified.caseId, CASE_ID);
   assert.equal(verified.rootEventId, ROOT);
   assert.equal(verified.authorityBinding, "none");
   assert.equal(verified.openDeskWrite, false);
+});
+
+test("accepts a checksum-bound ADR-0023 adoption and eligibility handoff", () => {
+  const verified = verifyPublicCaseBindingReceipt(adoptedReceipt());
+  assert.equal(verified.schemaVersion, "public_case_binding_receipt_v2");
+  if (verified.schemaVersion !== "public_case_binding_receipt_v2") {
+    assert.fail("expected adopted receipt");
+  }
+  assert.equal(verified.participantSuggestionEventId, CANDIDATE);
+  assert.equal(verified.eligibilityReceiptChecksum, "1".repeat(64));
+  assert.equal(verified.adoptionAcceptanceReceiptChecksum, "2".repeat(64));
+  assert.equal(verified.administrativeEndorsement, false);
+  assert.equal(verified.bindingVote, false);
+  assert.equal(verified.councilDecision, false);
+  assert.equal(verified.openDeskWrite, false);
+  assert.equal(verified.treasuryEffect, false);
+  assert.equal(verified.paymentEffect, false);
+});
+
+test("rejects eligibility drift and any authority-bearing v2 effect", () => {
+  assert.throws(() =>
+    verifyPublicCaseBindingReceipt(
+      adoptedReceipt({ eligibilityReceiptChecksum: "4".repeat(64) })
+    )
+  );
+  for (const field of [
+    "administrativeEndorsement",
+    "bindingVote",
+    "councilDecision",
+    "openDeskWrite",
+    "treasuryEffect",
+    "paymentEffect",
+  ] as const) {
+    assert.throws(() =>
+      verifyPublicCaseBindingReceipt(
+        adoptedReceipt({ [field]: true } as unknown as Partial<
+          Omit<PublicAdoptedCaseBindingReceiptV2, "receiptChecksum">
+        >)
+      )
+    );
+  }
+  assert.throws(() =>
+    verifyPublicCaseBindingReceipt(
+      adoptedReceipt({
+        topicId:
+          "urn:stadtstack:topic:municipality:other-town:offener-treffpunkt",
+      })
+    )
+  );
 });
 
 test("rejects a legacy test case identifier and a tampered checksum", () => {
@@ -92,9 +188,7 @@ test("matches the canonical Stadtstack topic grammar and byte bounds", () => {
     exact256
   );
   assert.throws(() =>
-    verifyPublicCaseBindingReceipt(
-      receipt({ topicId: `${exact256}a` })
-    )
+    verifyPublicCaseBindingReceipt(receipt({ topicId: `${exact256}a` }))
   );
 });
 
@@ -122,11 +216,11 @@ test("rejects prototype, getter and array-shape tricks before canonicalizing", (
 
 test("uses one credential-free exact discussion route and rejects a mismatched transport checksum", async () => {
   const valid = receipt();
-  let requested: URL | null = null;
+  const requested: URL[] = [];
   const loaded = await fetchVerifiedPublicCaseBindingReceipt(ROOT, {
     origin: "https://public.stadtstack.example",
     fetchImpl: (async (input, init) => {
-      requested = new URL(String(input));
+      requested.push(new URL(String(input)));
       assert.equal(init?.method, "GET");
       assert.equal(init?.credentials, "omit");
       assert.equal(init?.redirect, "error");
@@ -142,10 +236,23 @@ test("uses one credential-free exact discussion route and rejects a mismatched t
   });
   assert.equal(loaded?.caseId, CASE_ID);
   assert.equal(
-    requested?.pathname,
+    requested[0]?.pathname,
     `/v1/public/case-bindings/by-discussion/${ROOT}`
   );
-  assert.equal(requested?.search, "");
+  assert.equal(requested[0]?.search, "");
+
+  const adopted = adoptedReceipt();
+  const adoptedLoaded = await fetchVerifiedPublicCaseBindingReceipt(ROOT, {
+    origin: "https://public.stadtstack.example",
+    fetchImpl: (async () =>
+      new Response(JSON.stringify(adopted), {
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          "x-stadtstack-receipt-sha256": adopted.receiptChecksum,
+        },
+      })) as typeof fetch,
+  });
+  assert.equal(adoptedLoaded?.schemaVersion, "public_case_binding_receipt_v2");
 
   await assert.rejects(() =>
     fetchVerifiedPublicCaseBindingReceipt(ROOT, {
@@ -161,12 +268,43 @@ test("uses one credential-free exact discussion route and rejects a mismatched t
   );
 });
 
+test("accepts the adopted receipt at the browser BFF boundary and rejects effect drift", async () => {
+  const valid = adoptedReceipt();
+  const loaded = await loadVerifiedPublicCaseBindingReceipt(ROOT, (async (
+    input,
+    init
+  ) => {
+    assert.equal(input, `/api/stadtstack/case-bindings/by-discussion/${ROOT}`);
+    assert.equal(init?.method, "GET");
+    assert.equal(init?.credentials, "same-origin");
+    return new Response(JSON.stringify(valid), {
+      headers: {
+        "x-stadtstack-receipt-sha256": valid.receiptChecksum,
+      },
+    });
+  }) as typeof fetch);
+  assert.equal(loaded?.schemaVersion, "public_case_binding_receipt_v2");
+
+  await assert.rejects(() =>
+    loadVerifiedPublicCaseBindingReceipt(
+      ROOT,
+      (async () =>
+        new Response(JSON.stringify({ ...valid, councilDecision: true }), {
+          headers: {
+            "x-stadtstack-receipt-sha256": valid.receiptChecksum,
+          },
+        })) as typeof fetch
+    )
+  );
+});
+
 test("separates a real 404 from malformed, redirected, or oversized upstream data", async () => {
   const options = { origin: "https://public.stadtstack.example" } as const;
   assert.equal(
     await fetchVerifiedPublicCaseBindingReceipt(ROOT, {
       ...options,
-      fetchImpl: (async () => new Response(null, { status: 404 })) as typeof fetch,
+      fetchImpl: (async () =>
+        new Response(null, { status: 404 })) as typeof fetch,
     }),
     null
   );
@@ -245,7 +383,10 @@ test("maps GET, HEAD, unsupported methods and reader failures without leaking de
   });
   assert.equal(head.status, 200);
   assert.equal(head.body, null);
-  assert.equal(head.headers["x-stadtstack-receipt-sha256"], valid.receiptChecksum);
+  assert.equal(
+    head.headers["x-stadtstack-receipt-sha256"],
+    valid.receiptChecksum
+  );
 
   const unsupported = await respondPublicCaseBindingRequest({
     method: "POST",

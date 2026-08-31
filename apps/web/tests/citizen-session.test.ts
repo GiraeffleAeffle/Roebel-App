@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   createCitizenSession,
@@ -7,12 +9,14 @@ import {
 import { createThirdwebCitizenSession } from "../src/lib/citizen-session/thirdweb-adapter";
 import {
   NOSTR_KEY_DERIVATION_MESSAGE,
+  buildAgentNoteEvent,
+  buildCivicTopicPromotionEvent,
   buildNoteEvent,
+  buildParticipantTopicSuggestion,
   getPublicKeyHex,
   verifyBindingEvent,
   verifyEvent,
 } from "@netizen-labs/nostr";
-import { readFileSync } from "node:fs";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111";
 const SIGNATURE = `0x${"42".repeat(65)}`;
@@ -27,6 +31,22 @@ function credential(
     signMessage: async () => SIGNATURE,
     ...overrides,
   };
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function checksum(value: unknown): string {
+  return createHash("sha256").update(stableJson(value), "utf8").digest("hex");
 }
 
 test("exposes a provider-neutral immutable citizen snapshot", () => {
@@ -361,6 +381,140 @@ test("signs a topic proposal that still awaits separate human case admission", a
   assert.equal(signed.submittedToCivicWorkflow, false);
   assert.equal(signed.event.tags.some((tag) => tag[0] === "case"), false);
   assert.equal("secretKey" in signed, false);
+});
+
+test("signs one exact eligible-citizen adoption without creating civic effects", async () => {
+  const session = createCitizenSession({
+    appAccountId: "account-1",
+    credential: credential(),
+    memberId: null,
+  });
+  const adopterProbe = await session.signPublicPost({
+    content: "Bürger-Schlüssel ableiten",
+    createdAt: 60,
+  });
+  const participantSecret = new Uint8Array(32).fill(61);
+  const meckySecret = new Uint8Array(32).fill(62);
+  const meckyPubkey = getPublicKeyHex(meckySecret);
+  const topicId =
+    "urn:stadtstack:topic:municipality:roebel-mueritz:offener-treffpunkt";
+  const sourcePost = buildNoteEvent(participantSecret, "Treffpunkt", {
+    createdAt: 60,
+  });
+  const discussion = buildCivicTopicPromotionEvent(participantSecret, {
+    sourcePost,
+    municipalityId: "roebel-mueritz",
+    topicId,
+    topicTitle: "Offener Treffpunkt",
+    agentPubkey: meckyPubkey,
+    content: "@Mecky, welche geprüften Optionen gibt es?",
+    createdAt: 61,
+  });
+  const answer = buildAgentNoteEvent(
+    {
+      name: "mecky",
+      nodeId: "roebel",
+      secretKey: meckySecret,
+      publicKey: meckyPubkey,
+      npub: "npub1test",
+    },
+    "Geprüfte Antwort",
+    {
+      createdAt: 62,
+      tags: [
+        ["e", discussion.id, "", "reply"],
+        ["p", discussion.pubkey],
+        ["mecky-receipt", `urn:stadtstack:mecky-answer:${"a".repeat(64)}`],
+        ["municipality", "roebel-mueritz"],
+        ["topic", topicId],
+        [
+          "evidence",
+          `sha256:${"b".repeat(64)}`,
+          "https://stadtstack.example/public/reviewed-source",
+        ],
+      ],
+    }
+  );
+  const participantSuggestion = buildParticipantTopicSuggestion(
+    participantSecret,
+    {
+      binding: { municipalityId: "roebel-mueritz", topicId },
+      sourcePost,
+      sourceDiscussion: discussion,
+      sourceAnswer: answer,
+      agentPubkey: meckyPubkey,
+      title: "Offenen Treffpunkt prüfen",
+      summary: "Die öffentlich diskutierten Optionen sollen geprüft werden.",
+      createdAt: 63,
+    }
+  );
+  const eligibilityCore = {
+    municipalityId: "roebel-mueritz",
+    eligibilityClass: "municipal_civic_participation" as const,
+    subjectPubkey: adopterProbe.pubkey,
+    participantSuggestionId: participantSuggestion.suggestionId,
+    topicId,
+    policyVersion: "roebel-civic-eligibility-2026-08",
+    issuer: "roebel-citizen-verifier",
+    issuedAt: 64,
+    expiresAt: 90,
+    authorityBinding: "civic_eligibility_only" as const,
+  };
+  const eligibilityChecksum = checksum(eligibilityCore);
+  const statusBaseUrl = "https://eligibility.roebel.example/status";
+  const eligibilityReceipt = {
+    schemaVersion: "municipal_civic_eligibility_receipt_v1" as const,
+    eligibilityCore,
+    receiptId: `urn:stadtstack:municipal-civic-eligibility-receipt:${eligibilityChecksum}`,
+    payloadChecksum: eligibilityChecksum,
+    statusRef: `${statusBaseUrl}/${eligibilityChecksum}`,
+    proof: {
+      algorithm: "test-detached-v1",
+      keyId: "roebel-citizen-verifier-2026-08",
+      signature: "cHJvb2Y",
+    },
+  };
+  const eligibilityPolicy = {
+    municipalityId: "roebel-mueritz",
+    policyVersion: "roebel-civic-eligibility-2026-08",
+    issuer: "roebel-citizen-verifier",
+    statusBaseUrl,
+    verifiedAt: 65,
+    verifyReceiptProof: () => true,
+  };
+
+  const adoption = await session.signCitizenTopicSuggestionAdoption({
+    participantSuggestion,
+    eligibilityReceipt,
+    eligibilityPolicy,
+    createdAt: 66,
+  });
+
+  assert.equal(verifyEvent(adoption.event), true);
+  assert.equal(adoption.signerPubkey, adopterProbe.pubkey);
+  assert.equal(
+    adoption.participantSuggestionId,
+    participantSuggestion.event.id
+  );
+  assert.equal(adoption.eligibilityReceiptId, eligibilityReceipt.receiptId);
+  assert.equal(adoption.entryState, "case_steward_review_required");
+  assert.equal(adoption.authorityBinding, "civic_eligibility_only");
+  assert.equal(adoption.submittedToCivicWorkflow, false);
+  assert.equal(
+    adoption.event.tags.some((tag) =>
+      [
+        "case",
+        "stadtstack-case",
+        "vote",
+        "governance",
+        "treasury",
+        "payment",
+        "openDesk",
+      ].includes(tag[0] ?? "")
+    ),
+    false
+  );
+  assert.equal("secretKey" in adoption, false);
 });
 
 test("fails closed when the provider returns a malformed signature", async () => {

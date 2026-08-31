@@ -280,10 +280,12 @@ test("labels the civic handoff and keeps vote and treasury authority disabled", 
   assert.match(discussion, /<StadtstackProposalReceipts/);
   assert.match(proposalReceipts, /Nostr-Signatur geprüft/);
   assert.match(proposalReceipts, /Bürgerberechtigung noch nicht nachgewiesen/);
+  assert.match(proposalReceipts, /Bürgerübernahme verifiziert/);
+  assert.match(proposalReceipts, /Ledger-Annahme/);
   assert.match(proposalReceipts, /CivicCase öffentlich quittiert/);
   assert.match(proposalReceipts, /schreibt nicht in openDesk/);
   assert.match(proposalReceipts, /kein kommunaler Beschluss/);
-  assert.match(discussion, /thread\?\.topic\?\.id === bindingReceipt\.topicId/);
+  assert.match(discussion, /bindPublicCaseReceiptToProposal/);
 });
 
 test("shows reviewed administration progress inside the same Civic Journey", () => {

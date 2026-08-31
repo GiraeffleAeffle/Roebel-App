@@ -40,6 +40,7 @@ import {
   loadVerifiedPublicCaseBindingReceipt,
   type VerifiedPublicCaseBindingReceipt,
 } from "@/lib/stadtstack/public-case-binding-receipt-client";
+import { bindPublicCaseReceiptToProposal } from "@/lib/stadtstack/proposal-signature";
 import { useCitizenSession } from "@/lib/citizen-session/CitizenSessionContext";
 import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
 import {
@@ -133,7 +134,19 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
   const topicSuggestionResumeRoot = useRef<string | null>(null);
   const [topicSuggestionReceiptPending, setTopicSuggestionReceiptPending] =
     useState(false);
-  const topicBindingReceipt = bindingReceipt && thread?.topic?.id === bindingReceipt.topicId ? bindingReceipt : null;
+  const topicBindingReceipt = thread?.topic
+    ? bindPublicCaseReceiptToProposal({
+        suggestion: thread.suggestion,
+        receipt: bindingReceipt,
+        rootEventId: rootId,
+        topicId: thread.topic.id,
+      })
+    : null;
+  const bindingReceiptMismatch = Boolean(
+    bindingReceipt && thread?.topic && !topicBindingReceipt
+  );
+  const citizenAdoptionVerified =
+    topicBindingReceipt?.schemaVersion === "public_case_binding_receipt_v2";
   const canonicalCaseId = topicBindingReceipt?.caseId ?? null;
 
   const reload = useCallback(async () => {
@@ -507,6 +520,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
       ),
       meckyAnswered: Boolean(thread.mecky || workflow.answer),
       proposalSigned: Boolean(thread.suggestion || workflow.suggestion),
+      citizenAdoptionVerified,
       caseAdmitted: admitted,
       administrationStatus,
       participationStatus:
@@ -514,7 +528,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
           ? "brief_ready"
           : "not_available",
     });
-  }, [administrationProgress, config?.meckyPubkey, thread, topicBindingReceipt, workflow]);
+  }, [administrationProgress, citizenAdoptionVerified, config?.meckyPubkey, thread, topicBindingReceipt, workflow]);
 
   if (loading) return <div className="flex min-h-60 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>;
   if (!thread || !graph || !rootEvent) return <div className="rounded-xl border border-rose-300 bg-rose-50 p-5 text-rose-900">{error ?? "Diskussion nicht gefunden"}</div>;
@@ -654,6 +668,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
           <WorkflowStep label="Öffentliche Diskussion" done={true} detail="Signierte Nostr-Ereignisse, Pro/Contra-Struktur und @Mecky-Erwähnung." />
           <WorkflowStep label="Geprüfte Mecky-Antwort" done={Boolean(workflow.answer || thread.mecky)} detail="Mecky darf Quellen erklären, aber den Vorschlag nicht selbst einreichen." />
           <WorkflowStep label={participantTracerMode ? "Teilnahme-signierter Entwurf" : "Bürger-signierter Vorschlag"} done={Boolean(workflow.suggestion || thread.suggestion)} detail={participantTracerMode ? "Die Staging-Teilnahme signiert einen unveränderlichen Entwurf. Eine getrennt geprüfte Bürgerperson muss ihn später ausdrücklich übernehmen." : topicProposalMode ? "Ein verbundenes Röbel-Konto bestätigt Titel und Zusammenfassung mit einer eigenen Nostr-Signatur." : "Die synthetische Testperson bestätigt Titel und Zusammenfassung."} />
+          <WorkflowStep label="Verifizierte Bürgerübernahme" done={citizenAdoptionVerified} detail={citizenAdoptionVerified ? "Die v2-Fallquittung bindet den unveränderten Teilnahme-Entwurf an eine Bürger-Signatur, eine kommunale Berechtigungsquittung und die atomare Annahme im Adoption-Ledger." : "Erforderlich sind eine kurzlebige, kommunal geprüfte Berechtigungsquittung und eine neue Bürger-Signatur über genau diesen unveränderten Entwurf."} />
           <WorkflowStep label="Menschliche Aufnahme als CivicCase" done={Boolean(topicBindingReceipt)} detail="Nur eine checksum-verifizierte öffentliche Case-Steward-Quittung bestätigt die getrennte, autorisierte Aufnahme." />
           <WorkflowStep
             label="Verwaltungsfeedback und Citizen Brief"
@@ -683,6 +698,9 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
         )}
         {bindingReceiptUnavailable && (
           <div className="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">Die öffentliche Case-Steward-Quittung ist gerade nicht erreichbar; der Journey-Stand bleibt unverändert.</div>
+        )}
+        {bindingReceiptMismatch && (
+          <div className="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">Die öffentliche Fallquittung passt nicht exakt zur projizierten Vorschlagssignatur. Insbesondere kann eine v1-Quittung keinen Teilnahme-Entwurf als Bürgerübernahme relabeln; CivicCase und Verwaltung bleiben gesperrt.</div>
         )}
         {thread.topic && (thread.suggestion || topicBindingReceipt) && (
           <StadtstackProposalReceipts suggestion={thread.suggestion} bindingReceipt={topicBindingReceipt} rootId={rootId} topicId={thread.topic.id} />

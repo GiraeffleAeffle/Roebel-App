@@ -39,7 +39,7 @@ export function CivicJourneyRail({ journey }: { journey: CivicJourney }) {
           keine automatische Wirkung
         </span>
       </div>
-      <ol className="mt-4 flex snap-x gap-2 overflow-x-auto pb-2 lg:grid lg:grid-cols-9 lg:overflow-visible lg:pb-0">
+      <ol className="mt-4 flex snap-x gap-2 overflow-x-auto pb-2 lg:grid lg:grid-cols-10 lg:overflow-visible lg:pb-0">
         {journey.stages.map((stage) => (
           <li
             key={stage.id}
