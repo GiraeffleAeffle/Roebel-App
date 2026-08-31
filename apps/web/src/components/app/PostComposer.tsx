@@ -51,6 +51,7 @@ import {
 import { appMeckyConversationGateway } from "@/lib/stadtstack/app-mecky-gateway";
 import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
 import { useStagingTestParticipant } from "@/hooks/useStagingTestParticipant";
+import { StagingParticipantEnrollment } from "@/components/app/StagingParticipantEnrollment";
 import {
   loadPendingStagingParticipantMeckyMirror,
   mirrorStagingParticipantMeckyPost,
@@ -552,20 +553,11 @@ export function PostComposer({
       <div className="rounded-lg border border-border bg-card p-4">
         <p className="text-sm text-muted-foreground">{message}</p>
         {!isPostingAsOrg && stagingParticipationCanBeUsedHere && (
-          <button
-            type="button"
-            disabled={stagingParticipant.isEnrolling}
-            onClick={async () => {
-              const inviteToken = window.prompt("Staging-Einladung eingeben.");
-              if (inviteToken === null) return;
-              const result = await stagingParticipant.enroll(inviteToken.trim() || undefined);
-              if (result.success) toast.success("Staging-Testteilnahme aktiviert");
-              else toast.error(result.error || "Staging-Testteilnahme fehlgeschlagen");
-            }}
+          <StagingParticipantEnrollment
+            isEnrolling={stagingParticipant.isEnrolling}
+            enroll={stagingParticipant.enroll}
             className="mt-2 text-xs font-semibold text-primary hover:underline disabled:opacity-50"
-          >
-            Staging-Testteilnahme aktivieren
-          </button>
+          />
         )}
       </div>
     );
