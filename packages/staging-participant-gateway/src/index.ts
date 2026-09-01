@@ -4,6 +4,22 @@ export {
   listenStagingParticipantGatewayServer,
 } from "./http.ts";
 export { resolveProductionGatewayConfig } from "./config.ts";
+export { createCitizenAdoptionService } from "./citizen-adoption.ts";
+export type {
+  CitizenAdoptionAcceptanceReceiptV1,
+  CitizenAdoptionLedger,
+  CitizenAdoptionPolicy,
+  CitizenAdoptionRequestV1,
+  CitizenAdoptionService,
+  CitizenAdoptionServiceDependencies,
+  CitizenAdoptionSourceAdapter,
+  CitizenEligibilityChallengeStore,
+  CitizenEligibilityChallengeV1,
+  CitizenEligibilityIssuanceV1,
+  CitizenEligibilityReceiptStore,
+  MunicipalCivicEligibilityPublicPolicyV1,
+  PublicCitizenAdoptionProjectionV1,
+} from "./citizen-adoption.ts";
 export {
   createRestrictedSupabaseDataAdapter,
   createStagingParticipantReadinessAdapter,

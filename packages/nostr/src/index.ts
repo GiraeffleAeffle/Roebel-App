@@ -98,7 +98,14 @@ export {
   verifyCitizenSignedTopicSuggestion,
   verifyCitizenTopicSuggestionAdoption,
   verifyParticipantTopicSuggestion,
+  verifyParticipantTopicSuggestionForAdoption,
 } from "./civic";
+
+export {
+  createMunicipalCivicEligibilityReceiptProofVerifier,
+  municipalCivicEligibilityReceiptProofPublicKey,
+  signMunicipalCivicEligibilityReceiptProof,
+} from "./eligibility-proof";
 export type {
   CivicArgumentInput,
   CivicConversationWitnesses,

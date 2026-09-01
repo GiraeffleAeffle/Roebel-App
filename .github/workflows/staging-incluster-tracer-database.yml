@@ -10,6 +10,8 @@ on:
       - "supabase/staging_incluster_tracer_baseline_v1.sql"
       - "supabase/migrations/20260825_staging_participant_gateway.sql"
       - "supabase/migrations/20260825_staging_participant_topic_tracer.sql"
+      - "supabase/migrations/20260901_staging_citizen_adoption.sql"
+      - "supabase/staging-citizen-adoption-schema-contract-v1.json"
       - "supabase/tests/staging_incluster_tracer_*.sql"
   pull_request:
     branches: [main]
@@ -20,6 +22,8 @@ on:
       - "supabase/staging_incluster_tracer_baseline_v1.sql"
       - "supabase/migrations/20260825_staging_participant_gateway.sql"
       - "supabase/migrations/20260825_staging_participant_topic_tracer.sql"
+      - "supabase/migrations/20260901_staging_citizen_adoption.sql"
+      - "supabase/staging-citizen-adoption-schema-contract-v1.json"
       - "supabase/tests/staging_incluster_tracer_*.sql"
   workflow_dispatch:
 

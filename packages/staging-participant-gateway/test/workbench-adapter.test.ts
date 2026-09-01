@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  createPrivateWorkbenchCitizenSuggestionThreadResolver,
   createPrivateWorkbenchMeckyMirrorAdapter,
   createPrivateWorkbenchTopicTracerAdapter,
 } from "../src/workbench-adapter.ts";
@@ -131,4 +132,36 @@ test("ADR-0022 publication never exposes an unknown workbench rejection", async 
       message: "staging_participant_workbench_unavailable",
     });
   }
+});
+
+test("citizen adoption resolves only one exact credential-free cluster-local thread", async () => {
+  const calls: Array<{ url: string; method: string | undefined; headers: Headers }> = [];
+  const thread = {
+    schemaVersion: "roebel_staging_argument_thread_v1",
+    rootEvent: EVENT,
+    suggestion: null,
+    authorityBinding: "none",
+  };
+  const resolve = createPrivateWorkbenchCitizenSuggestionThreadResolver({
+    url: "http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/",
+    admissionHeader: { name: "x-stadtstack-e2e", value: "1" },
+    fetch: async (url, init) => {
+      calls.push({
+        url: String(url),
+        method: init?.method,
+        headers: new Headers(init?.headers),
+      });
+      return new Response(JSON.stringify(thread), { status: 200 });
+    },
+  });
+
+  assert.deepEqual(await resolve({ discussionRootId: EVENT.id }), thread);
+  assert.deepEqual(calls.map(({ url, method }) => ({ url, method })), [{
+    url:
+      "http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/" +
+      `api/thread?root=${EVENT.id}`,
+    method: "GET",
+  }]);
+  assert.equal(calls[0]?.headers.has("x-stadtstack-e2e"), false);
+  assert.equal(calls[0]?.headers.has("authorization"), false);
 });

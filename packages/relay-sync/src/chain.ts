@@ -1,4 +1,12 @@
-import { http, createPublicClient, hashMessage, type PublicClient } from "viem";
+import {
+  http,
+  createPublicClient,
+  hashMessage,
+  keccak256,
+  type Address,
+  type Hex,
+  type PublicClient,
+} from "viem";
 import { gnosis } from "viem/chains";
 import { recoverCandidateSigners } from "./signature.js";
 import type { ChainVerifier } from "./types.js";
@@ -32,6 +40,37 @@ const BALANCE_OF_ABI = [
     outputs: [{ name: "", type: "uint256" }],
   },
 ] as const;
+
+const IS_ACTIVE_ABI = [
+  {
+    name: "isActive",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+  },
+] as const;
+
+export type PinnedCitizenNftEligibilityEvidence = Readonly<{
+  active: boolean;
+  chainId: 100;
+  contractAddress: string;
+  finalizedBlockNumber: bigint;
+  finalizedBlockHash: string;
+}>;
+
+export type PinnedCitizenNftEligibilityVerifier = Readonly<{
+  verifyActiveCitizen(input: Readonly<{
+    address: string;
+  }>): Promise<PinnedCitizenNftEligibilityEvidence>;
+}>;
+
+export type PinnedCitizenNftEligibilityVerifierOptions = Readonly<{
+  rpcUrl: string;
+  citizenNftAddress: string;
+  citizenNftRuntimeCodeHash: string;
+  client?: PublicClient;
+}>;
 
 export interface GnosisVerifierOptions {
   rpcUrl: string;
@@ -163,4 +202,79 @@ export function createGnosisVerifier(
       return balance > 0n;
     },
   };
+}
+
+/**
+ * Verify only CitizenNFTv2.isActive at one pinned finalized Gnosis block.
+ *
+ * This is intentionally separate from the legacy relay `balanceOf` helper:
+ * municipal eligibility must fail closed on the chain, deployment bytecode,
+ * finality, block identity, or contract response drifting from configuration.
+ */
+export function createPinnedCitizenNftEligibilityVerifier(
+  options: PinnedCitizenNftEligibilityVerifierOptions,
+): PinnedCitizenNftEligibilityVerifier {
+  if (
+    !/^https:\/\//u.test(options.rpcUrl) ||
+    !/^0x[0-9a-fA-F]{40}$/u.test(options.citizenNftAddress) ||
+    !/^0x[0-9a-fA-F]{64}$/u.test(options.citizenNftRuntimeCodeHash)
+  ) {
+    throw new Error("citizen_nft_eligibility_config_invalid");
+  }
+  const client =
+    options.client ??
+    (createPublicClient({
+      chain: gnosis,
+      transport: http(options.rpcUrl),
+    }) as PublicClient);
+  const citizenNft = options.citizenNftAddress as Address;
+  const expectedCodeHash = options.citizenNftRuntimeCodeHash.toLowerCase();
+
+  return Object.freeze({
+    async verifyActiveCitizen({ address }) {
+      if (!/^0x[0-9a-fA-F]{40}$/u.test(address)) {
+        throw new Error("citizen_nft_eligibility_address_invalid");
+      }
+      const chainId = await client.getChainId();
+      if (chainId !== 100) {
+        throw new Error("citizen_nft_eligibility_chain_mismatch");
+      }
+      const finalized = await client.getBlock({ blockTag: "finalized" });
+      if (finalized.number === null || finalized.hash === null) {
+        throw new Error("citizen_nft_eligibility_finality_unavailable");
+      }
+      const code = await client.getCode({
+        address: citizenNft,
+        blockNumber: finalized.number,
+      });
+      if (!code || code === "0x" || keccak256(code as Hex).toLowerCase() !== expectedCodeHash) {
+        throw new Error("citizen_nft_eligibility_deployment_mismatch");
+      }
+      const active = await client.readContract({
+        address: citizenNft,
+        abi: IS_ACTIVE_ABI,
+        functionName: "isActive",
+        args: [address as Address],
+        blockNumber: finalized.number,
+      });
+      if (typeof active !== "boolean") {
+        throw new Error("citizen_nft_eligibility_response_invalid");
+      }
+      const confirmed = await client.getBlock({ blockNumber: finalized.number });
+      if (
+        confirmed.number !== finalized.number ||
+        confirmed.hash === null ||
+        confirmed.hash !== finalized.hash
+      ) {
+        throw new Error("citizen_nft_eligibility_block_reorged");
+      }
+      return Object.freeze({
+        active,
+        chainId: 100 as const,
+        contractAddress: citizenNft.toLowerCase(),
+        finalizedBlockNumber: finalized.number,
+        finalizedBlockHash: finalized.hash,
+      });
+    },
+  });
 }

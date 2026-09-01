@@ -128,6 +128,7 @@ export type StagingParticipantDataAdapter = Readonly<{
 export type StagingParticipantReadinessAdapter = Readonly<{
   preflight(): Promise<Readonly<{ migrationId: string; databaseSchemaSha256: string }>>;
   preflightTopicTracer(): Promise<Readonly<{ migrationId: string; databaseSchemaSha256: string }>>;
+  preflightCitizenAdoption(): Promise<Readonly<{ migrationId: string; databaseSchemaSha256: string }>>;
 }>;
 
 export type StagingParticipantReadinessPins = Readonly<{
@@ -137,6 +138,8 @@ export type StagingParticipantReadinessPins = Readonly<{
   databaseSchemaSha256: string;
   topicTracerMigrationSha256: string;
   topicTracerDatabaseSchemaSha256: string;
+  citizenAdoptionMigrationSha256: string;
+  citizenAdoptionDatabaseSchemaSha256: string;
 }>;
 
 /**

@@ -164,6 +164,28 @@ describe("staging component change detection", () => {
     ]);
   });
 
+  it("keeps citizen-adoption database contracts on the scoped gateway quality lane", () => {
+    const paths = [
+      "supabase/migrations/20260901_staging_citizen_adoption.sql",
+      "supabase/staging-citizen-adoption-schema-contract-v1.json",
+    ];
+    const result = affectedStagingComponents(paths);
+    assert.deepEqual(selection(paths), {
+      web: false,
+      public_mecky: false,
+      e2e_workbench: false,
+      staging_relay: false,
+      any_service: false,
+      any_publish: false,
+    });
+    assert.equal(result.quality_required, true);
+    assert.equal(result.quality_full, false);
+    assert.equal(result.quality_web_tests, false);
+    assert.deepEqual(result.quality_packages, [
+      "@roebel/staging-participant-gateway",
+    ]);
+  });
+
   it("selects changed workspaces without widening to the whole monorepo", () => {
     const result = affectedStagingComponents([
       "packages/protocol/src/manifest.ts",

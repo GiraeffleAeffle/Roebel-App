@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const SOURCE_REVISION = /^[0-9a-f]{40}$/u;
-const SECRET_ENV = /^(?:MECKY_INFERENCE_API_KEY|HETZNER_INFERENCE_API_KEY|NODE_AGENT_SECRET|STADTSTACK_NOSTR_INGESTOR_TOKEN|CASE_STEWARD_TOKEN|CITIZEN_RELAY_ADMISSION_TOKEN|RELAY_ADMISSION_TOKEN|SYNTHETIC_CITIZENS_JSON|ROEBEL_STAGING_PARTICIPANT_GATEWAY_SESSION_KEY|ROEBEL_STAGING_PARTICIPANT_GATEWAY_INVITE_SHA256|ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET)=/u;
+const SECRET_ENV = /^(?:MECKY_INFERENCE_API_KEY|HETZNER_INFERENCE_API_KEY|NODE_AGENT_SECRET|STADTSTACK_NOSTR_INGESTOR_TOKEN|CASE_STEWARD_TOKEN|CITIZEN_RELAY_ADMISSION_TOKEN|RELAY_ADMISSION_TOKEN|SYNTHETIC_CITIZENS_JSON|ROEBEL_STAGING_PARTICIPANT_GATEWAY_ELIGIBILITY_ISSUER_PRIVATE_KEY_HEX|ROEBEL_STAGING_PARTICIPANT_GATEWAY_SESSION_KEY|ROEBEL_STAGING_PARTICIPANT_GATEWAY_INVITE_SHA256|ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET)=/u;
 const COMPONENTS = {
   "public-mecky": ["node", "/app/agent-watcher.cjs"],
   "roebel-e2e-workbench": ["node", "/app/e2e-workbench.cjs"],
@@ -28,6 +28,8 @@ function releasePins(path) {
   if (path === undefined) return null;
   const value = JSON.parse(readFileSync(path, "utf8"));
   exactKeys(value, [
+    "citizenAdoptionDatabaseSchemaSha256",
+    "citizenAdoptionMigrationSha256",
     "databaseSchemaSha256",
     "deactivationSha256",
     "migrationSha256",
@@ -35,7 +37,9 @@ function releasePins(path) {
     "topicTracerDatabaseSchemaSha256",
     "topicTracerMigrationSha256",
   ], "release_pins");
-  if (value.schemaVersion !== "roebel_staging_participant_gateway_release_pins_v2" ||
+  if (value.schemaVersion !== "roebel_staging_participant_gateway_release_pins_v3" ||
+    !SHA256.test(value.citizenAdoptionMigrationSha256) ||
+    !SHA256.test(value.citizenAdoptionDatabaseSchemaSha256) ||
     !SHA256.test(value.migrationSha256) || !SHA256.test(value.databaseSchemaSha256) ||
     !SHA256.test(value.deactivationSha256) || !SHA256.test(value.topicTracerMigrationSha256) ||
     !SHA256.test(value.topicTracerDatabaseSchemaSha256)) throw new Error("release_pins_invalid");
@@ -130,6 +134,8 @@ export function verifyStagingServiceOci(root, sourceRevision, component, release
       releasePinsSha256: release.sha256,
       topicTracerMigrationSha256: release.topicTracerMigrationSha256,
       topicTracerDatabaseSchemaSha256: release.topicTracerDatabaseSchemaSha256,
+      citizenAdoptionMigrationSha256: release.citizenAdoptionMigrationSha256,
+      citizenAdoptionDatabaseSchemaSha256: release.citizenAdoptionDatabaseSchemaSha256,
     }),
   };
 }

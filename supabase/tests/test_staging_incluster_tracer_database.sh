@@ -11,8 +11,13 @@ readonly PARTICIPANT_MIGRATION="supabase/migrations/20260825_staging_participant
 readonly PARTICIPANT_MIGRATION_SHA256="ad050047a71bf2cc82361c16169627dc0a0a66a7982db804b1612624f0f97eab"
 readonly TOPIC_MIGRATION="supabase/migrations/20260825_staging_participant_topic_tracer.sql"
 readonly TOPIC_MIGRATION_SHA256="739cbcb189e3b12913ebf28dae74c931eab3cfae514e476bea4071092aef242e"
+readonly CITIZEN_ADOPTION_MIGRATION="supabase/migrations/20260901_staging_citizen_adoption.sql"
+readonly CITIZEN_ADOPTION_MIGRATION_SHA256="35e12ecc7e54e76f8e12b17e828970bc2d3bd4393f14f58fe9604dd00d398a2d"
+readonly CITIZEN_ADOPTION_SCHEMA_CONTRACT="supabase/staging-citizen-adoption-schema-contract-v1.json"
+readonly CITIZEN_ADOPTION_SCHEMA_CONTRACT_SHA256="79fea3feb09029e6138c7675fa0b877c3367390bec012b07e052c55103de7c9c"
 readonly PARTICIPANT_PREFLIGHT_RPC_PATH="/rpc/staging_participant_gateway_preflight"
 readonly TOPIC_PREFLIGHT_RPC_PATH="/rpc/staging_participant_gateway_topic_tracer_preflight"
+readonly CITIZEN_ADOPTION_PREFLIGHT_RPC_PATH="/rpc/staging_participant_gateway_citizen_adoption_preflight"
 readonly CREATE_POST_RPC_PATH="/rpc/staging_participant_gateway_create_main_text_post"
 readonly CREATE_COMMENT_RPC_PATH="/rpc/staging_participant_gateway_create_main_text_comment"
 readonly READ_POST_RPC_PATH="/rpc/staging_participant_gateway_read_owned_main_text_post"
@@ -44,6 +49,8 @@ require_sha256() {
 require_sha256 "$TRACER_BASELINE" "$TRACER_BASELINE_SHA256"
 require_sha256 "$PARTICIPANT_MIGRATION" "$PARTICIPANT_MIGRATION_SHA256"
 require_sha256 "$TOPIC_MIGRATION" "$TOPIC_MIGRATION_SHA256"
+require_sha256 "$CITIZEN_ADOPTION_MIGRATION" "$CITIZEN_ADOPTION_MIGRATION_SHA256"
+require_sha256 "$CITIZEN_ADOPTION_SCHEMA_CONTRACT" "$CITIZEN_ADOPTION_SCHEMA_CONTRACT_SHA256"
 
 run_identity="${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-$$"
 safe_run_identity="${run_identity//[^a-zA-Z0-9_.-]/-}"
@@ -136,6 +143,16 @@ docker exec --interactive \
 
 run_participant_migration_file "$PARTICIPANT_MIGRATION"
 run_participant_migration_file "$TOPIC_MIGRATION"
+run_participant_migration_file "$CITIZEN_ADOPTION_MIGRATION"
+
+docker exec --interactive \
+  --env PGPASSWORD="$database_password" \
+  --env PARTICIPANT_RPC_SECRET="$participant_rpc_secret" \
+  "$database_container_name" \
+  psql --no-psqlrc --quiet --set ON_ERROR_STOP=1 \
+    --set citizen_adoption_schema_sha256="sha256:$CITIZEN_ADOPTION_SCHEMA_CONTRACT_SHA256" \
+    --host 127.0.0.1 --username supabase_admin --dbname postgres \
+  < supabase/tests/staging_incluster_tracer_integration.sql
 
 docker exec --interactive \
   --env PGPASSWORD="$database_password" \
@@ -143,7 +160,7 @@ docker exec --interactive \
   "$database_container_name" \
   psql --no-psqlrc --quiet --set ON_ERROR_STOP=1 \
     --host 127.0.0.1 --username supabase_admin --dbname postgres \
-  < supabase/tests/staging_incluster_tracer_integration.sql
+  < supabase/tests/staging_incluster_tracer_citizen_adoption_integration.sql
 
 database_uri="postgres://authenticator:${authenticator_password}@database:5432/postgres"
 docker run \
@@ -283,6 +300,18 @@ if ! printf '%s' "$topic_preflight_response" | jq --exit-status \
      "sha256:298ef4a02f5f299afd157210a1074f179b08478c683bad3ed36430eb013854eb"' \
   >/dev/null; then
   printf 'Topic tracer preflight failed over HTTP.\n' >&2
+  exit 1
+fi
+
+citizen_adoption_preflight_response="$(
+  rpc_request "$CITIZEN_ADOPTION_PREFLIGHT_RPC_PATH" '{}'
+)"
+if ! printf '%s' "$citizen_adoption_preflight_response" | jq --exit-status \
+  --arg schema_sha256 "sha256:$CITIZEN_ADOPTION_SCHEMA_CONTRACT_SHA256" \
+  '.migration_id == "20260901_staging_citizen_adoption"
+   and .database_schema_sha256 == $schema_sha256' \
+  >/dev/null; then
+  printf 'Citizen-adoption preflight failed over HTTP.\n' >&2
   exit 1
 fi
 

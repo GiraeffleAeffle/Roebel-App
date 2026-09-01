@@ -39,6 +39,7 @@ import type {
   StagingParticipantTopicTracerAdapter,
   WalletSignatureVerifier,
 } from "./types.ts";
+import type { CitizenAdoptionService } from "./citizen-adoption.ts";
 
 const DEFAULT_MAX_REQUEST_BYTES = 8 * 1024;
 const SOURCE_POST_PROMOTION_MAX_REQUEST_BYTES = 16 * 1024;
@@ -56,7 +57,7 @@ const TOPIC_SUGGESTION_SCHEMA = "staging_topic_suggestion_signature_v1";
 
 const STATUS_PATH = "/api/staging-participant/v1/status";
 const INTERNAL_STATUS_PATH = "/status";
-const INTERNAL_STATUS_SCHEMA = "roebel_staging_participant_gateway_status_v2";
+const INTERNAL_STATUS_SCHEMA = "roebel_staging_participant_gateway_status_v3";
 const CHALLENGE_PATH = "/api/staging-participant/v1/challenge";
 const SESSION_PATH = "/api/staging-participant/v1/session";
 const POSTS_PATH = "/api/staging-participant/v1/posts";
@@ -64,6 +65,20 @@ const COMMENTS_PATH = "/api/staging-participant/v1/comments";
 const NOSTR_POST_PATH = "/api/staging-participant/v1/nostr-post";
 const PROMOTE_SOURCE_POST_PATH = "/api/staging-participant/v1/promote-source-post";
 const SIGN_TOPIC_SUGGESTION_PATH = "/api/staging-participant/v1/sign-topic-suggestion";
+const CITIZEN_ADOPTION_CHALLENGE_PATH =
+  "/api/staging-participant/v1/citizen-adoption/challenge";
+const CITIZEN_ADOPTION_ELIGIBILITY_PATH =
+  "/api/staging-participant/v1/citizen-adoption/eligibility";
+const CITIZEN_ADOPTION_ACCEPT_PATH =
+  "/api/staging-participant/v1/citizen-adoption/adoptions";
+const CITIZEN_ADOPTION_PUBLIC_READ_PATH =
+  /^\/api\/staging-participant\/v1\/citizen-adoption\/by-suggestion\/([0-9a-f]{64})\/adopter\/([0-9a-f]{64})$/u;
+const CITIZEN_ELIGIBILITY_STATUS_PATH =
+  /^\/api\/civic\/v1\/eligibility\/status\/([0-9a-f]{64})$/u;
+const CITIZEN_ADOPTION_CHALLENGE_SCHEMA =
+  "citizen_adoption_eligibility_challenge_request_v1";
+const CITIZEN_ADOPTION_ELIGIBILITY_SCHEMA =
+  "citizen_adoption_eligibility_proof_request_v1";
 const AUTHORITY_PATHS = new Set([
   "/api/staging-participant/v1/cases",
   "/api/staging-participant/v1/votes",
@@ -89,6 +104,8 @@ export type StagingParticipantGatewayDependencies = Readonly<{
   /** Omitted by unit-only embeddings; that leaves the private probe closed. */
   readiness?: StagingParticipantReadinessAdapter;
   readinessPins?: StagingParticipantReadinessPins;
+  /** Separate ADR-0023 capability; absent deployments fail closed. */
+  citizenAdoption?: CitizenAdoptionService;
 }>;
 
 function json(value: unknown, status = 200, origin?: string): Response {
@@ -320,6 +337,9 @@ function isAllowedOrigin(request: Request, config: StagingParticipantGatewayConf
 function maxRequestBytesForPath(pathname: string): number {
   if (pathname === PROMOTE_SOURCE_POST_PATH) return SOURCE_POST_PROMOTION_MAX_REQUEST_BYTES;
   if (pathname === SIGN_TOPIC_SUGGESTION_PATH) return TOPIC_SUGGESTION_MAX_REQUEST_BYTES;
+  if (pathname === CITIZEN_ADOPTION_ACCEPT_PATH) {
+    return TOPIC_SUGGESTION_MAX_REQUEST_BYTES;
+  }
   return DEFAULT_MAX_REQUEST_BYTES;
 }
 
@@ -395,17 +415,22 @@ export function createStagingParticipantGatewayHandler(
         return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
       }
       const pins = dependencies.readinessPins;
-      if (!dependencies.readiness || !pins) {
+      if (!dependencies.readiness || !pins || !dependencies.citizenAdoption) {
         return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
       }
       try {
-        const [preflight, topicPreflight] = await Promise.all([
-          dependencies.readiness.preflight(), dependencies.readiness.preflightTopicTracer(),
+        const [preflight, topicPreflight, citizenAdoptionPreflight] = await Promise.all([
+          dependencies.readiness.preflight(),
+          dependencies.readiness.preflightTopicTracer(),
+          dependencies.readiness.preflightCitizenAdoption(),
         ]);
         if (preflight.migrationId !== "20260825_staging_participant_gateway" ||
           preflight.databaseSchemaSha256 !== pins.databaseSchemaSha256 ||
           topicPreflight.migrationId !== "20260825_staging_participant_topic_tracer" ||
-          topicPreflight.databaseSchemaSha256 !== pins.topicTracerDatabaseSchemaSha256) {
+          topicPreflight.databaseSchemaSha256 !== pins.topicTracerDatabaseSchemaSha256 ||
+          citizenAdoptionPreflight.migrationId !== "20260901_staging_citizen_adoption" ||
+          citizenAdoptionPreflight.databaseSchemaSha256 !==
+            pins.citizenAdoptionDatabaseSchemaSha256) {
           return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
         }
         return internalStatus({
@@ -420,6 +445,9 @@ export function createStagingParticipantGatewayHandler(
           databaseSchemaSha256: pins.databaseSchemaSha256,
           topicTracerMigrationSha256: pins.topicTracerMigrationSha256,
           topicTracerDatabaseSchemaSha256: pins.topicTracerDatabaseSchemaSha256,
+          citizenAdoptionMigrationSha256: pins.citizenAdoptionMigrationSha256,
+          citizenAdoptionDatabaseSchemaSha256:
+            pins.citizenAdoptionDatabaseSchemaSha256,
         }, 200);
       } catch {
         return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
@@ -434,10 +462,48 @@ export function createStagingParticipantGatewayHandler(
     if (AUTHORITY_PATHS.has(url.pathname)) {
       return json({ error: "authority_action_forbidden" }, 403, origin);
     }
+    if (CITIZEN_ELIGIBILITY_STATUS_PATH.test(url.pathname)) {
+      if (request.method !== "GET") {
+        return json({ error: "method_not_allowed" }, 405, origin);
+      }
+      // The adoption receipt deliberately reserves this public reference, but
+      // a fresh, nonce-bound CitizenNFT check belongs to later Case admission.
+      // Until that governed resolver exists, never emit a status envelope.
+      return json(
+        { error: "citizen_eligibility_status_not_activated" },
+        503,
+        origin,
+      );
+    }
+    const citizenAdoptionPublicRead = CITIZEN_ADOPTION_PUBLIC_READ_PATH.exec(
+      url.pathname,
+    );
+    if (citizenAdoptionPublicRead) {
+      if (request.method !== "GET") {
+        return json({ error: "method_not_allowed" }, 405, origin);
+      }
+      if (!dependencies.citizenAdoption) {
+        return json({ error: "citizen_adoption_unavailable" }, 503, origin);
+      }
+      try {
+        const projection =
+          await dependencies.citizenAdoption.readPublicAdoption({
+            participantSuggestionId: citizenAdoptionPublicRead[1]!,
+            adopterPubkey: citizenAdoptionPublicRead[2]!,
+          });
+        return projection
+          ? json(projection, 200, origin)
+          : json({ error: "citizen_adoption_not_found" }, 404, origin);
+      } catch {
+        return json({ error: "citizen_adoption_projection_unavailable" }, 503, origin);
+      }
+    }
     if (request.method === "OPTIONS" &&
       [
         STATUS_PATH, CHALLENGE_PATH, SESSION_PATH, POSTS_PATH, COMMENTS_PATH,
         NOSTR_POST_PATH, PROMOTE_SOURCE_POST_PATH, SIGN_TOPIC_SUGGESTION_PATH,
+        CITIZEN_ADOPTION_CHALLENGE_PATH, CITIZEN_ADOPTION_ELIGIBILITY_PATH,
+        CITIZEN_ADOPTION_ACCEPT_PATH,
       ].includes(url.pathname)) {
       const response = new Response(null, {
         status: 204,
@@ -472,7 +538,13 @@ export function createStagingParticipantGatewayHandler(
     if (url.pathname !== CHALLENGE_PATH && url.pathname !== SESSION_PATH &&
       url.pathname !== POSTS_PATH && url.pathname !== COMMENTS_PATH && url.pathname !== NOSTR_POST_PATH &&
       url.pathname !== PROMOTE_SOURCE_POST_PATH && url.pathname !== SIGN_TOPIC_SUGGESTION_PATH) {
+      if (
+        url.pathname !== CITIZEN_ADOPTION_CHALLENGE_PATH &&
+        url.pathname !== CITIZEN_ADOPTION_ELIGIBILITY_PATH &&
+        url.pathname !== CITIZEN_ADOPTION_ACCEPT_PATH
+      ) {
       return json({ error: "not_found" }, 404, origin);
+      }
     }
     // Same-origin browser GET requests commonly omit Origin. Every mutating
     // request must still carry the exact configured origin as a CSRF boundary.
@@ -555,12 +627,172 @@ export function createStagingParticipantGatewayHandler(
       return response;
     }
 
+    const sessionToken = readCookie(
+      request.headers.get("cookie"),
+      SESSION_COOKIE,
+    );
     const session = decodeSignedSession(
-      readCookie(request.headers.get("cookie"), SESSION_COOKIE),
+      sessionToken,
       config.sessionHmacKey,
       Math.floor(nowMs / 1_000),
     );
     if (!session) return json({ error: "session_required" }, 401, origin);
+
+    if (url.pathname === CITIZEN_ADOPTION_CHALLENGE_PATH) {
+      const record = parsedObject(body, [
+        "schemaVersion",
+        "participantSuggestionId",
+        "subjectPubkey",
+      ]);
+      if (
+        !record ||
+        record.schemaVersion !== CITIZEN_ADOPTION_CHALLENGE_SCHEMA ||
+        typeof record.participantSuggestionId !== "string" ||
+        !/^[0-9a-f]{64}$/u.test(record.participantSuggestionId) ||
+        typeof record.subjectPubkey !== "string" ||
+        !/^[0-9a-f]{64}$/u.test(record.subjectPubkey) ||
+        !sessionToken
+      ) {
+        return json({ error: "citizen_eligibility_challenge_invalid" }, 400, origin);
+      }
+      if (!dependencies.citizenAdoption) {
+        return json({ error: "citizen_adoption_unavailable" }, 503, origin);
+      }
+      try {
+        // Transitional ADR-0023 boundary: this digest covers exactly the
+        // already-signed HttpOnly participant claim (wallet, issue/expiry and
+        // feed scope). The current claim has no Thirdweb provider subject,
+        // selected app-account id or credential-kind field, so this slice does
+        // not claim those stronger bindings. The browser cannot choose either
+        // the wallet or this digest; eligibility is established separately by
+        // the one-time wallet + Nostr proof and finalized CitizenNFTv2 check.
+        const challenge =
+          await dependencies.citizenAdoption.issueEligibilityChallenge({
+            walletAddress: session.walletAddress,
+            sessionBindingSha256: sha256Hex(sessionToken),
+            participantSuggestionId: record.participantSuggestionId,
+            subjectPubkey: record.subjectPubkey,
+          });
+        return json(challenge, 200, origin);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === "citizen_adoption_participant_suggestion_unavailable"
+        ) {
+          return json({ error: error.message }, 409, origin);
+        }
+        return json({ error: "citizen_eligibility_challenge_unavailable" }, 503, origin);
+      }
+    }
+
+    if (url.pathname === CITIZEN_ADOPTION_ELIGIBILITY_PATH) {
+      const record = parsedObject(body, [
+        "schemaVersion",
+        "challengeId",
+        "walletSignature",
+        "nostrProofEvent",
+      ]);
+      const nostrProofEvent =
+        record?.schemaVersion === CITIZEN_ADOPTION_ELIGIBILITY_SCHEMA
+          ? validNostrEvent(record.nostrProofEvent)
+          : null;
+      if (
+        !record ||
+        record.schemaVersion !== CITIZEN_ADOPTION_ELIGIBILITY_SCHEMA ||
+        typeof record.challengeId !== "string" ||
+        !/^[0-9a-f]{32}$/u.test(record.challengeId) ||
+        typeof record.walletSignature !== "string" ||
+        !/^0x[0-9a-f]+$/u.test(record.walletSignature) ||
+        (record.walletSignature.length - 2) % 2 !== 0 ||
+        !nostrProofEvent ||
+        !sessionToken
+      ) {
+        return json({ error: "citizen_eligibility_proof_invalid" }, 400, origin);
+      }
+      if (!dependencies.citizenAdoption) {
+        return json({ error: "citizen_adoption_unavailable" }, 503, origin);
+      }
+      try {
+        const issuance =
+          await dependencies.citizenAdoption.issueEligibilityReceipt({
+            walletAddress: session.walletAddress,
+            sessionBindingSha256: sha256Hex(sessionToken),
+            challengeId: record.challengeId,
+            walletSignature: record.walletSignature,
+            nostrProofEvent,
+          });
+        return json(issuance, 201, origin);
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "";
+        if (code === "citizen_eligibility_active_citizen_nft_required") {
+          return json({ error: code }, 403, origin);
+        }
+        if (
+          code === "citizen_eligibility_wallet_signature_invalid" ||
+          code === "citizen_eligibility_challenge_invalid"
+        ) {
+          return json({ error: code }, 401, origin);
+        }
+        if (
+          code === "citizen_eligibility_nostr_proof_invalid" ||
+          code === "citizen_eligibility_proof_input_invalid"
+        ) {
+          return json({ error: code }, 400, origin);
+        }
+        return json({ error: "citizen_eligibility_verification_unavailable" }, 503, origin);
+      }
+    }
+
+    if (url.pathname === CITIZEN_ADOPTION_ACCEPT_PATH) {
+      const record = parsedObject(body, [
+        "schemaVersion",
+        "requestId",
+        "idempotencyKey",
+        "adoptionEvent",
+      ]);
+      const adoptionEvent = record ? validNostrEvent(record.adoptionEvent) : null;
+      if (
+        !record ||
+        record.schemaVersion !==
+          "citizen_topic_suggestion_adoption_request_v1" ||
+        typeof record.requestId !== "string" ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(
+          record.requestId,
+        ) ||
+        typeof record.idempotencyKey !== "string" ||
+        !/^[A-Za-z0-9._~-]{16,128}$/u.test(record.idempotencyKey) ||
+        !adoptionEvent
+      ) {
+        return json({ error: "citizen_adoption_request_invalid" }, 400, origin);
+      }
+      if (!dependencies.citizenAdoption) {
+        return json({ error: "citizen_adoption_unavailable" }, 503, origin);
+      }
+      try {
+        const projection = await dependencies.citizenAdoption.acceptAdoption({
+          schemaVersion: "citizen_topic_suggestion_adoption_request_v1",
+          requestId: record.requestId,
+          idempotencyKey: record.idempotencyKey,
+          adoptionEvent,
+        });
+        return json(projection, 200, origin);
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "";
+        if (
+          code === "citizen_adoption_idempotency_conflict" ||
+          code === "citizen_adoption_replay_mismatch"
+        ) {
+          return json({ error: code }, 409, origin);
+        }
+        if (
+          code === "citizen_adoption_request_invalid" ||
+          code === "citizen_adoption_evidence_invalid"
+        ) {
+          return json({ error: code }, 400, origin);
+        }
+        return json({ error: "citizen_adoption_acceptance_unavailable" }, 503, origin);
+      }
+    }
 
     if (url.pathname === NOSTR_POST_PATH) {
       const record = parsedObject(body, ["schemaVersion", "requestId", "sourcePostId", "admissionProof", "event"]);

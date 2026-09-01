@@ -118,11 +118,27 @@ const QUALITY_FREE_PATHS = new Set([
   "scripts/verify-staging-web-oci.test.mjs",
 ]);
 
+const QUALITY_EXACT_PACKAGE_PATHS = new Map([
+  [
+    "supabase/migrations/20260901_staging_citizen_adoption.sql",
+    "@roebel/staging-participant-gateway",
+  ],
+  [
+    "supabase/staging-citizen-adoption-schema-contract-v1.json",
+    "@roebel/staging-participant-gateway",
+  ],
+]);
+
 function qualitySelection(changedPaths, affected) {
   let full = changedPaths.includes("__all__");
   const packages = new Set();
   for (const path of changedPaths) {
     if (path === "__all__") continue;
+    const exactPackage = QUALITY_EXACT_PACKAGE_PATHS.get(path);
+    if (exactPackage) {
+      packages.add(exactPackage);
+      continue;
+    }
     const workspace = QUALITY_WORKSPACES.find(({ root }) =>
       path === `${root}/package.json` || path.startsWith(`${root}/`)
     );

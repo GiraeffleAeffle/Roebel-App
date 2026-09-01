@@ -29,6 +29,8 @@ const RESERVE_SUGGESTION_RPC = "staging_participant_gateway_reserve_topic_sugges
 const COMPLETE_SUGGESTION_RPC = "staging_participant_gateway_complete_topic_suggestion";
 const PREFLIGHT_RPC = "staging_participant_gateway_preflight";
 const TOPIC_TRACER_PREFLIGHT_RPC = "staging_participant_gateway_topic_tracer_preflight";
+const CITIZEN_ADOPTION_PREFLIGHT_RPC =
+  "staging_participant_gateway_citizen_adoption_preflight";
 
 export type RestrictedSupabaseRpcConfig = Readonly<{
   url: string;
@@ -271,6 +273,7 @@ export function createStagingParticipantReadinessAdapter(
   return {
     preflight: () => preflight(PREFLIGHT_RPC),
     preflightTopicTracer: () => preflight(TOPIC_TRACER_PREFLIGHT_RPC),
+    preflightCitizenAdoption: () => preflight(CITIZEN_ADOPTION_PREFLIGHT_RPC),
   };
 }
 
@@ -492,4 +495,5 @@ export const restrictedStagingParticipantRpcNames = {
   completeTopicSuggestion: COMPLETE_SUGGESTION_RPC,
   preflight: PREFLIGHT_RPC,
   topicTracerPreflight: TOPIC_TRACER_PREFLIGHT_RPC,
+  citizenAdoptionPreflight: CITIZEN_ADOPTION_PREFLIGHT_RPC,
 } as const;

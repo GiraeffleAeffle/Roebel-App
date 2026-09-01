@@ -1,6 +1,20 @@
 import type { StagingParticipantGatewayConfig, StagingParticipantReadinessPins } from "./types.ts";
 import { PRIVATE_WORKBENCH_URL, type PrivateWorkbenchMirrorConfig } from "./workbench-adapter.ts";
 import { parseRestrictedPostgrestOrigin } from "./restricted-postgrest-origin.ts";
+import { municipalCivicEligibilityReceiptProofPublicKey } from "@netizen-labs/nostr";
+import type { CitizenAdoptionPolicy } from "./citizen-adoption.ts";
+
+const CITIZEN_ELIGIBILITY_ISSUER = "roebel-staging-citizen-verifier";
+const CITIZEN_CHALLENGE_TTL_SECONDS = 300;
+const CITIZEN_RECEIPT_TTL_SECONDS = 900;
+const CITIZEN_EVENT_CLOCK_SKEW_SECONDS = 300;
+
+export type ProductionCitizenAdoptionConfig = Readonly<{
+  policy: CitizenAdoptionPolicy;
+  issuer: Readonly<{ keyId: string; privateKey: Uint8Array }>;
+  citizenNftAddress: string;
+  citizenNftRuntimeCodeHash: string;
+}>;
 
 export type ProductionGatewayConfig = Readonly<{
   gateway: StagingParticipantGatewayConfig;
@@ -12,6 +26,7 @@ export type ProductionGatewayConfig = Readonly<{
   port: number;
   workbench: PrivateWorkbenchMirrorConfig;
   readinessPins: StagingParticipantReadinessPins;
+  citizenAdoption: ProductionCitizenAdoptionConfig;
 }>;
 
 function nonEmpty(value: string | undefined): string | null {
@@ -65,6 +80,35 @@ function sha256Digest(value: string | undefined): string | null {
   return digest && /^sha256:[0-9a-f]{64}$/u.test(digest) ? digest : null;
 }
 
+function hex32(value: string | undefined): Uint8Array | null {
+  const parsed = nonEmpty(value);
+  return parsed && /^[0-9a-f]{64}$/u.test(parsed)
+    ? Uint8Array.from(Buffer.from(parsed, "hex"))
+    : null;
+}
+
+function issuerKeyId(value: string | undefined): string | null {
+  const parsed = nonEmpty(value);
+  return parsed && /^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/u.test(parsed)
+    ? parsed
+    : null;
+}
+
+function publicKey(value: string | undefined): string | null {
+  const parsed = nonEmpty(value)?.toLowerCase() ?? null;
+  return parsed && /^[0-9a-f]{64}$/u.test(parsed) ? parsed : null;
+}
+
+function contractAddress(value: string | undefined): string | null {
+  const parsed = nonEmpty(value)?.toLowerCase() ?? null;
+  return parsed && /^0x[0-9a-f]{40}$/u.test(parsed) ? parsed : null;
+}
+
+function runtimeCodeHash(value: string | undefined): string | null {
+  const parsed = nonEmpty(value)?.toLowerCase() ?? null;
+  return parsed && /^0x[0-9a-f]{64}$/u.test(parsed) ? parsed : null;
+}
+
 /** Fail closed unless the dedicated staging gateway is explicitly enabled. */
 export function resolveProductionGatewayConfig(
   env: Record<string, string | undefined> = process.env,
@@ -100,6 +144,30 @@ export function resolveProductionGatewayConfig(
   const databaseSchemaSha256 = sha256Digest(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_DATABASE_SCHEMA_SHA256);
   const topicTracerMigrationSha256 = sha256Digest(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_TOPIC_TRACER_MIGRATION_SHA256);
   const topicTracerDatabaseSchemaSha256 = sha256Digest(env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_TOPIC_TRACER_DATABASE_SCHEMA_SHA256);
+  const citizenAdoptionPolicyVersion = policyVersion(
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ADOPTION_POLICY_VERSION,
+  );
+  const eligibilityIssuerKeyId = issuerKeyId(
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_ELIGIBILITY_ISSUER_KEY_ID,
+  );
+  const eligibilityIssuerPublicKey = publicKey(
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_ELIGIBILITY_ISSUER_PUBLIC_KEY,
+  );
+  const eligibilityIssuerPrivateKey = hex32(
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_ELIGIBILITY_ISSUER_PRIVATE_KEY_HEX,
+  );
+  const citizenNftAddress = contractAddress(
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_NFT_ADDRESS,
+  );
+  const citizenNftRuntimeCodeHash = runtimeCodeHash(
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_NFT_RUNTIME_CODE_HASH,
+  );
+  const citizenAdoptionMigrationSha256 = sha256Digest(
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ADOPTION_MIGRATION_SHA256,
+  );
+  const citizenAdoptionDatabaseSchemaSha256 = sha256Digest(
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ADOPTION_DATABASE_SCHEMA_SHA256,
+  );
   if (!origin || !sessionHmacKey || sessionHmacKey.length < 32 || !inviteSha256 ||
     !allowedWallets ||
     !/^[a-f0-9]{64}$/iu.test(inviteSha256) || !gnosisRpcUrl || !supabaseUrl ||
@@ -108,7 +176,13 @@ export function resolveProductionGatewayConfig(
     !sourceConversationTopic || !configuredPolicyVersion || !workbenchUrl ||
     !admissionHeader || !immutableSourceRevision || !deployedSourceRevision ||
     immutableSourceRevision !== deployedSourceRevision || !manifestDigest || !migrationSha256 ||
-    !databaseSchemaSha256 || !topicTracerMigrationSha256 || !topicTracerDatabaseSchemaSha256) return null;
+    !databaseSchemaSha256 || !topicTracerMigrationSha256 || !topicTracerDatabaseSchemaSha256 ||
+    !citizenAdoptionPolicyVersion || !eligibilityIssuerKeyId ||
+    !eligibilityIssuerPublicKey || !eligibilityIssuerPrivateKey ||
+    !citizenNftAddress || !citizenNftRuntimeCodeHash ||
+    !citizenAdoptionMigrationSha256 || !citizenAdoptionDatabaseSchemaSha256 ||
+    municipalCivicEligibilityReceiptProofPublicKey(eligibilityIssuerPrivateKey) !==
+      eligibilityIssuerPublicKey) return null;
   let originUrl: URL;
   let gnosisUrl: URL;
   let supabaseUrlValue: URL;
@@ -152,6 +226,24 @@ export function resolveProductionGatewayConfig(
     port,
     workbench: { url: workbenchUrl, admissionHeader },
     readinessPins: { sourceRevision: immutableSourceRevision, manifestDigest, migrationSha256, databaseSchemaSha256,
-      topicTracerMigrationSha256, topicTracerDatabaseSchemaSha256 },
+      topicTracerMigrationSha256, topicTracerDatabaseSchemaSha256,
+      citizenAdoptionMigrationSha256, citizenAdoptionDatabaseSchemaSha256 },
+    citizenAdoption: {
+      policy: {
+        municipalityId,
+        policyVersion: citizenAdoptionPolicyVersion,
+        issuer: CITIZEN_ELIGIBILITY_ISSUER,
+        statusBaseUrl: `${origin}/api/civic/v1/eligibility/status`,
+        challengeTtlSeconds: CITIZEN_CHALLENGE_TTL_SECONDS,
+        receiptTtlSeconds: CITIZEN_RECEIPT_TTL_SECONDS,
+        maxEventClockSkewSeconds: CITIZEN_EVENT_CLOCK_SKEW_SECONDS,
+      },
+      issuer: {
+        keyId: eligibilityIssuerKeyId,
+        privateKey: eligibilityIssuerPrivateKey,
+      },
+      citizenNftAddress,
+      citizenNftRuntimeCodeHash,
+    },
   };
 }

@@ -9,6 +9,15 @@ select length(:'participant_rpc_secret') >= 32 as rpc_secret_valid
   \quit 1
 \endif
 
+select :'citizen_adoption_schema_sha256' ~ '^sha256:[0-9a-f]{64}$'
+  as citizen_adoption_schema_pin_valid
+\gset
+\if :citizen_adoption_schema_pin_valid
+\else
+  \echo 'Citizen-adoption schema pin input is invalid.'
+  \quit 1
+\endif
+
 select not exists (
   select 1
     from pg_catalog.pg_default_acl defaults
@@ -28,6 +37,53 @@ select not exists (
 \if :public_function_defaults_normalized
 \else
   \echo 'Supabase default public-function ACL normalization failed.'
+  \quit 1
+\endif
+
+select (
+  count(*) = 9
+  and bool_and(execute_acl_count = 2)
+  and bool_and(owner_execute_count = 1)
+  and bool_and(anon_execute_count = 1)
+  and bool_and(grantable_execute_count = 0)
+) as citizen_adoption_rpc_acls_exact
+from (
+  select target.object_identity,
+    count(*) filter (where acl.privilege_type = 'EXECUTE') as execute_acl_count,
+    count(*) filter (
+      where acl.privilege_type = 'EXECUTE' and acl.grantee = proc.proowner
+    ) as owner_execute_count,
+    count(*) filter (
+      where acl.privilege_type = 'EXECUTE'
+        and acl.grantee = (
+          select oid from pg_catalog.pg_roles where rolname = 'anon'
+        )
+    ) as anon_execute_count,
+    count(*) filter (
+      where acl.privilege_type = 'EXECUTE' and acl.is_grantable
+    ) as grantable_execute_count
+  from (values
+    ('public.staging_participant_gateway_issue_citizen_challenge(jsonb)'),
+    ('public.staging_participant_gateway_consume_citizen_challenge(text,text,text,bigint)'),
+    ('public.staging_participant_gateway_store_citizen_eligibility_receipt(text,jsonb,jsonb)'),
+    ('public.staging_participant_gateway_get_citizen_eligibility_receipt(text)'),
+    ('public.staging_participant_gateway_get_citizen_suggestion_root(text,text)'),
+    ('public.staging_participant_gateway_resolve_citizen_adoption_replay(text,uuid,text,text,text)'),
+    ('public.staging_participant_gateway_accept_citizen_adoption(text,uuid,text,text,bigint,integer,jsonb,jsonb,jsonb)'),
+    ('public.staging_participant_gateway_read_public_citizen_adoption(text,text,text)'),
+    ('public.staging_participant_gateway_citizen_adoption_preflight()')
+  ) target(object_identity)
+  join pg_catalog.pg_proc proc
+    on proc.oid = pg_catalog.to_regprocedure(target.object_identity)
+  cross join lateral pg_catalog.aclexplode(
+    coalesce(proc.proacl, pg_catalog.acldefault('f', proc.proowner))
+  ) acl
+  group by target.object_identity
+) reviewed
+\gset
+\if :citizen_adoption_rpc_acls_exact
+\else
+  \echo 'Citizen-adoption RPC ACLs are not exactly owner and anon EXECUTE.'
   \quit 1
 \endif
 
@@ -130,6 +186,25 @@ select (
 \if :topic_preflight_ok
 \else
   \echo 'Topic tracer preflight did not match the reviewed contract.'
+  \quit 1
+\endif
+
+select
+  response ->> 'migration_id' as citizen_adoption_migration_id,
+  response ->> 'database_schema_sha256' as citizen_adoption_schema_sha256_actual
+from (
+  select public.staging_participant_gateway_citizen_adoption_preflight() as response
+) preflight
+\gset
+select (
+  :'citizen_adoption_migration_id' = '20260901_staging_citizen_adoption'
+  and :'citizen_adoption_schema_sha256_actual' =
+    :'citizen_adoption_schema_sha256'
+) as citizen_adoption_preflight_ok
+\gset
+\if :citizen_adoption_preflight_ok
+\else
+  \echo 'Citizen-adoption preflight did not match the reviewed contract.'
   \quit 1
 \endif
 

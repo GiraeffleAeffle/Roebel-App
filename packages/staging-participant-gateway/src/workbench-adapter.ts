@@ -214,3 +214,38 @@ export function createPrivateWorkbenchTopicTracerAdapter(
     },
   };
 }
+
+/**
+ * Credential-free exact public-thread read on the already network-contained
+ * workbench. The caller can select only a 32-byte root id; the durable
+ * adoption adapter separately binds that root to a published suggestion.
+ */
+export function createPrivateWorkbenchCitizenSuggestionThreadResolver(
+  config: PrivateWorkbenchMirrorConfig,
+): (input: Readonly<{ discussionRootId: string }>) => Promise<unknown> {
+  const base = validate(config);
+  const fetcher = config.fetch ?? globalThis.fetch;
+  if (typeof fetcher !== "function") {
+    throw new Error("staging_participant_fetch_unavailable");
+  }
+  return async ({ discussionRootId }) => {
+    if (!/^[0-9a-f]{64}$/u.test(discussionRootId)) {
+      throw new Error("citizen_adoption_discussion_root_invalid");
+    }
+    const url = new URL("/api/thread", base);
+    url.searchParams.set("root", discussionRootId);
+    const response = await fetcher(url, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!response.ok) {
+      throw new Error("citizen_adoption_suggestion_source_unavailable");
+    }
+    try {
+      return await response.json() as unknown;
+    } catch {
+      throw new Error("citizen_adoption_suggestion_source_unavailable");
+    }
+  };
+}
