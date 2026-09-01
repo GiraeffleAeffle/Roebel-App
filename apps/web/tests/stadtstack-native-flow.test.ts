@@ -86,6 +86,20 @@ const proposalReceipts = readFileSync(
   ),
   "utf8"
 );
+const citizenAdoptionClient = readFileSync(
+  new URL(
+    "../src/lib/staging-participant/citizen-adoption.ts",
+    import.meta.url
+  ),
+  "utf8"
+);
+const citizenAdoptionPanel = readFileSync(
+  new URL(
+    "../src/components/app/StadtstackCitizenAdoption.tsx",
+    import.meta.url
+  ),
+  "utf8"
+);
 const civicJourneyRail = readFileSync(
   new URL("../src/components/app/CivicJourneyRail.tsx", import.meta.url),
   "utf8"
@@ -359,13 +373,48 @@ test("lets the topic author sign a draft without inventing a CivicCase", () => {
     discussion,
     /participantTracerMode \? "Entwurf" : "Vorschlag"\} prüfen und signieren/,
   );
-  assert.match(discussion, /Bürgerübernahme erforderlich/);
+  assert.match(citizenAdoptionPanel, /Bürgerübernahme erforderlich/);
   assert.match(discussion, /kein CivicCase automatisch angelegt/);
   assert.match(civicJourney, /label: "CivicCase"/);
   assert.match(civicJourney, /authority: "Case Steward"/);
   assert.match(discussion, /Diese öffentliche App kann die Aufnahme nicht auslösen/);
   assert.doesNotMatch(discussion, /stagingPost<[^>]+>\("\/admit"/);
   assert.doesNotMatch(discussion, /stagingPost<[^>]+>\("\/complete"/);
+});
+
+test("continues a signed participant draft through one citizen adoption step without creating a Case", () => {
+  assert.match(discussion, /<StadtstackCitizenAdoption/);
+  assert.match(discussion, /citizenAdoptionVerified = Boolean\(/);
+  assert.doesNotMatch(
+    discussion,
+    /citizenAdoptionVerified\s*=\s*topicBindingReceipt/
+  );
+  assert.match(citizenAdoptionPanel, /loadPublicCitizenAdoption/);
+  assert.match(citizenAdoptionPanel, /adoptStagingParticipantSuggestion/);
+  assert.match(
+    citizenAdoptionPanel,
+    /Bürgerübernahme verifiziert → wartet auf Case Steward/
+  );
+  assert.match(citizenAdoptionPanel, /Bürger-Pass erforderlich/);
+  assert.match(citizenAdoptionPanel, /keine Bürgerübernahme und keine Quittung erstellt/);
+  assert.match(
+    citizenAdoptionPanel,
+    /href="\/verifizierung\/buerger-beantragen"/
+  );
+  assert.match(citizenAdoptionPanel, /erneut aktuell prüfen/);
+  assert.match(citizenAdoptionPanel, /Es wurde kein CivicCase angelegt/);
+  assert.match(citizenAdoptionPanel, /loadCachedCitizenAdopterPubkey/);
+  assert.doesNotMatch(citizenAdoptionPanel, /\.getNostrPubkey\(\)/);
+  assert.match(citizenAdoptionClient, /window\.sessionStorage/);
+  assert.doesNotMatch(citizenAdoptionClient, /localStorage/);
+  assert.doesNotMatch(
+    citizenAdoptionClient,
+    /setItem\([^\n]*(?:proof|receipt|signature)/i
+  );
+  assert.doesNotMatch(
+    citizenAdoptionClient,
+    /NEXT_PUBLIC_[A-Z0-9_]*(?:SECRET|SERVICE_ROLE|PRIVATE)/
+  );
 });
 
 test("promotes the displayed signed discussion without publishing or polling a duplicate", () => {

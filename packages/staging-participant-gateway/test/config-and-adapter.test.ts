@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { municipalCivicEligibilityReceiptProofPublicKey } from "@netizen-labs/nostr";
 
 import { resolveProductionGatewayConfig } from "../src/config.ts";
 import {
@@ -10,6 +11,12 @@ import {
   restrictedStagingParticipantRpcNames,
 } from "../src/supabase-adapter.ts";
 import { IN_CLUSTER_TRACER_POSTGREST_ORIGIN } from "../src/restricted-postgrest-origin.ts";
+
+const CITIZEN_ISSUER_PRIVATE_KEY_HEX = "11".repeat(32);
+const CITIZEN_ISSUER_PUBLIC_KEY =
+  municipalCivicEligibilityReceiptProofPublicKey(
+    Uint8Array.from(Buffer.from(CITIZEN_ISSUER_PRIVATE_KEY_HEX, "hex")),
+  );
 
 const env = {
   ROEBEL_STAGING_PARTICIPANT_GATEWAY: "enabled",
@@ -35,6 +42,22 @@ const env = {
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_DATABASE_SCHEMA_SHA256: `sha256:${"d".repeat(64)}`,
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_TOPIC_TRACER_MIGRATION_SHA256: `sha256:${"e".repeat(64)}`,
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_TOPIC_TRACER_DATABASE_SCHEMA_SHA256: `sha256:${"f".repeat(64)}`,
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ADOPTION_POLICY_VERSION:
+    "roebel-citizen-nft-v2-staging-2026-09",
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_ELIGIBILITY_ISSUER_KEY_ID:
+    "roebel-staging-eligibility-issuer-2026-09",
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_ELIGIBILITY_ISSUER_PUBLIC_KEY:
+    CITIZEN_ISSUER_PUBLIC_KEY,
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_ELIGIBILITY_ISSUER_PRIVATE_KEY_HEX:
+    CITIZEN_ISSUER_PRIVATE_KEY_HEX,
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_NFT_ADDRESS:
+    "0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5",
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_NFT_RUNTIME_CODE_HASH:
+    "0x952276d2d6da4bfe3ed3dbc39f6745f2421b01ad476c286cb7a6fa166c7e4218",
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ADOPTION_MIGRATION_SHA256:
+    `sha256:${"1".repeat(64)}`,
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ADOPTION_DATABASE_SCHEMA_SHA256:
+    `sha256:${"2".repeat(64)}`,
 };
 
 const BAKED_SOURCE_REVISION = "a".repeat(40);
@@ -166,10 +189,48 @@ test("production configuration fails closed unless explicit staging mode and eve
   }), null);
   assert.equal(productionConfig({
     ...env,
+    ROEBEL_STAGING_PARTICIPANT_GATEWAY_ELIGIBILITY_ISSUER_PRIVATE_KEY_HEX:
+      undefined,
+  }), null);
+  assert.equal(productionConfig({
+    ...env,
+    ROEBEL_STAGING_PARTICIPANT_GATEWAY_ELIGIBILITY_ISSUER_PUBLIC_KEY:
+      "0".repeat(64),
+  }), null);
+  assert.equal(productionConfig({
+    ...env,
+    ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_NFT_ADDRESS: "0x1234",
+  }), null);
+  assert.equal(productionConfig({
+    ...env,
+    ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_NFT_RUNTIME_CODE_HASH:
+      `0x${"0".repeat(64)}`,
+  })?.citizenAdoption.citizenNftRuntimeCodeHash, `0x${"0".repeat(64)}`);
+  assert.equal(productionConfig({
+    ...env,
+    ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ADOPTION_MIGRATION_SHA256:
+      undefined,
+  }), null);
+  assert.equal(productionConfig({
+    ...env,
     // A Deployment pin cannot substitute the compiled source constant.
     ROEBEL_STAGING_PARTICIPANT_GATEWAY_SOURCE_REVISION: "e".repeat(40),
   }), null);
   assert.equal(resolveProductionGatewayConfig(env, "e".repeat(40)), null);
+  const citizenAdoption = productionConfig(env)?.citizenAdoption;
+  assert.equal(citizenAdoption?.policy.municipalityId, "roebel-mueritz");
+  assert.equal(
+    citizenAdoption?.policy.statusBaseUrl,
+    `${env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_ORIGIN}/api/civic/v1/eligibility/status`,
+  );
+  assert.equal(citizenAdoption?.policy.challengeTtlSeconds, 300);
+  assert.equal(citizenAdoption?.policy.receiptTtlSeconds, 900);
+  assert.equal(citizenAdoption?.policy.maxEventClockSkewSeconds, 300);
+  assert.equal(citizenAdoption?.issuer.privateKey.length, 32);
+  assert.equal(
+    citizenAdoption?.citizenNftAddress,
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_NFT_ADDRESS.toLowerCase(),
+  );
   assert.match(dockerfile, /SOURCE_REVISION="\$SOURCE_REVISION" pnpm/u);
   assert.doesNotMatch(dockerfile, /\/app\/source-revision|ROEBEL_STAGING_PARTICIPANT_GATEWAY_BAKED_SOURCE_REVISION/u);
   assert.doesNotMatch(readFileSync(new URL("../src/cli.ts", import.meta.url), "utf8"), /process\.env\.[A-Z_]*SOURCE_REVISION|source-revision/u);
@@ -182,6 +243,13 @@ test("production configuration fails closed unless explicit staging mode and eve
     /node packages\/staging-participant-gateway\/dist\/staging-participant-gateway\.cjs[\s\S]*?staging_participant_gateway_not_explicitly_configured/u,
   );
   assert.match(readFileSync(new URL("../src/cli.ts", import.meta.url), "utf8"), /COMPILED_SOURCE_REVISION/u);
+  const cliSource = readFileSync(new URL("../src/cli.ts", import.meta.url), "utf8");
+  for (const composition of [
+    "createCitizenAdoptionService",
+    "createRestrictedSupabaseCitizenAdoptionAdapter",
+    "createPrivateWorkbenchCitizenSuggestionThreadResolver",
+    "createPinnedCitizenNftEligibilityVerifier",
+  ]) assert.match(cliSource, new RegExp(composition, "u"));
   assert.match(readFileSync(new URL("../src/build-constants.ts", import.meta.url), "utf8"), /__ROEBEL_STAGING_PARTICIPANT_GATEWAY_SOURCE_REVISION__/u);
   assert.equal(buildConfig.resolveSourceRevision({ SOURCE_REVISION: "b".repeat(40) }, () => "a".repeat(40)), "b".repeat(40));
   assert.equal(buildConfig.resolveSourceRevision({}, () => "a".repeat(40)), "a".repeat(40));
@@ -422,7 +490,7 @@ test("ADR-0022 ledger adapter sends only closed claim bodies and rejects a drift
   await assert.rejects(malformed.reserveSourcePostPromotion(promotion), /promotion_receipt_mismatch/u);
 });
 
-test("readiness adapter can call only the fixed empty preflight RPC and rejects drifted rows", async () => {
+test("readiness adapter can call only the three fixed empty preflight RPCs and rejects drifted rows", async () => {
   const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
   const adapter = createStagingParticipantReadinessAdapter({
     url: "https://example.supabase.co",
@@ -430,8 +498,14 @@ test("readiness adapter can call only the fixed empty preflight RPC and rejects 
     rpcSecret: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET,
     fetch: async (url, init) => {
       calls.push({ url: String(url), init });
+      const target = String(url);
+      const migrationId = target.includes("citizen_adoption")
+        ? "20260901_staging_citizen_adoption"
+        : target.includes("topic_tracer")
+          ? "20260825_staging_participant_topic_tracer"
+          : "20260825_staging_participant_gateway";
       return new Response(JSON.stringify({
-        migration_id: "20260825_staging_participant_gateway",
+        migration_id: migrationId,
         database_schema_sha256: `sha256:${"d".repeat(64)}`,
       }), { status: 200 });
     },
@@ -444,6 +518,19 @@ test("readiness adapter can call only the fixed empty preflight RPC and rejects 
   assert.equal(calls[0]?.init?.method, "POST");
   assert.equal(calls[0]?.init?.body, "{}");
   assert.equal(new Headers(calls[0]?.init?.headers).get("x-staging-participant-rpc-secret"), env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET);
+  assert.equal(
+    (await adapter.preflightTopicTracer()).migrationId,
+    "20260825_staging_participant_topic_tracer",
+  );
+  assert.equal(
+    (await adapter.preflightCitizenAdoption()).migrationId,
+    "20260901_staging_citizen_adoption",
+  );
+  assert.deepEqual(calls.map(({ url }) => url), [
+    `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.preflight}`,
+    `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.topicTracerPreflight}`,
+    `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.citizenAdoptionPreflight}`,
+  ]);
   const malformed = createStagingParticipantReadinessAdapter({
     url: "https://example.supabase.co",
     anonKey: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_ANON_KEY,

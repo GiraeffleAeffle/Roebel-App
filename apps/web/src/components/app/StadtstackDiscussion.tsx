@@ -46,9 +46,11 @@ import {
   resumeStagingParticipantTopicSuggestion,
   signStagingParticipantTopicSuggestion,
 } from "@/lib/staging-participant/topic-tracer";
+import type { PublicCitizenAdoptionProjection } from "@/lib/staging-participant/citizen-adoption";
 import { StadtstackAdministrationProgress } from "./StadtstackAdministrationProgress";
 import { CivicJourneyRail } from "./CivicJourneyRail";
 import { StadtstackProposalReceipts } from "./StadtstackProposalReceipts";
+import { StadtstackCitizenAdoption } from "./StadtstackCitizenAdoption";
 
 type WorkflowState = {
   answer?: Record<string, unknown>;
@@ -118,6 +120,8 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
     useState<VerifiedPublicCaseBindingReceipt | null>(null);
   const [bindingReceiptUnavailable, setBindingReceiptUnavailable] =
     useState(false);
+  const [citizenAdoptionProjection, setCitizenAdoptionProjection] =
+    useState<PublicCitizenAdoptionProjection | null>(null);
   const meckyPollAttempts = useRef(0);
   const administrationRequestId = useRef(0);
   const topicSuggestionResumeRoot = useRef<string | null>(null);
@@ -134,9 +138,14 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
   const bindingReceiptMismatch = Boolean(
     bindingReceipt && thread?.topic && !topicBindingReceipt
   );
-  const citizenAdoptionVerified =
-    topicBindingReceipt?.schemaVersion === "public_case_binding_receipt_v2";
+  const citizenAdoptionVerified = Boolean(citizenAdoptionProjection);
   const canonicalCaseId = topicBindingReceipt?.caseId ?? null;
+  const updateCitizenAdoptionProjection = useCallback(
+    (projection: PublicCitizenAdoptionProjection | null) => {
+      setCitizenAdoptionProjection(projection);
+    },
+    []
+  );
 
   const reload = useCallback(async () => {
     try {
@@ -175,6 +184,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
     let active = true;
     setBindingReceipt(null);
     setBindingReceiptUnavailable(false);
+    setCitizenAdoptionProjection(null);
     void loadVerifiedPublicCaseBindingReceipt(rootId)
       .then((receipt) => {
         if (active) setBindingReceipt(receipt);
@@ -675,7 +685,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
           <div className="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">Die öffentliche Fallquittung passt nicht exakt zur projizierten Vorschlagssignatur. Insbesondere kann eine v1-Quittung keinen Teilnahme-Entwurf als Bürgerübernahme relabeln; CivicCase und Verwaltung bleiben gesperrt.</div>
         )}
         {thread.topic && (thread.suggestion || topicBindingReceipt) && (
-          <StadtstackProposalReceipts suggestion={thread.suggestion} bindingReceipt={topicBindingReceipt} rootId={rootId} topicId={thread.topic.id} />
+          <StadtstackProposalReceipts suggestion={thread.suggestion} bindingReceipt={topicBindingReceipt} adoptionProjection={citizenAdoptionProjection} rootId={rootId} topicId={thread.topic.id} />
         )}
         {!topicBindingReceipt && (
           <>
@@ -685,7 +695,9 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
               <p className="mt-1 text-xs leading-5">
                 {topicSuggestionSigned
                   ? participantTracerMode
-                    ? "Der Entwurf verlangt zuerst eine getrennte, verifizierte Bürgerübernahme. Er wurde nicht als Bürger-Vorschlag oder CivicCase relabelt und kann keinen Case Steward erreichen."
+                    ? citizenAdoptionVerified
+                      ? "Die Bürgerübernahme wurde geprüft und wartet auf die getrennte Aufnahmeprüfung durch einen Case Steward. Es wurde noch kein CivicCase angelegt."
+                      : "Der Entwurf verlangt zuerst eine getrennte, verifizierte Bürgerübernahme. Er wurde nicht als Bürger-Vorschlag oder CivicCase relabelt und kann keinen Case Steward erreichen."
                     : "Der Vorschlag wartet auf die getrennte, rollenbasierte Prüfung durch einen Case Steward. Es wurde kein CivicCase automatisch angelegt. Diese öffentliche App kann die Aufnahme nicht auslösen; sie zeigt anschließend nur die öffentliche Aufnahme-Quittung."
                   : participantTracerMode
                     ? "Als Nächstes kann die Staging-Teilnahme den unveränderten Entwurf signieren. Das ist noch keine Bürgerübernahme und legt keinen CivicCase an."
@@ -702,6 +714,15 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
                 </p>
               </article>
             )}
+            {participantTracerMode &&
+              thread.suggestion?.schemaVersion ===
+                "staging_participant_signed_topic_suggestion_v1" && (
+                <StadtstackCitizenAdoption
+                  suggestion={thread.suggestion}
+                  session={citizenSession}
+                  onProjectionChange={updateCitizenAdoptionProjection}
+                />
+              )}
             {!topicSuggestionSigned && (
               <div className="mt-4 grid gap-3">
                 <label className="text-xs font-semibold">
@@ -727,7 +748,9 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
             )}
           </>
         )}
-        <button type="button" onClick={startProposal} disabled={proposalDisabled} className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50">{workflowBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> {topicSuggestionReceiptPending ? "Quittung wird abgeschlossen…" : participantTracerMode ? "Entwurf wird signiert…" : "Vorschlag wird signiert…"}</> : topicBindingReceipt ? <><CheckCircle2 className="h-4 w-4" /> CivicCase quittiert</> : topicSuggestionSigned ? <><CheckCircle2 className="h-4 w-4" /> {participantTracerMode ? "Bürgerübernahme erforderlich" : "Wartet auf Case Steward"}</> : topicSuggestionReceiptPending ? <><RefreshCw className="h-4 w-4" /> Quittung erneut abschließen</> : topicProposalMode && !citizenSession ? <><Landmark className="h-4 w-4" /> Anmelden, um {participantTracerMode ? "Entwurf" : "Vorschlag"} zu signieren</> : <><FileSignature className="h-4 w-4" /> {participantTracerMode ? "Entwurf" : "Vorschlag"} prüfen und signieren</>}</button>
+        {(!topicSuggestionSigned || topicBindingReceipt) && (
+          <button type="button" onClick={startProposal} disabled={proposalDisabled} className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50">{workflowBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> {topicSuggestionReceiptPending ? "Quittung wird abgeschlossen…" : participantTracerMode ? "Entwurf wird signiert…" : "Vorschlag wird signiert…"}</> : topicBindingReceipt ? <><CheckCircle2 className="h-4 w-4" /> CivicCase quittiert</> : topicSuggestionReceiptPending ? <><RefreshCw className="h-4 w-4" /> Quittung erneut abschließen</> : topicProposalMode && !citizenSession ? <><Landmark className="h-4 w-4" /> Anmelden, um {participantTracerMode ? "Entwurf" : "Vorschlag"} zu signieren</> : <><FileSignature className="h-4 w-4" /> {participantTracerMode ? "Entwurf" : "Vorschlag"} prüfen und signieren</>}</button>
+        )}
         <aside aria-label="Wirkungsgrenzen" className="mt-4 rounded-lg border border-border bg-muted/40 p-3">
           <p className="text-sm font-bold">Beratend, nicht bindend</p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">Keine echte Abstimmung, keine Verwaltungsfreigabe und kein kommunaler Beschluss. Die Stadtkasse bleibt getrennt: keine Auszahlung und keine Treasury-Transaktion.</p>

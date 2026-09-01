@@ -190,8 +190,8 @@ test("gateway publisher carries the additive migration and both readiness pins t
     "supabase/staging-participant-topic-tracer-schema-contract-v1.json",
     "topicTracerMigrationSha256",
     "topicTracerDatabaseSchemaSha256",
-    "roebel_staging_participant_gateway_release_pins_v2",
-    "roebel_staging_publication_receipt_v2",
+    "roebel_staging_participant_gateway_release_pins_v3",
+    "roebel_staging_publication_receipt_v3",
   ]) assert.match(publisher, new RegExp(required.replaceAll(".", "\\."), "u"));
   assert.match(publisher, /test "\$\(jq -r \.topicTracerMigrationSha256 "\$RELEASE_PINS"\)" = "sha256:\$\(sha256sum source\/supabase\/migrations\/20260825_staging_participant_topic_tracer\.sql/u);
   assert.match(publisher, /test "\$\(jq -r \.topicTracerDatabaseSchemaSha256 "\$RELEASE_PINS"\)" = "sha256:\$\(sha256sum source\/supabase\/staging-participant-topic-tracer-schema-contract-v1\.json/u);

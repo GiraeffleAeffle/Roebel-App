@@ -11,6 +11,7 @@ import {
 } from "@netizen-labs/nostr";
 
 import { createStagingParticipantGatewayHandler } from "../src/http.ts";
+import type { CitizenAdoptionService } from "../src/citizen-adoption.ts";
 import {
   CHALLENGE_COOKIE,
   MAX_PENDING_CHALLENGES,
@@ -75,6 +76,7 @@ function fixture(input: Partial<{
   mirrorFails: boolean;
   promotionCompletionFails: boolean;
   ready: boolean;
+  citizenAdoptionReady: boolean;
   mirrorReceipts: Map<string, StagingParticipantMirrorReceipt>;
   promotionReceipts: Map<string, StagingParticipantPromotionReceipt>;
   suggestionReceipts: Map<string, StagingParticipantSuggestionReceipt>;
@@ -258,6 +260,20 @@ function fixture(input: Partial<{
       return { status: "published", eventId: mirrorInput.event.id };
     },
   };
+  const citizenAdoption: CitizenAdoptionService = {
+    async issueEligibilityChallenge() {
+      throw new Error("not_used_by_readiness_test");
+    },
+    async issueEligibilityReceipt() {
+      throw new Error("not_used_by_readiness_test");
+    },
+    async acceptAdoption() {
+      throw new Error("not_used_by_readiness_test");
+    },
+    async readPublicAdoption() {
+      return null;
+    },
+  };
   let count = 0;
   const handler = createStagingParticipantGatewayHandler({
     config: {
@@ -291,6 +307,9 @@ function fixture(input: Partial<{
         async preflightTopicTracer() {
           return { migrationId: "20260825_staging_participant_topic_tracer", databaseSchemaSha256: `sha256:${"e".repeat(64)}` };
         },
+        async preflightCitizenAdoption() {
+          return { migrationId: "20260901_staging_citizen_adoption", databaseSchemaSha256: `sha256:${"1".repeat(64)}` };
+        },
       },
       readinessPins: {
         sourceRevision: "a".repeat(40),
@@ -299,7 +318,10 @@ function fixture(input: Partial<{
         databaseSchemaSha256: `sha256:${"d".repeat(64)}`,
         topicTracerMigrationSha256: `sha256:${"f".repeat(64)}`,
         topicTracerDatabaseSchemaSha256: `sha256:${"e".repeat(64)}`,
+        citizenAdoptionMigrationSha256: `sha256:${"2".repeat(64)}`,
+        citizenAdoptionDatabaseSchemaSha256: `sha256:${"1".repeat(64)}`,
       },
+      ...(input.citizenAdoptionReady === false ? {} : { citizenAdoption }),
     } : {}),
   });
   return {
@@ -939,11 +961,13 @@ test("expires sessions and exposes only the exact status route", async () => {
 test("internal readiness stays non-ingressed, rejects browser-shaped requests, and returns only bound pins", async () => {
   const closed = fixture();
   assert.equal((await closed.handler(new Request("http://gateway.internal/status"))).status, 503);
+  const unwired = fixture({ ready: true, citizenAdoptionReady: false });
+  assert.equal((await unwired.handler(new Request("http://gateway.internal/status"))).status, 503);
   const { handler } = fixture({ ready: true });
   const ready = await handler(new Request("http://gateway.internal/status"));
   assert.equal(ready.status, 200);
   assert.deepEqual(await ready.json(), {
-    schemaVersion: "roebel_staging_participant_gateway_status_v2",
+    schemaVersion: "roebel_staging_participant_gateway_status_v3",
     status: "ready",
     municipalityId: "roebel-mueritz",
     sourceConversationTopic: "roebel-app-conversation",
@@ -954,6 +978,8 @@ test("internal readiness stays non-ingressed, rejects browser-shaped requests, a
     databaseSchemaSha256: `sha256:${"d".repeat(64)}`,
     topicTracerMigrationSha256: `sha256:${"f".repeat(64)}`,
     topicTracerDatabaseSchemaSha256: `sha256:${"e".repeat(64)}`,
+    citizenAdoptionMigrationSha256: `sha256:${"2".repeat(64)}`,
+    citizenAdoptionDatabaseSchemaSha256: `sha256:${"1".repeat(64)}`,
   });
   for (const request of [
     new Request("http://gateway.internal/status?x=1"),
@@ -964,7 +990,7 @@ test("internal readiness stays non-ingressed, rejects browser-shaped requests, a
     const response = await handler(request);
     assert.equal(response.status, 503);
     assert.deepEqual(await response.json(), {
-      schemaVersion: "roebel_staging_participant_gateway_status_v2",
+      schemaVersion: "roebel_staging_participant_gateway_status_v3",
       status: "not_ready",
     });
     assert.equal(response.headers.get("access-control-allow-origin"), null);

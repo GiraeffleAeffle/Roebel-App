@@ -944,6 +944,18 @@ function participantSuggestionForAdoption(
   return participantTopicSuggestionCandidate(candidate.event, expectedDraft);
 }
 
+/**
+ * Verify the self-contained ADR-0022 participant envelope before an issuer
+ * spends private eligibility checks on it. Source/Mecky provenance was checked
+ * when the gateway published this immutable suggestion; this guard rechecks
+ * its closed draft, signature, tags and internal hashes without relabelling it.
+ */
+export function verifyParticipantTopicSuggestionForAdoption(
+  value: unknown,
+): ParticipantTopicSuggestionV1 {
+  return participantSuggestionForAdoption(value);
+}
+
 function eligibilityReceiptForAdoption(input: {
   receipt: unknown;
   policy: MunicipalCivicEligibilityPolicyV1;

@@ -25,6 +25,18 @@ import {
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const SIGNATURE = /^0x[0-9a-fA-F]+$/;
 
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 export type CitizenCredentialKind = "thirdweb_smart_account" | "passkey_safe";
 
 export type CitizenCredential = {
@@ -75,8 +87,29 @@ export type CitizenAdmissionProof = Readonly<{
   bindingEvent: NostrEvent;
 }>;
 
+export type CitizenEligibilityChallengeSigningInput = Readonly<{
+  schemaVersion: "municipal_civic_eligibility_challenge_v1";
+  challengeId: string;
+  audience: "roebel-staging-citizen-adoption";
+  sessionBindingSha256: string;
+  walletAddress: string;
+  chainId: 100;
+  subjectPubkey: string;
+  municipalityId: string;
+  policyVersion: string;
+  participantSuggestionId: string;
+  topicId: string;
+  issuedAt: number;
+  expiresAt: number;
+  authorityBinding: "civic_eligibility_only";
+  canonicalChallenge: string;
+  message: string;
+}>;
+
 export interface CitizenSession {
   readonly snapshot: CitizenSessionSnapshot;
+  /** Return only the public half of the session-derived Nostr identity. */
+  getNostrPubkey(): Promise<string>;
   createAdmissionProof(input?: {
     createdAt?: number;
   }): Promise<CitizenAdmissionProof>;
@@ -103,6 +136,10 @@ export interface CitizenSession {
   signCitizenTopicSuggestionAdoption(
     input: CitizenTopicSuggestionAdoptionInput
   ): Promise<CitizenTopicSuggestionAdoptionV1>;
+  /** Sign one exact, short-lived server challenge without exposing the key. */
+  signCitizenEligibilityChallenge(
+    input: CitizenEligibilityChallengeSigningInput
+  ): Promise<NostrEvent>;
   dispose(): void;
 }
 
@@ -227,6 +264,9 @@ export function createCitizenSession(
   return Object.freeze({
     snapshot,
     signMessage,
+    async getNostrPubkey(): Promise<string> {
+      return (await identity()).publicKey;
+    },
     async createAdmissionProof(
       input: { createdAt?: number } = {}
     ): Promise<CitizenAdmissionProof> {
@@ -359,6 +399,94 @@ export function createCitizenSession(
       ensureActive();
       const signer = await identity();
       return buildCitizenTopicSuggestionAdoption(signer.secretKey, input);
+    },
+    async signCitizenEligibilityChallenge(
+      input: CitizenEligibilityChallengeSigningInput
+    ): Promise<NostrEvent> {
+      ensureActive();
+      const signer = await identity();
+      const expectedKeys = [
+        "schemaVersion",
+        "challengeId",
+        "audience",
+        "sessionBindingSha256",
+        "walletAddress",
+        "chainId",
+        "subjectPubkey",
+        "municipalityId",
+        "policyVersion",
+        "participantSuggestionId",
+        "topicId",
+        "issuedAt",
+        "expiresAt",
+        "authorityBinding",
+        "canonicalChallenge",
+        "message",
+      ].sort();
+      const challengeCore = {
+        schemaVersion: input.schemaVersion,
+        challengeId: input.challengeId,
+        audience: input.audience,
+        sessionBindingSha256: input.sessionBindingSha256,
+        walletAddress: input.walletAddress,
+        chainId: input.chainId,
+        subjectPubkey: input.subjectPubkey,
+        municipalityId: input.municipalityId,
+        policyVersion: input.policyVersion,
+        participantSuggestionId: input.participantSuggestionId,
+        topicId: input.topicId,
+        issuedAt: input.issuedAt,
+        expiresAt: input.expiresAt,
+        authorityBinding: input.authorityBinding,
+      };
+      if (
+        Object.keys(input).sort().join("\n") !== expectedKeys.join("\n") ||
+        input.schemaVersion !== "municipal_civic_eligibility_challenge_v1" ||
+        !/^[0-9a-f]{32}$/u.test(input.challengeId) ||
+        input.audience !== "roebel-staging-citizen-adoption" ||
+        !/^[0-9a-f]{64}$/u.test(input.sessionBindingSha256) ||
+        typeof input.walletAddress !== "string" ||
+        !ADDRESS.test(input.walletAddress) ||
+        input.walletAddress.toLowerCase() !== snapshot.credential.address ||
+        input.chainId !== 100 ||
+        input.chainId !== snapshot.credential.chainId ||
+        input.subjectPubkey !== signer.publicKey ||
+        !/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u.test(input.municipalityId) ||
+        typeof input.policyVersion !== "string" ||
+        !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(input.policyVersion) ||
+        !/^[0-9a-f]{64}$/u.test(input.participantSuggestionId) ||
+        typeof input.topicId !== "string" ||
+        input.topicId.length < 1 ||
+        input.topicId.length > 500 ||
+        !/^[\x21-\x7e]+$/u.test(input.topicId) ||
+        !Number.isSafeInteger(input.issuedAt) ||
+        input.issuedAt < 0 ||
+        !Number.isSafeInteger(input.expiresAt) ||
+        input.expiresAt <= input.issuedAt ||
+        input.authorityBinding !== "civic_eligibility_only" ||
+        typeof input.canonicalChallenge !== "string" ||
+        input.canonicalChallenge !== stableJson(challengeCore) ||
+        typeof input.message !== "string" ||
+        input.message.length < 1 ||
+        input.message.length > 10_000 ||
+        input.message !== input.canonicalChallenge
+      ) {
+        throw new Error("citizen_eligibility_challenge_invalid");
+      }
+      return buildNoteEvent(signer.secretKey, input.message, {
+        createdAt: input.issuedAt,
+        tags: [
+          ["schema", "municipal_civic_eligibility_challenge_proof_v1"],
+          ["challenge", input.challengeId],
+          [
+            "e",
+            input.participantSuggestionId,
+            "",
+            "eligibility-for-suggestion",
+          ],
+          ["municipality", input.municipalityId],
+        ],
+      });
     },
     dispose(): void {
       if (disposed) return;

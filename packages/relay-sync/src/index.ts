@@ -9,10 +9,17 @@
  *
  * See docs/superpowers/specs/2026-07-27-nostr-citizen-identity-bridge-design.md.
  */
-export { createGnosisVerifier, createGnosisWalletVerifier } from "./chain.js";
+export {
+  createGnosisVerifier,
+  createGnosisWalletVerifier,
+  createPinnedCitizenNftEligibilityVerifier,
+} from "./chain.js";
 export type {
   GnosisVerifierOptions,
   GnosisWalletVerifierOptions,
+  PinnedCitizenNftEligibilityEvidence,
+  PinnedCitizenNftEligibilityVerifier,
+  PinnedCitizenNftEligibilityVerifierOptions,
 } from "./chain.js";
 
 export { createSupabaseRegistry } from "./registry.js";

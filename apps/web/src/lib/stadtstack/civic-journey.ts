@@ -144,7 +144,7 @@ export function projectCivicJourney(
         input.proposalSigned && !input.caseAdmitted
       ),
       detail: input.citizenAdoptionVerified
-        ? "Bürger-Signatur, kommunale Berechtigung und Ledger-Annahme sind öffentlich gebunden."
+        ? "Bürger-Signatur, zum Übernahmezeitpunkt geprüfte Berechtigung und Ledger-Annahme sind öffentlich gebunden. Vor einer Case-Aufnahme wird die Berechtigung erneut aktuell geprüft."
         : input.caseAdmitted
           ? "Der Fall ist gebunden; ein eigener ADR-0023-Bürgernachweis ist hier nicht öffentlich projiziert."
           : "Eine berechtigte Bürgerperson muss den unveränderten Entwurf ausdrücklich übernehmen.",

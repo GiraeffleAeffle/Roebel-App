@@ -16,6 +16,7 @@ import {
   projectPublicProposalSignature,
 } from "@/lib/stadtstack/proposal-signature";
 import type { VerifiedPublicCaseBindingReceipt } from "@/lib/stadtstack/public-case-binding-receipt-client";
+import type { PublicCitizenAdoptionProjection } from "@/lib/staging-participant/citizen-adoption";
 
 function short(value: string): string {
   return `${value.slice(0, 12)}…${value.slice(-8)}`;
@@ -24,6 +25,7 @@ function short(value: string): string {
 export function StadtstackProposalReceipts({
   suggestion,
   bindingReceipt,
+  adoptionProjection,
   rootId,
   topicId,
 }: {
@@ -32,6 +34,7 @@ export function StadtstackProposalReceipts({
     | ParticipantTopicSuggestionV1
     | null;
   bindingReceipt: VerifiedPublicCaseBindingReceipt | null;
+  adoptionProjection: PublicCitizenAdoptionProjection | null;
   rootId: string;
   topicId: string;
 }) {
@@ -42,9 +45,22 @@ export function StadtstackProposalReceipts({
     rootEventId: rootId,
     topicId,
   });
-  const adoption = projectPublicCitizenAdoptionEvidence(caseReceipt);
+  const caseAdoption = projectPublicCitizenAdoptionEvidence(caseReceipt);
+  const adoption = adoptionProjection
+    ? {
+        adopterPubkey: adoptionProjection.adoptionEvent.pubkey,
+        adoptionEventId: adoptionProjection.adoptionEvent.id,
+        eligibilityReceiptId: adoptionProjection.eligibilityReceipt.receiptId,
+        eligibilityPolicyVersion:
+          adoptionProjection.eligibilityReceipt.eligibilityCore.policyVersion,
+        eligibilityIssuer:
+          adoptionProjection.eligibilityReceipt.eligibilityCore.issuer,
+        adoptionAcceptanceReceiptChecksum:
+          adoptionProjection.acceptanceReceipt.receiptChecksum,
+      }
+    : caseAdoption;
 
-  if (!signature && !caseReceipt) return null;
+  if (!signature && !caseReceipt && !adoptionProjection) return null;
 
   return (
     <details
@@ -124,9 +140,11 @@ export function StadtstackProposalReceipts({
               {short(adoption.adoptionAcceptanceReceiptChecksum)}
             </p>
             <p className="mt-2 text-xs leading-5 text-violet-950">
-              Dieser Nachweis erlaubt nur die Anfrage an den Case Steward. Er
-              ist keine Verwaltungsbefürwortung, keine bindende Abstimmung und
-              keine Entscheidungs- oder Zahlungsbefugnis.
+              Die server-geprüfte Ledger-Annahme erlaubt nur die Anfrage an den
+              Case Steward. Vor einer Aufnahme wird die Berechtigung erneut
+              aktuell geprüft. Der Nachweis ist keine Verwaltungsbefürwortung,
+              keine bindende Abstimmung und keine Entscheidungs- oder
+              Zahlungsbefugnis.
             </p>
           </article>
         ) : signature?.kind === "participant_request" ? (

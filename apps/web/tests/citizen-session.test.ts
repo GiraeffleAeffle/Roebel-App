@@ -109,6 +109,100 @@ test("derives the Nostr identity once and signs ordinary posts without exposing 
   assert.equal("secretKey" in session, false);
 });
 
+test("signs the exact server-issued civic eligibility challenge with the derived Nostr identity", async () => {
+  const session = createCitizenSession({
+    appAccountId: "account-1",
+    credential: credential(),
+    memberId: null,
+  });
+  const subjectPubkey = await session.getNostrPubkey();
+  const challengeCore = {
+    schemaVersion: "municipal_civic_eligibility_challenge_v1" as const,
+    challengeId: "1".repeat(32),
+    audience: "roebel-staging-citizen-adoption" as const,
+    sessionBindingSha256: "3".repeat(64),
+    walletAddress: ADDRESS,
+    chainId: 100 as const,
+    subjectPubkey,
+    municipalityId: "roebel-mueritz",
+    policyVersion: "roebel-civic-eligibility-2026-09",
+    participantSuggestionId: "2".repeat(64),
+    topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:treffpunkt",
+    issuedAt: 1_777_777_777,
+    expiresAt: 1_777_778_077,
+    authorityBinding: "civic_eligibility_only" as const,
+  };
+  const challenge = {
+    ...challengeCore,
+    canonicalChallenge: stableJson(challengeCore),
+    message: stableJson(challengeCore),
+  };
+
+  const event = await session.signCitizenEligibilityChallenge(challenge);
+
+  assert.equal(verifyEvent(event), true);
+  assert.equal(event.pubkey, subjectPubkey);
+  assert.equal(event.created_at, challenge.issuedAt);
+  assert.equal(event.content, challenge.message);
+  assert.deepEqual(event.tags, [
+    ["schema", "municipal_civic_eligibility_challenge_proof_v1"],
+    ["challenge", challenge.challengeId],
+    ["e", challenge.participantSuggestionId, "", "eligibility-for-suggestion"],
+    ["municipality", challenge.municipalityId],
+  ]);
+  assert.equal("secretKey" in session, false);
+});
+
+test("refuses a civic eligibility challenge whose bounded server fields are tampered", async () => {
+  const session = createCitizenSession({
+    appAccountId: "account-1",
+    credential: credential(),
+    memberId: null,
+  });
+  const subjectPubkey = await session.getNostrPubkey();
+  const core = {
+    schemaVersion: "municipal_civic_eligibility_challenge_v1" as const,
+    challengeId: "1".repeat(32),
+    audience: "roebel-staging-citizen-adoption" as const,
+    sessionBindingSha256: "3".repeat(64),
+    walletAddress: ADDRESS,
+    chainId: 100 as const,
+    subjectPubkey,
+    municipalityId: "roebel-mueritz",
+    policyVersion: "roebel-civic-eligibility-2026-09",
+    participantSuggestionId: "2".repeat(64),
+    topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:treffpunkt",
+    issuedAt: 1_777_777_777,
+    expiresAt: 1_777_778_077,
+    authorityBinding: "civic_eligibility_only" as const,
+  };
+  const canonicalChallenge = stableJson(core);
+  const challenge = { ...core, canonicalChallenge, message: canonicalChallenge };
+  const recanonicalizedWrongWallet = {
+    ...core,
+    walletAddress: "0x2222222222222222222222222222222222222222",
+  };
+  const cases = [
+    { ...challenge, sessionBindingSha256: "4".repeat(64) },
+    { ...challenge, policyVersion: "tampered-policy" },
+    { ...challenge, topicId: `${core.topicId}:tampered` },
+    { ...challenge, message: `${canonicalChallenge} ` },
+    { ...challenge, expiresAt: core.issuedAt },
+    {
+      ...recanonicalizedWrongWallet,
+      canonicalChallenge: stableJson(recanonicalizedWrongWallet),
+      message: stableJson(recanonicalizedWrongWallet),
+    },
+  ];
+
+  for (const candidate of cases) {
+    await assert.rejects(
+      () => session.signCitizenEligibilityChallenge(candidate),
+      /citizen_eligibility_challenge_invalid/
+    );
+  }
+});
+
 test("creates a mutual wallet and Nostr admission proof without exposing either secret", async () => {
   const messages: string[] = [];
   const session = createCitizenSession({
