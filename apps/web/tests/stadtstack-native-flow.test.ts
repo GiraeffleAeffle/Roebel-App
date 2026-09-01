@@ -86,6 +86,14 @@ const proposalReceipts = readFileSync(
   ),
   "utf8"
 );
+const civicJourneyRail = readFileSync(
+  new URL("../src/components/app/CivicJourneyRail.tsx", import.meta.url),
+  "utf8"
+);
+const civicJourney = readFileSync(
+  new URL("../src/lib/stadtstack/civic-journey.ts", import.meta.url),
+  "utf8"
+);
 const workbenchServer = readFileSync(
   new URL(
     "../../../packages/e2e-workbench/src/server.ts",
@@ -276,8 +284,8 @@ test("labels the civic handoff and keeps vote and treasury authority disabled", 
   assert.match(discussion, /thread\?\.suggestion\?\.draft\.summary/);
   assert.match(discussion, /Keine Verwaltungsfreigabe/);
   assert.match(discussion, /kein bindender kommunaler Beschluss/);
-  assert.match(discussion, /Citizen Brief/);
-  assert.match(discussion, /Beratendes Meinungsbild/);
+  assert.match(civicJourney, /Citizen Brief/);
+  assert.match(civicJourney, /beratendes Meinungsbild/i);
   assert.match(discussion, /Keine echte Abstimmung/);
   assert.match(discussion, /keine\s+Auszahlung/i);
   assert.match(discussion, /<StadtstackProposalReceipts/);
@@ -291,11 +299,27 @@ test("labels the civic handoff and keeps vote and treasury authority disabled", 
   assert.match(discussion, /bindPublicCaseReceiptToProposal/);
 });
 
+test("shows one readable civic process instead of repeating the proposal workflow", () => {
+  assert.equal(discussion.match(/<CivicJourneyRail\b/g)?.length, 1);
+  assert.doesNotMatch(discussion, /WorkflowStep/);
+  assert.match(discussion, /Der Bürgerprozess oben zeigt/);
+  assert.match(civicJourneyRail, /Aktueller Schritt/);
+  assert.match(civicJourneyRail, /Alle Schritte und Zuständigkeiten/);
+  assert.match(civicJourneyRail, /aria-current=/);
+  assert.match(civicJourneyRail, /stage\.authority/);
+  assert.doesNotMatch(civicJourneyRail, /grid-cols-(?:9|10)/);
+  assert.match(proposalReceipts, /<details/);
+  assert.match(proposalReceipts, /Technische Nachweise/);
+  assert.doesNotMatch(proposalReceipts, /list-none|lg:grid-cols-3/);
+  assert.match(proposalReceipts, /focus-visible:ring-2/);
+  assert.match(proposalReceipts, /repeat\(auto-fit,minmax\(15rem,1fr\)\)/);
+});
+
 test("shows reviewed administration progress inside the same Civic Journey", () => {
   assert.match(discussion, /loadStadtstackAdministrationProgress/);
   assert.doesNotMatch(discussion, /stagingPost<unknown>\("\/view"/);
   assert.match(discussion, /administrationRequestId\.current !== requestId/);
-  assert.match(discussion, /administrationProgress\.acceptedCount/);
+  assert.match(discussion, /administrationStatus/);
   assert.match(discussion, /<StadtstackAdministrationProgress/);
   assert.match(civicTopic, /loadStadtstackAdministrationProgress/);
   assert.match(civicTopic, /detail\.caseBinding/);
@@ -337,7 +361,8 @@ test("lets the topic author sign a draft without inventing a CivicCase", () => {
   );
   assert.match(discussion, /Bürgerübernahme erforderlich/);
   assert.match(discussion, /kein CivicCase automatisch angelegt/);
-  assert.match(discussion, /Menschliche Aufnahme als CivicCase/);
+  assert.match(civicJourney, /label: "CivicCase"/);
+  assert.match(civicJourney, /authority: "Case Steward"/);
   assert.match(discussion, /Diese öffentliche App kann die Aufnahme nicht auslösen/);
   assert.doesNotMatch(discussion, /stagingPost<[^>]+>\("\/admit"/);
   assert.doesNotMatch(discussion, /stagingPost<[^>]+>\("\/complete"/);

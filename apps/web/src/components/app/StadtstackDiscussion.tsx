@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   Bot,
   CheckCircle2,
-  CircleDollarSign,
   FileSignature,
   GitFork,
   Landmark,
@@ -14,7 +13,6 @@ import {
   PieChart,
   RefreshCw,
   ShieldAlert,
-  Vote,
 } from "lucide-react";
 import {
   buildArgumentTree,
@@ -89,15 +87,6 @@ function ArgumentNode({ node, onReply }: { node: ArgumentTreeNode; onReply: (arg
         <button type="button" onClick={() => onReply(node.argument)} className="mt-2 text-xs font-semibold text-primary hover:underline">Auf dieses Argument antworten</button>
       </article>
       {node.children.length > 0 && <ol className="mt-3 space-y-3">{node.children.map((child) => <ArgumentNode key={child.argument.id} node={child} onReply={onReply} />)}</ol>}
-    </li>
-  );
-}
-
-function WorkflowStep({ label, done, detail }: { label: string; done: boolean; detail: string }) {
-  return (
-    <li className="flex gap-3">
-      {done ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" /> : <div className="mt-1 h-4 w-4 shrink-0 rounded-full border-2 border-muted-foreground/40" />}
-      <div><p className="text-sm font-semibold text-foreground">{label}</p><p className="text-xs leading-5 text-muted-foreground">{detail}</p></div>
     </li>
   );
 }
@@ -652,7 +641,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
       </section>
 
       <section className="rounded-xl border border-border bg-card p-5">
-        <div className="flex items-start gap-3"><FileSignature className="mt-0.5 h-6 w-6 shrink-0 text-primary" /><div><h2 className="text-lg font-bold">Röbel-Verbesserungsvorschlag</h2><p className="mt-1 text-sm leading-6 text-muted-foreground">Aus Diskussion und Mecky-Antwort wird zunächst ein signierter Entwurf. Erst nach verifizierter Bürgerübernahme und menschlicher Aufnahme entsteht ein Fall. Danach folgen Verwaltungsfeedback, Citizen Brief und ein beratendes Meinungsbild im Mitmachen-Bereich.</p></div></div>
+        <div className="flex items-start gap-3"><FileSignature className="mt-0.5 h-6 w-6 shrink-0 text-primary" /><div><h2 className="text-lg font-bold">Röbel-Verbesserungsvorschlag</h2><p className="mt-1 text-sm leading-6 text-muted-foreground">Hier wird aus der Diskussion ein unveränderlicher Entwurf. Der Bürgerprozess oben zeigt den aktuellen Stand und alle späteren, getrennten Zuständigkeiten.</p></div></div>
         {argumentSummary && (
           <div className="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-3 text-blue-950">
             <p className="text-xs font-bold uppercase tracking-wide">Diskussionsgrundlage für die Anfrage</p>
@@ -664,23 +653,6 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
             </p>
           </div>
         )}
-        <ol className="mt-5 space-y-4">
-          <WorkflowStep label="Öffentliche Diskussion" done={true} detail="Signierte Nostr-Ereignisse, Pro/Contra-Struktur und @Mecky-Erwähnung." />
-          <WorkflowStep label="Geprüfte Mecky-Antwort" done={Boolean(workflow.answer || thread.mecky)} detail="Mecky darf Quellen erklären, aber den Vorschlag nicht selbst einreichen." />
-          <WorkflowStep label={participantTracerMode ? "Teilnahme-signierter Entwurf" : "Bürger-signierter Vorschlag"} done={Boolean(workflow.suggestion || thread.suggestion)} detail={participantTracerMode ? "Die Staging-Teilnahme signiert einen unveränderlichen Entwurf. Eine getrennt geprüfte Bürgerperson muss ihn später ausdrücklich übernehmen." : topicProposalMode ? "Ein verbundenes Röbel-Konto bestätigt Titel und Zusammenfassung mit einer eigenen Nostr-Signatur." : "Die synthetische Testperson bestätigt Titel und Zusammenfassung."} />
-          <WorkflowStep label="Verifizierte Bürgerübernahme" done={citizenAdoptionVerified} detail={citizenAdoptionVerified ? "Die v2-Fallquittung bindet den unveränderten Teilnahme-Entwurf an eine Bürger-Signatur, eine kommunale Berechtigungsquittung und die atomare Annahme im Adoption-Ledger." : "Erforderlich sind eine kurzlebige, kommunal geprüfte Berechtigungsquittung und eine neue Bürger-Signatur über genau diesen unveränderten Entwurf."} />
-          <WorkflowStep label="Menschliche Aufnahme als CivicCase" done={Boolean(topicBindingReceipt)} detail="Nur eine checksum-verifizierte öffentliche Case-Steward-Quittung bestätigt die getrennte, autorisierte Aufnahme." />
-          <WorkflowStep
-            label="Verwaltungsfeedback und Citizen Brief"
-            done={administrationProgress?.status === "citizen_brief_current"}
-            detail={
-              administrationProgress
-                ? `${administrationProgress.acceptedCount} von ${administrationProgress.requiredCount} Fachantworten sind öffentlich geprüft${administrationProgress.currentBrief ? "; der Citizen Brief ist aktuell." : administrationProgress.briefCorrection ? "; der bisherige Citizen Brief wurde sichtbar zurückgezogen." : "."}`
-                : "Acht getrennte Fachpakete werden geprüft und öffentlich verständlich zusammengeführt."
-            }
-          />
-          <WorkflowStep label="Beratendes Meinungsbild im Mitmachen-Bereich" done={false} detail={administrationProgress?.status === "citizen_brief_current" ? "Der aktuelle Citizen Brief ist im Mitmachen-Bereich sichtbar; die Beteiligung ist noch nicht geöffnet und hat keine Entscheidungswirkung." : "Erst nach einem aktuellen Citizen Brief sichtbar und immer ausdrücklich nicht bindend."} />
-        </ol>
         {topicBindingReceipt && (
           <StadtstackAdministrationProgress
             progress={administrationProgress}
@@ -708,6 +680,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
         {!topicBindingReceipt && (
           <>
             <div className={`mt-5 rounded-lg border p-3 text-sm ${topicSuggestionSigned ? "border-emerald-300 bg-emerald-50 text-emerald-950" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
+              <p className="text-[11px] font-bold uppercase tracking-wide opacity-75">Aktueller Vorschlagsstand</p>
               <p className="font-semibold">{topicSuggestionSigned ? participantTracerMode ? "Teilnahme-Entwurf signiert" : "Vorschlag bürger-signiert" : "Noch kein CivicCase"}</p>
               <p className="mt-1 text-xs leading-5">
                 {topicSuggestionSigned
@@ -755,7 +728,10 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
           </>
         )}
         <button type="button" onClick={startProposal} disabled={proposalDisabled} className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50">{workflowBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> {topicSuggestionReceiptPending ? "Quittung wird abgeschlossen…" : participantTracerMode ? "Entwurf wird signiert…" : "Vorschlag wird signiert…"}</> : topicBindingReceipt ? <><CheckCircle2 className="h-4 w-4" /> CivicCase quittiert</> : topicSuggestionSigned ? <><CheckCircle2 className="h-4 w-4" /> {participantTracerMode ? "Bürgerübernahme erforderlich" : "Wartet auf Case Steward"}</> : topicSuggestionReceiptPending ? <><RefreshCw className="h-4 w-4" /> Quittung erneut abschließen</> : topicProposalMode && !citizenSession ? <><Landmark className="h-4 w-4" /> Anmelden, um {participantTracerMode ? "Entwurf" : "Vorschlag"} zu signieren</> : <><FileSignature className="h-4 w-4" /> {participantTracerMode ? "Entwurf" : "Vorschlag"} prüfen und signieren</>}</button>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="rounded-lg border border-border bg-muted/50 p-3"><div className="flex items-center gap-2 text-sm font-bold"><Vote className="h-4 w-4" /> Keine echte Abstimmung</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Das Staging-Ergebnis ist ein beratendes Meinungsbild ohne formale Rats- oder Governance-Wirkung.</p></div><div className="rounded-lg border border-border bg-muted/50 p-3"><div className="flex items-center gap-2 text-sm font-bold"><CircleDollarSign className="h-4 w-4" /> Stadtkasse getrennt</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Budgetbedarf kann als Verwaltungsprüfung erscheinen; keine Auszahlung und keine Treasury-Transaktion wird ausgelöst.</p></div></div>
+        <aside aria-label="Wirkungsgrenzen" className="mt-4 rounded-lg border border-border bg-muted/40 p-3">
+          <p className="text-sm font-bold">Beratend, nicht bindend</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">Keine echte Abstimmung, keine Verwaltungsfreigabe und kein kommunaler Beschluss. Die Stadtkasse bleibt getrennt: keine Auszahlung und keine Treasury-Transaktion.</p>
+        </aside>
       </section>
     </div>
   );

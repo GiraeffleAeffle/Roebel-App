@@ -47,28 +47,23 @@ export function StadtstackProposalReceipts({
   if (!signature && !caseReceipt) return null;
 
   return (
-    <section
-      aria-labelledby="stadtstack-proposal-receipts-title"
+    <details
       data-civic-authority="none"
       className="mt-4 rounded-xl border border-slate-300 bg-slate-50 p-4"
     >
-      <div className="flex items-start gap-3">
-        <FileKey2 className="mt-0.5 h-5 w-5 shrink-0 text-slate-700" />
-        <div>
-          <h3
-            id="stadtstack-proposal-receipts-title"
-            className="text-sm font-bold text-foreground"
-          >
-            Signaturen, Berechtigung und öffentliche Fallquittung
-          </h3>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Jeder Übergang bleibt ein eigener Nachweis. Eine Kontosignatur ist
-            weder Bürgerberechtigung noch Verwaltungsfreigabe.
-          </p>
-        </div>
-      </div>
+      <summary className="cursor-pointer rounded-md text-sm font-bold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+        <span className="ml-1 inline-flex items-center gap-2">
+          <FileKey2 className="h-5 w-5 shrink-0 text-slate-700" />
+          <span>Technische Nachweise</span>
+        </span>
+        <span className="mt-1 block pl-8 text-xs font-normal leading-5 text-muted-foreground">
+          Signaturen, Berechtigung und öffentliche Fallquittung getrennt
+          prüfen. Eine Kontosignatur ist weder Bürgerberechtigung noch
+          Verwaltungsfreigabe.
+        </span>
+      </summary>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+      <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(15rem,1fr))] gap-3">
         {signature ? (
           <article className="rounded-lg border border-emerald-200 bg-white p-3">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-emerald-800">
@@ -183,6 +178,6 @@ export function StadtstackProposalReceipts({
           </article>
         )}
       </div>
-    </section>
+    </details>
   );
 }

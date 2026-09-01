@@ -79,3 +79,11 @@ test("the journey lookup effect depends on a stable staging boolean", () => {
     /const enabled = Boolean\(\s*resolveStadtstackStagingLab\(/,
   );
 });
+
+test("the compact feed journey keeps citizen adoption between proposal and case", () => {
+  assert.match(
+    postJourneyComponent,
+    /"proposal",\s*"adoption",\s*"case"/,
+  );
+  assert.match(postJourneyComponent, /aria-current=/);
+});
