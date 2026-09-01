@@ -31,6 +31,7 @@ import { loadPublicMeckyConversation } from "@/lib/stadtstack/civic-projection-c
 import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
 import { useStagingTestParticipant } from "@/hooks/useStagingTestParticipant";
 import { StagingParticipantEnrollment } from "@/components/app/StagingParticipantEnrollment";
+import { publicEvidenceDestinationLabel } from "@/lib/public-evidence-url";
 
 const MAX_COMMENT_IMAGES = 3;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -222,7 +223,7 @@ function MeckyCommentItem({ reply }: { reply: StagingMeckyConversationReply }) {
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                 >
-                  Geprüfter Nachweis {index + 1}{" "}
+                  Nachweis {index + 1} · {publicEvidenceDestinationLabel(evidence.url)}{" "}
                   <ExternalLink className="h-3 w-3" />
                 </a>
               ))}

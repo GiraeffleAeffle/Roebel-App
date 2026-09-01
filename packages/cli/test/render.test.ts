@@ -465,6 +465,7 @@ test("a declared watcher becomes a rendered service, not a hand-started containe
         displayName: "Mecky",
         publicEvidence: {
           baseUrl: "https://roebel-stadtstack.agentcart.eu",
+          reviewedKnowledgeBaseUrl: "https://www.roebel.app",
           reviewedSourceKinds: ["local_news", "ratsinformation"],
           municipalityId: "roebel-mueritz",
           sourceCaseId: "marienfelder-strasse",
@@ -505,6 +506,10 @@ test("a declared watcher becomes a rendered service, not a hand-started containe
   assert.match(
     watcherBlock,
     /MECKY_REVIEWED_SOURCE_KINDS: "local_news,ratsinformation"/,
+  );
+  assert.match(
+    watcherBlock,
+    /MECKY_REVIEWED_KNOWLEDGE_BASE_URL: "https:\/\/www\.roebel\.app"/,
   );
   assert.match(
     watcherBlock,

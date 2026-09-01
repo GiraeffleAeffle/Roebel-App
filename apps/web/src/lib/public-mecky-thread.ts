@@ -1,4 +1,5 @@
-import type { PostComment } from "@/types/post";
+import type { PostComment } from "../types/post";
+import { isAllowedPublicEvidenceUrl } from "./public-evidence-url";
 
 const HEX64 = /^[0-9a-f]{64}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
@@ -28,11 +29,7 @@ function parseEvidenceRefs(
       return null;
     }
     if (
-      url.protocol !== "https:" ||
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash
+      !isAllowedPublicEvidenceUrl(url)
     ) {
       return null;
     }
