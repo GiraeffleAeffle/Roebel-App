@@ -229,6 +229,55 @@ test("the exact NetworkPolicy-bound PostgREST origin uses its raw RPC path", asy
   }));
 });
 
+test("PostgREST RPC names fit PostgreSQL identifiers and bind the promotion resolver to its catalog name", () => {
+  for (const [operation, rpc] of Object.entries(restrictedStagingParticipantRpcNames)) {
+    assert.ok(
+      Buffer.byteLength(rpc, "utf8") <= 63,
+      `${operation} exceeds PostgreSQL's 63-byte identifier limit`,
+    );
+  }
+  assert.equal(
+    restrictedStagingParticipantRpcNames.resolvePublishedSourcePostPromotion,
+    "staging_participant_gateway_resolve_published_source_post_promo",
+  );
+});
+
+test("published promotion resolution uses the catalog-exposed RPC and a closed request", async () => {
+  const calls: Array<{ url: string; body: Record<string, string> }> = [];
+  const adapter = createRestrictedSupabaseDataAdapter({
+    url: "https://example.supabase.co",
+    anonKey: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_ANON_KEY,
+    rpcSecret: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET,
+    fetch: async (url, init) => {
+      calls.push({
+        url: String(url),
+        body: JSON.parse(String(init?.body)) as Record<string, string>,
+      });
+      return new Response(JSON.stringify({ ...PROMOTION_RECEIPT, state: "published" }), {
+        status: 200,
+      });
+    },
+  });
+
+  const resolved = await adapter.resolvePublishedSourcePostPromotion({
+    walletAddress: PROMOTION_RECEIPT.wallet_address,
+    namespace: PROMOTION_RECEIPT.namespace,
+    discussionRootId: PROMOTION_RECEIPT.discussion_root_id,
+    sourceAuthorPubkey: SUGGESTION_RECEIPT.source_author_pubkey,
+  });
+
+  assert.equal(resolved?.state, "published");
+  assert.deepEqual(calls, [{
+    url: "https://example.supabase.co/rest/v1/rpc/staging_participant_gateway_resolve_published_source_post_promo",
+    body: {
+      p_wallet_address: PROMOTION_RECEIPT.wallet_address,
+      p_namespace: PROMOTION_RECEIPT.namespace,
+      p_discussion_root_id: PROMOTION_RECEIPT.discussion_root_id,
+      p_source_author_pubkey: SUGGESTION_RECEIPT.source_author_pubkey,
+    },
+  }]);
+});
+
 test("Supabase adapter rejects a valid-looking row that is not correlated to its request", async () => {
   const adapter = createRestrictedSupabaseDataAdapter({
     url: "https://example.supabase.co",

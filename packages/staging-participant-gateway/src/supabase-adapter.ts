@@ -22,7 +22,9 @@ const BIND_MIRROR_RPC = "staging_participant_gateway_bind_published_nostr_post_m
 const RESOLVE_MIRROR_RPC = "staging_participant_gateway_resolve_published_nostr_post_mirror";
 const RESERVE_PROMOTION_RPC = "staging_participant_gateway_reserve_source_post_promotion";
 const COMPLETE_PROMOTION_RPC = "staging_participant_gateway_complete_source_post_promotion";
-const RESOLVE_PROMOTION_RPC = "staging_participant_gateway_resolve_published_source_post_promotion";
+// PostgreSQL truncates identifiers to 63 bytes. The migration's longer source
+// spelling is therefore exposed by pg_proc and PostgREST under this exact name.
+const RESOLVE_PROMOTION_RPC = "staging_participant_gateway_resolve_published_source_post_promo";
 const RESERVE_SUGGESTION_RPC = "staging_participant_gateway_reserve_topic_suggestion";
 const COMPLETE_SUGGESTION_RPC = "staging_participant_gateway_complete_topic_suggestion";
 const PREFLIGHT_RPC = "staging_participant_gateway_preflight";
