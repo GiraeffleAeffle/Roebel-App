@@ -13,7 +13,11 @@ import {
   createStadtstackReviewedEvidenceReader,
   toPublicMeckyWatcherReply,
 } from "../src/public-mecky";
-import { createPublicEvidencePacket, type NostrPostEvidence } from "../src/public-evidence";
+import {
+  createPublicEvidencePacket,
+  type NostrPostEvidence,
+  type PromptPublicEvidence,
+} from "../src/public-evidence";
 import {
   sealReviewedPublicKnowledgeProjection,
   type ReviewedPublicKnowledgeSourceKind,
@@ -819,12 +823,119 @@ describe("Public Mecky", () => {
       enable_thinking: false,
     });
     assert.ok(!("tools" in requestBody));
+    assert.match(
+      JSON.stringify(requestBody.messages),
+      /answer muss höchstens 520 Zeichen und vier kurze Sätze umfassen/u,
+    );
+    assert.match(
+      JSON.stringify(requestBody.messages),
+      /ein bis drei unterschiedliche, unveränderte evidenceId-Werte aus publicEvidence/u,
+    );
     assert.match(JSON.stringify(requestBody), /Kann ich schon abstimmen/);
     assert.match(JSON.stringify(requestBody), new RegExp(EVIDENCE_ID));
     assert.deepEqual(result, {
       answer: "Eine Abstimmung ist noch nicht eröffnet.",
       evidenceIds: [EVIDENCE_ID],
     });
+  });
+
+  it("keeps the live multi-part civic question inside the bounded reply contract", async () => {
+    const question =
+      "@Mecky, welche öffentlich belegten, unverbindlichen Optionen zur Verkehrssicherheit am Abzweig B 198 Bollewick/Erlenkamp sollten geprüft werden, welche Stellen wären zuständig und welche Verkehrs- oder Unfalldaten fehlen?";
+    const evidenceIds = [
+      `sha256:${"a".repeat(64)}` as `sha256:${string}`,
+      `sha256:${"b".repeat(64)}` as `sha256:${string}`,
+      `sha256:${"c".repeat(64)}` as `sha256:${string}`,
+    ] as const;
+    const evidence: PromptPublicEvidence[] = [
+      {
+        evidenceId: evidenceIds[0]!,
+        sourceKind: "nostr_post" as const,
+        authority: "community_statement" as const,
+        title: "Öffentlicher Röbel-Beitrag",
+        summary: "Bürger:innen fragen nach unverbindlichen Prüfoptionen.",
+        publishedAt: "2026-09-01T08:47:08.000Z",
+      },
+      {
+        evidenceId: evidenceIds[1]!,
+        sourceKind: "local_news" as const,
+        authority: "editorial_report" as const,
+        title: "Radweg Dambeck–Bollewick",
+        summary: "Der veröffentlichte Bericht beschreibt den vorhandenen Radweg.",
+        publishedAt: "2026-08-31T12:00:00.000Z",
+      },
+      {
+        evidenceId: evidenceIds[2]!,
+        sourceKind: "ratsinformation" as const,
+        authority: "official_record" as const,
+        title: "Einwohnerfragestunde zur B 198",
+        summary: "Das Protokoll dokumentiert ein Bürgeranliegen, keinen Beschluss.",
+        publishedAt: "2026-08-31T12:00:00.000Z",
+      },
+    ];
+    const boundedAnswer =
+      "Das RIS-Protokoll nennt eine 70-Zone oder ein Überholverbot nur als Bürgeranliegen; einen Maßnahmenbeschluss belegt es nicht. Der dokumentierte Radweg Dambeck–Bollewick ist ein weiterer unverbindlicher Prüfpunkt. Welche Stellen zuständig sind, geht aus den zugelassenen Quellen nicht abschließend hervor. Für eine belastbare Prüfung fehlen dort insbesondere aktuelle Verkehrs- und Unfalldaten.";
+    let observedBody: Record<string, unknown> | null = null;
+    const infer = createPiPublicMeckyInference({
+      baseUrl: "https://inference.hetzner.com/api/v1",
+      apiKey: "test-token",
+      model: "Qwen/Qwen3.6-35B-A3B-FP8",
+      fetch: async (_input, init) => {
+        observedBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return Response.json({
+          id: "chatcmpl-live-civic-shape",
+          model: "Qwen/Qwen3.6-35B-A3B-FP8",
+          choices: [{
+            index: 0,
+            message: {
+              role: "assistant",
+              content: JSON.stringify({
+                answer: boundedAnswer,
+                evidenceIds,
+              }),
+            },
+            finish_reason: "stop",
+          }],
+        });
+      },
+    });
+
+    const result = await infer({ question, evidence });
+
+    assert.ok(result.answer.length <= 520);
+    assert.equal(result.answer, boundedAnswer);
+    assert.deepEqual(result.evidenceIds, evidenceIds);
+    assert.ok(JSON.stringify(observedBody).includes(question));
+    for (const evidenceId of evidenceIds) {
+      assert.ok(JSON.stringify(observedBody).includes(evidenceId));
+    }
+    assert.match(JSON.stringify(observedBody), /höchstens 520 Zeichen/u);
+    assert.match(JSON.stringify(observedBody), /ein bis drei unterschiedliche/u);
+
+    const overLimit = createPiPublicMeckyInference({
+      baseUrl: "https://inference.hetzner.com/api/v1",
+      apiKey: "test-token",
+      model: "Qwen/Qwen3.6-35B-A3B-FP8",
+      fetch: async () => Response.json({
+        id: "chatcmpl-over-limit",
+        model: "Qwen/Qwen3.6-35B-A3B-FP8",
+        choices: [{
+          index: 0,
+          message: {
+            role: "assistant",
+            content: JSON.stringify({
+              answer: "x".repeat(601),
+              evidenceIds: [evidenceIds[0]],
+            }),
+          },
+          finish_reason: "stop",
+        }],
+      }),
+    });
+    await assert.rejects(
+      overLimit({ question, evidence }),
+      /Public Mecky provider returned an invalid result/u,
+    );
   });
 
   it("retries one transient Pi provider response and preserves the bounded request", async () => {
