@@ -2,11 +2,11 @@
 
 ## Status
 
-The Röbel consumer, explicit runtime composition, and Stadtstack preparation plus
-GET-only reference transport are implemented. The producer endpoints and a real
-reviewed Röbel news/Ratsinformationssystem corpus are not deployed yet. This
-document is therefore an integration contract, not evidence that those sources
-are live.
+The Röbel consumer, explicit runtime composition, and GET-only reference
+transport are implemented. This repository now also contains a minimal reviewed
+Röbel corpus and the two public web routes that serve it. They are not evidence
+of a production deployment until this change is merged and the normal Röbel
+release process has completed; this work does not mutate staging or production.
 
 ## Purpose
 
@@ -27,7 +27,13 @@ For municipality `roebel-mueritz`, a producer may expose:
 - `GET /api/federation/v1/municipalities/roebel-mueritz/public-knowledge/local-news`
 - `GET /api/federation/v1/municipalities/roebel-mueritz/public-knowledge/ratsinformation`
 
-The configured provider is one exact HTTPS origin. Cluster-internal HTTP is accepted only through an explicit option and only for an exact `*.svc.cluster.local` Service origin. Redirects, credentials in URLs, query strings and fragments are rejected.
+The configured provider is one exact HTTPS origin. Cluster-internal HTTP is accepted only through an explicit option and only for an exact `*.svc.cluster.local` Service origin. Redirects, credentials in provider URLs, query strings and fragments are rejected.
+
+The reviewed knowledge origin is deliberately separate from the Stadtstack
+Civic Case origin. Röbel declares `https://www.roebel.app` for reviewed
+news/RIS projections while retaining
+`https://roebel-stadtstack.agentcart.eu` for reviewed Civic Cases. This prevents
+one base URL from silently changing the authority or operator of another source.
 
 ## Closed envelope
 
@@ -75,18 +81,46 @@ Configuration may only tighten or increase these values within the hard implemen
 
 ## Producer and activation responsibilities
 
-Stadtstack prepares both public projections only from exact source captures and
-human review attestations, then revalidates their checksum-bound bytes in a
-credential-free reference transport. A city-specific deployment still must
-retain the original URL or provider record ID, captured content checksum,
-capture time, reviewer decision, correction/supersession relationship and
-public lifecycle. Provider-specific parsing stays behind that boundary.
+For this initial static slice, the Röbel web repository owns the review gate:
+the source URL or provider record ID, reviewed text, publication and review
+times, admission decision and lifecycle are an explicit code-review diff. Each
+`evidenceId` is the canonical SHA-256 of its complete reviewed capture (all
+record fields except the digest itself), and the envelope has its own independent
+checksum. Merging the change is the human admission step; the route does not
+scrape or auto-admit upstream changes. A future producer may automate capture,
+but provider-specific parsing and correction/supersession history must remain
+behind the same reviewed boundary.
 
-Röbel enables deployed sources explicitly through the canonical manifest field
-`agents.watcher.publicEvidence.reviewedSourceKinds`. The renderer passes that
-closed declaration to Public Mecky; an undeclared source is not contacted. A
-failed enabled source becomes only its own `source_unavailable` omission and
-cannot erase admitted evidence from another source.
+Röbel enables deployed sources explicitly through the canonical manifest fields
+`agents.watcher.publicEvidence.reviewedSourceKinds` and
+`agents.watcher.publicEvidence.reviewedKnowledgeBaseUrl`. The renderer passes
+that closed declaration and exact origin to Public Mecky; neither may be
+declared without the other and an undeclared source is not contacted. A failed
+enabled source becomes only its own `source_unavailable` omission and cannot
+erase admitted evidence from another source.
+
+## Initial Röbel review set
+
+The first review set deliberately contains one pair about the 2026 Röbel budget:
+
+- **Local report:** Müritz Tipp, issue 4/2026, 7 March 2026,
+  “Stadtvertreter in Röbel starten ins neue Jahr – Haushalt beschlossen,
+  Investitionen geplant”. The admitted summary states only the article's
+  supported high-level subjects and preserves the publisher URL.
+- **Official record:** public ALLRIS proposal `BV-25-2026-007`, “Haushalt 2026
+  der Stadt Röbel/Müritz”. Its public consultation sequence records the city
+  council decision on 24 February 2026 as `ungeändert beschlossen`.
+
+Both source destinations are stored verbatim in the checksum-bound records.
+ALLRIS and the public Nostr index require query identifiers; the signed reply
+projection and normal-feed UI admit only the exact public shapes
+`/public/vo020?TOLFDNR=<digits>&VOLFDNR=<digits>&refresh=false` and
+`/events?ids=<64-hex>`. Arbitrary query strings, credentials and fragments remain
+rejected.
+
+This slice uses the municipality's real public ALLRIS
+Bürger-/Ratsinformationssystem. No public OParl endpoint was confirmed, so it
+does not claim or fabricate OParl data, Kair, or openDesk integration.
 
 The first real end-to-end release should use one reviewed local-news record and one reviewed council record for the same Röbel topic, then prove:
 

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { afterEach, test } from "node:test";
 import {
+  type PendingStagingParticipantMeckyMirror,
   clearPendingStagingParticipantMeckyMirror,
   createStagingParticipantComment,
   createStagingParticipantPost,
@@ -16,6 +17,58 @@ import { createCitizenSession } from "../src/lib/citizen-session/session.ts";
 import { isAppConversationMentionEvent, type NostrEvent } from "@netizen-labs/nostr";
 
 const originalFetch = globalThis.fetch;
+
+const PARTICIPANT_WALLET = "0x1111111111111111111111111111111111111111";
+const PARTICIPANT_SOURCE_POST = {
+  id: "11111111-1111-4111-8111-111111111111",
+  content: "@Mecky, bitte einordnen",
+};
+const PARTICIPANT_MECKY_PUBKEY = "d".repeat(64);
+
+function publicCivicInstanceResponse(meckyPubkey = PARTICIPANT_MECKY_PUBKEY): Response {
+  return new Response(JSON.stringify({
+    schemaVersion: "roebel_e2e_workbench_config_v1",
+    authorityBinding: "none",
+    personas: [],
+    meckyPubkey,
+  }), { status: 200, headers: { "content-type": "application/json" } });
+}
+
+function sessionThatMustNotSign(onAttempt: () => void): never {
+  return {
+    snapshot: {
+      credential: {
+        kind: "thirdweb_smart_account",
+        address: PARTICIPANT_WALLET,
+        chainId: 100,
+      },
+    },
+    async createAdmissionProof() {
+      onAttempt();
+      throw new Error("must not create an admission proof");
+    },
+    async signConversationMention() {
+      onAttempt();
+      throw new Error("must not sign");
+    },
+  } as never;
+}
+
+function pendingParticipantMirror(): PendingStagingParticipantMeckyMirror {
+  return {
+    schemaVersion: "roebel_staging_participant_mecky_mirror_v1",
+    sourcePost: PARTICIPANT_SOURCE_POST,
+    requestId: "22222222-2222-4222-8222-222222222222",
+    walletAddress: PARTICIPANT_WALLET,
+    event: {
+      id: "a".repeat(64), pubkey: "b".repeat(64),
+      created_at: Math.floor(Date.now() / 1_000), kind: 1,
+      tags: [["p", PARTICIPANT_MECKY_PUBKEY], ["source-app-post", PARTICIPANT_SOURCE_POST.id], ["t", "roebel-app-conversation"]],
+      content: PARTICIPANT_SOURCE_POST.content, sig: "c".repeat(128),
+    },
+    expiresAt: Date.now() + 14 * 60 * 1_000,
+  };
+}
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -178,9 +231,336 @@ test("a successful participant post can produce only one same-thread Mecky mirro
   session.dispose();
 });
 
+test("a participant Mecky mirror resolves the current public civic instance instead of requiring a baked key", async () => {
+  const previousBakedKey = process.env.NEXT_PUBLIC_STAGING_PARTICIPANT_MECKY_PUBKEY;
+  process.env.NEXT_PUBLIC_STAGING_PARTICIPANT_MECKY_PUBKEY = "e".repeat(64);
+  const paths: string[] = [];
+  let body: Record<string, unknown> | undefined;
+  globalThis.fetch = async (input, init) => {
+    paths.push(String(input));
+    if (String(input) === "/api/civic/v1/instance") return publicCivicInstanceResponse();
+    body = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({
+      status: "published",
+      eventId: (body?.event as { id: string }).id,
+    }), { status: 201, headers: { "content-type": "application/json" } });
+  };
+  const session = createCitizenSession({
+    memberId: null,
+    appAccountId: null,
+    credential: {
+      kind: "thirdweb_smart_account",
+      address: PARTICIPANT_WALLET,
+      chainId: 100,
+      async signMessage() { return `0x${"12".repeat(65)}`; },
+    },
+  });
+  try {
+    const result = await mirrorStagingParticipantMeckyPost({
+      sourcePost: PARTICIPANT_SOURCE_POST,
+      session,
+    });
+    assert.equal(result.success, true);
+    assert.deepEqual(paths, [
+      "/api/civic/v1/instance",
+      "/api/staging-participant/v1/nostr-post",
+    ]);
+    assert.deepEqual((body?.event as { tags: unknown }).tags, [
+      ["p", PARTICIPANT_MECKY_PUBKEY],
+      ["source-app-post", PARTICIPANT_SOURCE_POST.id],
+      ["t", "roebel-app-conversation"],
+    ]);
+    assert.doesNotMatch(JSON.stringify(body), new RegExp(`\\["p","${"e".repeat(64)}"\\]`, "u"));
+  } finally {
+    session.dispose();
+    if (previousBakedKey === undefined) {
+      delete process.env.NEXT_PUBLIC_STAGING_PARTICIPANT_MECKY_PUBKEY;
+    } else {
+      process.env.NEXT_PUBLIC_STAGING_PARTICIPANT_MECKY_PUBKEY = previousBakedKey;
+    }
+  }
+});
+
+test("an unavailable civic instance fails closed before a new event is signed", async () => {
+  const paths: string[] = [];
+  globalThis.fetch = async (input) => {
+    paths.push(String(input));
+    return new Response(JSON.stringify({ error: "unavailable" }), {
+      status: 503, headers: { "content-type": "application/json" },
+    });
+  };
+  let signingAttempts = 0;
+  const result = await mirrorStagingParticipantMeckyPost({
+    sourcePost: PARTICIPANT_SOURCE_POST,
+    session: sessionThatMustNotSign(() => { signingAttempts += 1; }),
+  });
+  assert.equal(result.success, false);
+  assert.equal(result.pending, undefined);
+  assert.equal(signingAttempts, 0);
+  assert.deepEqual(paths, ["/api/civic/v1/instance"]);
+});
+
+test("an exact pending mirror bypasses the public instance and replays without signing a replacement", async () => {
+  const paths: string[] = [];
+  let admissions = 0;
+  let signed = 0;
+  const pending = pendingParticipantMirror();
+  globalThis.fetch = async (input, init) => {
+    paths.push(String(input));
+    assert.notEqual(String(input), "/api/civic/v1/instance");
+    const body = JSON.parse(String(init?.body)) as { event: NostrEvent };
+    assert.deepEqual(body.event, pending.event);
+    return new Response(JSON.stringify({
+      status: "published",
+      eventId: pending.event.id,
+    }), { status: 201, headers: { "content-type": "application/json" } });
+  };
+  const result = await mirrorStagingParticipantMeckyPost({
+    sourcePost: PARTICIPANT_SOURCE_POST,
+    session: {
+      snapshot: {
+        credential: {
+          kind: "thirdweb_smart_account",
+          address: PARTICIPANT_WALLET,
+          chainId: 100,
+        },
+      },
+      async createAdmissionProof() {
+        admissions += 1;
+        return { schemaVersion: "roebel_citizen_admission_proof_v1" };
+      },
+      async signConversationMention() {
+        signed += 1;
+        throw new Error("must not sign a replacement");
+      },
+    } as never,
+    retry: pending,
+  });
+  assert.equal(result.success, true);
+  assert.equal(admissions, 1);
+  assert.equal(signed, 0);
+  assert.deepEqual(paths, ["/api/staging-participant/v1/nostr-post"]);
+});
+
+test("an authoritative stale response re-signs the same source once without creating another feed post", async () => {
+  const pending = {
+    ...pendingParticipantMirror(),
+    event: {
+      ...pendingParticipantMirror().event,
+      created_at: Math.floor(Date.now() / 1_000) - 10 * 60,
+    },
+    expiresAt: Date.now() - 1,
+  };
+  const paths: string[] = [];
+  const mirrorBodies: Array<Record<string, unknown>> = [];
+  let admissions = 0;
+  let signed = 0;
+  globalThis.fetch = async (input, init) => {
+    const path = String(input);
+    paths.push(path);
+    if (path === "/api/civic/v1/instance") return publicCivicInstanceResponse();
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    mirrorBodies.push(body);
+    if (mirrorBodies.length === 1) {
+      return new Response(JSON.stringify({ error: "nostr_post_stale" }), {
+        status: 400, headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({
+      status: "published",
+      eventId: (body.event as NostrEvent).id,
+    }), { status: 201, headers: { "content-type": "application/json" } });
+  };
+  const result = await mirrorStagingParticipantMeckyPost({
+    sourcePost: PARTICIPANT_SOURCE_POST,
+    session: {
+      snapshot: {
+        credential: {
+          kind: "thirdweb_smart_account",
+          address: PARTICIPANT_WALLET,
+          chainId: 100,
+        },
+      },
+      async createAdmissionProof() {
+        admissions += 1;
+        return { schemaVersion: "roebel_citizen_admission_proof_v1", attempt: admissions };
+      },
+      async signConversationMention(input: { content: string; createdAt: number; agentPubkey: string; sourceAppPostId: string }) {
+        signed += 1;
+        return {
+          id: "f".repeat(64), pubkey: "e".repeat(64), created_at: input.createdAt, kind: 1,
+          tags: [["p", input.agentPubkey], ["source-app-post", input.sourceAppPostId], ["t", "roebel-app-conversation"]],
+          content: input.content, sig: "1".repeat(128),
+        };
+      },
+    } as never,
+    retry: pending,
+  });
+  assert.equal(result.success, true);
+  assert.equal(admissions, 2);
+  assert.equal(signed, 1);
+  assert.deepEqual(paths, [
+    "/api/staging-participant/v1/nostr-post",
+    "/api/civic/v1/instance",
+    "/api/staging-participant/v1/nostr-post",
+  ]);
+  assert.equal(mirrorBodies.length, 2);
+  assert.equal(mirrorBodies[0]?.sourcePostId, PARTICIPANT_SOURCE_POST.id);
+  assert.equal(mirrorBodies[1]?.sourcePostId, PARTICIPANT_SOURCE_POST.id);
+  assert.notEqual(mirrorBodies[0]?.requestId, mirrorBodies[1]?.requestId);
+  assert.deepEqual(mirrorBodies[0]?.event, pending.event);
+  assert.notDeepEqual(mirrorBodies[1]?.event, pending.event);
+  assert.equal((mirrorBodies[1]?.event as NostrEvent).content, PARTICIPANT_SOURCE_POST.content);
+  assert.deepEqual((mirrorBodies[1]?.event as NostrEvent).tags, [
+    ["p", PARTICIPANT_MECKY_PUBKEY],
+    ["source-app-post", PARTICIPANT_SOURCE_POST.id],
+    ["t", "roebel-app-conversation"],
+  ]);
+});
+
+test("a stale-looking ambiguous failure never signs a replacement event", async () => {
+  const pending = pendingParticipantMirror();
+  const bodies: string[] = [];
+  let signed = 0;
+  globalThis.fetch = async (input, init) => {
+    assert.notEqual(String(input), "/api/civic/v1/instance");
+    bodies.push(String(init?.body));
+    return new Response(JSON.stringify({ error: "nostr_post_stale" }), {
+      status: 503, headers: { "content-type": "application/json" },
+    });
+  };
+  const result = await mirrorStagingParticipantMeckyPost({
+    sourcePost: PARTICIPANT_SOURCE_POST,
+    session: {
+      snapshot: {
+        credential: {
+          kind: "thirdweb_smart_account",
+          address: PARTICIPANT_WALLET,
+          chainId: 100,
+        },
+      },
+      async createAdmissionProof() {
+        return { schemaVersion: "roebel_citizen_admission_proof_v1" };
+      },
+      async signConversationMention() {
+        signed += 1;
+        throw new Error("must not sign after an ambiguous failure");
+      },
+    } as never,
+    retry: pending,
+  });
+  assert.equal(result.success, false);
+  assert.equal(signed, 0);
+  assert.deepEqual(result.pending, pending);
+  assert.equal(bodies.length, 2);
+  assert.equal(bodies[0], bodies[1]);
+});
+
+test("a transient failure after authoritative stale recovery retains only the fresh exact event", async () => {
+  const pending = {
+    ...pendingParticipantMirror(),
+    event: {
+      ...pendingParticipantMirror().event,
+      created_at: Math.floor(Date.now() / 1_000) - 10 * 60,
+    },
+    expiresAt: Date.now() - 1,
+  };
+  const mirrorBodies: Array<Record<string, unknown>> = [];
+  let signed = 0;
+  globalThis.fetch = async (input, init) => {
+    if (String(input) === "/api/civic/v1/instance") return publicCivicInstanceResponse();
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    mirrorBodies.push(body);
+    if (mirrorBodies.length === 1) {
+      return new Response(JSON.stringify({ error: "nostr_post_stale" }), {
+        status: 400, headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ error: "mirror_unavailable" }), {
+      status: 503, headers: { "content-type": "application/json" },
+    });
+  };
+  const result = await mirrorStagingParticipantMeckyPost({
+    sourcePost: PARTICIPANT_SOURCE_POST,
+    session: {
+      snapshot: {
+        credential: {
+          kind: "thirdweb_smart_account",
+          address: PARTICIPANT_WALLET,
+          chainId: 100,
+        },
+      },
+      async createAdmissionProof() {
+        return { schemaVersion: "roebel_citizen_admission_proof_v1" };
+      },
+      async signConversationMention(input: { content: string; createdAt: number; agentPubkey: string; sourceAppPostId: string }) {
+        signed += 1;
+        return {
+          id: "f".repeat(64), pubkey: "e".repeat(64), created_at: input.createdAt, kind: 1,
+          tags: [["p", input.agentPubkey], ["source-app-post", input.sourceAppPostId], ["t", "roebel-app-conversation"]],
+          content: input.content, sig: "1".repeat(128),
+        };
+      },
+    } as never,
+    retry: pending,
+  });
+  assert.equal(result.success, false);
+  assert.equal(signed, 1);
+  assert.ok(result.pending);
+  assert.notEqual(result.pending?.requestId, pending.requestId);
+  assert.notDeepEqual(result.pending?.event, pending.event);
+  assert.deepEqual(result.pending?.event, mirrorBodies[1]?.event);
+  assert.equal(mirrorBodies.length, 3);
+  assert.equal(JSON.stringify(mirrorBodies[1]), JSON.stringify(mirrorBodies[2]));
+});
+
+test("an over-retained pending mirror is rejected before projection, signing, or publishing", async () => {
+  let fetches = 0;
+  let signingAttempts = 0;
+  globalThis.fetch = async () => {
+    fetches += 1;
+    throw new Error("must not fetch");
+  };
+  const old = Math.floor(Date.now() / 1_000) - 25 * 60 * 60;
+  const result = await mirrorStagingParticipantMeckyPost({
+    sourcePost: PARTICIPANT_SOURCE_POST,
+    session: sessionThatMustNotSign(() => { signingAttempts += 1; }),
+    retry: {
+      ...pendingParticipantMirror(),
+      event: { ...pendingParticipantMirror().event, created_at: old },
+      expiresAt: old * 1_000 + 15 * 60 * 1_000,
+    },
+  });
+  assert.equal(result.success, false);
+  assert.equal(result.pending, undefined);
+  assert.equal(fetches, 0);
+  assert.equal(signingAttempts, 0);
+});
+
+test("an invalid public civic Mecky key fails closed before signing or publishing", async () => {
+  const paths: string[] = [];
+  globalThis.fetch = async (input) => {
+    paths.push(String(input));
+    return publicCivicInstanceResponse("not-a-pubkey");
+  };
+  let signingAttempts = 0;
+  const result = await mirrorStagingParticipantMeckyPost({
+    sourcePost: PARTICIPANT_SOURCE_POST,
+    session: sessionThatMustNotSign(() => { signingAttempts += 1; }),
+  });
+  assert.equal(result.success, false);
+  assert.equal(signingAttempts, 0);
+  assert.deepEqual(paths, ["/api/civic/v1/instance"]);
+});
+
 test("a failed participant mirror retains the exact signed body for retry instead of signing a replacement", async () => {
   const bodies: string[] = [];
-  globalThis.fetch = async (_input, init) => {
+  let configReads = 0;
+  globalThis.fetch = async (input, init) => {
+    if (String(input) === "/api/civic/v1/instance") {
+      configReads += 1;
+      return publicCivicInstanceResponse();
+    }
     bodies.push(String(init?.body));
     return new Response(JSON.stringify({ error: "mirror_unavailable" }), {
       status: 503, headers: { "content-type": "application/json" },
@@ -210,7 +590,7 @@ test("a failed participant mirror retains the exact signed body for retry instea
     },
   } as never;
   const sourcePost = { id: "11111111-1111-4111-8111-111111111111", content: "@Mecky, bitte einordnen" };
-  const first = await mirrorStagingParticipantMeckyPost({ sourcePost, session, meckyPubkey: "d".repeat(64) });
+  const first = await mirrorStagingParticipantMeckyPost({ sourcePost, session });
   assert.equal(first.success, false);
   assert.ok(first.pending);
   assert.equal("admissionProof" in (first.pending ?? {}), false);
@@ -219,11 +599,11 @@ test("a failed participant mirror retains the exact signed body for retry instea
     sourcePost,
     session,
     retry: first.pending,
-    meckyPubkey: "d".repeat(64),
   });
   assert.equal(second.success, false);
   assert.equal(admissions, 2);
   assert.equal(signed, 1);
+  assert.equal(configReads, 1);
   assert.equal(bodies.length, 4);
   const firstBody = JSON.parse(bodies[0]) as Record<string, unknown>;
   const firstRetryBody = JSON.parse(bodies[2]) as Record<string, unknown>;
@@ -281,6 +661,21 @@ test("reload persistence keeps only one bounded public event and never an admiss
     assert.doesNotMatch(serialized, /admissionProof|walletSignature|bindingEvent/u);
     assert.deepEqual(loadPendingStagingParticipantMeckyMirror(walletAddress), pending);
 
+    const recentlyExpired = {
+      ...pending,
+      event: {
+        ...pending.event,
+        created_at: Math.floor(Date.now() / 1_000) - 10 * 60,
+      },
+      expiresAt: Date.now() - 1,
+    };
+    savePendingStagingParticipantMeckyMirror(recentlyExpired);
+    assert.deepEqual(
+      loadPendingStagingParticipantMeckyMirror(walletAddress),
+      recentlyExpired,
+      "reload must retain the public source/event long enough for the gateway to distinguish an exact receipt retry from a never-reserved stale event",
+    );
+
     clearPendingStagingParticipantMeckyMirror(walletAddress);
     assert.equal(loadPendingStagingParticipantMeckyMirror(walletAddress), null);
     assert.equal(values.size, 0);
@@ -328,4 +723,32 @@ test("participant UI never sends its writes through the public Web server action
   assert.match(composer, /mirrorStagingParticipantMeckyPost/u);
   assert.match(composer, /loadPendingStagingParticipantMeckyMirror/u);
   assert.match(composer, /Mecky-Anfrage erneut senden/u);
+});
+
+test("participant enrollment uses one accessible in-page form and never a browser prompt", () => {
+  const composer = readFileSync(
+    new URL("../src/components/app/PostComposer.tsx", import.meta.url),
+    "utf8",
+  );
+  const comments = readFileSync(
+    new URL("../src/components/app/CommentSection.tsx", import.meta.url),
+    "utf8",
+  );
+  const enrollment = readFileSync(
+    new URL(
+      "../src/components/app/StagingParticipantEnrollment.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.doesNotMatch(composer, /(?:window\.)?prompt\s*\(/u);
+  assert.doesNotMatch(comments, /(?:window\.)?prompt\s*\(/u);
+  assert.match(composer, /<StagingParticipantEnrollment/u);
+  assert.match(comments, /<StagingParticipantEnrollment/u);
+  assert.match(enrollment, /<form[\s\S]*onSubmit=/u);
+  assert.match(enrollment, /<label[\s\S]*Staging-Einladung/u);
+  assert.match(enrollment, /type="password"/u);
+  assert.match(enrollment, /inviteToken\.trim\(\)\s*\|\|\s*undefined/u);
+  assert.doesNotMatch(enrollment, /(?:window\.)?prompt\s*\(/u);
 });

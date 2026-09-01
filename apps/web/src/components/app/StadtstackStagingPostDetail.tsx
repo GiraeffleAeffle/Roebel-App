@@ -14,6 +14,7 @@ import type {
   StagingOrdinaryPost,
 } from "@/lib/stadtstack/staging-api";
 import { StadtstackPostJourney } from "./StadtstackPostJourney";
+import { publicEvidenceDestinationLabel } from "@/lib/public-evidence-url";
 
 function linkify(text: string) {
   return text.split(/(https?:\/\/[^\s]+)/g).map((part, index) =>
@@ -126,7 +127,8 @@ export function StadtstackStagingPostDetail({
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
                       >
-                        Geprüfter Nachweis <ExternalLink className="h-3 w-3" />
+                        Nachweis · {publicEvidenceDestinationLabel(evidence.url)}{" "}
+                        <ExternalLink className="h-3 w-3" />
                       </a>
                     ))}
                   </div>

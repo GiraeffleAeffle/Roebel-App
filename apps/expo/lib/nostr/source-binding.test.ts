@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
 import { appCommentMirrorTags, appPostMirrorTags } from './source-binding';
 
 const POST = '735187dc-d737-4e6c-bdd9-fe0792fec498';

@@ -443,6 +443,16 @@ const Agents = z.object({
       publicEvidence: z
         .object({
           baseUrl: z.string().url(),
+          /** Exact public origin for checksum-bound reviewed news/RIS projections. */
+          reviewedKnowledgeBaseUrl: z
+            .string()
+            .url()
+            .refine((value) => {
+              const url = new URL(value);
+              return url.protocol === "https:" && !url.username && !url.password &&
+                !url.search && !url.hash && (url.pathname === "/" || url.pathname === "");
+            }, "reviewed knowledge base URL must be an exact public HTTPS origin")
+            .optional(),
           /** Reviewed source projections enabled only after their exact endpoints are deployed. */
           reviewedSourceKinds: z
             .array(z.enum(["local_news", "ratsinformation"]))
@@ -467,6 +477,13 @@ const Agents = z.object({
         })
         .strict()
         .superRefine((evidence, context) => {
+          if (!!evidence.reviewedSourceKinds !== !!evidence.reviewedKnowledgeBaseUrl) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["reviewedKnowledgeBaseUrl"],
+              message: "reviewed source kinds and their knowledge origin must be declared together",
+            });
+          }
           if (
             evidence.canonicalCaseId.split(":")[4] !==
             evidence.municipalityId

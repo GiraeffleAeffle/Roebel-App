@@ -48,6 +48,50 @@ describe("Public Mecky reply projection", () => {
     ]);
   });
 
+  it("admits only the canonical public query shapes required by Nostr and ALLRIS", () => {
+    const nostr = event();
+    nostr.tags[5] = [
+      "evidence",
+      `sha256:${"e".repeat(64)}`,
+      `https://index.roebel.app/events?ids=${"c".repeat(64)}`,
+    ];
+    assert.equal(
+      parsePublicMeckyReplyProjection(nostr, {
+        expectedPubkey: PUBKEY,
+        verifyEvent: () => true,
+      }).evidence_refs[0]?.url,
+      `https://index.roebel.app/events?ids=${"c".repeat(64)}`,
+    );
+
+    const allris = event();
+    allris.tags[5] = [
+      "evidence",
+      `sha256:${"e".repeat(64)}`,
+      "https://roebelmueritz.sitzung-mv.de/public/vo020?TOLFDNR=1014873&VOLFDNR=1002054&refresh=false",
+    ];
+    assert.equal(
+      parsePublicMeckyReplyProjection(allris, {
+        expectedPubkey: PUBKEY,
+        verifyEvent: () => true,
+      }).evidence_refs[0]?.url,
+      "https://roebelmueritz.sitzung-mv.de/public/vo020?TOLFDNR=1014873&VOLFDNR=1002054&refresh=false",
+    );
+
+    const allrisAgendaItem = event();
+    allrisAgendaItem.tags[5] = [
+      "evidence",
+      `sha256:${"e".repeat(64)}`,
+      "https://roebelmueritz.sitzung-mv.de/public/to020?SILFDNR=1000579&TOLFDNR=1014284",
+    ];
+    assert.equal(
+      parsePublicMeckyReplyProjection(allrisAgendaItem, {
+        expectedPubkey: PUBKEY,
+        verifyEvent: () => true,
+      }).evidence_refs[0]?.url,
+      "https://roebelmueritz.sitzung-mv.de/public/to020?SILFDNR=1000579&TOLFDNR=1014284",
+    );
+  });
+
   it("rejects forgery, wrong agent identity and ambiguous source bindings", () => {
     assert.throws(
       () =>
@@ -117,6 +161,21 @@ describe("Public Mecky reply projection", () => {
     assert.throws(
       () =>
         parsePublicMeckyReplyProjection(trackingQuery, {
+          expectedPubkey: PUBKEY,
+          verifyEvent: () => true,
+        }),
+      /public_mecky_projection_evidence_invalid/,
+    );
+
+    const alternatePort = event();
+    alternatePort.tags[5] = [
+      "evidence",
+      `sha256:${"e".repeat(64)}`,
+      `https://index.roebel.app:444/events?ids=${"c".repeat(64)}`,
+    ];
+    assert.throws(
+      () =>
+        parsePublicMeckyReplyProjection(alternatePort, {
           expectedPubkey: PUBKEY,
           verifyEvent: () => true,
         }),

@@ -21,6 +21,7 @@ const writeValidLayout = (
   sourceRevision: string,
   mutate?: (config: Record<string, any>) => void,
   mutateDescriptor?: (descriptor: Record<string, any>) => void,
+  mutateManifest?: (manifest: Record<string, any>) => void,
 ) => {
   mkdirSync(join(root, "blobs", "sha256"), { recursive: true });
   const layerBytes = Buffer.from("synthetic-layer");
@@ -52,7 +53,8 @@ const writeValidLayout = (
   };
   mutate?.(configValue);
   const config = writeBlob(root, configValue);
-  const manifest = writeBlob(root, {
+  const importName = `stadtstack.local/roebel-web-preview/roebel-web-staging:source-${sourceRevision}`;
+  const manifestValue = {
     schemaVersion: 2,
     mediaType: "application/vnd.oci.image.manifest.v1+json",
     config: { mediaType: "application/vnd.oci.image.config.v1+json", ...config },
@@ -61,8 +63,10 @@ const writeValidLayout = (
       digest: `sha256:${layerDigest}`,
       size: layerBytes.length,
     }],
-  });
-  const importName = `stadtstack.local/roebel-web-preview/roebel-web-staging:source-${sourceRevision}`;
+    annotations: { "io.containerd.image.name": importName },
+  };
+  mutateManifest?.(manifestValue);
+  const manifest = writeBlob(root, manifestValue);
   writeFileSync(join(root, "oci-layout"), JSON.stringify({ imageLayoutVersion: "1.0.0" }));
   const descriptor = {
     mediaType: "application/vnd.oci.image.manifest.v1+json",
@@ -109,6 +113,51 @@ test("accepts an ORAS single-manifest layout without optional descriptor platfor
       delete descriptor.platform;
     });
     assert.equal(verifyStagingWebOci(root, sourceRevision).sourceRevision, sourceRevision);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("accepts an ORAS reuse layout with the import binding retained only on the manifest", () => {
+  const sourceRevision = "a".repeat(40);
+  const root = mkdtempSync(join(tmpdir(), "roebel-staging-oci-reuse-"));
+  try {
+    writeValidLayout(root, sourceRevision, undefined, (descriptor) => {
+      delete descriptor.platform;
+      delete descriptor.annotations["io.containerd.image.name"];
+      descriptor.annotations["org.opencontainers.image.ref.name"] = `source-${sourceRevision}`;
+    });
+    assert.equal(verifyStagingWebOci(root, sourceRevision).sourceRevision, sourceRevision);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects an explicitly conflicting ORAS descriptor import name", () => {
+  const sourceRevision = "a".repeat(40);
+  const root = mkdtempSync(join(tmpdir(), "roebel-staging-oci-name-conflict-"));
+  try {
+    writeValidLayout(root, sourceRevision, undefined, (descriptor) => {
+      descriptor.annotations["io.containerd.image.name"] = "ghcr.io/example/wrong:latest";
+    });
+    assert.throws(() => verifyStagingWebOci(root, sourceRevision), /import_name_invalid/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a layout with no checksum-bound import name", () => {
+  const sourceRevision = "a".repeat(40);
+  const root = mkdtempSync(join(tmpdir(), "roebel-staging-oci-name-missing-"));
+  try {
+    writeValidLayout(
+      root,
+      sourceRevision,
+      undefined,
+      (descriptor) => { delete descriptor.annotations["io.containerd.image.name"]; },
+      (manifest) => { delete manifest.annotations["io.containerd.image.name"]; },
+    );
+    assert.throws(() => verifyStagingWebOci(root, sourceRevision), /import_name_invalid/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -51,7 +51,6 @@ export function verifyStagingWebOci(root, sourceRevision, { deferLayerBlobValida
   ) throw new Error("platform_invalid");
   const repository = "stadtstack.local/roebel-web-preview/roebel-web-staging";
   const importName = `${repository}:source-${sourceRevision}`;
-  if (descriptor.annotations?.["io.containerd.image.name"] !== importName) throw new Error("import_name_invalid");
   const manifest = JSON.parse(readBlob(descriptor, "manifest"));
   if (
     manifest.schemaVersion !== 2 ||
@@ -59,6 +58,18 @@ export function verifyStagingWebOci(root, sourceRevision, { deferLayerBlobValida
     !Array.isArray(manifest.layers) ||
     manifest.layers.length < 1
   ) throw new Error("manifest_invalid");
+  // BuildKit writes the checksum-bound local import name onto both the index
+  // descriptor and the image manifest. ORAS preserves the manifest annotation
+  // when it copies one immutable registry digest into a layout, but may omit
+  // the optional descriptor annotation. Require at least one exact binding and
+  // reject every explicit conflict.
+  const importNames = [
+    descriptor.annotations?.["io.containerd.image.name"],
+    manifest.annotations?.["io.containerd.image.name"],
+  ].filter((value) => value !== undefined);
+  if (importNames.length === 0 || importNames.some((value) => value !== importName)) {
+    throw new Error("import_name_invalid");
+  }
   // This gate must precede every layer-blob open in both direct and deferred
   // verification. A repeated descriptor cannot turn a tiny manifest into
   // unbounded filesystem work.

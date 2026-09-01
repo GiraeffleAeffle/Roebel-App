@@ -7,7 +7,7 @@
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "test": "jest --watchAll",
+    "test": "jest --ci --runInBand",
     "lint": "expo lint",
     "eas-build-post-install": "bash ./eas-hooks/eas-build-post-prebuild.sh",
     "export": "NODE_OPTIONS=--max-old-space-size=8192 expo export",
@@ -19,6 +19,9 @@
   },
   "jest": {
     "preset": "jest-expo",
+    "setupFiles": [
+      "<rootDir>/jest.setup.js"
+    ],
     "transformIgnorePatterns": [
       "/node_modules/(?!(.pnpm|react-native|@react-native|@react-native-community|expo|@expo|@expo-google-fonts|react-navigation|@react-navigation|@sentry/react-native|native-base|maci-crypto|@zk-kit|circomlibjs|ffjavascript))",
       "/node_modules/react-native-reanimated/plugin/"

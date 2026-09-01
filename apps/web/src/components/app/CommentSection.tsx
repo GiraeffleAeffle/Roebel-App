@@ -30,6 +30,8 @@ import type {
 import { loadPublicMeckyConversation } from "@/lib/stadtstack/civic-projection-client";
 import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
 import { useStagingTestParticipant } from "@/hooks/useStagingTestParticipant";
+import { StagingParticipantEnrollment } from "@/components/app/StagingParticipantEnrollment";
+import { publicEvidenceDestinationLabel } from "@/lib/public-evidence-url";
 
 const MAX_COMMENT_IMAGES = 3;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -221,7 +223,7 @@ function MeckyCommentItem({ reply }: { reply: StagingMeckyConversationReply }) {
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                 >
-                  Geprüfter Nachweis {index + 1}{" "}
+                  Nachweis {index + 1} · {publicEvidenceDestinationLabel(evidence.url)}{" "}
                   <ExternalLink className="h-3 w-3" />
                 </a>
               ))}
@@ -874,22 +876,16 @@ export function CommentSection({
                       ? "Für einen persönlichen Testkommentar zuerst die Staging-Testteilnahme aktivieren."
                       : "Nur verifizierte Bürger können kommentieren"}
             </p>
-            {stagingEnabled && postFeedType === "main" && stagingParticipant.isAvailable && !isCommentingAsOrg && <button
-              type="button"
-              disabled={stagingParticipant.isEnrolling}
-              onClick={async () => {
-                const inviteToken = window.prompt(
-                  "Staging-Einladung eingeben.",
-                );
-                if (inviteToken === null) return;
-                const result = await stagingParticipant.enroll(inviteToken.trim() || undefined);
-                if (result.success) toast.success("Staging-Testteilnahme aktiviert");
-                else toast.error(result.error || "Staging-Testteilnahme fehlgeschlagen");
-              }}
-              className="font-semibold text-primary hover:underline disabled:opacity-50"
-            >
-              Staging-Testteilnahme aktivieren
-            </button>}
+            {stagingEnabled &&
+              postFeedType === "main" &&
+              stagingParticipant.isAvailable &&
+              !isCommentingAsOrg && (
+                <StagingParticipantEnrollment
+                  isEnrolling={stagingParticipant.isEnrolling}
+                  enroll={stagingParticipant.enroll}
+                  className="font-semibold text-primary hover:underline disabled:opacity-50"
+                />
+              )}
           </div>
         </div>
       ) : (

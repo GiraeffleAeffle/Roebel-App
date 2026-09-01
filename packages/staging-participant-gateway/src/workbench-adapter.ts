@@ -8,6 +8,13 @@ const TOPIC_PROMOTION_SOURCE_PATH = "/api/staging-participant/topic-tracer/promo
 const TOPIC_PROMOTION_PUBLISH_PATH = "/api/staging-participant/topic-tracer/promotions";
 const TOPIC_SUGGESTION_SOURCE_PATH = "/api/staging-participant/topic-tracer/suggestion-source";
 const TOPIC_SUGGESTION_PUBLISH_PATH = "/api/staging-participant/topic-tracer/suggestions";
+const TOPIC_PROMOTION_SAFE_FAILURES: Readonly<Record<string, string>> = Object.freeze({
+  topic_tracer_promotion_invalid: "staging_participant_topic_publish_contract_invalid",
+  signed_event_legacy_identity: "staging_participant_topic_publish_identity_forbidden",
+  event_invalid: "staging_participant_topic_publish_event_invalid",
+  "citizen_relay_blocked: author not allowed": "staging_participant_topic_publish_author_forbidden",
+  "citizen_relay_blocked: store capacity": "staging_participant_topic_publish_capacity",
+});
 export const PRIVATE_WORKBENCH_URL =
   "http://e2e-workbench.stadtstack-roebel-staging-lab.svc.cluster.local:18083/";
 
@@ -45,6 +52,7 @@ async function post(
   path: string,
   header: PrivateWorkbenchMirrorConfig["admissionHeader"],
   body: unknown,
+  safeFailures?: Readonly<Record<string, string>>,
 ): Promise<unknown> {
   const response = await fetcher(new URL(path, base), {
     method: "POST",
@@ -57,7 +65,14 @@ async function post(
   });
   let value: unknown = null;
   try { value = await response.json(); } catch { /* non-JSON is invalid */ }
-  if (!response.ok) throw new Error("staging_participant_workbench_unavailable");
+  if (!response.ok) {
+    const failure = closedRecord(value, ["error"]);
+    const safeFailure = failure && typeof failure.error === "string" && safeFailures &&
+      Object.hasOwn(safeFailures, failure.error)
+      ? safeFailures[failure.error]
+      : undefined;
+    throw new Error(safeFailure ?? "staging_participant_workbench_unavailable");
+  }
   return value;
 }
 
@@ -92,9 +107,10 @@ function nostrEvent(value: unknown): NostrEvent | null {
 }
 
 function published(value: unknown, expectedEventId: string): boolean {
-  const result = closedRecord(value, ["status", "event"]);
+  const result = closedRecord(value, ["status", "event", "authorityBinding"]);
   const event = result && record(result.event);
-  return result?.status === "published" && event?.id === expectedEventId;
+  return result?.status === "published" && result?.authorityBinding === "none" &&
+    event?.id === expectedEventId;
 }
 
 /**
@@ -159,7 +175,14 @@ export function createPrivateWorkbenchTopicTracerAdapter(
       };
     },
     async publishPromotion({ event }) {
-      const value = await post(fetcher, base, TOPIC_PROMOTION_PUBLISH_PATH, config.admissionHeader, { event });
+      const value = await post(
+        fetcher,
+        base,
+        TOPIC_PROMOTION_PUBLISH_PATH,
+        config.admissionHeader,
+        { event },
+        TOPIC_PROMOTION_SAFE_FAILURES,
+      );
       if (!published(value, event.id)) throw new Error("staging_participant_topic_publish_invalid");
       return { status: "published", eventId: event.id } as const;
     },

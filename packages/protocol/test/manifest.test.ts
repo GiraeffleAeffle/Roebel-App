@@ -31,7 +31,14 @@ test("Public Mecky declares reviewed evidence and a referenced inference credent
     "https://roebel-stadtstack.agentcart.eu",
   );
   assert.equal(watcher?.publicEvidence.municipalityId, "roebel-mueritz");
-  assert.equal(watcher?.publicEvidence.reviewedSourceKinds, undefined);
+  assert.equal(
+    watcher?.publicEvidence.reviewedKnowledgeBaseUrl,
+    "https://www.roebel.app",
+  );
+  assert.deepEqual(watcher?.publicEvidence.reviewedSourceKinds, [
+    "local_news",
+    "ratsinformation",
+  ]);
   assert.equal(
     watcher?.inference.baseUrl,
     "https://inference.hetzner.com/api/v1",
@@ -70,10 +77,6 @@ test("Public Mecky declares reviewed evidence and a referenced inference credent
   assert.equal(safeParseManifest(legacyUngroundedWatcher).success, false);
 
   const reviewedSourcesEnabled = structuredClone(roebel);
-  reviewedSourcesEnabled.agents.watcher.publicEvidence.reviewedSourceKinds = [
-    "local_news",
-    "ratsinformation",
-  ];
   assert.deepEqual(
     parseManifest(reviewedSourcesEnabled).agents?.watcher?.publicEvidence.reviewedSourceKinds,
     ["local_news", "ratsinformation"],
@@ -87,6 +90,15 @@ test("Public Mecky declares reviewed evidence and a referenced inference credent
     candidate.agents.watcher.publicEvidence.reviewedSourceKinds = invalid;
     assert.equal(safeParseManifest(candidate).success, false);
   }
+
+  const missingReviewedOrigin = structuredClone(roebel);
+  delete missingReviewedOrigin.agents.watcher.publicEvidence.reviewedKnowledgeBaseUrl;
+  assert.equal(safeParseManifest(missingReviewedOrigin).success, false);
+
+  const unsafeReviewedOrigin = structuredClone(roebel);
+  unsafeReviewedOrigin.agents.watcher.publicEvidence.reviewedKnowledgeBaseUrl =
+    "https://www.roebel.app/api?token=secret";
+  assert.equal(safeParseManifest(unsafeReviewedOrigin).success, false);
 });
 
 test("rejects a missing required section", () => {

@@ -7,6 +7,7 @@ import {
   publicMeckyReplyCounts,
 } from "../src/lib/public-mecky-thread";
 import type { PostComment } from "../src/types/post";
+import { publicEvidenceDestinationLabel } from "../src/lib/public-evidence-url";
 
 const POST_ID = "735187dc-d737-4e6c-bdd9-fe0792fec498";
 const EVENT_ID = "a".repeat(64);
@@ -98,6 +99,34 @@ describe("normal Röbel comment thread with Public Mecky", () => {
     assert.deepEqual(page.map((entry) => entry.id), ["human-1"]);
   });
 
+  it("keeps canonical Nostr and ALLRIS citations while exposing their destinations", () => {
+    const nostrUrl = `https://index.roebel.app/events?ids=${"d".repeat(64)}`;
+    const allrisUrl =
+      "https://roebelmueritz.sitzung-mv.de/public/to020?SILFDNR=1000579&TOLFDNR=1014284";
+    const page = mergePublicMeckyThread({
+      humanComments: [],
+      projectedRows: [projection({
+        evidence_refs: [
+          { digest: `sha256:${"c".repeat(64)}`, url: nostrUrl },
+          { digest: `sha256:${"d".repeat(64)}`, url: allrisUrl },
+        ],
+      })],
+      postId: POST_ID,
+      offset: 0,
+      limit: 20,
+    });
+
+    assert.deepEqual(page[0]?.agent?.evidenceRefs.map((entry) => entry.url), [
+      nostrUrl,
+      allrisUrl,
+    ]);
+    assert.equal(publicEvidenceDestinationLabel(nostrUrl), "index.roebel.app");
+    assert.equal(
+      publicEvidenceDestinationLabel(allrisUrl),
+      "roebelmueritz.sitzung-mv.de",
+    );
+  });
+
   it("counts unique zero-authority replies only for posts on the feed page", () => {
     const counts = publicMeckyReplyCounts(
       [
@@ -139,7 +168,10 @@ describe("normal Röbel comment thread with Public Mecky", () => {
       (comments.match(/<MeckyAuthorityNotice \/>/g) ?? []).length,
       2
     );
-    assert.match(comments, /Geprüfter Nachweis \{index \+ 1\}/);
+    assert.match(
+      comments,
+      /Nachweis \{index \+ 1\} · \{publicEvidenceDestinationLabel\(evidence\.url\)\}/,
+    );
     assert.match(comments, /!projectedReplyIds\.has\(reply\.id\)/);
   });
 });
