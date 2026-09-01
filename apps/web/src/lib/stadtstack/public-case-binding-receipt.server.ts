@@ -3,7 +3,11 @@ import "server-only";
 import { fetchVerifiedPublicCaseBindingReceipt as fetchReceipt } from "./public-case-binding-receipt-transport";
 
 export { isPublicCaseBindingRootEventId } from "./public-case-binding-receipt-contract";
-export type { PublicCaseBindingReceiptV1 } from "./public-case-binding-receipt-contract";
+export type {
+  PublicAdoptedCaseBindingReceiptV2,
+  PublicCaseBindingReceipt,
+  PublicCaseBindingReceiptV1,
+} from "./public-case-binding-receipt-contract";
 
 /** Server-only composition: the browser never sees the pinned public origin. */
 export function fetchVerifiedPublicCaseBindingReceipt(

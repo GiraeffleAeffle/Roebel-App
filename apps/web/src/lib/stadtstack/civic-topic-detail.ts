@@ -34,10 +34,10 @@ export function projectPublicCivicTopicJourney(
   bindingReceipt: VerifiedPublicCaseBindingReceipt | null = null
 ): CivicJourney | null {
   const discussions = detail.topic.discussions;
+  const matchingReceipt =
+    bindingReceipt?.topicId === detail.topic.topicId ? bindingReceipt : null;
   const administrationStatus =
-    bindingReceipt &&
-    bindingReceipt.topicId === detail.topic.topicId &&
-    administration?.caseId === bindingReceipt.caseId
+    matchingReceipt && administration?.caseId === matchingReceipt.caseId
       ? administration.status
       : "not_available";
   return projectCivicJourney({
@@ -46,10 +46,12 @@ export function projectPublicCivicTopicJourney(
     meckyMentioned: discussions.some((entry) => entry.meckyMentioned),
     meckyAnswered: discussions.some((entry) => entry.meckyAnswered),
     proposalSigned: discussions.some((entry) => entry.suggestionSigned),
+    citizenAdoptionVerified:
+      matchingReceipt?.schemaVersion === "public_case_binding_receipt_v2",
     // Signed Nostr tags are historical context only; they never advance the
     // public journey. The credential-free BFF has already verified this exact
     // receipt before the caller can supply it here.
-    caseAdmitted: bindingReceipt?.topicId === detail.topic.topicId,
+    caseAdmitted: Boolean(matchingReceipt),
     administrationStatus,
     participationStatus:
       administrationStatus === "brief_current"

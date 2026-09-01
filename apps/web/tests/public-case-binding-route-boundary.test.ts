@@ -47,12 +47,11 @@ test("keeps the case-binding BFF credential-free and read-only", () => {
   assert.match(client, /x-stadtstack-receipt-sha256/);
 });
 
-test("advances civic stages only from the verified receipt, not a legacy tag", () => {
+test("advances civic stages only from an exact proposal-bound receipt", () => {
   assert.match(discussion, /loadVerifiedPublicCaseBindingReceipt\(rootId\)/);
-  assert.match(
-    discussion,
-    /thread\?\.topic\?\.id === bindingReceipt\.topicId/
-  );
+  assert.match(discussion, /bindPublicCaseReceiptToProposal/);
+  assert.match(discussion, /suggestion: thread\.suggestion/);
+  assert.match(discussion, /bindingReceiptMismatch/);
   assert.match(
     discussion,
     /const canonicalCaseId = topicBindingReceipt\?\.caseId/

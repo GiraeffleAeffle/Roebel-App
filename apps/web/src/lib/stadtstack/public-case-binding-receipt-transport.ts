@@ -1,7 +1,7 @@
 import {
   isPublicCaseBindingRootEventId,
   verifyPublicCaseBindingReceipt,
-  type PublicCaseBindingReceiptV1,
+  type PublicCaseBindingReceipt,
 } from "./public-case-binding-receipt-contract";
 
 const MAX_BODY_BYTES = 16 * 1024;
@@ -54,7 +54,7 @@ async function boundedJson(response: Response): Promise<unknown> {
 export async function fetchVerifiedPublicCaseBindingReceipt(
   rootEventId: string,
   options: Readonly<{ origin: string; fetchImpl?: typeof fetch; signal?: AbortSignal }>
-): Promise<PublicCaseBindingReceiptV1 | null> {
+): Promise<PublicCaseBindingReceipt | null> {
   if (!isPublicCaseBindingRootEventId(rootEventId)) unavailable();
   let origin: URL;
   try {

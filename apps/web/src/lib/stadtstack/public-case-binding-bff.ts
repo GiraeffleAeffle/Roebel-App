@@ -1,13 +1,13 @@
 import {
   isPublicCaseBindingRootEventId,
   verifyPublicCaseBindingReceipt,
-  type PublicCaseBindingReceiptV1,
+  type PublicCaseBindingReceipt,
 } from "./public-case-binding-receipt-contract";
 
 export type PublicCaseBindingBffResponse = Readonly<{
   status: 200 | 404 | 405 | 503;
   headers: Readonly<Record<string, string>>;
-  body: PublicCaseBindingReceiptV1 | { error: "service_unavailable" } | null;
+  body: PublicCaseBindingReceipt | { error: "service_unavailable" } | null;
 }>;
 
 const NO_STORE = Object.freeze({ "cache-control": "no-store" });
@@ -16,7 +16,7 @@ const NO_STORE = Object.freeze({ "cache-control": "no-store" });
 export async function respondPublicCaseBindingRequest(input: Readonly<{
   method: string;
   rootEventId: string;
-  read: (rootEventId: string) => Promise<PublicCaseBindingReceiptV1 | null>;
+  read: (rootEventId: string) => Promise<PublicCaseBindingReceipt | null>;
 }>): Promise<PublicCaseBindingBffResponse> {
   if (input.method !== "GET" && input.method !== "HEAD") {
     return Object.freeze({

@@ -25,6 +25,7 @@ const FRONT_STAGES = new Set([
   "discussion",
   "mecky",
   "proposal",
+  "adoption",
   "case",
   "administration",
   "participation",

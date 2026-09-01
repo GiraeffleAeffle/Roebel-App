@@ -7,6 +7,7 @@ import {
   buildParticipantTopicSuggestion,
   buildCivicPromotionEvent,
   buildCivicTopicPromotionEvent,
+  buildCitizenTopicSuggestionAdoption,
   buildNoteEvent,
   deriveNostrIdentity,
   type CivicPromotionInput,
@@ -14,6 +15,8 @@ import {
   type CivicTopicPromotionInput,
   type CitizenSignedTopicSuggestionInput,
   type CitizenSignedTopicSuggestionV1,
+  type CitizenTopicSuggestionAdoptionInput,
+  type CitizenTopicSuggestionAdoptionV1,
   type ParticipantTopicSuggestionInput,
   type ParticipantTopicSuggestionV1,
   type NostrEvent,
@@ -92,6 +95,14 @@ export interface CitizenSession {
   signParticipantTopicSuggestion(
     input: ParticipantTopicSuggestionInput
   ): Promise<ParticipantTopicSuggestionV1>;
+  /**
+   * Sign the ADR-0023 adoption only after trusted composition has supplied an
+   * exact municipal eligibility receipt and deployment-pinned policy.
+   * Signing neither submits the adoption nor creates a CivicCase.
+   */
+  signCitizenTopicSuggestionAdoption(
+    input: CitizenTopicSuggestionAdoptionInput
+  ): Promise<CitizenTopicSuggestionAdoptionV1>;
   dispose(): void;
 }
 
@@ -341,6 +352,13 @@ export function createCitizenSession(
       ensureActive();
       const signer = await identity();
       return buildParticipantTopicSuggestion(signer.secretKey, input);
+    },
+    async signCitizenTopicSuggestionAdoption(
+      input: CitizenTopicSuggestionAdoptionInput
+    ): Promise<CitizenTopicSuggestionAdoptionV1> {
+      ensureActive();
+      const signer = await identity();
+      return buildCitizenTopicSuggestionAdoption(signer.secretKey, input);
     },
     dispose(): void {
       if (disposed) return;

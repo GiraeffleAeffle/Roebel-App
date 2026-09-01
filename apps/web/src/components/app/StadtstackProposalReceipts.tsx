@@ -1,10 +1,20 @@
-import { CheckCircle2, FileKey2, Landmark, ShieldAlert } from "lucide-react";
+import {
+  CheckCircle2,
+  FileKey2,
+  Landmark,
+  ShieldAlert,
+  ShieldCheck,
+} from "lucide-react";
 import type {
   CitizenSignedTopicSuggestionV1,
   ParticipantTopicSuggestionV1,
 } from "@netizen-labs/nostr";
 
-import { projectPublicProposalSignature } from "@/lib/stadtstack/proposal-signature";
+import {
+  bindPublicCaseReceiptToProposal,
+  projectPublicCitizenAdoptionEvidence,
+  projectPublicProposalSignature,
+} from "@/lib/stadtstack/proposal-signature";
 import type { VerifiedPublicCaseBindingReceipt } from "@/lib/stadtstack/public-case-binding-receipt-client";
 
 function short(value: string): string {
@@ -26,36 +36,34 @@ export function StadtstackProposalReceipts({
   topicId: string;
 }) {
   const signature = projectPublicProposalSignature(suggestion);
-  const caseReceipt =
-    bindingReceipt?.rootEventId === rootId && bindingReceipt.topicId === topicId
-      ? bindingReceipt
-      : null;
+  const caseReceipt = bindPublicCaseReceiptToProposal({
+    suggestion,
+    receipt: bindingReceipt,
+    rootEventId: rootId,
+    topicId,
+  });
+  const adoption = projectPublicCitizenAdoptionEvidence(caseReceipt);
 
   if (!signature && !caseReceipt) return null;
 
   return (
-    <section
-      aria-labelledby="stadtstack-proposal-receipts-title"
+    <details
       data-civic-authority="none"
       className="mt-4 rounded-xl border border-slate-300 bg-slate-50 p-4"
     >
-      <div className="flex items-start gap-3">
-        <FileKey2 className="mt-0.5 h-5 w-5 shrink-0 text-slate-700" />
-        <div>
-          <h3
-            id="stadtstack-proposal-receipts-title"
-            className="text-sm font-bold text-foreground"
-          >
-            Signatur und öffentliche Fallquittung
-          </h3>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Jeder Übergang bleibt ein eigener Nachweis. Eine Kontosignatur ist
-            weder Bürgerberechtigung noch Verwaltungsfreigabe.
-          </p>
-        </div>
-      </div>
+      <summary className="cursor-pointer rounded-md text-sm font-bold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+        <span className="ml-1 inline-flex items-center gap-2">
+          <FileKey2 className="h-5 w-5 shrink-0 text-slate-700" />
+          <span>Technische Nachweise</span>
+        </span>
+        <span className="mt-1 block pl-8 text-xs font-normal leading-5 text-muted-foreground">
+          Signaturen, Berechtigung und öffentliche Fallquittung getrennt
+          prüfen. Eine Kontosignatur ist weder Bürgerberechtigung noch
+          Verwaltungsfreigabe.
+        </span>
+      </summary>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+      <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(15rem,1fr))] gap-3">
         {signature ? (
           <article className="rounded-lg border border-emerald-200 bg-white p-3">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-emerald-800">
@@ -71,11 +79,15 @@ export function StadtstackProposalReceipts({
               {short(signature.signerPubkey)}
             </p>
             <p className="mt-2 inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-950">
-              Bürgerberechtigung noch nicht nachgewiesen
+              {adoption
+                ? "Teilnahme-Signatur bleibt getrennt"
+                : "Bürgerberechtigung noch nicht nachgewiesen"}
             </p>
             <p className="mt-2 text-xs leading-5 text-emerald-950">
               {signature.nextGate === "citizen_adoption"
-                ? "Die Signatur belegt das verbundene Konto. Eine getrennte, verifizierte Bürgerübernahme ist weiterhin erforderlich."
+                ? adoption
+                  ? "Die Signatur belegt den unveränderten Teilnahme-Entwurf. Bürgerberechtigung und spätere Übernahme sind als getrennte Nachweise gebunden."
+                  : "Die Signatur belegt das verbundene Konto. Eine getrennte, verifizierte Bürgerübernahme ist weiterhin erforderlich."
                 : "Dieser synthetische Altpfad wartet auf eine getrennte menschliche Case-Steward-Prüfung und ist kein ADR-0023-Bürgernachweis."}
             </p>
           </article>
@@ -91,6 +103,46 @@ export function StadtstackProposalReceipts({
           </article>
         )}
 
+        {adoption ? (
+          <article className="rounded-lg border border-violet-200 bg-white p-3">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-violet-900">
+              <ShieldCheck className="h-4 w-4" /> Bürgerübernahme verifiziert
+            </div>
+            <p className="mt-2 text-sm font-bold text-foreground">
+              Kommunale Berechtigung für genau diesen Entwurf
+            </p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              Bürger-Schlüssel {short(adoption.adopterPubkey)} · Ereignis{" "}
+              {short(adoption.adoptionEventId)}
+            </p>
+            <p className="mt-2 break-all text-[11px] leading-5 text-violet-950">
+              Berechtigungsquittung {adoption.eligibilityReceiptId}
+            </p>
+            <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+              Policy {adoption.eligibilityPolicyVersion} · Aussteller{" "}
+              {adoption.eligibilityIssuer} · Ledger-Annahme{" "}
+              {short(adoption.adoptionAcceptanceReceiptChecksum)}
+            </p>
+            <p className="mt-2 text-xs leading-5 text-violet-950">
+              Dieser Nachweis erlaubt nur die Anfrage an den Case Steward. Er
+              ist keine Verwaltungsbefürwortung, keine bindende Abstimmung und
+              keine Entscheidungs- oder Zahlungsbefugnis.
+            </p>
+          </article>
+        ) : signature?.kind === "participant_request" ? (
+          <article className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-amber-900">
+              <ShieldAlert className="h-4 w-4" /> Bürgerübernahme fehlt
+            </div>
+            <p className="mt-2 text-xs leading-5 text-amber-950">
+              Weder das verbundene Konto noch seine Nostr-Signatur beweisen die
+              kommunale Bürgerberechtigung. Ohne issuer-geprüfte Quittung,
+              Bürger-Signatur und Ledger-Annahme bleibt der Case-Steward-
+              Übergang gesperrt.
+            </p>
+          </article>
+        ) : null}
+
         {caseReceipt ? (
           <article className="rounded-lg border border-sky-200 bg-white p-3">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-sky-900">
@@ -105,8 +157,13 @@ export function StadtstackProposalReceipts({
             </p>
             <p className="mt-2 text-xs leading-5 text-sky-950">
               Die checksum-verifizierte Quittung belegt nur die getrennte
-              menschliche Aufnahme. Sie schreibt nicht in openDesk, bestätigt
-              keine Verwaltungsposition und ist kein kommunaler Beschluss.
+              menschliche Aufnahme
+              {adoption
+                ? " samt exakter Adoption- und Berechtigungsbindung"
+                : ""}
+              . Sie schreibt nicht in openDesk, bestätigt keine
+              Verwaltungsposition und ist kein kommunaler Beschluss, keine
+              bindende Abstimmung, kein Treasury- oder Zahlungsauftrag.
             </p>
           </article>
         ) : (
@@ -121,6 +178,6 @@ export function StadtstackProposalReceipts({
           </article>
         )}
       </div>
-    </section>
+    </details>
   );
 }

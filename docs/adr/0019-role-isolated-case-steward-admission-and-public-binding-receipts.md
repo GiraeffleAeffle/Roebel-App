@@ -17,6 +17,13 @@ The atomic result includes a public-safe **Case binding receipt** that binds the
 
 The Röbel Web consumes that projection only through its server-side BFF at `GET`/`HEAD` `/api/stadtstack/case-bindings/by-discussion/:rootId`. `STADTSTACK_PUBLIC_CASE_BINDING_ORIGIN` is a server-only HTTPS origin with no path, query, userinfo, browser exposure, forwarded request headers, or credentials. The BFF performs a short, no-store, credential-free exact-path read, verifies the complete `public_case_binding_receipt_v1` checksum and transport checksum, and returns only the verified receipt. `404` means no admitted binding; malformed upstream data and availability faults collapse to a generic `503`. The browser never receives the public-reader origin, and only this verified BFF result may advance CivicCase or administration stages.
 
+ADR 0023 extends that same credential-free read path with
+`public_case_binding_receipt_v2` for the eligible-citizen adoption candidate.
+The v2 receipt binds the additional suggestion, adoption, eligibility and
+adoption-ledger acceptance evidence and explicit negative effects. The legacy
+v1 receipt remains valid only for its direct candidate and cannot advance an
+ADR-0022 participant suggestion.
+
 The control handler and public reader use separate composition roots, pods, service accounts, Services and ingress/network policies. The public reader exposes no writer, authenticator, coordinator or admission method. The public HTTP adapter rejects oversized or deeply nested bodies before decoding; unknown control faults are logged privately and returned only as a generic availability failure.
 
 Admission does not automatically contact openDesk. Creating an administrative

@@ -1,6 +1,6 @@
 # ADR 0023: City-neutral citizen eligibility and suggestion adoption
 
-- Status: Accepted boundary for staging; protocol kernel implemented, issuer/gateway/ledger/Case wiring pending
+- Status: Accepted boundary for staging; protocol kernel, browser signer and read-side Case handoff contract implemented; issuer/gateway/ledger/Case writer pending
 - Date: 2026-08-25
 
 ## Context
@@ -322,6 +322,28 @@ event, not from the participant suggestion or a browser-provided identifier.
 The existing `citizen_signed_topic_suggestion_v1` remains a direct-candidate
 compatibility shape for already verified citizen flows; it is not an adoption
 event and is not accepted by the first real ADR 0023 Case Steward intake.
+
+The corresponding public read-side handoff is
+`public_case_binding_receipt_v2`. In addition to ADR 0019's root, topic,
+Mecky-answer, Case journal and admission checksums, its closed checksum-bound
+envelope names `candidateKind:
+eligible_citizen_adopted_topic_suggestion_v1`, the adoption ID and event ID,
+participant-suggestion event ID, adopter public key, eligibility receipt ID
+and checksum, policy version, issuer, source-answer receipt ID, and adoption
+acceptance-receipt checksum. It also carries exact false values for
+administrative endorsement, binding vote, council decision, openDesk write,
+treasury effect and payment effect. Röbel may drive Case, public
+administration, Citizen Brief and explicitly advisory Mitmachen only after
+this trusted receipt matches the exact participant suggestion currently shown.
+A `public_case_binding_receipt_v1` can still describe its legacy direct
+candidate, but it cannot relabel or advance a participant suggestion.
+
+The provider-neutral `CitizenSession` exposes the matching bounded adoption
+signing operation. Trusted composition must supply the municipal eligibility
+receipt and deployment-pinned policy; the session only signs the verified
+ADR-0023 event and neither publishes it nor creates a Case. This read/sign
+tracer deliberately does not claim an issuer, adoption gateway/ledger, Case
+writer, staff console or live browser path.
 
 ### Synthetic browser tracer
 

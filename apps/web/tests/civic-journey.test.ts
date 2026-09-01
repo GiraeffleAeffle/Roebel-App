@@ -8,6 +8,7 @@ const base = {
   meckyMentioned: true,
   meckyAnswered: false,
   proposalSigned: false,
+  citizenAdoptionVerified: false,
   caseAdmitted: false,
 } as const;
 
@@ -16,19 +17,20 @@ test("places the current step at the unanswered Mecky mention", () => {
   assert.ok(journey);
   assert.equal(journey.currentStageId, "mecky");
   assert.deepEqual(
-    journey.stages.slice(0, 5).map((stage) => [stage.id, stage.state]),
+    journey.stages.slice(0, 6).map((stage) => [stage.id, stage.state]),
     [
       ["topic", "complete"],
       ["discussion", "complete"],
       ["mecky", "current"],
       ["proposal", "gated"],
+      ["adoption", "gated"],
       ["case", "gated"],
     ]
   );
   assert.equal(journey.authorityBinding, "none");
 });
 
-test("keeps proposal signing and human case admission as separate steps", () => {
+test("keeps proposal signing, citizen adoption and human case admission separate", () => {
   const answered = projectCivicJourney({
     ...base,
     meckyAnswered: true,
@@ -38,16 +40,27 @@ test("keeps proposal signing and human case admission as separate steps", () => 
     meckyAnswered: true,
     proposalSigned: true,
   });
+  const adopted = projectCivicJourney({
+    ...base,
+    meckyAnswered: true,
+    proposalSigned: true,
+    citizenAdoptionVerified: true,
+  });
 
   assert.equal(answered?.currentStageId, "proposal");
-  assert.equal(signed?.currentStageId, "case");
+  assert.equal(signed?.currentStageId, "adoption");
   assert.equal(
     signed?.stages.find((stage) => stage.id === "proposal")?.state,
     "complete"
   );
   assert.equal(
-    signed?.stages.find((stage) => stage.id === "case")?.state,
+    signed?.stages.find((stage) => stage.id === "adoption")?.state,
     "current"
+  );
+  assert.equal(adopted?.currentStageId, "case");
+  assert.equal(
+    adopted?.stages.find((stage) => stage.id === "adoption")?.state,
+    "complete"
   );
 });
 
@@ -56,6 +69,7 @@ test("shows public brief and advisory participation without unlocking effects", 
     ...base,
     meckyAnswered: true,
     proposalSigned: true,
+    citizenAdoptionVerified: true,
     caseAdmitted: true,
     administrationStatus: "brief_current",
     participationStatus: "result_current",
@@ -80,6 +94,7 @@ test("keeps a withdrawn Citizen Brief visible and participation gated", () => {
     ...base,
     meckyAnswered: true,
     proposalSigned: true,
+    citizenAdoptionVerified: true,
     caseAdmitted: true,
     administrationStatus: "brief_withdrawn",
   });

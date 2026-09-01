@@ -137,13 +137,13 @@ test("projects one canonical topic with attributable posts and discussions", () 
   );
   assert.deepEqual(detail.unresolvedSourcePostIds, ["missing-source"]);
   const journey = projectPublicCivicTopicJourney(detail);
-  assert.equal(journey?.currentStageId, "case");
+  assert.equal(journey?.currentStageId, "adoption");
   assert.equal(
     journey?.stages.find((stage) => stage.id === "proposal")?.state,
     "complete"
   );
   assert.equal(
-    journey?.stages.find((stage) => stage.id === "case")?.state,
+    journey?.stages.find((stage) => stage.id === "adoption")?.state,
     "current"
   );
 });
@@ -180,7 +180,7 @@ test("links an ordinary source post back to its one explicit civic journey", () 
   assert.ok(link);
   assert.equal(link.detail.topic.topicId, TOPIC_ID);
   assert.equal(link.discussionId, "discussion-a");
-  assert.equal(link.journey.currentStageId, "case");
+  assert.equal(link.journey.currentStageId, "adoption");
 });
 
 test("does not guess when one app post is bound to conflicting civic topics", () => {
@@ -259,6 +259,26 @@ test("advances the same topic journey only for its exact reviewed case", () => {
     wrongCase?.stages.find((stage) => stage.id === "participation")?.state,
     "gated"
   );
+
+  const crossTopicAdoption = {
+    ...receipt,
+    schemaVersion: "public_case_binding_receipt_v2",
+    topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:anderes-thema",
+  } as unknown as VerifiedPublicCaseBindingReceipt;
+  const crossTopic = projectPublicCivicTopicJourney(
+    detail,
+    { caseId: receipt.caseId, status: "brief_current" },
+    crossTopicAdoption
+  );
+  assert.equal(crossTopic?.currentStageId, "adoption");
+  assert.equal(
+    crossTopic?.stages.find((stage) => stage.id === "adoption")?.state,
+    "current"
+  );
+  assert.equal(
+    crossTopic?.stages.find((stage) => stage.id === "case")?.state,
+    "gated"
+  );
 });
 
 test("does not advance a topic from a legacy Nostr case tag", () => {
@@ -279,9 +299,9 @@ test("does not advance a topic from a legacy Nostr case tag", () => {
   );
   assert.ok(detail);
   const journey = projectPublicCivicTopicJourney(detail);
-  assert.equal(journey?.currentStageId, "case");
+  assert.equal(journey?.currentStageId, "adoption");
   assert.equal(
-    journey?.stages.find((stage) => stage.id === "case")?.state,
+    journey?.stages.find((stage) => stage.id === "adoption")?.state,
     "current"
   );
 });
