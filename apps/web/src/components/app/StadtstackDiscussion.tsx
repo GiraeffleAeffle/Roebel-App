@@ -46,6 +46,8 @@ import {
   resumeStagingParticipantTopicSuggestion,
   signStagingParticipantTopicSuggestion,
 } from "@/lib/staging-participant/topic-tracer";
+import { identityContractSet } from "@/lib/identity-contract-set";
+import { isReviewedStagingTestIdentityContractSet } from "@roebel/blockchain";
 import type { PublicCitizenAdoptionProjection } from "@/lib/staging-participant/citizen-adoption";
 import { StadtstackAdministrationProgress } from "./StadtstackAdministrationProgress";
 import { CivicJourneyRail } from "./CivicJourneyRail";
@@ -60,6 +62,8 @@ type WorkflowState = {
 
 const MECKY_POLL_INTERVAL_MS = 3_000;
 const MECKY_POLL_ATTEMPT_LIMIT = 20;
+const SYNTHETIC_CITIZEN_ADOPTION_ENABLED =
+  isReviewedStagingTestIdentityContractSet(identityContractSet);
 
 function polar(cx: number, cy: number, radius: number, angle: number) {
   return { x: cx + Math.cos(angle - Math.PI / 2) * radius, y: cy + Math.sin(angle - Math.PI / 2) * radius };
@@ -724,7 +728,8 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
                   onProjectionChange={updateCitizenAdoptionProjection}
                 />
               )}
-            {participantTracerMode &&
+            {SYNTHETIC_CITIZEN_ADOPTION_ENABLED &&
+              participantTracerMode &&
               thread.suggestion?.schemaVersion ===
                 "staging_participant_signed_topic_suggestion_v1" && (
                 <StadtstackSyntheticCitizenAdoption

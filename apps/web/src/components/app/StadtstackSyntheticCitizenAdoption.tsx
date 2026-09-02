@@ -106,81 +106,83 @@ export function StadtstackSyntheticCitizenAdoption({
 
   if (projection) {
     return (
-      <section
+      <details
         aria-label="Synthetische Testübernahme"
         data-synthetic-citizen-adoption-state="accepted"
         className="mt-4 rounded-xl border-2 border-sky-400 bg-sky-50 p-4 text-sky-950"
       >
-        <div className="flex items-start gap-3">
+        <summary className="flex cursor-pointer list-none items-start gap-3 text-sm font-bold">
           <FlaskConical className="mt-0.5 h-5 w-5 shrink-0" />
-          <div>
-            <p className="text-[11px] font-black uppercase tracking-wide">
+          <span className="min-w-0">
+            <span className="block text-[11px] font-black uppercase tracking-wide">
               Synthetischer Staging-Test · keine Bürgerberechtigung
-            </p>
-            <h3 className="mt-1 text-sm font-bold">
-              Test-Bürger-Pass und beide Signaturen geprüft
-            </h3>
-            <p className="mt-2 text-xs leading-5">
-              Der unveränderte Teilnahme-Entwurf wurde nur in die isolierte
-              UI-Vorschau übernommen. Testnachweis {short(projection.proofEvent.id)}.
-            </p>
-            <p className="mt-2 text-xs font-bold leading-5">
-              Kein CivicCase. Keine Verwaltungsbefürwortung. Keine bindende
-              Abstimmung, kein Beschluss, keine Treasury-Wirkung und keine Zahlung.
-            </p>
-            <p className="mt-2 text-[11px] leading-4">
-              Die echte Bürgerübernahme oberhalb bleibt bewusst gesperrt und
-              wird durch diesen Testnachweis nicht verändert.
-            </p>
-          </div>
+            </span>
+            <span className="mt-1 block">Test-Bürger-Pass und beide Signaturen geprüft</span>
+          </span>
+        </summary>
+        <div className="mt-3 border-t border-sky-200 pt-3">
+          <p className="text-xs leading-5">
+            Der unveränderte Teilnahme-Entwurf wurde nur in die isolierte
+            UI-Vorschau übernommen. Testnachweis {short(projection.proofEvent.id)}.
+          </p>
+          <p className="mt-2 text-xs font-bold leading-5">
+            Kein CivicCase. Keine Verwaltungsbefürwortung. Keine bindende
+            Abstimmung, kein Beschluss, keine Treasury-Wirkung und keine Zahlung.
+          </p>
+          <p className="mt-2 text-[11px] leading-4">
+            Die echte Bürgerübernahme oberhalb bleibt bewusst gesperrt und
+            wird durch diesen Testnachweis nicht verändert.
+          </p>
         </div>
-      </section>
+      </details>
     );
   }
 
   const passMissing = errorCode === "synthetic_test_citizen_pass_required";
   return (
-    <section
+    <details
       aria-label="Synthetische Testübernahme"
       data-synthetic-citizen-adoption-state={passMissing ? "test-pass-required" : "available"}
       className="mt-4 rounded-xl border-2 border-dashed border-sky-400 bg-sky-50 p-4 text-sky-950"
     >
-      <div className="flex items-start gap-3">
+      <summary className="flex cursor-pointer list-none items-start gap-3">
         <FlaskConical className="mt-0.5 h-5 w-5 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-black uppercase tracking-wide">
+        <span className="min-w-0 flex-1">
+          <span className="block text-[11px] font-black uppercase tracking-wide">
             Synthetischer Staging-Test · keine Bürgerberechtigung
-          </p>
-          <h3 className="mt-1 text-sm font-bold">
+          </span>
+          <span className="mt-1 block text-sm font-bold">
             {passMissing ? "Test-Bürger-Pass fehlt" : "Isolierten Ablauf testen"}
-          </h3>
-          <p className="mt-2 text-xs leading-5">
-            {passMissing
-              ? "Das verbundene Testkonto besitzt auf dem getrennten Testvertrag noch keinen aktiven Test-Pass. Es wurde nichts gespeichert."
-              : "Prüft den getrennten Gnosis-Testvertrag sowie Konto- und Nostr-Signatur. Das Ergebnis kann ausschließlich diese synthetische Vorschau öffnen."}
+          </span>
+        </span>
+      </summary>
+      <div className="mt-3 border-t border-sky-200 pt-3">
+        <p className="text-xs leading-5">
+          {passMissing
+            ? "Das verbundene Testkonto besitzt auf dem getrennten Testvertrag noch keinen aktiven Test-Pass. Es wurde nichts gespeichert."
+            : "Prüft den getrennten Gnosis-Testvertrag sowie Konto- und Nostr-Signatur. Das Ergebnis kann ausschließlich diese synthetische Vorschau öffnen."}
+        </p>
+        {errorCode && !passMissing && (
+          <p role="alert" className="mt-2 text-xs font-semibold leading-5">
+            Der isolierte Testpfad ist gerade nicht verlässlich erreichbar.
+            Die echte Bürgerübernahme bleibt unverändert gesperrt.
           </p>
-          {errorCode && !passMissing && (
-            <p role="alert" className="mt-2 text-xs font-semibold leading-5">
-              Der isolierte Testpfad ist gerade nicht verlässlich erreichbar.
-              Die echte Bürgerübernahme bleibt unverändert gesperrt.
-            </p>
+        )}
+        <button
+          type="button"
+          onClick={() => void trace()}
+          disabled={!session || busy}
+          className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-full bg-sky-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+        >
+          {busy ? (
+            <><Loader2 className="h-4 w-4 animate-spin" /> Test wird signiert…</>
+          ) : session ? (
+            <><FlaskConical className="h-4 w-4" /> Test-Pass prüfen und Testsignatur erzeugen</>
+          ) : (
+            "Anmelden, um den Testpfad auszuführen"
           )}
-          <button
-            type="button"
-            onClick={() => void trace()}
-            disabled={!session || busy}
-            className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-full bg-sky-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-          >
-            {busy ? (
-              <><Loader2 className="h-4 w-4 animate-spin" /> Test wird signiert…</>
-            ) : session ? (
-              <><FlaskConical className="h-4 w-4" /> Test-Pass prüfen und Testsignatur erzeugen</>
-            ) : (
-              "Anmelden, um den Testpfad auszuführen"
-            )}
-          </button>
-        </div>
+        </button>
       </div>
-    </section>
+    </details>
   );
 }

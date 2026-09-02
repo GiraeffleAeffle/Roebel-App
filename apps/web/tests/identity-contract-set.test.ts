@@ -5,6 +5,7 @@ import { test } from "node:test";
 import {
   assertProductionGovernanceWritesAllowed,
   IDENTITY_CONTRACT_SET_IDS,
+  isReviewedStagingTestIdentityContractSet,
   resolveIdentityContractSet,
 } from "../../../packages/blockchain/src/identity-contract-set.ts";
 
@@ -127,6 +128,52 @@ test("the immutable Web build sentinel is inert and cannot masquerade as product
   assert.equal(sentinel.productionGovernanceWritesAllowed, false);
   assert.notEqual(sentinel.attesterNFT, production.attesterNFT);
   assert.notEqual(sentinel.citizenNFT, production.citizenNFT);
+  assert.equal(isReviewedStagingTestIdentityContractSet(sentinel), false);
+});
+
+test("only the exact reviewed staging-test profile exposes the synthetic adoption UI", () => {
+  assert.equal(isReviewedStagingTestIdentityContractSet(production), false);
+  assert.equal(isReviewedStagingTestIdentityContractSet(stagingTest), true);
+  assert.equal(
+    isReviewedStagingTestIdentityContractSet({ ...stagingTest }),
+    false,
+    "a merely test-shaped object must not bypass the central profile selection"
+  );
+
+  const discussion = readFileSync(
+    new URL("../src/components/app/StadtstackDiscussion.tsx", import.meta.url),
+    "utf8"
+  );
+  assert.match(discussion, /isReviewedStagingTestIdentityContractSet\(identityContractSet\)/u);
+  assert.match(
+    discussion,
+    /\{SYNTHETIC_CITIZEN_ADOPTION_ENABLED\s*&&\s*participantTracerMode\s*&&\s*thread\.suggestion\?\.schemaVersion\s*===\s*"staging_participant_signed_topic_suggestion_v1"\s*&&\s*\(\s*<StadtstackSyntheticCitizenAdoption/u
+  );
+  assert.match(
+    discussion,
+    /\{participantTracerMode\s*&&\s*thread\.suggestion\?\.schemaVersion\s*===\s*"staging_participant_signed_topic_suggestion_v1"\s*&&\s*\(\s*<StadtstackCitizenAdoption/u
+  );
+  const invocation = discussion.match(
+    /<StadtstackSyntheticCitizenAdoption[\s\S]*?\/>/u
+  )?.[0];
+  assert.ok(invocation);
+  assert.doesNotMatch(invocation, /onProjectionChange|setCitizenAdoption|journey/u);
+
+  const card = readFileSync(
+    new URL(
+      "../src/components/app/StadtstackSyntheticCitizenAdoption.tsx",
+      import.meta.url
+    ),
+    "utf8"
+  );
+  assert.match(card, /<details/u);
+  assert.match(card, /<summary/u);
+  assert.match(card, /Synthetischer Staging-Test · keine Bürgerberechtigung/u);
+  assert.match(card, /Test-Pass prüfen und Testsignatur erzeugen/u);
+  assert.doesNotMatch(
+    card,
+    /PublicCitizenAdoptionProjection|onProjectionChange|StadtstackProposalReceipts/u
+  );
 });
 
 test("Web and Expo identity handles cross the one contract-set seam", () => {

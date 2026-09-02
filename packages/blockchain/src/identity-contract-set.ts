@@ -174,3 +174,14 @@ export function assertProductionGovernanceWritesAllowed(
     throw new Error("identity_contract_set_no_production_governance_authority");
   }
 }
+
+/**
+ * Keeps staging-only UI behind the exact reviewed test profile returned by
+ * this Module. A merely test-shaped or unusable runtime placeholder must not
+ * expose actions that call the synthetic participant gateway.
+ */
+export function isReviewedStagingTestIdentityContractSet(
+  contractSet: IdentityContractSet
+): boolean {
+  return contractSet === STAGING_TEST;
+}
