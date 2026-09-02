@@ -168,6 +168,8 @@ describe("staging component change detection", () => {
     const paths = [
       "supabase/migrations/20260901_staging_citizen_adoption.sql",
       "supabase/staging-citizen-adoption-schema-contract-v1.json",
+      "supabase/migrations/20260902_staging_synthetic_citizen_adoption.sql",
+      "supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json",
     ];
     const result = affectedStagingComponents(paths);
     assert.deepEqual(selection(paths), {
