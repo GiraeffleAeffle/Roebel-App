@@ -34,12 +34,16 @@ function releasePins(path) {
     "deactivationSha256",
     "migrationSha256",
     "schemaVersion",
+    "syntheticCitizenAdoptionDatabaseSchemaSha256",
+    "syntheticCitizenAdoptionMigrationSha256",
     "topicTracerDatabaseSchemaSha256",
     "topicTracerMigrationSha256",
   ], "release_pins");
-  if (value.schemaVersion !== "roebel_staging_participant_gateway_release_pins_v3" ||
+  if (value.schemaVersion !== "roebel_staging_participant_gateway_release_pins_v4" ||
     !SHA256.test(value.citizenAdoptionMigrationSha256) ||
     !SHA256.test(value.citizenAdoptionDatabaseSchemaSha256) ||
+    !SHA256.test(value.syntheticCitizenAdoptionMigrationSha256) ||
+    !SHA256.test(value.syntheticCitizenAdoptionDatabaseSchemaSha256) ||
     !SHA256.test(value.migrationSha256) || !SHA256.test(value.databaseSchemaSha256) ||
     !SHA256.test(value.deactivationSha256) || !SHA256.test(value.topicTracerMigrationSha256) ||
     !SHA256.test(value.topicTracerDatabaseSchemaSha256)) throw new Error("release_pins_invalid");
@@ -136,6 +140,9 @@ export function verifyStagingServiceOci(root, sourceRevision, component, release
       topicTracerDatabaseSchemaSha256: release.topicTracerDatabaseSchemaSha256,
       citizenAdoptionMigrationSha256: release.citizenAdoptionMigrationSha256,
       citizenAdoptionDatabaseSchemaSha256: release.citizenAdoptionDatabaseSchemaSha256,
+      syntheticCitizenAdoptionMigrationSha256: release.syntheticCitizenAdoptionMigrationSha256,
+      syntheticCitizenAdoptionDatabaseSchemaSha256:
+        release.syntheticCitizenAdoptionDatabaseSchemaSha256,
     }),
   };
 }

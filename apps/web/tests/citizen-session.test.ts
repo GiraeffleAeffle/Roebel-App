@@ -153,6 +153,56 @@ test("signs the exact server-issued civic eligibility challenge with the derived
   assert.equal("secretKey" in session, false);
 });
 
+test("signs only the exact staging Test CitizenNFT challenge as a no-authority proof", async () => {
+  const session = createCitizenSession({
+    appAccountId: "account-1",
+    credential: credential(),
+    memberId: null,
+  });
+  const subjectPubkey = await session.getNostrPubkey();
+  const core = {
+    schemaVersion: "staging_test_citizen_pass_v1" as const,
+    challengeId: "4".repeat(32),
+    audience: "roebel-staging-synthetic-citizen-adoption" as const,
+    chainId: 100 as const,
+    testCitizenNftContract: "0x0be374808a567c9088ac8208b90a4239432b3220",
+    subjectPubkey,
+    municipalityId: "roebel-mueritz",
+    policyVersion: "roebel-test-citizen-nft-v2-staging-2026-09",
+    participantSuggestionId: "5".repeat(64),
+    topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:test-thema",
+    issuedAt: 1_777_777_777,
+    expiresAt: 1_777_778_077,
+    environment: "staging" as const,
+    testOnly: true as const,
+    authorityBinding: "none" as const,
+  };
+  const canonicalChallenge = stableJson(core);
+  const challenge = { ...core, canonicalChallenge, message: canonicalChallenge };
+
+  const event = await session.signSyntheticCitizenPassChallenge(challenge);
+
+  assert.equal(verifyEvent(event), true);
+  assert.equal(event.pubkey, subjectPubkey);
+  assert.equal(event.created_at, challenge.issuedAt);
+  assert.equal(event.content, challenge.message);
+  assert.deepEqual(event.tags, [
+    ["schema", "staging_test_citizen_pass_proof_v1"],
+    ["challenge", challenge.challengeId],
+    ["e", challenge.participantSuggestionId, "", "synthetic-adoption-test"],
+    ["municipality", challenge.municipalityId],
+    ["test-only", "true"],
+  ]);
+  await assert.rejects(
+    () => session.signSyntheticCitizenPassChallenge({
+      ...challenge,
+      testCitizenNftContract: "0x1111111111111111111111111111111111111111",
+    }),
+    /synthetic_citizen_pass_challenge_invalid/u,
+  );
+  assert.equal("secretKey" in session, false);
+});
+
 test("refuses a civic eligibility challenge whose bounded server fields are tampered", async () => {
   const session = createCitizenSession({
     appAccountId: "account-1",

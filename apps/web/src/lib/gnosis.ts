@@ -2,14 +2,21 @@
 // apps/expo/constants/gnosis.ts. Source of truth for addresses:
 // contracts/governor-contract/deployments/gnosis.json.
 import { defineChain } from "thirdweb/chains";
+import { resolveIdentityContractSet } from "@roebel/blockchain";
 
 export const gnosis = defineChain(100);
+
+const productionIdentityContractSet = resolveIdentityContractSet();
 
 export const circlesHubAddress = "0xc12C1E50ABB450d6205Ea2C3Fa861b3B834d13e8";
 // v2 Sybil-hardened NFTs (2026-06-25). Legacy v1 (2026-06-17):
 // Citizen 0x6FF3dC7974a990425DE79F4B21FB0a39F3B04DD4 / Attester 0x7bD6Fd97385BCCf6000380ADd3BF19737c6063C4.
-export const citizenNFTGnosisAddress = "0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5";
-export const attesterNFTGnosisAddress = "0xC587F383696D3c9DF7A6eE03A9160E40Ae1cdb82";
+// Production-only: the Circles admin roster and treasury are not part of the
+// staging identity rehearsal and must never follow its no-authority test pair.
+export const productionCitizenNFTGnosisAddress =
+  productionIdentityContractSet.citizenNFT;
+export const productionAttesterNFTGnosisAddress =
+  productionIdentityContractSet.attesterNFT;
 export const attesterSafeGnosisAddress = "0x3A08c86Efc5ff38CC35d850F1D4d564e497bFDEa";
 // Röbeltaler Circles v2 BaseGroup (registered 2026-06-17; owner = Attester Safe).
 export const roebeltalerGroupAddress = "0xAc2CeCdBead594F97358a0d3132454f24F3E470c";

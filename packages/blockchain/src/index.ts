@@ -1,5 +1,11 @@
 // Shared blockchain utilities for the Roebel monorepo
 
+import { resolveIdentityContractSet } from "./identity-contract-set";
+
+export * from "./identity-contract-set";
+
+const productionIdentityContractSet = resolveIdentityContractSet();
+
 // Contract addresses deployed on Gnosis mainnet (v2 Sybil-hardened, 2026-06-25).
 //
 // Two governance regimes coexist:
@@ -10,8 +16,8 @@ export const CONTRACTS = {
   // thresholds (requiredAttesterApprovalsFor etc.), isActive/validUntil/
   // citizenCount/attesterCount views, RequestApproved/RequestRejected events
   // now carry only `signedAsAttester`. Owned by the Attester Safe.
-  attesterNFT: "0xC587F383696D3c9DF7A6eE03A9160E40Ae1cdb82",
-  citizenNFT: "0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5",
+  attesterNFT: productionIdentityContractSet.attesterNFT,
+  citizenNFT: productionIdentityContractSet.citizenNFT,
 
   // Legacy public-vote governance (read-only — old proposals still resolve here)
   legacyAttesterGovernor: "0x84D8ab0FcA4D0689e2E3F036dc461942343c2a5b",

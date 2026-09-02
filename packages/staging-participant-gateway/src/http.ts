@@ -40,6 +40,7 @@ import type {
   WalletSignatureVerifier,
 } from "./types.ts";
 import type { CitizenAdoptionService } from "./citizen-adoption.ts";
+import type { SyntheticCitizenAdoptionService } from "./synthetic-citizen-adoption.ts";
 
 const DEFAULT_MAX_REQUEST_BYTES = 8 * 1024;
 const SOURCE_POST_PROMOTION_MAX_REQUEST_BYTES = 16 * 1024;
@@ -73,12 +74,22 @@ const CITIZEN_ADOPTION_ACCEPT_PATH =
   "/api/staging-participant/v1/citizen-adoption/adoptions";
 const CITIZEN_ADOPTION_PUBLIC_READ_PATH =
   /^\/api\/staging-participant\/v1\/citizen-adoption\/by-suggestion\/([0-9a-f]{64})\/adopter\/([0-9a-f]{64})$/u;
+const SYNTHETIC_CITIZEN_ADOPTION_CHALLENGE_PATH =
+  "/api/staging-participant/v1/synthetic-citizen-adoption/challenge";
+const SYNTHETIC_CITIZEN_ADOPTION_ACCEPT_PATH =
+  "/api/staging-participant/v1/synthetic-citizen-adoption/tracers";
+const SYNTHETIC_CITIZEN_ADOPTION_PUBLIC_READ_PATH =
+  /^\/api\/staging-participant\/v1\/synthetic-citizen-adoption\/by-suggestion\/([0-9a-f]{64})\/adopter\/([0-9a-f]{64})$/u;
 const CITIZEN_ELIGIBILITY_STATUS_PATH =
   /^\/api\/civic\/v1\/eligibility\/status\/([0-9a-f]{64})$/u;
 const CITIZEN_ADOPTION_CHALLENGE_SCHEMA =
   "citizen_adoption_eligibility_challenge_request_v1";
 const CITIZEN_ADOPTION_ELIGIBILITY_SCHEMA =
   "citizen_adoption_eligibility_proof_request_v1";
+const SYNTHETIC_CITIZEN_ADOPTION_CHALLENGE_SCHEMA =
+  "synthetic_citizen_adoption_challenge_request_v1";
+const SYNTHETIC_CITIZEN_ADOPTION_TRACER_SCHEMA =
+  "synthetic_citizen_adoption_tracer_request_v1";
 const AUTHORITY_PATHS = new Set([
   "/api/staging-participant/v1/cases",
   "/api/staging-participant/v1/votes",
@@ -106,6 +117,11 @@ export type StagingParticipantGatewayDependencies = Readonly<{
   readinessPins?: StagingParticipantReadinessPins;
   /** Separate ADR-0023 capability; absent deployments fail closed. */
   citizenAdoption?: CitizenAdoptionService;
+  /**
+   * Isolated ADR-0023 synthetic browser tracer. Its incompatible interface
+   * cannot emit a municipal receipt or call the real adoption/Case path.
+   */
+  syntheticCitizenAdoption?: SyntheticCitizenAdoptionService;
 }>;
 
 function json(value: unknown, status = 200, origin?: string): Response {
@@ -340,6 +356,9 @@ function maxRequestBytesForPath(pathname: string): number {
   if (pathname === CITIZEN_ADOPTION_ACCEPT_PATH) {
     return TOPIC_SUGGESTION_MAX_REQUEST_BYTES;
   }
+  if (pathname === SYNTHETIC_CITIZEN_ADOPTION_ACCEPT_PATH) {
+    return TOPIC_SUGGESTION_MAX_REQUEST_BYTES;
+  }
   return DEFAULT_MAX_REQUEST_BYTES;
 }
 
@@ -418,11 +437,41 @@ export function createStagingParticipantGatewayHandler(
       if (!dependencies.readiness || !pins || !dependencies.citizenAdoption) {
         return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
       }
+      const syntheticPinCount = [
+        pins.syntheticCitizenAdoptionMigrationSha256,
+        pins.syntheticCitizenAdoptionDatabaseSchemaSha256,
+        pins.syntheticCitizenNftAddress,
+        pins.syntheticCitizenNftRuntimeCodeKeccak256,
+      ].filter(Boolean).length;
+      if (syntheticPinCount !== 0 && syntheticPinCount !== 4) {
+        return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
+      }
+      const syntheticPins = syntheticPinCount === 4;
+      const syntheticCapability = Boolean(dependencies.syntheticCitizenAdoption);
+      if (
+        syntheticPins !== syntheticCapability ||
+        (syntheticCapability &&
+          typeof dependencies.readiness.preflightSyntheticCitizenAdoption !== "function")
+      ) {
+        return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
+      }
       try {
-        const [preflight, topicPreflight, citizenAdoptionPreflight] = await Promise.all([
+        const [
+          preflight,
+          topicPreflight,
+          citizenAdoptionPreflight,
+          syntheticAdoptionPreflight,
+          syntheticVerifierPreflight,
+        ] = await Promise.all([
           dependencies.readiness.preflight(),
           dependencies.readiness.preflightTopicTracer(),
           dependencies.readiness.preflightCitizenAdoption(),
+          syntheticCapability && dependencies.readiness.preflightSyntheticCitizenAdoption
+            ? dependencies.readiness.preflightSyntheticCitizenAdoption()
+            : Promise.resolve(null),
+          syntheticCapability
+            ? dependencies.syntheticCitizenAdoption!.preflight()
+            : Promise.resolve(null),
         ]);
         if (preflight.migrationId !== "20260825_staging_participant_gateway" ||
           preflight.databaseSchemaSha256 !== pins.databaseSchemaSha256 ||
@@ -430,7 +479,23 @@ export function createStagingParticipantGatewayHandler(
           topicPreflight.databaseSchemaSha256 !== pins.topicTracerDatabaseSchemaSha256 ||
           citizenAdoptionPreflight.migrationId !== "20260901_staging_citizen_adoption" ||
           citizenAdoptionPreflight.databaseSchemaSha256 !==
-            pins.citizenAdoptionDatabaseSchemaSha256) {
+            pins.citizenAdoptionDatabaseSchemaSha256 ||
+          (syntheticCapability && (
+            syntheticAdoptionPreflight?.migrationId !==
+              "20260902_staging_synthetic_citizen_adoption" ||
+            syntheticAdoptionPreflight.databaseSchemaSha256 !==
+              pins.syntheticCitizenAdoptionDatabaseSchemaSha256 ||
+            syntheticVerifierPreflight?.schemaVersion !==
+              "staging_synthetic_citizen_adoption_verifier_preflight_v1" ||
+            syntheticVerifierPreflight.chainId !== 100 ||
+            syntheticVerifierPreflight.testCitizenNftContract !==
+              pins.syntheticCitizenNftAddress ||
+            syntheticVerifierPreflight.testCitizenNftRuntimeCodeKeccak256 !==
+              pins.syntheticCitizenNftRuntimeCodeKeccak256 ||
+            syntheticVerifierPreflight.environment !== "staging" ||
+            syntheticVerifierPreflight.testOnly !== true ||
+            syntheticVerifierPreflight.authorityBinding !== "none"
+          ))) {
           return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
         }
         return internalStatus({
@@ -448,6 +513,20 @@ export function createStagingParticipantGatewayHandler(
           citizenAdoptionMigrationSha256: pins.citizenAdoptionMigrationSha256,
           citizenAdoptionDatabaseSchemaSha256:
             pins.citizenAdoptionDatabaseSchemaSha256,
+          ...(syntheticCapability ? {
+            syntheticCitizenAdoptionMigrationSha256:
+              pins.syntheticCitizenAdoptionMigrationSha256,
+            syntheticCitizenAdoptionDatabaseSchemaSha256:
+              pins.syntheticCitizenAdoptionDatabaseSchemaSha256,
+            syntheticCitizenNftAddress: pins.syntheticCitizenNftAddress,
+            syntheticCitizenNftRuntimeCodeKeccak256:
+              pins.syntheticCitizenNftRuntimeCodeKeccak256,
+            syntheticCitizenNftFinalizedBlockNumber:
+              syntheticVerifierPreflight!.finalizedBlockNumber.toString(10),
+            syntheticCitizenNftFinalizedBlockHash:
+              syntheticVerifierPreflight!.finalizedBlockHash,
+            syntheticCitizenAdoptionAuthorityBinding: "none",
+          } : {}),
         }, 200);
       } catch {
         return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
@@ -498,12 +577,40 @@ export function createStagingParticipantGatewayHandler(
         return json({ error: "citizen_adoption_projection_unavailable" }, 503, origin);
       }
     }
+    const syntheticCitizenAdoptionPublicRead =
+      SYNTHETIC_CITIZEN_ADOPTION_PUBLIC_READ_PATH.exec(url.pathname);
+    if (syntheticCitizenAdoptionPublicRead) {
+      if (request.method !== "GET") {
+        return json({ error: "method_not_allowed" }, 405, origin);
+      }
+      if (!dependencies.syntheticCitizenAdoption) {
+        return json({ error: "synthetic_citizen_adoption_unavailable" }, 503, origin);
+      }
+      try {
+        const projection =
+          await dependencies.syntheticCitizenAdoption.readPublicTracer({
+            participantSuggestionId: syntheticCitizenAdoptionPublicRead[1]!,
+            adopterPubkey: syntheticCitizenAdoptionPublicRead[2]!,
+          });
+        return projection
+          ? json(projection, 200, origin)
+          : json({ error: "synthetic_citizen_adoption_not_found" }, 404, origin);
+      } catch {
+        return json(
+          { error: "synthetic_citizen_adoption_projection_unavailable" },
+          503,
+          origin,
+        );
+      }
+    }
     if (request.method === "OPTIONS" &&
       [
         STATUS_PATH, CHALLENGE_PATH, SESSION_PATH, POSTS_PATH, COMMENTS_PATH,
         NOSTR_POST_PATH, PROMOTE_SOURCE_POST_PATH, SIGN_TOPIC_SUGGESTION_PATH,
         CITIZEN_ADOPTION_CHALLENGE_PATH, CITIZEN_ADOPTION_ELIGIBILITY_PATH,
         CITIZEN_ADOPTION_ACCEPT_PATH,
+        SYNTHETIC_CITIZEN_ADOPTION_CHALLENGE_PATH,
+        SYNTHETIC_CITIZEN_ADOPTION_ACCEPT_PATH,
       ].includes(url.pathname)) {
       const response = new Response(null, {
         status: 204,
@@ -541,7 +648,9 @@ export function createStagingParticipantGatewayHandler(
       if (
         url.pathname !== CITIZEN_ADOPTION_CHALLENGE_PATH &&
         url.pathname !== CITIZEN_ADOPTION_ELIGIBILITY_PATH &&
-        url.pathname !== CITIZEN_ADOPTION_ACCEPT_PATH
+        url.pathname !== CITIZEN_ADOPTION_ACCEPT_PATH &&
+        url.pathname !== SYNTHETIC_CITIZEN_ADOPTION_CHALLENGE_PATH &&
+        url.pathname !== SYNTHETIC_CITIZEN_ADOPTION_ACCEPT_PATH
       ) {
       return json({ error: "not_found" }, 404, origin);
       }
@@ -637,6 +746,126 @@ export function createStagingParticipantGatewayHandler(
       Math.floor(nowMs / 1_000),
     );
     if (!session) return json({ error: "session_required" }, 401, origin);
+
+    if (url.pathname === SYNTHETIC_CITIZEN_ADOPTION_CHALLENGE_PATH) {
+      const record = parsedObject(body, [
+        "schemaVersion",
+        "participantSuggestionId",
+        "subjectPubkey",
+      ]);
+      if (
+        !record ||
+        record.schemaVersion !== SYNTHETIC_CITIZEN_ADOPTION_CHALLENGE_SCHEMA ||
+        typeof record.participantSuggestionId !== "string" ||
+        !/^[0-9a-f]{64}$/u.test(record.participantSuggestionId) ||
+        typeof record.subjectPubkey !== "string" ||
+        !/^[0-9a-f]{64}$/u.test(record.subjectPubkey) ||
+        !sessionToken
+      ) {
+        return json({ error: "synthetic_citizen_adoption_challenge_invalid" }, 400, origin);
+      }
+      if (!dependencies.syntheticCitizenAdoption) {
+        return json({ error: "synthetic_citizen_adoption_unavailable" }, 503, origin);
+      }
+      try {
+        const challenge =
+          await dependencies.syntheticCitizenAdoption.issueChallenge({
+            walletAddress: session.walletAddress,
+            sessionBindingSha256: sha256Hex(sessionToken),
+            participantSuggestionId: record.participantSuggestionId,
+            subjectPubkey: record.subjectPubkey,
+          });
+        return json(challenge, 200, origin);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === "synthetic_citizen_adoption_suggestion_unavailable"
+        ) {
+          return json({ error: error.message }, 409, origin);
+        }
+        return json(
+          { error: "synthetic_citizen_adoption_challenge_unavailable" },
+          503,
+          origin,
+        );
+      }
+    }
+
+    if (url.pathname === SYNTHETIC_CITIZEN_ADOPTION_ACCEPT_PATH) {
+      const record = parsedObject(body, [
+        "schemaVersion",
+        "requestId",
+        "idempotencyKey",
+        "challengeId",
+        "walletSignature",
+        "nostrProofEvent",
+      ]);
+      const nostrProofEvent = record ? validNostrEvent(record.nostrProofEvent) : null;
+      if (
+        !record ||
+        record.schemaVersion !== SYNTHETIC_CITIZEN_ADOPTION_TRACER_SCHEMA ||
+        typeof record.requestId !== "string" ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(record.requestId) ||
+        typeof record.idempotencyKey !== "string" ||
+        !/^[A-Za-z0-9._~-]{16,128}$/u.test(record.idempotencyKey) ||
+        typeof record.challengeId !== "string" ||
+        !/^[0-9a-f]{32}$/u.test(record.challengeId) ||
+        typeof record.walletSignature !== "string" ||
+        !/^0x[0-9a-f]+$/u.test(record.walletSignature) ||
+        (record.walletSignature.length - 2) % 2 !== 0 ||
+        !nostrProofEvent || !sessionToken
+      ) {
+        return json({ error: "synthetic_citizen_adoption_request_invalid" }, 400, origin);
+      }
+      if (!dependencies.syntheticCitizenAdoption) {
+        return json({ error: "synthetic_citizen_adoption_unavailable" }, 503, origin);
+      }
+      try {
+        const projection =
+          await dependencies.syntheticCitizenAdoption.acceptTracer({
+            walletAddress: session.walletAddress,
+            sessionBindingSha256: sha256Hex(sessionToken),
+            request: {
+              schemaVersion: SYNTHETIC_CITIZEN_ADOPTION_TRACER_SCHEMA,
+              requestId: record.requestId,
+              idempotencyKey: record.idempotencyKey,
+              challengeId: record.challengeId,
+              walletSignature: record.walletSignature,
+              nostrProofEvent,
+            },
+          });
+        return json(projection, 200, origin);
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "";
+        if (code === "synthetic_test_citizen_pass_required") {
+          return json({ error: code }, 403, origin);
+        }
+        if (
+          code === "synthetic_citizen_adoption_idempotency_conflict" ||
+          code === "synthetic_citizen_adoption_replay_mismatch"
+        ) {
+          return json({ error: code }, 409, origin);
+        }
+        if (
+          code === "synthetic_citizen_adoption_challenge_invalid" ||
+          code === "synthetic_citizen_adoption_wallet_signature_invalid"
+        ) {
+          return json({ error: code }, 401, origin);
+        }
+        if (
+          code === "synthetic_citizen_adoption_request_invalid" ||
+          code === "synthetic_citizen_adoption_nostr_proof_invalid" ||
+          code === "synthetic_test_citizen_pass_evidence_invalid"
+        ) {
+          return json({ error: code }, 400, origin);
+        }
+        return json(
+          { error: "synthetic_citizen_adoption_acceptance_unavailable" },
+          503,
+          origin,
+        );
+      }
+    }
 
     if (url.pathname === CITIZEN_ADOPTION_CHALLENGE_PATH) {
       const record = parsedObject(body, [

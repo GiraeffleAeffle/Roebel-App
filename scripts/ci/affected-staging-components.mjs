@@ -127,6 +127,14 @@ const QUALITY_EXACT_PACKAGE_PATHS = new Map([
     "supabase/staging-citizen-adoption-schema-contract-v1.json",
     "@roebel/staging-participant-gateway",
   ],
+  [
+    "supabase/migrations/20260902_staging_synthetic_citizen_adoption.sql",
+    "@roebel/staging-participant-gateway",
+  ],
+  [
+    "supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json",
+    "@roebel/staging-participant-gateway",
+  ],
 ]);
 
 function qualitySelection(changedPaths, affected) {
@@ -185,6 +193,7 @@ const ALL_COMPONENT_PATHS = new Set([
 const PREFIXES = {
   web: [
     "apps/web/",
+    "packages/blockchain/",
     "packages/miniapp-sdk/",
     "packages/nostr/",
     "packages/protocol/",

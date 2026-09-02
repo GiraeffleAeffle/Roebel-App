@@ -10,6 +10,9 @@
 import { getContract } from "thirdweb";
 import { gnosis } from "@/lib/gnosis";
 import { client } from "@/app/client";
+import { resolveIdentityContractSet } from "@roebel/blockchain";
+
+const productionIdentityContractSet = resolveIdentityContractSet();
 
 // ----- live infrastructure on Gnosis mainnet (v2 Sybil-hardened, 2026-06-25) -----
 
@@ -17,8 +20,10 @@ export const MACI_INFRA = {
   // Sybil-hardened identity layer (Gnosis v2, 2026-06-25): scale-aware %-band
   // approval/rejection thresholds (per-request getters), isActive/validUntil/
   // citizenCount/attesterCount views. Owned by the Attester Safe 0x3A08…
-  attesterNFT: "0xC587F383696D3c9DF7A6eE03A9160E40Ae1cdb82",
-  citizenNFT: "0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5",
+  // Production-only governance gate. Test credentials explicitly carry no
+  // MACI or municipal authority and therefore never replace these addresses.
+  productionAttesterNFT: productionIdentityContractSet.attesterNFT,
+  productionCitizenNFT: productionIdentityContractSet.citizenNFT,
 
   // MACI v2 core on Gnosis (deploy block 46867803).
   maci: "0x6663eDC8650276fe264710B1A2ba46eB8bd0bF1D",

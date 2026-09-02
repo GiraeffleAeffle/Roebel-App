@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   deriveCurve25519PubkeyFromSignature,
-  verifyIsAttester,
+  verifyIsProductionAttester,
   verifyWalletSignature,
 } from "@/lib/shamir/signature-verification";
 
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
   }
 
   // 2) AttesterNFT check (live read of Base mainnet).
-  const isAttester = await verifyIsAttester(walletAddress);
+  const isAttester = await verifyIsProductionAttester(walletAddress);
   if (!isAttester) {
     return NextResponse.json(
       { error: "walletAddress is not an Attester" },

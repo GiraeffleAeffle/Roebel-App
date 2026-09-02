@@ -2,6 +2,8 @@ import { getContract } from "thirdweb";
 import { client } from "@/app/client";
 import { base } from "thirdweb/chains";
 import { gnosis } from "@/lib/gnosis";
+import { resolveIdentityContractSet } from "@roebel/blockchain";
+import { identityContractSet } from "@/lib/identity-contract-set";
 
 // OLD contract addresses (for reference/migration)
 export const OLD_NFT_CONTRACT_ADDRESS = "0x976966e2669b3bF3c99B38cA4259a864f85191A1";
@@ -11,8 +13,9 @@ export const OLD_GOVERNOR_CONTRACT_ADDRESS = "0x767f7b996E54248F88944DAc344Ab74e
 // rotation 2026-06-25: scale-aware %-band thresholds, per-request approval
 // getters, isActive/validUntil/citizenCount/attesterCount views.
 // Source of truth: contracts/governor-contract/deployments/gnosis-v2.json
-export const CITIZEN_NFT_ADDRESS = "0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5";
-export const ATTESTER_NFT_ADDRESS = "0xC587F383696D3c9DF7A6eE03A9160E40Ae1cdb82";
+export const CITIZEN_NFT_ADDRESS = identityContractSet.citizenNFT;
+export const ATTESTER_NFT_ADDRESS = identityContractSet.attesterNFT;
+export const isTestContractSet = identityContractSet.isTest;
 
 // Legacy public-vote AttesterGovernor (Base) — kept for historical proposals only.
 // Stays on Base because this contract was never deployed on Gnosis.
@@ -40,6 +43,16 @@ export const nftContract = getContract({
   client,
   chain: gnosis,
   address: CITIZEN_NFT_ADDRESS,
+});
+
+// A test identity never authorizes production governance. Governance callers use
+// this explicit production handle while identity/profile/verification callers use
+// `nftContract` or the handles in verification-contracts.ts.
+const productionIdentityContractSet = resolveIdentityContractSet();
+export const governanceCitizenNFTContract = getContract({
+  client,
+  chain: gnosis,
+  address: productionIdentityContractSet.citizenNFT,
 });
 
 export const governorContract = getContract({

@@ -8,7 +8,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import { useActiveAccount, useReadContract } from 'thirdweb/react';
 import { prepareContractCall, sendTransaction, readContract } from 'thirdweb';
-import { governorContract, citizenNFTContract } from '@/constants/thirdweb';
+import { governorContract, governanceCitizenNFTContract as citizenNFTContract } from '@/constants/thirdweb';
 import { balanceOf } from 'thirdweb/extensions/erc721';
 import { VoteType, ProposalState } from '@/lib/governance-types';
 import { isProposalActive } from '@/lib/governance-utils';
@@ -20,6 +20,8 @@ import ErrorDrawer from './ErrorDrawer';
 import SuccessDrawer from './SuccessDrawer';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/context/ThemeContext';
+import { identityContractSet } from '@/constants/identity-contract-set';
+import { assertProductionGovernanceWritesAllowed } from '@roebel/blockchain';
 
 interface VoteButtonsEnhancedProps {
   proposalId: bigint;
@@ -53,20 +55,30 @@ export default function VoteButtonsEnhanced({
   const { data: nftBalance } = useReadContract(balanceOf, {
     contract: citizenNFTContract,
     owner: account?.address || '',
-    queryOptions: { enabled: !!account },
+    queryOptions: {
+      enabled:
+        !!account && identityContractSet.productionGovernanceWritesAllowed,
+    },
   });
 
   // Calculate voting eligibility (auto-delegation: NFT ownership = voting power)
   const hasNFT = nftBalance !== undefined && nftBalance > 0n;
-  const canVote = account && hasNFT && isProposalActive(proposalState) && !hasVoted;
+  const canVote =
+    identityContractSet.productionGovernanceWritesAllowed &&
+    account &&
+    hasNFT &&
+    isProposalActive(proposalState) &&
+    !hasVoted;
 
   const handleVoteClick = (voteType: 'for' | 'against' | 'abstain') => {
+    if (!identityContractSet.productionGovernanceWritesAllowed) return;
     setSelectedVote(voteType);
     setShowConfirmation(true);
   };
 
   const handleConfirmVote = async () => {
     if (!account || !selectedVote) return;
+    assertProductionGovernanceWritesAllowed(identityContractSet);
 
     const voteTypeMap: Record<string, VoteType> = {
       for: VoteType.For,
@@ -138,6 +150,18 @@ export default function VoteButtonsEnhanced({
     setShowConfirmation(false);
     setSelectedVote(null);
   };
+
+  if (!identityContractSet.productionGovernanceWritesAllowed) {
+    return (
+      <View style={styles.container}>
+        <View style={[styles.infoCard, { backgroundColor: colors.surfaceSecondary }]}>
+          <Text style={styles.infoIcon}>🧪</Text>
+          <Text style={[styles.infoTitle, { color: colors.textPrimary }]}>Nur Test-Bürgerprozess</Text>
+          <Text style={[styles.infoText, { color: colors.textSecondary }]}>Der Test-Bürger-Pass erteilt keine Befugnis für produktive Abstimmungen oder Zahlungen.</Text>
+        </View>
+      </View>
+    );
+  }
 
   // No wallet connected
   if (!account) {

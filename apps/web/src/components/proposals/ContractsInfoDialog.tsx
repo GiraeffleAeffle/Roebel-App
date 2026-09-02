@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { formatAddress } from "@/lib/proposal-types";
 import { de } from "@/lib/translations/de";
+import { CONTRACTS } from "@roebel/blockchain";
 
 // Gnosis v2 Sybil-hardened stack (chainId 100, 2026-06-25). Source of truth:
 // contracts/governor-contract/deployments/gnosis-v2.json.
@@ -30,11 +31,11 @@ const CONTRACT_ROWS = [
   },
   {
     role: de.governance.roleCitizenNFT,
-    address: "0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5",
+    address: CONTRACTS.citizenNFT,
   },
   {
     role: de.governance.roleAttesterNFT,
-    address: "0xC587F383696D3c9DF7A6eE03A9160E40Ae1cdb82",
+    address: CONTRACTS.attesterNFT,
   },
 ] as const;
 

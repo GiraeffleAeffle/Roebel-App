@@ -2,6 +2,8 @@ import { createThirdwebClient, getContract } from "thirdweb";
 import { base, defineChain } from "thirdweb/chains";
 import Constants from "expo-constants";
 import { gnosis, gnosisRead } from "@/constants/gnosis";
+import { resolveIdentityContractSet } from '@roebel/blockchain';
+import { identityContractSet } from '@/constants/identity-contract-set';
 
 const clientId = Constants.expoConfig?.extra?.THIRDWEB_CLIENT_ID ??
                  process.env.EXPO_PUBLIC_THIRDWEB_CLIENT_ID ??
@@ -67,19 +69,22 @@ export const usdcContract = getContract({
 //    historical proposals. Reads only.
 //  - governorContract       — current MACI v2 privacy-voting governor on GNOSIS.
 //    All new proposals + votes go here.
-export const attesterNFTAddress = process.env.NEXT_PUBLIC_ATTESTER_NFT || "0xC587F383696D3c9DF7A6eE03A9160E40Ae1cdb82";
-export const citizenNFTAddress = process.env.NEXT_PUBLIC_CITIZEN_NFT || "0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5";
+// The NFT addresses come from the shared, fail-closed contract-set selector.
+// Expo supplies one profile plus both exact addresses through EXPO_PUBLIC_*;
+// partial, mixed and unknown pairs fail before handles are constructed.
+export const attesterNFTAddress = identityContractSet.attesterNFT;
+export const citizenNFTAddress = identityContractSet.citizenNFT;
 
 // Legacy public-vote AttesterGovernor remains on BASE (read-only, historical).
-export const legacyGovernorContractAddress = process.env.NEXT_PUBLIC_LEGACY_GOVERNOR || "0x84D8ab0FcA4D0689e2E3F036dc461942343c2a5b";
+export const legacyGovernorContractAddress = process.env.EXPO_PUBLIC_LEGACY_GOVERNOR || "0x84D8ab0FcA4D0689e2E3F036dc461942343c2a5b";
 // MaciAttesterGovernor on Gnosis v2 — binds to the fresh MACI core + gatekeeper.
-export const governorContractAddress = process.env.NEXT_PUBLIC_GOVERNOR || "0x5F5e499Dc1872c2Ce19a4b50cd10f680e78E3Ba3";
+export const governorContractAddress = process.env.EXPO_PUBLIC_GOVERNOR || "0x5F5e499Dc1872c2Ce19a4b50cd10f680e78E3Ba3";
 
 // MACI v2 infrastructure on Gnosis (Sybil-hardening rotation 2026-06).
-export const maciAddress = process.env.NEXT_PUBLIC_MACI || "0x6663eDC8650276fe264710B1A2ba46eB8bd0bF1D";
-export const maciVerifierAddress = process.env.NEXT_PUBLIC_MACI_VERIFIER || "0xC95359cF5d7391cD239c9476393706a8132406dc";
-export const maciVkRegistryAddress = process.env.NEXT_PUBLIC_MACI_VK_REGISTRY || "0xB21EAA60DF62b7cf06Eb0a2554D9C4e6BA76658f";
-export const maciCoordinatorAddress = process.env.NEXT_PUBLIC_MACI_COORDINATOR || "0x5e6528D22283Daf1E4340B39d48a4D3CeaDC184C";
+export const maciAddress = process.env.EXPO_PUBLIC_MACI || "0x6663eDC8650276fe264710B1A2ba46eB8bd0bF1D";
+export const maciVerifierAddress = process.env.EXPO_PUBLIC_MACI_VERIFIER || "0xC95359cF5d7391cD239c9476393706a8132406dc";
+export const maciVkRegistryAddress = process.env.EXPO_PUBLIC_MACI_VK_REGISTRY || "0xB21EAA60DF62b7cf06Eb0a2554D9C4e6BA76658f";
+export const maciCoordinatorAddress = process.env.EXPO_PUBLIC_MACI_COORDINATOR || "0x5e6528D22283Daf1E4340B39d48a4D3CeaDC184C";
 
 /** Block at (or slightly before) the MACI core deployment on Gnosis mainnet.
  *  Used as the lower bound for SignUp event scans when recovering a citizen's
@@ -101,6 +106,15 @@ export const attesterNFTContract = getContract({
 export const citizenNFTContract = getContract({
 	client,
 	address: citizenNFTAddress,
+	chain: gnosis,
+});
+
+// Test identity credentials carry no production governance authority. Voting and
+// proposal callers use this production-only handle explicitly.
+const productionIdentityContractSet = resolveIdentityContractSet();
+export const governanceCitizenNFTContract = getContract({
+	client,
+	address: productionIdentityContractSet.citizenNFT,
 	chain: gnosis,
 });
 

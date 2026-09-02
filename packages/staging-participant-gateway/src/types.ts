@@ -129,6 +129,7 @@ export type StagingParticipantReadinessAdapter = Readonly<{
   preflight(): Promise<Readonly<{ migrationId: string; databaseSchemaSha256: string }>>;
   preflightTopicTracer(): Promise<Readonly<{ migrationId: string; databaseSchemaSha256: string }>>;
   preflightCitizenAdoption(): Promise<Readonly<{ migrationId: string; databaseSchemaSha256: string }>>;
+  preflightSyntheticCitizenAdoption?(): Promise<Readonly<{ migrationId: string; databaseSchemaSha256: string }>>;
 }>;
 
 export type StagingParticipantReadinessPins = Readonly<{
@@ -140,6 +141,10 @@ export type StagingParticipantReadinessPins = Readonly<{
   topicTracerDatabaseSchemaSha256: string;
   citizenAdoptionMigrationSha256: string;
   citizenAdoptionDatabaseSchemaSha256: string;
+  syntheticCitizenAdoptionMigrationSha256?: string;
+  syntheticCitizenAdoptionDatabaseSchemaSha256?: string;
+  syntheticCitizenNftAddress?: string;
+  syntheticCitizenNftRuntimeCodeKeccak256?: string;
 }>;
 
 /**

@@ -77,6 +77,10 @@ function fixture(input: Partial<{
   promotionCompletionFails: boolean;
   ready: boolean;
   citizenAdoptionReady: boolean;
+  partialSyntheticPins: boolean;
+  syntheticReady: boolean;
+  syntheticStorageFails: boolean;
+  syntheticVerifierFails: boolean;
   mirrorReceipts: Map<string, StagingParticipantMirrorReceipt>;
   promotionReceipts: Map<string, StagingParticipantPromotionReceipt>;
   suggestionReceipts: Map<string, StagingParticipantSuggestionReceipt>;
@@ -310,6 +314,16 @@ function fixture(input: Partial<{
         async preflightCitizenAdoption() {
           return { migrationId: "20260901_staging_citizen_adoption", databaseSchemaSha256: `sha256:${"1".repeat(64)}` };
         },
+        ...(input.syntheticReady ? {
+          async preflightSyntheticCitizenAdoption() {
+            if (input.syntheticStorageFails) throw new Error("synthetic storage unavailable");
+            return {
+              migrationId: "20260902_staging_synthetic_citizen_adoption",
+              databaseSchemaSha256:
+                "sha256:bcaa0b098a99b145e5111c17e29e5e7d9e9eb0840ee27643b3c26db34118bd66",
+            };
+          },
+        } : {}),
       },
       readinessPins: {
         sourceRevision: "a".repeat(40),
@@ -320,8 +334,43 @@ function fixture(input: Partial<{
         topicTracerDatabaseSchemaSha256: `sha256:${"e".repeat(64)}`,
         citizenAdoptionMigrationSha256: `sha256:${"2".repeat(64)}`,
         citizenAdoptionDatabaseSchemaSha256: `sha256:${"1".repeat(64)}`,
+        ...(input.partialSyntheticPins ? {
+          syntheticCitizenAdoptionMigrationSha256: `sha256:${"3".repeat(64)}`,
+        } : {}),
+        ...(input.syntheticReady ? {
+          syntheticCitizenAdoptionMigrationSha256: `sha256:${"3".repeat(64)}`,
+          syntheticCitizenAdoptionDatabaseSchemaSha256:
+            "sha256:bcaa0b098a99b145e5111c17e29e5e7d9e9eb0840ee27643b3c26db34118bd66",
+          syntheticCitizenNftAddress:
+            "0x0be374808a567c9088ac8208b90a4239432b3220",
+          syntheticCitizenNftRuntimeCodeKeccak256:
+            "0x481949efe62483d881190ec16e7ac6ffd796b0e601ea952507fa6eee1986bafb",
+        } : {}),
       },
       ...(input.citizenAdoptionReady === false ? {} : { citizenAdoption }),
+      ...(input.syntheticReady ? {
+        syntheticCitizenAdoption: {
+          async preflight() {
+            if (input.syntheticVerifierFails) throw new Error("test verifier unavailable");
+            return {
+              schemaVersion: "staging_synthetic_citizen_adoption_verifier_preflight_v1" as const,
+              chainId: 100 as const,
+              testCitizenNftContract:
+                "0x0be374808a567c9088ac8208b90a4239432b3220",
+              testCitizenNftRuntimeCodeKeccak256:
+                "0x481949efe62483d881190ec16e7ac6ffd796b0e601ea952507fa6eee1986bafb",
+              finalizedBlockNumber: 12_345n,
+              finalizedBlockHash: `0x${"a".repeat(64)}`,
+              environment: "staging" as const,
+              testOnly: true as const,
+              authorityBinding: "none" as const,
+            };
+          },
+          async issueChallenge() { throw new Error("not_used_by_readiness_test"); },
+          async acceptTracer() { throw new Error("not_used_by_readiness_test"); },
+          async readPublicTracer() { return null; },
+        },
+      } : {}),
     } : {}),
   });
   return {
@@ -963,6 +1012,30 @@ test("internal readiness stays non-ingressed, rejects browser-shaped requests, a
   assert.equal((await closed.handler(new Request("http://gateway.internal/status"))).status, 503);
   const unwired = fixture({ ready: true, citizenAdoptionReady: false });
   assert.equal((await unwired.handler(new Request("http://gateway.internal/status"))).status, 503);
+  const partialSynthetic = fixture({ ready: true, partialSyntheticPins: true });
+  assert.equal(
+    (await partialSynthetic.handler(new Request("http://gateway.internal/status"))).status,
+    503,
+  );
+  for (const broken of [
+    fixture({ ready: true, syntheticReady: true, syntheticStorageFails: true }),
+    fixture({ ready: true, syntheticReady: true, syntheticVerifierFails: true }),
+  ]) {
+    assert.equal(
+      (await broken.handler(new Request("http://gateway.internal/status"))).status,
+      503,
+    );
+  }
+  const syntheticReady = await fixture({ ready: true, syntheticReady: true })
+    .handler(new Request("http://gateway.internal/status"));
+  assert.equal(syntheticReady.status, 200);
+  const syntheticStatus = await syntheticReady.json() as Record<string, unknown>;
+  assert.equal(
+    syntheticStatus.syntheticCitizenNftAddress,
+    "0x0be374808a567c9088ac8208b90a4239432b3220",
+  );
+  assert.equal(syntheticStatus.syntheticCitizenNftFinalizedBlockNumber, "12345");
+  assert.equal(syntheticStatus.syntheticCitizenAdoptionAuthorityBinding, "none");
   const { handler } = fixture({ ready: true });
   const ready = await handler(new Request("http://gateway.internal/status"));
   assert.equal(ready.status, 200);

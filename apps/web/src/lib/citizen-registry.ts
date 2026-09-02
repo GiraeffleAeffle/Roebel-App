@@ -67,7 +67,7 @@ async function scan(): Promise<CitizenRegistry> {
   for (let from = scannedTo + 1n; from <= latest; from += CHUNK) {
     const to = from + CHUNK - 1n < latest ? from + CHUNK - 1n : latest;
     const logs = await gnosisClient.getLogs({
-      address: ADDR.citizenNFT as `0x${string}`,
+      address: ADDR.productionCitizenNFT as `0x${string}`,
       event: TRANSFER_EVENT,
       fromBlock: from,
       toBlock: to,

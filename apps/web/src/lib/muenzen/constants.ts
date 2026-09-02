@@ -6,6 +6,9 @@
 // no env access). Env-derived values (RPC URLs, optional operator address) live
 // in gnosis.ts / the API routes.
 import { parseAbi } from "viem";
+import { resolveIdentityContractSet } from "@roebel/blockchain";
+
+const productionIdentityContractSet = resolveIdentityContractSet();
 
 export const GNOSIS_CHAIN_ID = 100;
 
@@ -55,8 +58,10 @@ export const ADDR = {
   safe: "0x3A08c86Efc5ff38CC35d850F1D4d564e497bFDEa", // Stadtkasse multisig (reserve / group owner)
   service: "0xd5028284017A32C672CbD73Fe35aCD897bA874cf", // group auto-invite bot
   funder: "0x5ac82fD7f576c86aed8d174074bA707eC1979D9B", // operational funder (rewards + lootbox sink)
-  citizenNFT: "0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5", // CitizenNFTv2 (Gnosis, soulbound, Sybil-hardened 2026-06-25; v1 0x6FF3dC7974a990425DE79F4B21FB0a39F3B04DD4)
-  attesterNFT: "0xC587F383696D3c9DF7A6eE03A9160E40Ae1cdb82", // AttesterNFTv2 (Gnosis; v1 0x7bD6Fd97385BCCf6000380ADd3BF19737c6063C4)
+  // Production-only treasury and Circles membership gates. The staging test
+  // identity set has authorityBinding=none and never flows into these handles.
+  productionCitizenNFT: productionIdentityContractSet.citizenNFT,
+  productionAttesterNFT: productionIdentityContractSet.attesterNFT,
   membershipCondition: "0x10644F137cDBE9Af5651C8607A6FBa8AfA5276f6", // CitizenMembershipCondition (mint gate)
   nameRegistry: "0xA27566fD89162cC3D40Cb59c87AAaA49B85F3474", // NameRegistry (avatar profiles)
   eure: "0x420CA0f9B9b604cE0fd9C18EF134C705e5Fa3430", // EURe V2 (regulated euro, Monerium) on Gnosis — V1 0xcB444e90… deprecated

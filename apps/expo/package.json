@@ -28,6 +28,7 @@
     ]
   },
   "dependencies": {
+    "@roebel/blockchain": "workspace:*",
     "@ai-sdk/openai": "^2.0.75",
     "@anthropic-ai/sdk": "^0.71.0",
     "@coinbase/wallet-mobile-sdk": "^1.1.2",
