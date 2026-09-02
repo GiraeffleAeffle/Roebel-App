@@ -344,13 +344,19 @@ test("synthetic adoption is exercised through a separate durable anon RPC surfac
     ["event", "STAGING_PARTICIPANT_SYNTHETIC_ADOPTION_EVENT_CONFLICT"],
     ["tuple", "STAGING_PARTICIPANT_SYNTHETIC_ADOPTION_TUPLE_CONFLICT"],
   ]) {
-    assert.match(
-      syntheticAdoptionIntegrationSql,
+    const block = syntheticAdoptionIntegrationSql.match(
       new RegExp(
         `do \\$synthetic_adoption_${kind}_conflict\\$[\\s\\S]+?${failure}[\\s\\S]+?\\$synthetic_adoption_${kind}_conflict\\$;`,
         "iu"
       )
+    )?.[0];
+    assert.ok(block);
+    assert.doesNotMatch(
+      block,
+      /:'[a-z_]+'/u,
+      "psql variables are not interpolated inside dollar-quoted DO blocks"
     );
+    assert.match(block, /current_setting\('roebel\.test\.synthetic_adoption_/u);
   }
   assert.match(
     syntheticAdoptionIntegrationSql,

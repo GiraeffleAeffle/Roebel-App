@@ -307,15 +307,54 @@ select jsonb_set(
 )::text as tuple_conflict_projection_json
 \gset
 
+select set_config(
+         'roebel.test.synthetic_adoption_received_at', :'received_at', true
+       ),
+       set_config(
+         'roebel.test.synthetic_adoption_proof_event', :'proof_event_json', true
+       ),
+       set_config(
+         'roebel.test.synthetic_adoption_private_evidence',
+         :'private_eligibility_evidence_json',
+         true
+       ),
+       set_config(
+         'roebel.test.synthetic_adoption_projection', :'projection_json', true
+       ),
+       set_config(
+         'roebel.test.synthetic_adoption_request_conflict_projection',
+         :'request_conflict_projection_json',
+         true
+       ),
+       set_config(
+         'roebel.test.synthetic_adoption_event_conflict_projection',
+         :'event_conflict_projection_json',
+         true
+       ),
+       set_config(
+         'roebel.test.synthetic_adoption_event_conflict_proof',
+         :'event_conflict_proof_json',
+         true
+       ),
+       set_config(
+         'roebel.test.synthetic_adoption_tuple_conflict_projection',
+         :'tuple_conflict_projection_json',
+         true
+       );
+
 do $synthetic_adoption_request_conflict$
 declare
   failure_message text;
 begin
   perform public.staging_participant_gateway_accept_synthetic_adoption(
     'roebel-mueritz', '30000000-0000-4000-8000-000000000004'::uuid,
-    repeat('c', 64), repeat('d', 64), :'received_at'::bigint, 300,
-    :'proof_event_json'::jsonb, :'private_eligibility_evidence_json'::jsonb,
-    :'request_conflict_projection_json'::jsonb
+    repeat('c', 64), repeat('d', 64),
+    current_setting('roebel.test.synthetic_adoption_received_at')::bigint, 300,
+    current_setting('roebel.test.synthetic_adoption_proof_event')::jsonb,
+    current_setting('roebel.test.synthetic_adoption_private_evidence')::jsonb,
+    current_setting(
+      'roebel.test.synthetic_adoption_request_conflict_projection'
+    )::jsonb
   );
   raise exception 'Expected STAGING_PARTICIPANT_SYNTHETIC_ADOPTION_REQUEST_CONFLICT';
 exception when sqlstate 'P0001' then
@@ -333,9 +372,11 @@ declare
 begin
   perform public.staging_participant_gateway_accept_synthetic_adoption(
     'roebel-mueritz', '30000000-0000-4000-8000-000000000004'::uuid,
-    repeat('6', 64), repeat('a', 64), :'received_at'::bigint, 300,
-    :'proof_event_json'::jsonb, :'private_eligibility_evidence_json'::jsonb,
-    :'projection_json'::jsonb
+    repeat('6', 64), repeat('a', 64),
+    current_setting('roebel.test.synthetic_adoption_received_at')::bigint, 300,
+    current_setting('roebel.test.synthetic_adoption_proof_event')::jsonb,
+    current_setting('roebel.test.synthetic_adoption_private_evidence')::jsonb,
+    current_setting('roebel.test.synthetic_adoption_projection')::jsonb
   );
   raise exception 'Expected STAGING_PARTICIPANT_SYNTHETIC_ADOPTION_IDEMPOTENCY_CONFLICT';
 exception when sqlstate 'P0001' then
@@ -353,10 +394,13 @@ declare
 begin
   perform public.staging_participant_gateway_accept_synthetic_adoption(
     'roebel-mueritz', '30000000-0000-4000-8000-000000000004'::uuid,
-    repeat('c', 64), repeat('a', 64), :'received_at'::bigint, 300,
-    :'event_conflict_proof_json'::jsonb,
-    :'private_eligibility_evidence_json'::jsonb,
-    :'event_conflict_projection_json'::jsonb
+    repeat('c', 64), repeat('a', 64),
+    current_setting('roebel.test.synthetic_adoption_received_at')::bigint, 300,
+    current_setting('roebel.test.synthetic_adoption_event_conflict_proof')::jsonb,
+    current_setting('roebel.test.synthetic_adoption_private_evidence')::jsonb,
+    current_setting(
+      'roebel.test.synthetic_adoption_event_conflict_projection'
+    )::jsonb
   );
   raise exception 'Expected STAGING_PARTICIPANT_SYNTHETIC_ADOPTION_EVENT_CONFLICT';
 exception when sqlstate 'P0001' then
@@ -374,10 +418,13 @@ declare
 begin
   perform public.staging_participant_gateway_accept_synthetic_adoption(
     'roebel-mueritz', '30000000-0000-4000-8000-000000000005'::uuid,
-    repeat('7', 64), repeat('e', 64), :'received_at'::bigint, 300,
-    :'event_conflict_proof_json'::jsonb,
-    :'private_eligibility_evidence_json'::jsonb,
-    :'tuple_conflict_projection_json'::jsonb
+    repeat('7', 64), repeat('e', 64),
+    current_setting('roebel.test.synthetic_adoption_received_at')::bigint, 300,
+    current_setting('roebel.test.synthetic_adoption_event_conflict_proof')::jsonb,
+    current_setting('roebel.test.synthetic_adoption_private_evidence')::jsonb,
+    current_setting(
+      'roebel.test.synthetic_adoption_tuple_conflict_projection'
+    )::jsonb
   );
   raise exception 'Expected STAGING_PARTICIPANT_SYNTHETIC_ADOPTION_TUPLE_CONFLICT';
 exception when sqlstate 'P0001' then
