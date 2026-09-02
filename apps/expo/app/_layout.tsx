@@ -49,6 +49,7 @@ import { ConsentGate } from '@/components/consent/ConsentGate';
 import { PostHogTelemetry } from '@/components/consent/PostHogTelemetry';
 import { AppUpdateGate } from '@/components/AppUpdateGate';
 import AnimatedSplash from '@/components/AnimatedSplash';
+import TestEnvBanner from '@/components/TestEnvBanner';
 import { bootState } from '@/lib/navigation/bootPathname';
 // DISABLED — debug-log FAB kept for later (also re-enable the capture in index.js):
 // import DebugLogOverlay from '@/components/DebugLogOverlay';
@@ -276,6 +277,7 @@ function ThemedLayout() {
       <RewardsTaskTriggers />
       <ReferralDeepLinkHandler />
       <View style={[styles.gradientContainer, { backgroundColor: colors.background }]}>
+        <TestEnvBanner />
         <TransitionStack screenOptions={{ headerShown: false }}>
           <TransitionStack.Screen
             name="submit"

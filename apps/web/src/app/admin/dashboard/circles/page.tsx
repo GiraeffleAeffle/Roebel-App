@@ -15,7 +15,7 @@ import { RefreshCw, ShieldCheck, Users, Coins } from "lucide-react";
 import {
   gnosis,
   circlesHubAddress,
-  citizenNFTGnosisAddress,
+  productionCitizenNFTGnosisAddress,
   roebeltalerGroupAddress,
   circlesRpcUrl,
   GNOSIS_CITIZENS,
@@ -23,7 +23,11 @@ import {
 } from "@/lib/gnosis";
 
 const hub = getContract({ client, chain: gnosis, address: circlesHubAddress });
-const citizenNft = getContract({ client, chain: gnosis, address: citizenNFTGnosisAddress });
+const productionCitizenNft = getContract({
+  client,
+  chain: gnosis,
+  address: productionCitizenNFTGnosisAddress,
+});
 const GROUP = roebeltalerGroupAddress.toLowerCase();
 
 type Row = {
@@ -97,7 +101,7 @@ async function invitedByHuman(addr: string): Promise<boolean> {
 async function loadRow(c: { address: string; attester: boolean }): Promise<Row> {
   try {
     const [citizenNFT, isHuman, collateralTrusted, bal, invited] = await Promise.all([
-      readContract({ contract: citizenNft, method: "function hasCitizenNFT(address) view returns (bool)", params: [c.address] }),
+      readContract({ contract: productionCitizenNft, method: "function hasCitizenNFT(address) view returns (bool)", params: [c.address] }),
       readContract({ contract: hub, method: "function isHuman(address) view returns (bool)", params: [c.address] }),
       readContract({ contract: hub, method: "function isTrusted(address,address) view returns (bool)", params: [roebeltalerGroupAddress, c.address] }),
       tokenBalances(c.address),
@@ -221,7 +225,7 @@ export default function CirclesVerificationPage() {
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
               <span className="text-muted-foreground">Onchain-Belege:</span>
               <a className="text-primary hover:underline" target="_blank" rel="noreferrer" href={`https://explorer.aboutcircles.com/avatar/${roebeltalerGroupAddress}`}>Röbel Münzen Gruppe ↗</a>
-              <a className="text-primary hover:underline" target="_blank" rel="noreferrer" href={`https://gnosisscan.io/address/${citizenNFTGnosisAddress}`}>CitizenNFT ↗</a>
+              <a className="text-primary hover:underline" target="_blank" rel="noreferrer" href={`https://gnosisscan.io/address/${productionCitizenNFTGnosisAddress}`}>CitizenNFT ↗</a>
               <a className="text-primary hover:underline" target="_blank" rel="noreferrer" href={`https://gnosisscan.io/address/${circlesHubAddress}`}>Circles Hub ↗</a>
             </div>
           </div>

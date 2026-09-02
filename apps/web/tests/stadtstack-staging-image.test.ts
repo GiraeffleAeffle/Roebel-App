@@ -28,6 +28,12 @@ test("emits the standalone server only for the explicit Talos staging image", ()
   assert.match(buildScript, /--env ROEBEL_WEBPACK_PARALLELISM=2/);
   assert.match(buildScript, /\.next\/standalone/);
   assert.match(buildScript, /inject-public-runtime-config\.mjs/);
+  assert.match(buildScript, /NEXT_PUBLIC_IDENTITY_CONTRACT_SET=__ROEBEL_RUNTIME_IDENTITY_CONTRACT_SET__/);
+  assert.match(buildScript, /NEXT_PUBLIC_ATTESTER_NFT_ADDRESS=0x0000000000000000000000000000000000000a71/);
+  assert.match(buildScript, /NEXT_PUBLIC_CITIZEN_NFT_ADDRESS=0x0000000000000000000000000000000000000c17/);
+  assert.match(runtimeDockerfile, /ROEBEL_PUBLIC_IDENTITY_CONTRACT_SET=__ROEBEL_RUNTIME_IDENTITY_CONTRACT_SET__/);
+  assert.match(runtimeDockerfile, /ROEBEL_PUBLIC_ATTESTER_NFT_ADDRESS=0x0000000000000000000000000000000000000a71/);
+  assert.match(runtimeDockerfile, /ROEBEL_PUBLIC_CITIZEN_NFT_ADDRESS=0x0000000000000000000000000000000000000c17/);
   assert.match(runtimeDockerfile, /CMD \["apps\/web\/runtime-entrypoint\.mjs"\]/);
   assert.doesNotMatch(
     runtimeDockerfile,

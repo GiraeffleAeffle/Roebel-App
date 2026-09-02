@@ -26,7 +26,7 @@ async function attesterSet(addresses: string[]): Promise<Set<string>> {
     const res = await gnosisClient.multicall({
       allowFailure: true,
       contracts: addresses.map((a) => ({
-        address: getAddress(ADDR.attesterNFT),
+        address: getAddress(ADDR.productionAttesterNFT),
         abi: ERC721_ABI,
         functionName: "balanceOf" as const,
         args: [getAddress(a)] as const,

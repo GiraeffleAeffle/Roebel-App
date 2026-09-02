@@ -7,14 +7,15 @@
 import { getContract } from 'thirdweb';
 import { client } from '@/constants/thirdweb';
 import { gnosis, gnosisRead } from '@/constants/gnosis';
+import { identityContractSet } from '@/constants/identity-contract-set';
 
 // Deployed contract addresses on Gnosis v2 Mainnet (chainId 100, Sybil-hardening
 // rotation 2026-06). CitizenNFTv2 / AttesterNFTv2 use dynamic percentage-band
 // approval/rejection thresholds rather than a fixed 1+1.
 export const VERIFICATION_CONTRACTS = {
-  attesterNFT: process.env.NEXT_PUBLIC_ATTESTER_NFT || '0xC587F383696D3c9DF7A6eE03A9160E40Ae1cdb82',
-  citizenNFT: process.env.NEXT_PUBLIC_CITIZEN_NFT || '0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5',
-  governor: process.env.NEXT_PUBLIC_GOVERNOR || '0x5F5e499Dc1872c2Ce19a4b50cd10f680e78E3Ba3',
+  attesterNFT: identityContractSet.attesterNFT,
+  citizenNFT: identityContractSet.citizenNFT,
+  governor: process.env.EXPO_PUBLIC_GOVERNOR || '0x5F5e499Dc1872c2Ce19a4b50cd10f680e78E3Ba3',
 };
 
 // Contract instances (Gnosis v2)

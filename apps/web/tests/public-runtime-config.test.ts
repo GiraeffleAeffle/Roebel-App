@@ -23,6 +23,11 @@ const environment = {
     "public-anon-key-with-more-than-20-characters",
   ROEBEL_PUBLIC_THIRDWEB_CLIENT_ID: "thirdweb_public_client_123456",
   ROEBEL_PUBLIC_GNOSIS_BUNDLER_URL: "/api/bundler",
+  ROEBEL_PUBLIC_IDENTITY_CONTRACT_SET: "gnosis-staging-test-v1",
+  ROEBEL_PUBLIC_ATTESTER_NFT_ADDRESS:
+    "0x5983F6300bCE3D9C1336a858Bd73F259bB8330F3",
+  ROEBEL_PUBLIC_CITIZEN_NFT_ADDRESS:
+    "0x0Be374808A567c9088aC8208B90a4239432B3220",
 };
 
 const fixture = [
@@ -30,6 +35,9 @@ const fixture = [
   "__ROEBEL_RUNTIME_SUPABASE_ANON_KEY__",
   "__ROEBEL_RUNTIME_THIRDWEB_CLIENT_ID__",
   "/__roebel_runtime_gnosis_bundler_url__",
+  "__ROEBEL_RUNTIME_IDENTITY_CONTRACT_SET__",
+  "0x0000000000000000000000000000000000000a71",
+  "0x0000000000000000000000000000000000000c17",
 ].join("|");
 
 test("injects only reviewed public runtime values without emitting them", async () => {
@@ -51,7 +59,7 @@ test("injects only reviewed public runtime values without emitting them", async 
     );
     assert.equal(receipt.patchedFiles, 2);
     assert.equal(receipt.valuesEmitted, false);
-    assert.deepEqual(Object.values(receipt.replacements), [2, 2, 2, 2]);
+    assert.deepEqual(Object.values(receipt.replacements), [2, 2, 2, 2, 2, 2, 2]);
     const patched = `${readFileSync(join(next, "static", "chunks", "client.js"), "utf8")}|${readFileSync(join(root, "server.js"), "utf8")}`;
     for (const token of fixture.split("|"))
       assert.doesNotMatch(
@@ -131,6 +139,18 @@ test("fails closed for placeholder values, missing tokens and symlink traversal"
       /public_runtime_config_invalid:ROEBEL_PUBLIC_GNOSIS_BUNDLER_URL/
     );
 
+    await assert.rejects(
+      applyPublicRuntimeConfig({
+        environment: {
+          ...environment,
+          ROEBEL_PUBLIC_CITIZEN_NFT_ADDRESS:
+            "0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5",
+        },
+        roots: [join(root, "client.js")],
+      }),
+      /public_runtime_identity_contract_set_invalid/
+    );
+
     symlinkSync(join(root, "client.js"), join(root, "linked.js"));
     await assert.rejects(
       applyPublicRuntimeConfig({
@@ -172,7 +192,7 @@ test("materializes a bounded writable shadow while preserving the read-only sour
     assert.equal(receipt.copiedFiles, 2);
     assert.equal(receipt.linkedFiles, 1);
     assert.equal(receipt.valuesEmitted, false);
-    assert.deepEqual(Object.values(receipt.replacements), [1, 1, 1, 1]);
+    assert.deepEqual(Object.values(receipt.replacements), [1, 1, 1, 1, 1, 1, 1]);
     assert.equal(
       readFileSync(join(next, "static", "chunks", "client.js"), "utf8"),
       fixture

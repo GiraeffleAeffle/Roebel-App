@@ -6,7 +6,7 @@ import { useGoBack } from '@/hooks/useGoBack';
 import { useActiveAccount } from 'thirdweb/react';
 import { balanceOf } from 'thirdweb/extensions/erc721';
 import { ArrowLeftIcon } from '@/components/Icons';
-import { citizenNFTContract } from '@/constants/thirdweb';
+import { governanceCitizenNFTContract as citizenNFTContract } from '@/constants/thirdweb';
 import { useProposalDetails } from '@/hooks/useProposalDetails';
 import { useProposalContent } from '@/hooks/useProposalContent';
 import { shortenAddress, calculateReadingTime } from '@/lib/governance-utils';

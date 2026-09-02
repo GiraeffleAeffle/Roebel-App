@@ -1,6 +1,6 @@
 import { ProposalState, ProposalVotes, VotePercentages } from './governance-types';
 import { balanceOf } from 'thirdweb/extensions/erc721';
-import { citizenNFTContract } from '@/constants/thirdweb';
+import { governanceCitizenNFTContract as citizenNFTContract } from '@/constants/thirdweb';
 
 /**
  * Get human-readable proposal state name (German)

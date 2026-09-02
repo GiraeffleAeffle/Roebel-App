@@ -1,7 +1,7 @@
 "use client";
 
 import { useActiveAccount, useActiveWallet, useReadContract, useSendTransaction } from "thirdweb/react";
-import { governorContract, nftContract } from "@/lib/contracts";
+import { governorContract, governanceCitizenNFTContract as nftContract } from "@/lib/contracts";
 import { balanceOf } from "thirdweb/extensions/erc721";
 import { prepareContractCall, toWei, waitForReceipt } from "thirdweb";
 import { ethers } from "ethers";
@@ -15,6 +15,8 @@ import { client } from "@/app/client";
 import { useVerificationStatus } from "@/hooks/useVerificationStatus";
 import { IrysBalanceCard } from "@/components/admin/IrysBalanceCard";
 import { de } from "@/lib/translations/de";
+import { identityContractSet } from "@/lib/identity-contract-set";
+import { assertProductionGovernanceWritesAllowed } from "@roebel/blockchain";
 
 type UploadStage = "idle" | "uploading" | "submitting" | "confirming" | "success" | "error";
 
@@ -50,7 +52,10 @@ export function CreateProposalForm({
   useReadContract(balanceOf, {
     contract: nftContract,
     owner: account?.address || "",
-    queryOptions: { enabled: !!account },
+    queryOptions: {
+      enabled:
+        !!account && identityContractSet.productionGovernanceWritesAllowed,
+    },
   });
 
   // Form state
@@ -176,6 +181,8 @@ export function CreateProposalForm({
     e.preventDefault();
     if (!account) return;
 
+    assertProductionGovernanceWritesAllowed(identityContractSet);
+
     setError("");
     console.log("🚀 Starting proposal creation process...");
 
@@ -285,7 +292,18 @@ export function CreateProposalForm({
       <h1 className="text-3xl font-medium mb-2 text-foreground">{de.proposals.createProposalForm.title}</h1>
       <p className="text-muted-foreground mb-8">{de.proposals.createProposalForm.subtitle}</p>
 
-      {statusLoading ? (
+      {!identityContractSet.productionGovernanceWritesAllowed ? (
+        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-8 text-center">
+          <div className="mb-4 text-4xl">🧪</div>
+          <h2 className="mb-2 text-xl font-medium text-amber-950">
+            Governance im Testbetrieb deaktiviert
+          </h2>
+          <p className="text-amber-900">
+            Der Test-Bürger-Pass übt nur den Bürgerprozess. Er erteilt keine
+            Befugnis für produktive Vorschläge, Abstimmungen oder Zahlungen.
+          </p>
+        </div>
+      ) : statusLoading ? (
         <div className="text-center py-12">
           <div className="inline-block w-8 h-8 border-4 border-black border-t-transparent rounded-full animate-spin mb-4" />
           <p className="text-muted-foreground">{de.common.loading}</p>

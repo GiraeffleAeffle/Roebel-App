@@ -10,7 +10,7 @@ import {
   client,
   governorContract,
   maciContract,
-  citizenNFTContract,
+  governanceCitizenNFTContract as citizenNFTContract,
   getPollContract,
 } from '@/constants/thirdweb';
 import { VoteType, ProposalState } from '@/lib/governance-types';
@@ -39,6 +39,8 @@ import {
   prepareSignUpGatekeeperData,
   PubKey,
 } from '@/lib/maci';
+import { identityContractSet } from '@/constants/identity-contract-set';
+import { assertProductionGovernanceWritesAllowed } from '@roebel/blockchain';
 
 // Reward screen body copy for casting a vote (governance participation).
 const VOTE_REWARD_SUBTITLE =
@@ -183,6 +185,7 @@ export default function VoteButtons({
 
   // Resolve the per-proposal Poll address + deadline from the Governor.
   useEffect(() => {
+    if (!identityContractSet.productionGovernanceWritesAllowed) return;
     if (!proposalId || proposalId === 0n) {
       setPollLookupState('orphan');
       return;
@@ -221,6 +224,7 @@ export default function VoteButtons({
 
   // Tick local "now" once a second so the open/closed boundary doesn't lag.
   useEffect(() => {
+    if (!identityContractSet.productionGovernanceWritesAllowed) return;
     const id = setInterval(() => {
       setNowSec(BigInt(Math.floor(Date.now() / 1000)));
     }, 1000);
@@ -231,6 +235,7 @@ export default function VoteButtons({
   // post-deadline branch to differentiate "tally still pending" (state ==
   // Active during grace) from "tally landed" (state ∈ Defeated/Succeeded/…).
   useEffect(() => {
+    if (!identityContractSet.productionGovernanceWritesAllowed) return;
     if (!proposalId || proposalId === 0n) return;
     let cancelled = false;
     const fetchState = async () => {
@@ -261,10 +266,16 @@ export default function VoteButtons({
   // OZ Pending/Active flag — which lags by 1-2 seconds at proposal start.
   const isVotingOpen = !!pollAddress && pollDeadline !== null && nowSec <= pollDeadline;
   const isVotingClosed = !!pollAddress && pollDeadline !== null && nowSec > pollDeadline;
-  const canVote = !!account && isCitizen && isVotingOpen && signUpState.status === 'signed-up';
+  const canVote =
+    identityContractSet.productionGovernanceWritesAllowed &&
+    !!account &&
+    isCitizen &&
+    isVotingOpen &&
+    signUpState.status === 'signed-up';
 
   // Ensure refreshSignUp is called when prerequisites change.
   useEffect(() => {
+    if (!identityContractSet.productionGovernanceWritesAllowed) return;
     if (!serializedKeypair) return;
     if (signUpState.status === 'unknown') {
       refreshSignUp().catch(() => undefined);
@@ -322,6 +333,7 @@ export default function VoteButtons({
   // ----- Step 2: sign up to MACI -----
   const handleSignUp = async () => {
     if (phase !== 'idle') return;
+    assertProductionGovernanceWritesAllowed(identityContractSet);
     if (!account) {
       setErrorDrawer({ visible: true, message: 'Bitte verbinde zuerst dein Wallet.' });
       return;
@@ -440,6 +452,7 @@ export default function VoteButtons({
   // a valid ballot needs it. If it's missing we stash the choice and open the
   // birthdate sheet; `handleBirthdateSubmit` resumes the vote once saved.
   const handleVote = async (support: VoteType) => {
+    assertProductionGovernanceWritesAllowed(identityContractSet);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     if (!canVote || !account || !pollAddress || pollId === null) return;
     if (signUpState.status !== 'signed-up') return;
@@ -498,6 +511,7 @@ export default function VoteButtons({
   };
 
   const castVote = async (support: VoteType) => {
+    assertProductionGovernanceWritesAllowed(identityContractSet);
     if (!canVote || !account || !pollAddress || pollId === null) return;
     if (signUpState.status !== 'signed-up') return;
     if (!gnosisAccount) {
@@ -627,6 +641,15 @@ export default function VoteButtons({
   };
 
   // ============== Rendering ==============
+
+  if (!identityContractSet.productionGovernanceWritesAllowed) {
+    return (
+      <Container colors={colors}>
+        <Text style={[styles.title, { color: colors.textPrimary, marginBottom: 4 }]}>🧪 Nur Test-Bürgerprozess</Text>
+        <Text style={[styles.messageText, { color: colors.textSecondary }]}>Der Test-Bürger-Pass erteilt keine Befugnis für produktive Abstimmungen, kommunale Entscheidungen oder Zahlungen.</Text>
+      </Container>
+    );
+  }
 
   if (!account) {
     return (

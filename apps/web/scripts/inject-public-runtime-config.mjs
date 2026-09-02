@@ -16,6 +16,17 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SAFE_PUBLIC_VALUE = /^[A-Za-z0-9:/?&=._~%+-]+$/u;
 
+const IDENTITY_CONTRACT_SETS = Object.freeze({
+  "gnosis-production-v2": Object.freeze({
+    attesterNFT: "0xC587F383696D3c9DF7A6eE03A9160E40Ae1cdb82",
+    citizenNFT: "0x59aA26f499D7C2B3EC2c8524Ed06F54fc4E85dE5",
+  }),
+  "gnosis-staging-test-v1": Object.freeze({
+    attesterNFT: "0x5983F6300bCE3D9C1336a858Bd73F259bB8330F3",
+    citizenNFT: "0x0Be374808A567c9088aC8208B90a4239432B3220",
+  }),
+});
+
 const PUBLIC_BINDINGS = [
   {
     environment: "ROEBEL_PUBLIC_SUPABASE_URL",
@@ -62,6 +73,23 @@ const PUBLIC_BINDINGS = [
       );
     },
   },
+  {
+    environment: "ROEBEL_PUBLIC_IDENTITY_CONTRACT_SET",
+    token: "__ROEBEL_RUNTIME_IDENTITY_CONTRACT_SET__",
+    validate(value) {
+      return Object.hasOwn(IDENTITY_CONTRACT_SETS, value);
+    },
+  },
+  {
+    environment: "ROEBEL_PUBLIC_ATTESTER_NFT_ADDRESS",
+    token: "0x0000000000000000000000000000000000000a71",
+    validate: isAddress,
+  },
+  {
+    environment: "ROEBEL_PUBLIC_CITIZEN_NFT_ADDRESS",
+    token: "0x0000000000000000000000000000000000000c17",
+    validate: isAddress,
+  },
 ];
 
 const PATCHABLE_EXTENSIONS = new Set([".html", ".js", ".json"]);
@@ -74,8 +102,29 @@ function isPublicToken(value) {
   );
 }
 
+function isAddress(value) {
+  return /^0x[0-9a-fA-F]{40}$/u.test(value);
+}
+
+function assertIdentityContractSet(bindings) {
+  const values = Object.fromEntries(
+    bindings.map((binding) => [binding.environment, binding.value]),
+  );
+  const selected =
+    IDENTITY_CONTRACT_SETS[values.ROEBEL_PUBLIC_IDENTITY_CONTRACT_SET];
+  if (
+    !selected ||
+    values.ROEBEL_PUBLIC_ATTESTER_NFT_ADDRESS.toLowerCase() !==
+      selected.attesterNFT.toLowerCase() ||
+    values.ROEBEL_PUBLIC_CITIZEN_NFT_ADDRESS.toLowerCase() !==
+      selected.citizenNFT.toLowerCase()
+  ) {
+    throw new Error("public_runtime_identity_contract_set_invalid");
+  }
+}
+
 function resolveBindings(environment) {
-  return PUBLIC_BINDINGS.map((binding) => {
+  const bindings = PUBLIC_BINDINGS.map((binding) => {
     const value = environment[binding.environment];
     let valid =
       typeof value === "string" &&
@@ -94,6 +143,8 @@ function resolveBindings(environment) {
       throw new Error(`public_runtime_config_invalid:${binding.environment}`);
     return { ...binding, value };
   });
+  assertIdentityContractSet(bindings);
+  return bindings;
 }
 
 async function collectPatchableFiles(path, files) {

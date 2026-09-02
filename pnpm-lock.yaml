@@ -58,6 +58,9 @@ importers:
       '@netizen-labs/nostr':
         specifier: workspace:*
         version: link:../../packages/nostr
+      '@roebel/blockchain':
+        specifier: workspace:*
+        version: link:../../packages/blockchain
       '@react-native-async-storage/async-storage':
         specifier: 2.2.0
         version: 2.2.0(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@5.0.10))
@@ -659,6 +662,9 @@ importers:
       '@netizen-labs/workspace':
         specifier: workspace:*
         version: link:../../packages/workspace
+      '@roebel/blockchain':
+        specifier: workspace:*
+        version: link:../../packages/blockchain
       '@noble/hashes':
         specifier: ^1.8.0
         version: 1.8.0

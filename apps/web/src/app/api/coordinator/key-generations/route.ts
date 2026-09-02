@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-  verifyIsAttester,
+  verifyIsProductionAttester,
   verifyIsFounder,
   verifyWalletSignature,
 } from "@/lib/shamir/signature-verification";
@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
       { status: 403 }
     );
   }
-  if (!(await verifyIsAttester(creatorWallet))) {
+  if (!(await verifyIsProductionAttester(creatorWallet))) {
     return NextResponse.json(
       { error: "creatorWallet no longer holds AttesterNFT" },
       { status: 403 }

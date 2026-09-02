@@ -13,6 +13,7 @@ import { AccountProvider } from "@/lib/context/AccountContext";
 import { Analytics } from "@vercel/analytics/react";
 import { RecordModeNotice } from "@/components/RecordModeNotice";
 import { CitizenSessionProvider } from "@/lib/citizen-session/CitizenSessionContext";
+import { IdentityContractSetBanner } from "@/components/IdentityContractSetBanner";
 
 export const metadata: Metadata = {
   title: "Röbel App",
@@ -44,6 +45,7 @@ export default function RootLayout({
             <GlobalAutoConnect />
             <AccountProvider>
               <CitizenSessionProvider>
+                <IdentityContractSetBanner />
                 <GlobalWalletRedirect />
                 <RecordModeNotice />
                 <div className="flex-1">{children}</div>

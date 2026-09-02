@@ -11,10 +11,9 @@
  *   recovered = verifyMessage(message, signature)
  *   ok       = recovered.toLowerCase() === expectedAddress.toLowerCase()
  *
- * Attester-NFT gating: read `hasAttesterNFT(address)` on the live
- * AttesterNFT contract. The address is hard-coded as ATTESTER_NFT_ADDRESS
- * below and MUST be kept in sync with `packages/blockchain`
- * CONTRACTS.attesterNFT on every rotation — it does NOT update itself.
+ * Attester-NFT gating: read `hasAttesterNFT(address)` on the explicitly
+ * production-pinned AttesterNFT. A staging Test-Bürger-Pass carries no
+ * coordinator/founder authority and can never satisfy this gate.
  *
  * Founder gating: a small hard-coded allowlist of founder wallets that
  * are permitted to run /coordinator/generate-key. Lives here so it's
@@ -25,19 +24,9 @@ import { Contract, JsonRpcProvider, hashMessage, verifyMessage } from "ethers";
 import { readContract, getContract } from "thirdweb";
 import { gnosis } from "@/lib/gnosis";
 import { client } from "@/app/client";
+import { resolveIdentityContractSet } from "@roebel/blockchain";
 
-// Mirrors apps/web/src/lib/verification-contracts.ts and
-// packages/blockchain CONTRACTS.attesterNFT. Kept inline here so this
-// server-only module has no client-side imports (the verification-
-// contracts module pulls in `getContract` instances at module load and
-// is otherwise client-flavored).
-//
-// IMPORTANT: bump this on every AttesterNFT rotation. It was previously
-// left at the pre-2026-05-23 address (0xa06F09Cb…), which silently
-// rejected attesters minted on the new contract with "is not an Attester"
-// even though they held a valid NFT. Gnosis v2 Sybil-hardened rotation
-// (2026-06-25): AttesterNFTv2 now lives on 0xC587… on Gnosis (chainId 100).
-const ATTESTER_NFT_ADDRESS = "0xC587F383696D3c9DF7A6eE03A9160E40Ae1cdb82";
+const productionIdentityContractSet = resolveIdentityContractSet();
 
 /**
  * Founder allowlist. Keep this list of human-readable comments so any
@@ -50,9 +39,9 @@ const FOUNDER_WALLETS = new Set<string>(
   ].map((a) => a.toLowerCase())
 );
 
-const attesterNftContract = getContract({
+const productionAttesterNftContract = getContract({
   client,
-  address: ATTESTER_NFT_ADDRESS,
+  address: productionIdentityContractSet.attesterNFT,
   chain: gnosis,
 });
 
@@ -134,10 +123,10 @@ export async function verifyWalletSignature(
 /**
  * Returns true if `address` currently holds an AttesterNFT.
  */
-export async function verifyIsAttester(address: string): Promise<boolean> {
+export async function verifyIsProductionAttester(address: string): Promise<boolean> {
   try {
     const has = (await readContract({
-      contract: attesterNftContract,
+      contract: productionAttesterNftContract,
       method: "function hasAttesterNFT(address account) view returns (bool)",
       params: [address as `0x${string}`],
     })) as boolean;
@@ -155,7 +144,7 @@ export async function verifyIsAttester(address: string): Promise<boolean> {
  * Returns true if `address` is on the founder allowlist.
  *
  * Note: founder-gating is independent of AttesterNFT membership. We
- * additionally require `verifyIsAttester` in the same handler to ensure
+ * additionally require `verifyIsProductionAttester` in the same handler to ensure
  * the founder still holds the NFT (defense against an allowlisted
  * wallet that has been revoked).
  */

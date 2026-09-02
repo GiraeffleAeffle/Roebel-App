@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 
 import { Header } from "@/components/layout/Header";
 import { useActiveAccount, useReadContract } from "thirdweb/react";
-import { governorContract, nftContract } from "@/lib/contracts";
+import { governorContract, governanceCitizenNFTContract as nftContract } from "@/lib/contracts";
 import { balanceOf } from "thirdweb/extensions/erc721";
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";

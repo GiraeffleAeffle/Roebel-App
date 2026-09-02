@@ -98,7 +98,7 @@ export async function eureBalance(account: string): Promise<bigint> {
 export async function hasCitizenNFT(account: string): Promise<boolean> {
   try {
     const bal = await gnosisClient.readContract({
-      address: addr(ADDR.citizenNFT),
+      address: addr(ADDR.productionCitizenNFT),
       abi: ERC721_ABI,
       functionName: "balanceOf",
       args: [addr(account)],
@@ -113,7 +113,7 @@ export async function hasCitizenNFT(account: string): Promise<boolean> {
 export async function hasAttesterNFT(account: string): Promise<boolean> {
   try {
     const bal = await gnosisClient.readContract({
-      address: addr(ADDR.attesterNFT),
+      address: addr(ADDR.productionAttesterNFT),
       abi: ERC721_ABI,
       functionName: "balanceOf",
       args: [addr(account)],

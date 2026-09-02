@@ -1,0 +1,46 @@
+{
+  "environment": "test",
+  "warning": "TEST CONTRACTS. Burner-owned, migration never finalized, anyone holding the burner key can mint identities. NEVER reference these from production config.",
+  "network": "gnosis",
+  "chainId": 100,
+  "deployedAt": "2026-09-02T14:28:56.622Z",
+  "deployBlock": 48044128,
+  "owner": "0xd5028284017A32C672CbD73Fe35aCD897bA874cf",
+  "cosigners": [
+    "0x23C1A14d34E2Dd66DB272a916dDbf2a695366706",
+    "0x2A8a14a76d7e02FB7ffb4FB1a1b58bC11184225B",
+    "0x5cA779815A65D541d3aAf01B7A6e5c8E25182d77",
+    "0x80474C4E4360321F75cE4b5dE11Ba0BA51d484E8",
+    "0x717A95Cf08CE067Ff3847833c80418d681109B90"
+  ],
+  "founders": [
+    "0x23C1A14d34E2Dd66DB272a916dDbf2a695366706",
+    "0x2A8a14a76d7e02FB7ffb4FB1a1b58bC11184225B",
+    "0x5cA779815A65D541d3aAf01B7A6e5c8E25182d77"
+  ],
+  "cosignerDerivation": "keccak256(burnerPrivKey, 'roebel-onchain-test-env/cosigner/v1', i) for i in 1..5",
+  "bandProfile": "prod-shaped",
+  "bands": {
+    "attester": {
+      "approval": [5000, 3, 7],
+      "rejection": [5000, 3, 7]
+    },
+    "citizen": {
+      "attestationAttester": [3000, 2, 7],
+      "attestationCitizen": [0, 1, 1],
+      "revocationAttester": [6700, 3, 65535],
+      "revocationCitizen": [0, 1, 1],
+      "rejectionAttester": [2500, 2, 5],
+      "rejectionCitizen": [2500, 2, 5]
+    }
+  },
+  "migrationFinalized": false,
+  "contracts": {
+    "attesterNFTv2": "0x5983F6300bCE3D9C1336a858Bd73F259bB8330F3",
+    "citizenNFTv2": "0x0Be374808A567c9088aC8208B90a4239432B3220"
+  },
+  "runtimeCodeHashes": {
+    "attesterNFTv2": "0x3c12a034ea9c2749c786497b5d50dcfaa4eff84860819d788517145a2276ee51",
+    "citizenNFTv2": "0x481949efe62483d881190ec16e7ac6ffd796b0e601ea952507fa6eee1986bafb"
+  }
+}
