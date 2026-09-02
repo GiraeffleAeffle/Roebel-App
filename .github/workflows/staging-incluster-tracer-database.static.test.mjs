@@ -26,6 +26,27 @@ const citizenAdoptionIntegrationUrl = new URL(
 const citizenAdoptionIntegrationSql = existsSync(citizenAdoptionIntegrationUrl)
   ? readFileSync(citizenAdoptionIntegrationUrl, "utf8")
   : "";
+const syntheticAdoptionIntegrationUrl = new URL(
+  "supabase/tests/staging_incluster_tracer_synthetic_citizen_adoption_integration.sql",
+  root
+);
+const syntheticAdoptionIntegrationSql = existsSync(syntheticAdoptionIntegrationUrl)
+  ? readFileSync(syntheticAdoptionIntegrationUrl, "utf8")
+  : "";
+const syntheticAdoptionMigration = readFileSync(
+  new URL(
+    "supabase/migrations/20260902_staging_synthetic_citizen_adoption.sql",
+    root
+  ),
+  "utf8"
+);
+const syntheticAdoptionSchemaContract = readFileSync(
+  new URL(
+    "supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json",
+    root
+  ),
+  "utf8"
+);
 const secretProvisioningSql = readFileSync(
   new URL(
     "supabase/tests/staging_incluster_tracer_provision_secrets.sql",
@@ -56,6 +77,8 @@ test("the database integration workflow is bounded and runs on relevant changes"
   for (const path of [
     "supabase/migrations/20260901_staging_citizen_adoption.sql",
     "supabase/staging-citizen-adoption-schema-contract-v1.json",
+    "supabase/migrations/20260902_staging_synthetic_citizen_adoption.sql",
+    "supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json",
   ]) {
     assert.equal(
       (workflow.match(new RegExp(`- "${path.replaceAll(".", "\\.")}"`, "gu")) ?? [])
@@ -90,6 +113,22 @@ test("the harness pins the database image and reviewed migration bytes", () => {
     harness,
     /require_sha256 "\$CITIZEN_ADOPTION_MIGRATION" "\$CITIZEN_ADOPTION_MIGRATION_SHA256"/u
   );
+  assert.match(
+    harness,
+    /readonly SYNTHETIC_ADOPTION_MIGRATION_SHA256="992e56a65af74b32e35d2211ac57714f32e2e72e4fb82ea59afeb7dbbcefb282"/u
+  );
+  assert.match(
+    harness,
+    /readonly SYNTHETIC_ADOPTION_SCHEMA_CONTRACT_SHA256="bcaa0b098a99b145e5111c17e29e5e7d9e9eb0840ee27643b3c26db34118bd66"/u
+  );
+  assert.match(
+    harness,
+    /require_sha256 "\$SYNTHETIC_ADOPTION_MIGRATION" "\$SYNTHETIC_ADOPTION_MIGRATION_SHA256"/u
+  );
+  assert.match(
+    harness,
+    /require_sha256 "\$SYNTHETIC_ADOPTION_SCHEMA_CONTRACT" "\$SYNTHETIC_ADOPTION_SCHEMA_CONTRACT_SHA256"/u
+  );
   assert.match(harness, /--pull=always/u);
   assert.match(harness, /trap cleanup EXIT/u);
   assert.match(
@@ -97,9 +136,9 @@ test("the harness pins the database image and reviewed migration bytes", () => {
     /PGOPTIONS='-c search_path=pg_catalog,public,staging_participant_private'/u
   );
   assert.equal(
-    (harness.match(/run_participant_migration_file "\$(?:PARTICIPANT|TOPIC|CITIZEN_ADOPTION)_MIGRATION"/gu) ?? [])
+    (harness.match(/run_participant_migration_file "\$(?:PARTICIPANT|TOPIC|CITIZEN_ADOPTION|SYNTHETIC_ADOPTION)_MIGRATION"/gu) ?? [])
       .length,
-    3
+    4
   );
   assert.doesNotMatch(harness, /docker (?:build|compose build)/u);
 });
@@ -131,11 +170,12 @@ test("PostgREST is digest-pinned on an unpublished isolated network", () => {
   assert.doesNotMatch(harness, /--publish(?:=|\s)/u);
 });
 
-test("the HTTP test traverses all three preflights and ordinary write RPCs", () => {
+test("the HTTP test traverses all four preflights and ordinary write RPCs", () => {
   for (const rpc of [
     "staging_participant_gateway_preflight",
     "staging_participant_gateway_topic_tracer_preflight",
     "staging_participant_gateway_citizen_adoption_preflight",
+    "staging_participant_gateway_synthetic_adoption_preflight",
     "staging_participant_gateway_create_main_text_post",
     "staging_participant_gateway_create_main_text_comment",
   ]) {
@@ -143,6 +183,32 @@ test("the HTTP test traverses all three preflights and ordinary write RPCs", () 
   }
   assert.match(harness, /Authorization: Bearer/u);
   assert.match(harness, /@Mecky/u);
+});
+
+test("the synthetic schema bytes stay pinned to the isolated no-authority contract", () => {
+  assert.equal(
+    syntheticAdoptionSchemaContract,
+    `${JSON.stringify(JSON.parse(syntheticAdoptionSchemaContract))}\n`
+  );
+  assert.match(
+    syntheticAdoptionMigration,
+    /sha256:bcaa0b098a99b145e5111c17e29e5e7d9e9eb0840ee27643b3c26db34118bd66/u
+  );
+  assert.match(
+    syntheticAdoptionMigration,
+    /\$contract\$\{"authorityBinding":"none"[\s\S]+?\n\$contract\$/u
+  );
+  for (const value of [
+    "staging_test_citizen_pass_v1",
+    "public_synthetic_citizen_adoption_projection_v1",
+    "synthetic_journey_preview_only",
+    "authorityBinding",
+    "testOnly",
+  ]) assert.match(syntheticAdoptionMigration, new RegExp(value, "u"));
+  assert.doesNotMatch(
+    syntheticAdoptionMigration,
+    /(?:insert|update|delete)\s+(?:into\s+|from\s+)?(?:public\.)?(?:civic_cases|votes|treasury|municipal_decisions)\b/iu
+  );
 });
 
 test("the behavior check uses the secret-bound anon RPC surface", () => {
@@ -243,6 +309,80 @@ test("citizen adoption is exercised behaviorally through the durable anon RPCs",
     assert.match(
       citizenAdoptionIntegrationSql,
       new RegExp(`'${effect}'[\\s\\S]{0,80}?false`, "u")
+    );
+  }
+});
+
+test("synthetic adoption is exercised through a separate durable anon RPC surface", () => {
+  assert.notEqual(syntheticAdoptionIntegrationSql, "");
+  assert.match(
+    harness,
+    /staging_incluster_tracer_synthetic_citizen_adoption_integration\.sql/u
+  );
+  assert.match(syntheticAdoptionIntegrationSql, /set local role anon/iu);
+  assert.match(syntheticAdoptionIntegrationSql, /request\.headers/u);
+  for (const rpc of [
+    "synthetic_adoption_preflight",
+    "issue_synthetic_challenge",
+    "consume_synthetic_challenge",
+    "accept_synthetic_adoption",
+    "resolve_synthetic_adoption_replay",
+    "read_public_synthetic_adoption",
+  ]) {
+    assert.match(
+      syntheticAdoptionIntegrationSql,
+      new RegExp(`public\\.staging_participant_gateway_${rpc}\\(`, "u")
+    );
+  }
+  assert.match(
+    syntheticAdoptionIntegrationSql,
+    /do \$synthetic_challenge_used\$[\s\S]+?STAGING_PARTICIPANT_SYNTHETIC_CHALLENGE_USED[\s\S]+?\$synthetic_challenge_used\$;/iu
+  );
+  for (const [kind, failure] of [
+    ["request", "STAGING_PARTICIPANT_SYNTHETIC_ADOPTION_REQUEST_CONFLICT"],
+    ["idempotency", "STAGING_PARTICIPANT_SYNTHETIC_ADOPTION_IDEMPOTENCY_CONFLICT"],
+    ["event", "STAGING_PARTICIPANT_SYNTHETIC_ADOPTION_EVENT_CONFLICT"],
+    ["tuple", "STAGING_PARTICIPANT_SYNTHETIC_ADOPTION_TUPLE_CONFLICT"],
+  ]) {
+    assert.match(
+      syntheticAdoptionIntegrationSql,
+      new RegExp(
+        `do \\$synthetic_adoption_${kind}_conflict\\$[\\s\\S]+?${failure}[\\s\\S]+?\\$synthetic_adoption_${kind}_conflict\\$;`,
+        "iu"
+      )
+    );
+  }
+  assert.match(
+    syntheticAdoptionIntegrationSql,
+    /accept_synthetic_adoption\([\s\S]+?resolve_synthetic_adoption_replay\([\s\S]+?as synthetic_adoption_exact_retry/iu
+  );
+  assert.equal(
+    (
+      syntheticAdoptionIntegrationSql.match(
+        /public\.staging_participant_gateway_accept_synthetic_adoption\(/gu
+      ) ?? []
+    ).length,
+    6
+  );
+  for (const evidence of [
+    "walletAddress",
+    "sessionBindingSha256",
+    "privateEligibilityEvidence",
+    "finalizedBlockNumber",
+    "finalizedBlockHash",
+  ]) assert.match(syntheticAdoptionIntegrationSql, new RegExp(evidence, "u"));
+  for (const effect of [
+    "submittedToCivicWorkflow",
+    "civicCaseCreated",
+    "administrativeEndorsement",
+    "bindingVote",
+    "councilDecision",
+    "treasuryEffect",
+    "paymentEffect",
+  ]) {
+    assert.match(
+      syntheticAdoptionIntegrationSql,
+      new RegExp(`'${effect}'[\\s\\S]{0,100}?'false'`, "u")
     );
   }
 });
