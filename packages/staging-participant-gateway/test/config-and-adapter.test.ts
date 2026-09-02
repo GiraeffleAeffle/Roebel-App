@@ -61,6 +61,20 @@ const env = {
 };
 
 const BAKED_SOURCE_REVISION = "a".repeat(40);
+const syntheticEnv = {
+  ...env,
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION: "enabled",
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION_POLICY_VERSION:
+    "roebel-test-citizen-nft-v2-staging-2026-09",
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_TEST_CITIZEN_NFT_ADDRESS:
+    "0x0Be374808A567c9088aC8208B90a4239432B3220",
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_TEST_CITIZEN_NFT_RUNTIME_CODE_KECCAK256:
+    "0x481949efe62483d881190ec16e7ac6ffd796b0e601ea952507fa6eee1986bafb",
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION_MIGRATION_SHA256:
+    `sha256:${"3".repeat(64)}`,
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION_DATABASE_SCHEMA_SHA256:
+    "sha256:bcaa0b098a99b145e5111c17e29e5e7d9e9eb0840ee27643b3c26db34118bd66",
+};
 const productionConfig = (input: Record<string, string | undefined>) =>
   resolveProductionGatewayConfig(input, BAKED_SOURCE_REVISION);
 const dockerfile = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
@@ -217,6 +231,37 @@ test("production configuration fails closed unless explicit staging mode and eve
     ROEBEL_STAGING_PARTICIPANT_GATEWAY_SOURCE_REVISION: "e".repeat(40),
   }), null);
   assert.equal(resolveProductionGatewayConfig(env, "e".repeat(40)), null);
+  assert.equal(productionConfig({
+    ...env,
+    ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION: "enabled",
+  }), null);
+  assert.equal(productionConfig({
+    ...env,
+    ROEBEL_STAGING_PARTICIPANT_GATEWAY_TEST_CITIZEN_NFT_ADDRESS:
+      syntheticEnv.ROEBEL_STAGING_PARTICIPANT_GATEWAY_TEST_CITIZEN_NFT_ADDRESS,
+  }), null);
+  assert.equal(productionConfig(Object.fromEntries(
+    Object.entries(syntheticEnv).filter(([key]) =>
+      key !== "ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION"),
+  )), null);
+  assert.equal(productionConfig({
+    ...syntheticEnv,
+    ROEBEL_STAGING_PARTICIPANT_GATEWAY_TEST_CITIZEN_NFT_RUNTIME_CODE_KECCAK256:
+      undefined,
+  }), null);
+  const synthetic = productionConfig(syntheticEnv)?.syntheticCitizenAdoption;
+  assert.equal(
+    synthetic?.policy.testCitizenNftAddress,
+    "0x0be374808a567c9088ac8208b90a4239432b3220",
+  );
+  assert.equal(
+    synthetic?.policy.testCitizenNftRuntimeCodeKeccak256,
+    syntheticEnv.ROEBEL_STAGING_PARTICIPANT_GATEWAY_TEST_CITIZEN_NFT_RUNTIME_CODE_KECCAK256,
+  );
+  assert.equal(synthetic?.policy.challengeTtlSeconds, 300);
+  assert.equal(synthetic?.policy.maxEventClockSkewSeconds, 300);
+  assert.equal(synthetic?.policy.testCitizenNftAddress ===
+    productionConfig(syntheticEnv)?.citizenAdoption.citizenNftAddress, false);
   const citizenAdoption = productionConfig(env)?.citizenAdoption;
   assert.equal(citizenAdoption?.policy.municipalityId, "roebel-mueritz");
   assert.equal(
@@ -490,7 +535,7 @@ test("ADR-0022 ledger adapter sends only closed claim bodies and rejects a drift
   await assert.rejects(malformed.reserveSourcePostPromotion(promotion), /promotion_receipt_mismatch/u);
 });
 
-test("readiness adapter can call only the three fixed empty preflight RPCs and rejects drifted rows", async () => {
+test("readiness adapter can call only the four fixed empty preflight RPCs and rejects drifted rows", async () => {
   const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
   const adapter = createStagingParticipantReadinessAdapter({
     url: "https://example.supabase.co",
@@ -499,7 +544,9 @@ test("readiness adapter can call only the three fixed empty preflight RPCs and r
     fetch: async (url, init) => {
       calls.push({ url: String(url), init });
       const target = String(url);
-      const migrationId = target.includes("citizen_adoption")
+      const migrationId = target.includes("synthetic_adoption")
+        ? "20260902_staging_synthetic_citizen_adoption"
+        : target.includes("citizen_adoption")
         ? "20260901_staging_citizen_adoption"
         : target.includes("topic_tracer")
           ? "20260825_staging_participant_topic_tracer"
@@ -526,10 +573,15 @@ test("readiness adapter can call only the three fixed empty preflight RPCs and r
     (await adapter.preflightCitizenAdoption()).migrationId,
     "20260901_staging_citizen_adoption",
   );
+  assert.equal(
+    (await adapter.preflightSyntheticCitizenAdoption!()).migrationId,
+    "20260902_staging_synthetic_citizen_adoption",
+  );
   assert.deepEqual(calls.map(({ url }) => url), [
     `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.preflight}`,
     `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.topicTracerPreflight}`,
     `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.citizenAdoptionPreflight}`,
+    `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.syntheticCitizenAdoptionPreflight}`,
   ]);
   const malformed = createStagingParticipantReadinessAdapter({
     url: "https://example.supabase.co",

@@ -31,6 +31,8 @@ const PREFLIGHT_RPC = "staging_participant_gateway_preflight";
 const TOPIC_TRACER_PREFLIGHT_RPC = "staging_participant_gateway_topic_tracer_preflight";
 const CITIZEN_ADOPTION_PREFLIGHT_RPC =
   "staging_participant_gateway_citizen_adoption_preflight";
+const SYNTHETIC_CITIZEN_ADOPTION_PREFLIGHT_RPC =
+  "staging_participant_gateway_synthetic_adoption_preflight";
 
 export type RestrictedSupabaseRpcConfig = Readonly<{
   url: string;
@@ -274,6 +276,8 @@ export function createStagingParticipantReadinessAdapter(
     preflight: () => preflight(PREFLIGHT_RPC),
     preflightTopicTracer: () => preflight(TOPIC_TRACER_PREFLIGHT_RPC),
     preflightCitizenAdoption: () => preflight(CITIZEN_ADOPTION_PREFLIGHT_RPC),
+    preflightSyntheticCitizenAdoption: () =>
+      preflight(SYNTHETIC_CITIZEN_ADOPTION_PREFLIGHT_RPC),
   };
 }
 
@@ -496,4 +500,5 @@ export const restrictedStagingParticipantRpcNames = {
   preflight: PREFLIGHT_RPC,
   topicTracerPreflight: TOPIC_TRACER_PREFLIGHT_RPC,
   citizenAdoptionPreflight: CITIZEN_ADOPTION_PREFLIGHT_RPC,
+  syntheticCitizenAdoptionPreflight: SYNTHETIC_CITIZEN_ADOPTION_PREFLIGHT_RPC,
 } as const;

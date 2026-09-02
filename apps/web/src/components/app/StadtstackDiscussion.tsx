@@ -51,6 +51,7 @@ import { StadtstackAdministrationProgress } from "./StadtstackAdministrationProg
 import { CivicJourneyRail } from "./CivicJourneyRail";
 import { StadtstackProposalReceipts } from "./StadtstackProposalReceipts";
 import { StadtstackCitizenAdoption } from "./StadtstackCitizenAdoption";
+import { StadtstackSyntheticCitizenAdoption } from "./StadtstackSyntheticCitizenAdoption";
 
 type WorkflowState = {
   answer?: Record<string, unknown>;
@@ -721,6 +722,14 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
                   suggestion={thread.suggestion}
                   session={citizenSession}
                   onProjectionChange={updateCitizenAdoptionProjection}
+                />
+              )}
+            {participantTracerMode &&
+              thread.suggestion?.schemaVersion ===
+                "staging_participant_signed_topic_suggestion_v1" && (
+                <StadtstackSyntheticCitizenAdoption
+                  suggestion={thread.suggestion}
+                  session={citizenSession}
                 />
               )}
             {!topicSuggestionSigned && (

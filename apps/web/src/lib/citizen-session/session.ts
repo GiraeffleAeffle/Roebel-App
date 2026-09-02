@@ -106,6 +106,26 @@ export type CitizenEligibilityChallengeSigningInput = Readonly<{
   message: string;
 }>;
 
+export type SyntheticCitizenPassChallengeSigningInput = Readonly<{
+  schemaVersion: "staging_test_citizen_pass_v1";
+  challengeId: string;
+  audience: "roebel-staging-synthetic-citizen-adoption";
+  chainId: 100;
+  testCitizenNftContract: string;
+  subjectPubkey: string;
+  municipalityId: string;
+  policyVersion: string;
+  participantSuggestionId: string;
+  topicId: string;
+  issuedAt: number;
+  expiresAt: number;
+  environment: "staging";
+  testOnly: true;
+  authorityBinding: "none";
+  canonicalChallenge: string;
+  message: string;
+}>;
+
 export interface CitizenSession {
   readonly snapshot: CitizenSessionSnapshot;
   /** Return only the public half of the session-derived Nostr identity. */
@@ -139,6 +159,10 @@ export interface CitizenSession {
   /** Sign one exact, short-lived server challenge without exposing the key. */
   signCitizenEligibilityChallenge(
     input: CitizenEligibilityChallengeSigningInput
+  ): Promise<NostrEvent>;
+  /** Sign only the incompatible, no-authority staging test-pass challenge. */
+  signSyntheticCitizenPassChallenge(
+    input: SyntheticCitizenPassChallengeSigningInput
   ): Promise<NostrEvent>;
   dispose(): void;
 }
@@ -485,6 +509,70 @@ export function createCitizenSession(
             "eligibility-for-suggestion",
           ],
           ["municipality", input.municipalityId],
+        ],
+      });
+    },
+    async signSyntheticCitizenPassChallenge(
+      input: SyntheticCitizenPassChallengeSigningInput
+    ): Promise<NostrEvent> {
+      ensureActive();
+      const signer = await identity();
+      const expectedKeys = [
+        "schemaVersion", "challengeId", "audience", "chainId",
+        "testCitizenNftContract", "subjectPubkey", "municipalityId",
+        "policyVersion", "participantSuggestionId", "topicId", "issuedAt",
+        "expiresAt", "environment", "testOnly", "authorityBinding",
+        "canonicalChallenge", "message",
+      ].sort();
+      const core = {
+        schemaVersion: input.schemaVersion,
+        challengeId: input.challengeId,
+        audience: input.audience,
+        chainId: input.chainId,
+        testCitizenNftContract: input.testCitizenNftContract,
+        subjectPubkey: input.subjectPubkey,
+        municipalityId: input.municipalityId,
+        policyVersion: input.policyVersion,
+        participantSuggestionId: input.participantSuggestionId,
+        topicId: input.topicId,
+        issuedAt: input.issuedAt,
+        expiresAt: input.expiresAt,
+        environment: input.environment,
+        testOnly: input.testOnly,
+        authorityBinding: input.authorityBinding,
+      };
+      if (
+        Object.keys(input).sort().join("\n") !== expectedKeys.join("\n") ||
+        input.schemaVersion !== "staging_test_citizen_pass_v1" ||
+        !/^[0-9a-f]{32}$/u.test(input.challengeId) ||
+        input.audience !== "roebel-staging-synthetic-citizen-adoption" ||
+        input.chainId !== 100 || input.chainId !== snapshot.credential.chainId ||
+        input.testCitizenNftContract !==
+          "0x0be374808a567c9088ac8208b90a4239432b3220" ||
+        input.subjectPubkey !== signer.publicKey ||
+        !/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u.test(input.municipalityId) ||
+        !/^[a-z0-9][a-z0-9._-]{2,99}$/u.test(input.policyVersion) ||
+        !/^[0-9a-f]{64}$/u.test(input.participantSuggestionId) ||
+        typeof input.topicId !== "string" || input.topicId.length < 1 ||
+        input.topicId.length > 500 || !/^[\x21-\x7e]+$/u.test(input.topicId) ||
+        !Number.isSafeInteger(input.issuedAt) || input.issuedAt < 0 ||
+        !Number.isSafeInteger(input.expiresAt) ||
+        input.expiresAt - input.issuedAt !== 300 ||
+        input.environment !== "staging" || input.testOnly !== true ||
+        input.authorityBinding !== "none" ||
+        input.canonicalChallenge !== stableJson(core) ||
+        input.message !== input.canonicalChallenge
+      ) {
+        throw new Error("synthetic_citizen_pass_challenge_invalid");
+      }
+      return buildNoteEvent(signer.secretKey, input.message, {
+        createdAt: input.issuedAt,
+        tags: [
+          ["schema", "staging_test_citizen_pass_proof_v1"],
+          ["challenge", input.challengeId],
+          ["e", input.participantSuggestionId, "", "synthetic-adoption-test"],
+          ["municipality", input.municipalityId],
+          ["test-only", "true"],
         ],
       });
     },

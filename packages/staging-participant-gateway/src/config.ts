@@ -3,11 +3,14 @@ import { PRIVATE_WORKBENCH_URL, type PrivateWorkbenchMirrorConfig } from "./work
 import { parseRestrictedPostgrestOrigin } from "./restricted-postgrest-origin.ts";
 import { municipalCivicEligibilityReceiptProofPublicKey } from "@netizen-labs/nostr";
 import type { CitizenAdoptionPolicy } from "./citizen-adoption.ts";
+import type { SyntheticCitizenAdoptionPolicy } from "./synthetic-citizen-adoption.ts";
 
 const CITIZEN_ELIGIBILITY_ISSUER = "roebel-staging-citizen-verifier";
 const CITIZEN_CHALLENGE_TTL_SECONDS = 300;
 const CITIZEN_RECEIPT_TTL_SECONDS = 900;
 const CITIZEN_EVENT_CLOCK_SKEW_SECONDS = 300;
+const SYNTHETIC_CITIZEN_CHALLENGE_TTL_SECONDS = 300;
+const SYNTHETIC_CITIZEN_EVENT_CLOCK_SKEW_SECONDS = 300;
 
 export type ProductionCitizenAdoptionConfig = Readonly<{
   policy: CitizenAdoptionPolicy;
@@ -27,6 +30,9 @@ export type ProductionGatewayConfig = Readonly<{
   workbench: PrivateWorkbenchMirrorConfig;
   readinessPins: StagingParticipantReadinessPins;
   citizenAdoption: ProductionCitizenAdoptionConfig;
+  syntheticCitizenAdoption: Readonly<{
+    policy: SyntheticCitizenAdoptionPolicy;
+  }> | null;
 }>;
 
 function nonEmpty(value: string | undefined): string | null {
@@ -168,6 +174,40 @@ export function resolveProductionGatewayConfig(
   const citizenAdoptionDatabaseSchemaSha256 = sha256Digest(
     env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ADOPTION_DATABASE_SCHEMA_SHA256,
   );
+  const syntheticCitizenAdoptionMode =
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION;
+  const syntheticCitizenAdoptionInputs = [
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION_POLICY_VERSION,
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_TEST_CITIZEN_NFT_ADDRESS,
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_TEST_CITIZEN_NFT_RUNTIME_CODE_KECCAK256,
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION_MIGRATION_SHA256,
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION_DATABASE_SCHEMA_SHA256,
+  ];
+  if (
+    syntheticCitizenAdoptionMode !== undefined &&
+    syntheticCitizenAdoptionMode !== "enabled"
+  ) return null;
+  if (
+    syntheticCitizenAdoptionMode === undefined &&
+    syntheticCitizenAdoptionInputs.some((value) => value !== undefined)
+  ) return null;
+  const syntheticCitizenAdoptionEnabled =
+    syntheticCitizenAdoptionMode === "enabled";
+  const syntheticCitizenAdoptionPolicyVersion = policyVersion(
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION_POLICY_VERSION,
+  );
+  const syntheticCitizenNftAddress = contractAddress(
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_TEST_CITIZEN_NFT_ADDRESS,
+  );
+  const syntheticCitizenNftRuntimeCodeKeccak256 = runtimeCodeHash(
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_TEST_CITIZEN_NFT_RUNTIME_CODE_KECCAK256,
+  );
+  const syntheticCitizenAdoptionMigrationSha256 = sha256Digest(
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION_MIGRATION_SHA256,
+  );
+  const syntheticCitizenAdoptionDatabaseSchemaSha256 = sha256Digest(
+    env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION_DATABASE_SCHEMA_SHA256,
+  );
   if (!origin || !sessionHmacKey || sessionHmacKey.length < 32 || !inviteSha256 ||
     !allowedWallets ||
     !/^[a-f0-9]{64}$/iu.test(inviteSha256) || !gnosisRpcUrl || !supabaseUrl ||
@@ -181,6 +221,13 @@ export function resolveProductionGatewayConfig(
     !eligibilityIssuerPublicKey || !eligibilityIssuerPrivateKey ||
     !citizenNftAddress || !citizenNftRuntimeCodeHash ||
     !citizenAdoptionMigrationSha256 || !citizenAdoptionDatabaseSchemaSha256 ||
+    (syntheticCitizenAdoptionEnabled && (
+      !syntheticCitizenAdoptionPolicyVersion ||
+      !syntheticCitizenNftAddress ||
+      !syntheticCitizenNftRuntimeCodeKeccak256 ||
+      !syntheticCitizenAdoptionMigrationSha256 ||
+      !syntheticCitizenAdoptionDatabaseSchemaSha256
+    )) ||
     municipalCivicEligibilityReceiptProofPublicKey(eligibilityIssuerPrivateKey) !==
       eligibilityIssuerPublicKey) return null;
   let originUrl: URL;
@@ -227,7 +274,17 @@ export function resolveProductionGatewayConfig(
     workbench: { url: workbenchUrl, admissionHeader },
     readinessPins: { sourceRevision: immutableSourceRevision, manifestDigest, migrationSha256, databaseSchemaSha256,
       topicTracerMigrationSha256, topicTracerDatabaseSchemaSha256,
-      citizenAdoptionMigrationSha256, citizenAdoptionDatabaseSchemaSha256 },
+      citizenAdoptionMigrationSha256, citizenAdoptionDatabaseSchemaSha256,
+      ...(syntheticCitizenAdoptionEnabled ? {
+        syntheticCitizenAdoptionMigrationSha256:
+          syntheticCitizenAdoptionMigrationSha256!,
+        syntheticCitizenAdoptionDatabaseSchemaSha256:
+          syntheticCitizenAdoptionDatabaseSchemaSha256!,
+        syntheticCitizenNftAddress: syntheticCitizenNftAddress!,
+        syntheticCitizenNftRuntimeCodeKeccak256:
+          syntheticCitizenNftRuntimeCodeKeccak256!,
+      } : {}),
+    },
     citizenAdoption: {
       policy: {
         municipalityId,
@@ -245,5 +302,17 @@ export function resolveProductionGatewayConfig(
       citizenNftAddress,
       citizenNftRuntimeCodeHash,
     },
+    syntheticCitizenAdoption: syntheticCitizenAdoptionEnabled ? {
+      policy: {
+        municipalityId,
+        policyVersion: syntheticCitizenAdoptionPolicyVersion!,
+        testCitizenNftAddress: syntheticCitizenNftAddress!,
+        testCitizenNftRuntimeCodeKeccak256:
+          syntheticCitizenNftRuntimeCodeKeccak256!,
+        challengeTtlSeconds: SYNTHETIC_CITIZEN_CHALLENGE_TTL_SECONDS,
+        maxEventClockSkewSeconds:
+          SYNTHETIC_CITIZEN_EVENT_CLOCK_SKEW_SECONDS,
+      },
+    } : null,
   };
 }

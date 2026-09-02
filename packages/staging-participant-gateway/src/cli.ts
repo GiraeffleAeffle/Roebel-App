@@ -13,6 +13,8 @@ import {
 import { createRestrictedSupabaseDataAdapter, createStagingParticipantReadinessAdapter } from "./supabase-adapter.ts";
 import { createCitizenAdoptionService } from "./citizen-adoption.ts";
 import { createRestrictedSupabaseCitizenAdoptionAdapter } from "./citizen-adoption-supabase-adapter.ts";
+import { createSyntheticCitizenAdoptionService } from "./synthetic-citizen-adoption.ts";
+import { createRestrictedSupabaseSyntheticCitizenAdoptionAdapter } from "./synthetic-citizen-adoption-supabase-adapter.ts";
 import {
   createPrivateWorkbenchCitizenSuggestionThreadResolver,
   createPrivateWorkbenchMeckyMirrorAdapter,
@@ -54,6 +56,29 @@ async function main(): Promise<void> {
     receipts: citizenAdoptionStorage,
     ledger: citizenAdoptionStorage,
   });
+  const syntheticCitizenAdoptionStorage = config.syntheticCitizenAdoption
+    ? createRestrictedSupabaseSyntheticCitizenAdoptionAdapter({
+        ...supabase,
+        municipalityId: config.syntheticCitizenAdoption.policy.municipalityId,
+      })
+    : null;
+  const syntheticCitizenAdoption = config.syntheticCitizenAdoption &&
+      syntheticCitizenAdoptionStorage
+    ? createSyntheticCitizenAdoptionService({
+        policy: config.syntheticCitizenAdoption.policy,
+        sources: citizenAdoptionStorage,
+        challenges: syntheticCitizenAdoptionStorage,
+        walletVerifier,
+        eligibilityVerifier: createPinnedCitizenNftEligibilityVerifier({
+          rpcUrl: config.gnosisRpcUrl,
+          citizenNftAddress:
+            config.syntheticCitizenAdoption.policy.testCitizenNftAddress,
+          citizenNftRuntimeCodeHash:
+            config.syntheticCitizenAdoption.policy.testCitizenNftRuntimeCodeKeccak256,
+        }),
+        ledger: syntheticCitizenAdoptionStorage,
+      })
+    : undefined;
   const server = createStagingParticipantGatewayServer({
     config: config.gateway,
     verifier: walletVerifier,
@@ -63,6 +88,7 @@ async function main(): Promise<void> {
     mirror: createPrivateWorkbenchMeckyMirrorAdapter(config.workbench),
     topicTracer: createPrivateWorkbenchTopicTracerAdapter(config.workbench),
     citizenAdoption,
+    syntheticCitizenAdoption,
   });
   await listenStagingParticipantGatewayServer({
     server,

@@ -5,6 +5,19 @@ export {
 } from "./http.ts";
 export { resolveProductionGatewayConfig } from "./config.ts";
 export { createCitizenAdoptionService } from "./citizen-adoption.ts";
+export { createSyntheticCitizenAdoptionService } from "./synthetic-citizen-adoption.ts";
+export type {
+  PublicSyntheticCitizenAdoptionProjectionV1,
+  StagingTestCitizenPassV1,
+  SyntheticCitizenAdoptionChallengeStore,
+  SyntheticCitizenAdoptionLedger,
+  SyntheticCitizenAdoptionPolicy,
+  SyntheticCitizenAdoptionService,
+  SyntheticCitizenAdoptionServiceDependencies,
+  SyntheticCitizenAdoptionTracerAcceptanceV1,
+  SyntheticCitizenAdoptionTracerRequestV1,
+  SyntheticCitizenAdoptionTracerV1,
+} from "./synthetic-citizen-adoption.ts";
 export type {
   CitizenAdoptionAcceptanceReceiptV1,
   CitizenAdoptionLedger,
@@ -25,6 +38,10 @@ export {
   createStagingParticipantReadinessAdapter,
   restrictedStagingParticipantRpcNames,
 } from "./supabase-adapter.ts";
+export {
+  createRestrictedSupabaseSyntheticCitizenAdoptionAdapter,
+  restrictedSyntheticCitizenAdoptionRpcNames,
+} from "./synthetic-citizen-adoption-supabase-adapter.ts";
 export {
   createPrivateWorkbenchMeckyMirrorAdapter,
   createPrivateWorkbenchTopicTracerAdapter,
