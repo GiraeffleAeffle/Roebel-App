@@ -76,6 +76,36 @@ test("injects only reviewed public runtime values without emitting them", async 
   }
 });
 
+test("rejects Next HTML and RSC prerenders that froze the inert identity build sentinel", async () => {
+  const prerenderedBanner = [
+    '<div data-identity-contract-set="gnosis-runtime-injection-required"',
+    'data-authority-binding="none">',
+    "🧪 Runtime-Konfiguration fehlt · keine Bürgerberechtigung oder andere Befugnis.",
+    "Vertrag: 0x0000…dEaD</div>",
+  ].join(" ");
+
+  for (const extension of ["html", "rsc"]) {
+    const root = mkdtempSync(
+      join(tmpdir(), `roebel-public-runtime-prerender-${extension}-`)
+    );
+    try {
+      writeFileSync(join(root, "client.js"), fixture);
+      writeFileSync(join(root, `app.${extension}`), prerenderedBanner);
+
+      await assert.rejects(
+        applyPublicRuntimeConfig({
+          environment,
+          roots: [root],
+        }),
+        /public_runtime_identity_static_projection_forbidden/
+      );
+      assert.equal(readFileSync(join(root, "client.js"), "utf8"), fixture);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
 test("supports an explicitly disabled optional Gnosis bundler", async () => {
   const root = mkdtempSync(join(tmpdir(), "roebel-public-runtime-optional-"));
   try {

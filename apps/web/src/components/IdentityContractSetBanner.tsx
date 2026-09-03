@@ -1,6 +1,13 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { identityContractSet } from "@/lib/identity-contract-set";
 
 export function IdentityContractSetBanner() {
+  const [runtimeConfigReady, setRuntimeConfigReady] = useState(false);
+  useEffect(() => setRuntimeConfigReady(true), []);
+
+  if (!runtimeConfigReady) return null;
   if (!identityContractSet.isTest) return null;
 
   const shortAddress = `${identityContractSet.citizenNFT.slice(0, 6)}…${identityContractSet.citizenNFT.slice(-4)}`;

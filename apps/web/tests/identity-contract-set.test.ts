@@ -311,3 +311,27 @@ test("a test banner cannot hide a production identity write handle", () => {
     assert.match(source, /productionGovernanceWritesAllowed/u);
   }
 });
+
+test("the Web banner waits for the runtime-patched browser bundle", () => {
+  const webBanner = readFileSync(
+    new URL("../src/components/IdentityContractSetBanner.tsx", import.meta.url),
+    "utf8"
+  );
+  assert.match(webBanner, /^"use client";/u);
+  assert.match(
+    webBanner,
+    /const \[runtimeConfigReady, setRuntimeConfigReady\] = useState\(false\);/u
+  );
+  assert.match(
+    webBanner,
+    /useEffect\(\(\) => setRuntimeConfigReady\(true\), \[\]\);/u
+  );
+  const runtimeGate = webBanner.indexOf(
+    "if (!runtimeConfigReady) return null;"
+  );
+  const identityGate = webBanner.indexOf(
+    "if (!identityContractSet.isTest) return null;"
+  );
+  assert.ok(runtimeGate >= 0);
+  assert.ok(identityGate > runtimeGate);
+});
