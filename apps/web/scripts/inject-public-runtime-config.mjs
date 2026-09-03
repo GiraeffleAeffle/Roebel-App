@@ -92,7 +92,10 @@ const PUBLIC_BINDINGS = [
   },
 ];
 
-const PATCHABLE_EXTENSIONS = new Set([".html", ".js", ".json"]);
+const PATCHABLE_EXTENSIONS = new Set([".html", ".js", ".json", ".rsc"]);
+const STATIC_PRERENDER_EXTENSIONS = new Set([".html", ".rsc"]);
+const RUNTIME_IDENTITY_PLACEHOLDER_ID =
+  "gnosis-runtime-injection-required";
 
 function isPublicToken(value) {
   return (
@@ -174,6 +177,15 @@ function replaceBindings(before, bindings, replacements) {
   return after;
 }
 
+function assertNoFrozenIdentityPlaceholder(path, contents) {
+  if (
+    STATIC_PRERENDER_EXTENSIONS.has(extname(path)) &&
+    contents.includes(RUNTIME_IDENTITY_PLACEHOLDER_ID)
+  ) {
+    throw new Error("public_runtime_identity_static_projection_forbidden");
+  }
+}
+
 function assertRuntimeRoot(runtimeRoot) {
   const allowedParent = resolve(tmpdir());
   const resolvedRuntimeRoot = resolve(runtimeRoot);
@@ -221,6 +233,7 @@ async function collectRuntimeTree({
   let after = null;
   if (PATCHABLE_EXTENSIONS.has(extname(source))) {
     const before = await readFile(source, "utf8");
+    assertNoFrozenIdentityPlaceholder(source, before);
     const replaced = replaceBindings(before, bindings, replacements);
     if (replaced !== before) after = replaced;
   }
@@ -257,6 +270,7 @@ export async function applyPublicRuntimeConfig({ environment, roots }) {
   const patches = [];
   for (const file of files) {
     const before = await readFile(file.path, "utf8");
+    assertNoFrozenIdentityPlaceholder(file.path, before);
     const after = replaceBindings(before, bindings, replacements);
     if (after !== before) patches.push({ ...file, after });
   }
