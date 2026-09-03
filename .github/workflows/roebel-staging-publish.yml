@@ -615,16 +615,17 @@ jobs:
             test "$(oras resolve "$image@$manifest_digest")" = "$manifest_digest"
 
             previous_revision="$(jq -er .promotionRevision release-set/previous-head.json)"
-            previous_digest="$(jq -er .releaseSetDigest release-set/previous-head.json)"
             release_set_target="$WEB_IMAGE:release-set-$previous_revision"
             release_set_digest="$(oras resolve "$release_set_target")"
             [[ "$release_set_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
             reused_release_set_manifest="$RUNNER_TEMP/reused-release-set-manifest-$component.json"
             oras manifest fetch "$WEB_IMAGE@$release_set_digest" > "$reused_release_set_manifest"
+            handoff_candidate_digest="$(jq -er '.annotations["stadtstack.io/candidate-payload-digest"]' "$reused_release_set_manifest")"
+            [[ "$handoff_candidate_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
             jq -e \
               --arg type application/vnd.stadtstack.roebel.release-set.v1 \
               --arg source "$previous_revision" \
-              --arg candidate "$previous_digest" \
+              --arg candidate "$handoff_candidate_digest" \
               '.artifactType == $type and .annotations["org.opencontainers.image.revision"] == $source and .annotations["stadtstack.io/candidate-payload-digest"] == $candidate' \
               "$reused_release_set_manifest" >/dev/null
 
@@ -636,7 +637,7 @@ jobs:
             test -s "$reused/release-set/release-set.candidate.json"
             jq -e \
               --arg source "$previous_revision" \
-              --arg candidate "$previous_digest" \
+              --arg candidate "$handoff_candidate_digest" \
               --slurpfile head release-set/previous-head.json \
               '.schemaVersion == "roebel_staging_release_set_candidate_v1" and
                .promotionRevision == $source and
@@ -644,7 +645,7 @@ jobs:
                ([.components[] | {component,sourceRevision,manifestDigest}] | sort_by(.component)) ==
                ([$head[0].components[] | {component,sourceRevision,manifestDigest}] | sort_by(.component))' \
               "$reused/release-set/release-set.candidate.json" >/dev/null
-          node --input-type=module - "$reused/release-set/release-set.candidate.json" "$previous_digest" <<'NODE'
+          node --input-type=module - "$reused/release-set/release-set.candidate.json" "$handoff_candidate_digest" <<'NODE'
           import { createHash } from "node:crypto";
           import { readFileSync } from "node:fs";
           const [candidatePath, expectedDigest] = process.argv.slice(2);

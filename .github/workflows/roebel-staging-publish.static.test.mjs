@@ -36,6 +36,15 @@ const actionPins = new Map([
 
 const assemblyJobStart = workflow.indexOf("\n  assemble-release-set:");
 const assemblyJob = assemblyJobStart >= 0 ? workflow.slice(assemblyJobStart) : "";
+const reuseComponentStart = assemblyJob.indexOf("\n          reuse_component() {");
+const reuseComponentEnd = assemblyJob.indexOf(
+  "\n          verify_or_reuse_component() {",
+  reuseComponentStart,
+);
+const reuseComponent =
+  reuseComponentStart >= 0 && reuseComponentEnd > reuseComponentStart
+    ? assemblyJob.slice(reuseComponentStart, reuseComponentEnd)
+    : "";
 
 test("publisher follows protected relevant main pushes and retains exact-SHA recovery dispatch", () => {
   assert.match(workflow, /on:\n  push:\n    branches: \[main\]/u);
@@ -271,6 +280,32 @@ test("same-run evidence is verified into an effect-free CAS-bound Release Set ca
   assert.match(assemblyJob, /roebel-staging-release-set-/u);
   assert.match(assemblyJob, /test "\$\(jq -er \.deploymentEffect "\$publication_receipt"\)" = false/u);
   assert.doesNotMatch(assemblyJob, /^\s*(?:kubectl|helm|flux|talosctl|tailscale|ssh)\b/imu);
+});
+
+test("component reuse independently verifies the immutable handoff and trusted operations tuples", () => {
+  assert.notEqual(reuseComponentStart, -1);
+  assert.ok(reuseComponentEnd > reuseComponentStart);
+  assert.match(reuseComponent, /oras manifest fetch "\$WEB_IMAGE@\$release_set_digest"/u);
+  assert.match(reuseComponent, /oras pull "\$WEB_IMAGE@\$release_set_digest"/u);
+  assert.match(
+    reuseComponent,
+    /handoff_candidate_digest="\$\(jq -er '\.annotations\["stadtstack\.io\/candidate-payload-digest"\]' "\$reused_release_set_manifest"\)"/u,
+  );
+  assert.match(
+    reuseComponent,
+    /\[\[ "\$handoff_candidate_digest" =~ \^sha256:\[0-9a-f\]\{64\}\$ \]\]/u,
+  );
+  assert.match(reuseComponent, /--arg candidate "\$handoff_candidate_digest"/u);
+  assert.match(
+    reuseComponent,
+    /node --input-type=module - "\$reused\/release-set\/release-set\.candidate\.json" "\$handoff_candidate_digest"/u,
+  );
+  assert.doesNotMatch(reuseComponent, /\.releaseSetDigest/u);
+  assert.match(reuseComponent, /--slurpfile head release-set\/previous-head\.json/u);
+  assert.match(
+    reuseComponent,
+    /\(\[\.components\[\] \| \{component,sourceRevision,manifestDigest\}\] \| sort_by\(\.component\)\) ==\s+\(\[\$head\[0\]\.components\[\] \| \{component,sourceRevision,manifestDigest\}\] \| sort_by\(\.component\)\)/u,
+  );
 });
 
 test("verified Release Set is handed off immutably inside the existing Web package", () => {
