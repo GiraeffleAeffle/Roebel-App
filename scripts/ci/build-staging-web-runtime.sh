@@ -153,15 +153,20 @@ done
 [[ -f "$entrypoint" && ! -L "$entrypoint" ]] || fail 'runtime entrypoint differs'
 
 assembly_started_ms="$(date +%s%3N)"
-mkdir -p "$runtime_context/apps/web/.next" "$runtime_context/apps/web"
+mkdir -p "$runtime_context/apps/web/.next/static" "$runtime_context/apps/web/public"
 cp -a "$standalone/." "$runtime_context/"
-cp -a "$static" "$runtime_context/apps/web/.next/static"
-cp -a "$public" "$runtime_context/apps/web/public"
+# Output tracing can already create these directories. Merge their contents
+# so assets stay at /Logo-new.png and /_next/static rather than one level below.
+cp -a "$static/." "$runtime_context/apps/web/.next/static/"
+cp -a "$public/." "$runtime_context/apps/web/public/"
 cp "$entrypoint" "$runtime_context/apps/web/runtime-entrypoint.mjs"
 
 [[ ! -e "$runtime_context/apps/web/.next/cache" ]] || fail 'runtime context contains a build cache'
 [[ -f "$runtime_context/apps/web/server.js" && ! -L "$runtime_context/apps/web/server.js" ]] || fail 'runtime server was not assembled'
 [[ -f "$runtime_context/apps/web/runtime-entrypoint.mjs" && ! -L "$runtime_context/apps/web/runtime-entrypoint.mjs" ]] || fail 'runtime entrypoint was not assembled'
+for asset in Logo-new.png site.webmanifest; do
+  cmp -s "$public/$asset" "$runtime_context/apps/web/public/$asset" || fail "public asset was not assembled at its served path: $asset"
+done
 
 runtime_context_bytes="$(du -sb "$runtime_context" | cut -f1)"
 [[ "$runtime_context_bytes" =~ ^[0-9]+$ ]] || fail 'runtime context measurement differs'
