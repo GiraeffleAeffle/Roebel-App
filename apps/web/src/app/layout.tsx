@@ -53,7 +53,7 @@ export default function RootLayout({
                 <GlobalAppDownloadSheet />
                 <Toaster />
                 <Sonner position="top-right" richColors />
-                <Analytics />
+                {process.env.VERCEL === "1" && <Analytics />}
               </CitizenSessionProvider>
             </AccountProvider>
           </ThirdwebProvider>

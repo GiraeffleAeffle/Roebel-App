@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 
 const nextConfig = readFileSync(
@@ -18,6 +21,53 @@ const workflow = readFileSync(
   new URL("../../../.github/workflows/staging-web-oci.yml", import.meta.url),
   "utf8"
 );
+
+for (const tracedAssetDirectories of [false, true]) {
+  test(`assembles assets at their served paths with traced asset directories ${tracedAssetDirectories}`, () => {
+    const root = mkdtempSync(join(tmpdir(), "roebel-runtime-assets-"));
+    const source = join(root, "source");
+    const runtime = join(root, "runtime");
+    const write = (relative: string, contents: string) => {
+      const path = join(source, "apps/web", relative);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, contents);
+    };
+    try {
+      write(".next/standalone/apps/web/server.js", "// standalone server\n");
+      write(".next/static/chunks/client.js", "// browser bundle\n");
+      write("public/Logo-new.png", "fixture logo bytes");
+      write("public/site.webmanifest", '{"name":"Röbel"}\n');
+      write("public/.well-known/assetlinks.json", "[]\n");
+      write("scripts/inject-public-runtime-config.mjs", "// entrypoint\n");
+      if (tracedAssetDirectories) {
+        write(".next/standalone/apps/web/public/traced.txt", "traced asset\n");
+        write(".next/standalone/apps/web/.next/static/traced.js", "// traced bundle\n");
+      }
+
+      // Exercise the production assembly commands against a Next output fixture.
+      // Compilation and OCI packaging are outside this filesystem regression.
+      const start = buildScript.indexOf('standalone="$source_context/');
+      const end = buildScript.indexOf('runtime_context_bytes=', start);
+      assert.ok(start >= 0 && end > start);
+      execFileSync("bash", ["-ceu", `fail() { printf '%s\\n' "$1" >&2; exit 1; }\n${buildScript.slice(start, end)}`], {
+        env: { ...process.env, source_context: source, runtime_context: runtime },
+      });
+      for (const relative of ["public/Logo-new.png", "public/site.webmanifest", "public/.well-known/assetlinks.json", ".next/static/chunks/client.js"]) {
+        assert.deepEqual(
+          readFileSync(join(runtime, "apps/web", relative)),
+          readFileSync(join(source, "apps/web", relative)),
+        );
+      }
+      assert.equal(existsSync(join(runtime, "apps/web/public/public")), false);
+      assert.equal(existsSync(join(runtime, "apps/web/.next/static/static")), false);
+      if (tracedAssetDirectories) {
+        assert.equal(readFileSync(join(runtime, "apps/web/public/traced.txt"), "utf8"), "traced asset\n");
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
 
 test("emits the standalone server only for the explicit Talos staging image", () => {
   assert.match(
