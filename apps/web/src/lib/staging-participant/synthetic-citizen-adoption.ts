@@ -334,6 +334,25 @@ export async function loadPublicSyntheticCitizenAdoption(
   return payload;
 }
 
+/** Called only after an explicit recovery action: deriving the public identity
+ * may prompt the account to sign. This never requests a test-pass challenge or
+ * writes a tracer; a tab-local hint is saved only after the receipt is verified.
+ */
+export async function recoverSyntheticCitizenAdoption(
+  participantSuggestionId: string,
+  session: Pick<CitizenSession, "getNostrPubkey" | "snapshot">,
+): Promise<PublicSyntheticCitizenAdoptionProjection | null> {
+  const pubkey = (await session.getNostrPubkey()).toLowerCase();
+  const projection = await loadPublicSyntheticCitizenAdoption(
+    participantSuggestionId,
+    pubkey,
+  );
+  if (projection) {
+    saveCachedSyntheticAdopterPubkey(session.snapshot.credential.address, pubkey);
+  }
+  return projection;
+}
+
 type SyntheticCitizenAdoptionSession = Pick<
   CitizenSession,
   "getNostrPubkey" | "signMessage" | "signSyntheticCitizenPassChallenge"

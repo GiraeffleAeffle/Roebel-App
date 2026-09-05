@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FlaskConical, Loader2 } from "lucide-react";
 import type { ParticipantTopicSuggestionV1 } from "@netizen-labs/nostr";
 
@@ -8,6 +8,7 @@ import type { CitizenSession } from "@/lib/citizen-session/session";
 import {
   loadCachedSyntheticAdopterPubkey,
   loadPublicSyntheticCitizenAdoption,
+  recoverSyntheticCitizenAdoption,
   saveCachedSyntheticAdopterPubkey,
   SyntheticCitizenAdoptionClientError,
   traceSyntheticCitizenAdoption,
@@ -32,11 +33,16 @@ export function StadtstackSyntheticCitizenAdoption({
   const [projection, setProjection] =
     useState<PublicSyntheticCitizenAdoptionProjection | null>(null);
   const [loading, setLoading] = useState(Boolean(session));
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"trace" | "recover" | null>(null);
+  const [receiptMissing, setReceiptMissing] = useState(false);
+  const operation = useRef(0);
   const [errorCode, setErrorCode] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
+    operation.current += 1;
+    setBusy(null);
+    setReceiptMissing(false);
     setProjection(null);
     setErrorCode(null);
     const cached = session && loadCachedSyntheticAdopterPubkey(
@@ -44,7 +50,7 @@ export function StadtstackSyntheticCitizenAdoption({
     );
     if (!cached) {
       setLoading(false);
-      return () => { active = false; };
+      return () => { active = false; operation.current += 1; };
     }
     setLoading(true);
     void loadPublicSyntheticCitizenAdoption(suggestion.suggestionId, cached)
@@ -62,12 +68,14 @@ export function StadtstackSyntheticCitizenAdoption({
       .finally(() => {
         if (active) setLoading(false);
       });
-    return () => { active = false; };
+    return () => { active = false; operation.current += 1; };
   }, [session, suggestion.suggestionId]);
 
   const trace = async () => {
     if (!session || busy) return;
-    setBusy(true);
+    const current = ++operation.current;
+    setBusy("trace");
+    setReceiptMissing(false);
     setErrorCode(null);
     try {
       const accepted = await traceSyntheticCitizenAdoption({
@@ -78,8 +86,9 @@ export function StadtstackSyntheticCitizenAdoption({
         session.snapshot.credential.address,
         accepted.tracer.adopterPubkey,
       );
-      setProjection(accepted);
+      if (current === operation.current) setProjection(accepted);
     } catch (cause) {
+      if (current !== operation.current) return;
       setProjection(null);
       setErrorCode(
         cause instanceof SyntheticCitizenAdoptionClientError
@@ -87,7 +96,33 @@ export function StadtstackSyntheticCitizenAdoption({
           : "synthetic_citizen_adoption_gateway_unavailable",
       );
     } finally {
-      setBusy(false);
+      if (current === operation.current) setBusy(null);
+    }
+  };
+
+  const recover = async () => {
+    if (!session || busy) return;
+    const current = ++operation.current;
+    setBusy("recover");
+    setReceiptMissing(false);
+    setErrorCode(null);
+    try {
+      const stored = await recoverSyntheticCitizenAdoption(
+        suggestion.suggestionId,
+        session,
+      );
+      if (current !== operation.current) return;
+      setProjection(stored);
+      setReceiptMissing(stored === null);
+    } catch (cause) {
+      if (current !== operation.current) return;
+      setErrorCode(
+        cause instanceof SyntheticCitizenAdoptionClientError
+          ? cause.code
+          : "synthetic_citizen_adoption_projection_unavailable",
+      );
+    } finally {
+      if (current === operation.current) setBusy(null);
     }
   };
 
@@ -168,13 +203,35 @@ export function StadtstackSyntheticCitizenAdoption({
             Die echte Bürgerübernahme bleibt unverändert gesperrt.
           </p>
         )}
+        {session && (
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => void recover()}
+              disabled={busy !== null}
+              className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-full border border-sky-900 px-4 py-2 text-sm font-bold disabled:opacity-50"
+            >
+              {busy === "recover" && <Loader2 className="h-4 w-4 animate-spin" />}
+              Gespeicherten Testnachweis laden
+            </button>
+            <p className="mt-1 text-xs leading-5">
+              Dein Konto kann eine Identitätsbestätigung anfordern. Dabei wird
+              kein neuer Testnachweis erstellt.
+            </p>
+          </div>
+        )}
+        {receiptMissing && (
+          <p role="status" className="mt-2 text-xs leading-5">
+            Für dieses Konto und diesen Entwurf ist kein Testnachweis gespeichert.
+          </p>
+        )}
         <button
           type="button"
           onClick={() => void trace()}
-          disabled={!session || busy}
+          disabled={!session || busy !== null}
           className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-full bg-sky-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
         >
-          {busy ? (
+          {busy === "trace" ? (
             <><Loader2 className="h-4 w-4 animate-spin" /> Test wird signiert…</>
           ) : session ? (
             <><FlaskConical className="h-4 w-4" /> Test-Pass prüfen und Testsignatur erzeugen</>

@@ -5,7 +5,9 @@ import type {
   StagingThreadResponse,
 } from "@/lib/stadtstack/staging-api";
 
-const CIVIC_PROJECTION_TIMEOUT_MS = 5_000;
+// The verified relay projection can exceed five seconds on staging. Keep this
+// deadline below the browser budget so an unavailable upstream returns a 503.
+const CIVIC_PROJECTION_TIMEOUT_MS = 12_000;
 const HEX64 = /^[0-9a-f]{64}$/u;
 
 export class CivicProjectionNotFoundError extends Error {

@@ -7,6 +7,8 @@ import {
   createCivicProjectionReader,
 } from "../src/lib/server/civic-projection-reader.ts";
 
+import { loadPublicCivicPostLink } from "../src/lib/stadtstack/civic-projection-client.ts";
+
 const ROOT = "a".repeat(64);
 const MECKY = "b".repeat(64);
 
@@ -111,4 +113,53 @@ test("maps upstream absence and malformed authority to closed errors", async () 
     authority.readPublicFeed(),
     CivicProjectionUnavailableError
   );
+});
+
+
+test("a six-second feed survives the former deadline while a stalled upstream still fails closed", async (t) => {
+  // Drive time at the fetch boundary without a real twelve-second wait.
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  t.mock.method(AbortSignal, "timeout", (milliseconds: number) => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new DOMException("Timed out", "TimeoutError")), milliseconds);
+    return controller.signal;
+  });
+  const feed = { schemaVersion: "roebel_staging_mixed_feed_v1", posts: [], authorityBinding: "none" };
+  const reader = createCivicProjectionReader({
+    upstreamUrl: "http://workbench.test/api",
+    fetchImpl: async (_url, init) => new Promise<Response>((resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      setTimeout(() => resolve(response(feed)), 6_300);
+    }),
+  });
+  const completed = reader.readPublicFeed();
+  t.mock.timers.tick(6_300);
+  assert.deepEqual(await completed, feed);
+
+  const stalled = createCivicProjectionReader({
+    upstreamUrl: "http://workbench.test/api",
+    fetchImpl: async (_url, init) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+    }),
+  });
+  const rejected = assert.rejects(stalled.readPublicFeed(), CivicProjectionUnavailableError);
+  t.mock.timers.tick(12_000);
+  await rejected;
+});
+
+
+test("the browser leaves time for a slow successful server projection", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const link = { discussionId: ROOT };
+  t.mock.method(globalThis, "fetch", async (_url: unknown, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
+    init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+    setTimeout(() => resolve(response({
+      schemaVersion: "roebel_public_civic_post_link_v1",
+      link,
+      authorityBinding: "none",
+    })), 11_000);
+  }));
+  const read = loadPublicCivicPostLink("789e5049-fa5a-4881-ab63-2b4239f9c2b0");
+  t.mock.timers.tick(11_000);
+  assert.deepEqual(await read, link);
 });

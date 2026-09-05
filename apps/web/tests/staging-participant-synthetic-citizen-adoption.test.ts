@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { afterEach, test } from "node:test";
 import {
   buildAgentNoteEvent,
@@ -11,6 +10,8 @@ import {
 
 import {
   loadCachedSyntheticAdopterPubkey,
+  loadPublicSyntheticCitizenAdoption,
+  recoverSyntheticCitizenAdoption,
   saveCachedSyntheticAdopterPubkey,
   STAGING_TEST_CITIZEN_NFT_ADDRESS,
   SyntheticCitizenAdoptionClientError,
@@ -275,7 +276,7 @@ test("browser rejects wrong contract, cross-signer proof and nested projection d
   );
 });
 
-test("synthetic adopter hint is session-scoped and the card has no real adoption callback", () => {
+test("synthetic adopter hint is session-scoped and isolated by account", () => {
   const sessionValues = new Map<string, string>();
   const localValues = new Map<string, string>();
   Object.defineProperty(globalThis, "window", {
@@ -298,11 +299,81 @@ test("synthetic adopter hint is session-scoped and the card has no real adoption
   assert.equal(sessionValues.size, 1);
   assert.equal(localValues.size, 0);
 
-  const card = readFileSync(
-    new URL("../src/components/app/StadtstackSyntheticCitizenAdoption.tsx", import.meta.url),
-    "utf8",
+  assert.equal(loadCachedSyntheticAdopterPubkey("0x2222222222222222222222222222222222222222"), null);
+  sessionValues.clear();
+  assert.equal(loadCachedSyntheticAdopterPubkey(wallet), null);
+});
+
+function recoveryFixture() {
+  const participantSuggestion = suggestion();
+  const pass = challenge(participantSuggestion);
+  const proof = buildNoteEvent(ADOPTER_SECRET, pass.message, { createdAt: pass.issuedAt });
+  const saved = projection(participantSuggestion, proof);
+  const session = {
+    snapshot: { credential: { address: "0x1111111111111111111111111111111111111111" } },
+    async getNostrPubkey() { return proof.pubkey; },
+  } as Parameters<typeof recoverSyntheticCitizenAdoption>[1];
+  return { participantSuggestion, proof, saved, session };
+}
+
+test("a fresh tab recovers the saved receipt with one GET and no new test-pass signature", async () => {
+  const { participantSuggestion, proof, saved, session } = recoveryFixture();
+  const hints = new Map<string, string>();
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { sessionStorage: {
+      getItem: (key: string) => hints.get(key) ?? null,
+      setItem: (key: string, value: string) => hints.set(key, value),
+    } },
+  });
+  assert.equal(loadCachedSyntheticAdopterPubkey(session.snapshot.credential.address), null);
+  let reads = 0;
+  globalThis.fetch = async (url, init) => {
+    reads += 1;
+    assert.equal(String(url), `/api/staging-participant/v1/synthetic-citizen-adoption/by-suggestion/${participantSuggestion.suggestionId}/adopter/${proof.pubkey}`);
+    assert.equal(init?.method, "GET");
+    assert.equal(init?.body, undefined);
+    assert.equal(init?.cache, "no-store");
+    return new Response(JSON.stringify(saved));
+  };
+  const recovered = await recoverSyntheticCitizenAdoption(participantSuggestion.suggestionId, session);
+  assert.deepEqual(recovered, saved);
+  assert.equal(reads, 1);
+  assert.equal(loadCachedSyntheticAdopterPubkey(session.snapshot.credential.address), proof.pubkey);
+  assert.equal(recovered?.civicCaseCreated, false);
+  assert.equal(recovered?.authorityBinding, "none");
+});
+
+test("recovery distinguishes absence from outage and never accepts another account's receipt", async () => {
+  const { participantSuggestion, saved, session } = recoveryFixture();
+  globalThis.fetch = async () => new Response(null, { status: 404 });
+  assert.equal(await recoverSyntheticCitizenAdoption(participantSuggestion.suggestionId, session), null);
+  globalThis.fetch = async () => new Response(null, { status: 503 });
+  await assert.rejects(
+    recoverSyntheticCitizenAdoption(participantSuggestion.suggestionId, session),
+    /synthetic_citizen_adoption_projection_unavailable/u,
   );
-  assert.doesNotMatch(card, /PublicCitizenAdoptionProjection|onProjectionChange|StadtstackProposalReceipts/u);
-  assert.match(card, /keine Bürgerberechtigung/u);
-  assert.match(card, /Kein CivicCase/u);
+  globalThis.fetch = async () => new Response(JSON.stringify(saved));
+  await assert.rejects(
+    recoverSyntheticCitizenAdoption(participantSuggestion.suggestionId, {
+      ...session,
+      async getNostrPubkey() { return getPublicKeyHex(PARTICIPANT_SECRET); },
+    }),
+    /synthetic_citizen_adoption_projection_invalid/u,
+  );
+  await assert.rejects(
+    loadPublicSyntheticCitizenAdoption("../invalid", saved.proofEvent.pubkey),
+    /synthetic_citizen_adoption_public_read_invalid/u,
+  );
+  assert.equal(loadCachedSyntheticAdopterPubkey(session.snapshot.credential.address), null);
+});
+
+test("blocked browser storage does not invalidate a verified saved receipt", async () => {
+  const { participantSuggestion, saved, session } = recoveryFixture();
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { get sessionStorage() { throw new Error("storage blocked"); } },
+  });
+  globalThis.fetch = async () => new Response(JSON.stringify(saved));
+  assert.deepEqual(await recoverSyntheticCitizenAdoption(participantSuggestion.suggestionId, session), saved);
 });

@@ -10,7 +10,7 @@ import type {
 } from "./staging-api";
 
 const PUBLIC_CIVIC_API = "/api/civic/v1";
-const PUBLIC_CIVIC_TIMEOUT_MS = 8_000;
+const PUBLIC_CIVIC_TIMEOUT_MS = 15_000;
 
 export class PublicCivicProjectionUnavailableError extends Error {
   constructor() {
