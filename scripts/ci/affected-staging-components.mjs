@@ -103,6 +103,7 @@ const QUALITY_FREE_PATHS = new Set([
   ".dockerignore",
   ".gitignore",
   ".mcp.json",
+  "AGENTS.md",
   "CLAUDE.md",
   "CODE_OF_CONDUCT.md",
   "CONTEXT.md",

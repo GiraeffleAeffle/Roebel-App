@@ -1,12 +1,49 @@
 # Roadmap and deferred work
 
-**Last updated: 2026-07-28.** Part of the [documentation index](README.md).
+**Last updated: 2026-09-05.** Part of the [documentation index](README.md).
 
 Everything here was **deliberately not built**, with a reason. This document exists so that
 "we decided that later" survives the conversation it was decided in. Each entry says what it
 is, why it waits, and **what has to be true before it makes sense** — a trigger, not a date.
 
 An item without a trigger is a wish. An item without a reason is an oversight.
+
+---
+
+## Current civic recovery and efficiency slice — 2026-09-05
+
+The working-guidance audit follows the [OpenAI agent guidance](https://developers.openai.com/api/docs/guides/latest-model?model=gpt-6-astra#prompting-best-practices):
+one shared `AGENTS.md`, conditional pointers, concrete completion criteria and
+behavioral verification proportional to the change. `CLAUDE.md` delegates to it;
+the CI catalog lives in `CI_AUTOMATION.md`. Runtime model selection is unchanged.
+
+The current repair candidate addresses a measured deadline mismatch: the public
+source-link request stopped at five seconds while its upstream feed succeeded in
+6.29 seconds. The server now has a bounded twelve-second budget and the browser
+fifteen seconds. Missing records remain distinct from unavailable projections;
+this is a recovery fix, not a claim that feed computation became faster. A
+future native read Adapter should remove the full-feed dependency described in
+[ADR 0024](adr/0024-product-owned-public-civic-projection.md).
+
+Saved synthetic receipts gain an explicit recovery action using the connected
+account's public identity. Deriving that identity may require account confirmation;
+recovery itself only reads and verifies the existing receipt. The hint stays in
+`sessionStorage`; it is not a permanent wallet directory. No real eligibility or
+CivicCase follows from a synthetic receipt. Local tests cover fresh-tab recovery,
+missing/outage distinction, wrong-account rejection and blocked browser storage.
+Live acceptance still requires a published image and a browser check.
+
+Instruction-only changes now skip application quality/build jobs; executable or
+unknown changes keep their existing checks. One duplicate error branch and
+implementation-text assertions were removed; behavior and authority checks remain.
+
+Build and frontend/backend separation remain planned work. The measured first
+extraction candidate is the operator console in
+[ADR 0018](adr/0018-separate-public-journey-and-operator-console-build-boundaries.md).
+Next: inventory route/action/handler ownership and shared dependencies, then
+measure a public/operator split with independent authentication and rollback.
+A broader backend extraction needs its own boundary evidence; deleting tests or
+moving folders does not establish a faster or safer build.
 
 ---
 

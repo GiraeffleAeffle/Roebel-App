@@ -199,7 +199,7 @@ The other meaning of "fork" — running an independent instance for a different 
 
 1. Fork this repository.
 2. Rebrand: colors/fonts/mascot in [packages/design-tokens/](../packages/design-tokens/)
-   and the primary color / German copy (see [CLAUDE.md](../CLAUDE.md) → Development Notes).
+   and the primary color / German copy (see [AGENTS.md](../AGENTS.md#product-boundaries)).
 3. Deploy your own **Supabase** project; apply the migrations and edge functions.
 4. Deploy **web** to Vercel and build **mobile** with EAS, each with your own env.
 5. Deploy the identity + governance contracts on Gnosis (optionally register your

@@ -71,7 +71,7 @@ future-proofs it for the migration off hosted APIs onto our own infra.
 
 | Topic | Doc |
 |---|---|
-| Architecture & conventions | [CLAUDE.md](../CLAUDE.md) · [docs/AGENTS.md](AGENTS.md) |
+| Architecture & conventions | [AGENTS.md](../AGENTS.md) · [CI automation](CI_AUTOMATION.md) |
 | Run & test on staging | [docs/FORKING_GUIDE.md](FORKING_GUIDE.md) |
 | AI / agent direction | [docs/MECKY_AGENT_ROADMAP.md](MECKY_AGENT_ROADMAP.md) |
 | AI pipeline worked example | [foerdermittel-agent-design](superpowers/specs/2026-07-24-foerdermittel-agent-design.md) |
