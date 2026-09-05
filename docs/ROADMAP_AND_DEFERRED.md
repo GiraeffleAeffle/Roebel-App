@@ -31,7 +31,10 @@ recovery itself only reads and verifies the existing receipt. The hint stays in
 `sessionStorage`; it is not a permanent wallet directory. No real eligibility or
 CivicCase follows from a synthetic receipt. Local tests cover fresh-tab recovery,
 missing/outage distinction, wrong-account rejection and blocked browser storage.
-Live acceptance still requires a published image and a browser check.
+PR #99 merged as `d95c915ecd1269488efe5c5c0f0d1672103a833e`; operations
+PR #147 deployed the reviewed images. The original source link, normal
+post → topic → discussion navigation, explicit receipt recovery and a full
+reload were verified in the staging browser without creating another adoption.
 
 Instruction-only changes now skip application quality/build jobs; executable or
 unknown changes keep their existing checks. One duplicate error branch and
@@ -44,6 +47,29 @@ Next: inventory route/action/handler ownership and shared dependencies, then
 measure a public/operator split with independent authentication and rollback.
 A broader backend extraction needs its own boundary evidence; deleting tests or
 moving folders does not establish a faster or safer build.
+
+## Current adoption-to-Case slice — 2026-09-05
+
+Real citizen adoption remains step 5 of 10. The next technical slice implements
+ADR 0023's fresh, signed eligibility status resolver and bounded GET handler.
+It verifies the original issuer receipt, privately resolves the holder and
+rechecks the pinned credential on every request. Tests cover active/revoked
+observations, signature verification with a second cryptographic implementation,
+expiry during lookup, tampering, unavailable evidence and timeouts. Production
+composition stays closed until the private holder Adapter, responsible municipal
+eligibility operator and Case Steward consumer are in place. This is code toward
+human admission, not a completed real adoption or municipal response.
+
+### Later: a representative discussion demo
+
+After the source-to-reviewed-response path works, build a clearly labelled
+synthetic discussion inspired by ordinary local concerns such as the supplied
+e-scooter discussion. Include distinct perspectives, evidence, open questions and
+several depths of Pro/Contra replies. Verify that the tree and Sunburst show the
+same signed argument graph and remain readable. Sunburst area describes argument
+structure, not votes or popular support. Do not impersonate the people in the
+screenshots or present generated viewpoints as resident participation. Keep the
+existing signed tracer and its receipts intact.
 
 ---
 

@@ -12,6 +12,28 @@ const RECEIPT_ID =
   /^urn:stadtstack:municipal-civic-eligibility-receipt:[0-9a-f]{64}$/u;
 const KEY_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/u;
 
+export type MunicipalCivicEligibilityStatusProofInputV1 = Readonly<{
+  domain: "municipal-civic-eligibility-status/v1";
+  schemaVersion: "municipal_civic_eligibility_status_v1";
+  statusChecksum: string;
+}>;
+
+export type MunicipalCivicEligibilityStatusV1 = Readonly<{
+  statusCore: Readonly<{
+    schemaVersion: "municipal_civic_eligibility_status_v1";
+    receiptId: string;
+    payloadChecksum: string;
+    policyVersion: string;
+    state: "active" | "revoked";
+    effectiveAt: number;
+    observedAt: number;
+    audience: "stadtstack-case-steward-admission";
+    requestNonce: string;
+  }>;
+  statusChecksum: string;
+  proof: MunicipalCivicEligibilityReceiptV1["proof"];
+}>;
+
 function exactKeys(value: Record<string, unknown>, expected: readonly string[]) {
   const actual = Object.keys(value).sort();
   const wanted = [...expected].sort();
@@ -79,6 +101,23 @@ function proofBytes(input: MunicipalCivicEligibilityReceiptProofInputV1) {
   return utf8ToBytes(canonical(input));
 }
 
+function statusProofBytes(input: MunicipalCivicEligibilityStatusProofInputV1) {
+  if (
+    !input || typeof input !== "object" ||
+    Object.getPrototypeOf(input) !== Object.prototype ||
+    !exactKeys(input as unknown as Record<string, unknown>, [
+      "domain", "schemaVersion", "statusChecksum",
+    ]) ||
+    input.domain !== "municipal-civic-eligibility-status/v1" ||
+    input.schemaVersion !== "municipal_civic_eligibility_status_v1" ||
+    typeof input.statusChecksum !== "string" ||
+    !CHECKSUM.test(input.statusChecksum)
+  ) {
+    throw new Error("municipal_civic_eligibility_status_proof_input_invalid");
+  }
+  return utf8ToBytes(canonical(input));
+}
+
 export function municipalCivicEligibilityReceiptProofPublicKey(
   privateKey: Uint8Array,
 ): string {
@@ -92,6 +131,20 @@ export function signMunicipalCivicEligibilityReceiptProof(
   input: MunicipalCivicEligibilityReceiptProofInputV1,
   issuer: Readonly<{ privateKey: Uint8Array; keyId: string }>,
 ): MunicipalCivicEligibilityReceiptV1["proof"] {
+  return signProof(proofBytes(input), issuer);
+}
+
+export function signMunicipalCivicEligibilityStatusProof(
+  input: MunicipalCivicEligibilityStatusProofInputV1,
+  issuer: Readonly<{ privateKey: Uint8Array; keyId: string }>,
+): MunicipalCivicEligibilityReceiptV1["proof"] {
+  return signProof(statusProofBytes(input), issuer);
+}
+
+function signProof(
+  bytes: Uint8Array,
+  issuer: Readonly<{ privateKey: Uint8Array; keyId: string }>,
+): MunicipalCivicEligibilityReceiptV1["proof"] {
   if (
     !(issuer.privateKey instanceof Uint8Array) ||
     issuer.privateKey.length !== 32 ||
@@ -103,7 +156,7 @@ export function signMunicipalCivicEligibilityReceiptProof(
     algorithm: "Ed25519",
     keyId: issuer.keyId,
     signature: base64urlnopad.encode(
-      ed25519.sign(proofBytes(input), issuer.privateKey),
+      ed25519.sign(bytes, issuer.privateKey),
     ),
   });
 }
@@ -114,6 +167,23 @@ export function createMunicipalCivicEligibilityReceiptProofVerifier(
   input: MunicipalCivicEligibilityReceiptProofInputV1,
   proof: MunicipalCivicEligibilityReceiptV1["proof"],
 ) => boolean {
+  return createProofVerifier(issuer, proofBytes);
+}
+
+/** Verifies the proof only; admission also checks the core, freshness and nonce. */
+export function createMunicipalCivicEligibilityStatusProofVerifier(
+  issuer: Readonly<{ publicKey: string; keyId: string }>,
+): (
+  input: MunicipalCivicEligibilityStatusProofInputV1,
+  proof: MunicipalCivicEligibilityReceiptV1["proof"],
+) => boolean {
+  return createProofVerifier(issuer, statusProofBytes);
+}
+
+function createProofVerifier<Input>(
+  issuer: Readonly<{ publicKey: string; keyId: string }>,
+  encode: (input: Input) => Uint8Array,
+): (input: Input, proof: MunicipalCivicEligibilityReceiptV1["proof"]) => boolean {
   if (!/^[0-9a-f]{64}$/u.test(issuer.publicKey) || !KEY_ID.test(issuer.keyId)) {
     throw new Error("municipal_civic_eligibility_issuer_public_key_invalid");
   }
@@ -138,7 +208,7 @@ export function createMunicipalCivicEligibilityReceiptProofVerifier(
       }
       return ed25519.verify(
         base64urlnopad.decode(proof.signature),
-        proofBytes(input),
+        encode(input),
         publicKey,
       );
     } catch {

@@ -103,8 +103,14 @@ export {
 
 export {
   createMunicipalCivicEligibilityReceiptProofVerifier,
+  createMunicipalCivicEligibilityStatusProofVerifier,
   municipalCivicEligibilityReceiptProofPublicKey,
   signMunicipalCivicEligibilityReceiptProof,
+  signMunicipalCivicEligibilityStatusProof,
+} from "./eligibility-proof";
+export type {
+  MunicipalCivicEligibilityStatusProofInputV1,
+  MunicipalCivicEligibilityStatusV1,
 } from "./eligibility-proof";
 export type {
   CivicArgumentInput,

@@ -17,6 +17,17 @@ POST /api/staging-participant/v1/promote-source-post
 POST /api/staging-participant/v1/sign-topic-suggestion
 ```
 
+The separately composed ADR-0023 eligibility status Interface is
+`GET /api/civic/v1/eligibility/status/:payloadChecksum`, with one
+`x-stadtstack-status-nonce` header containing a 32-byte nonce in lowercase hex.
+Its resolver rechecks the original private holder and returns a signed public
+`active` or `revoked` observation without wallet or chain evidence. Unknown
+receipts return 404; expiry, invalid evidence and the bounded inspection timeout
+return generic 503. It has no write capability. Production `cli.ts` deliberately
+does not supply this resolver: the route remains 503 until the private holder
+Adapter, municipal policy and separate Case Steward nonce consumer are reviewed
+and wired. See [ADR 0023](../../docs/adr/0023-city-neutral-citizen-eligibility-and-suggestion-adoption.md).
+
 Case, vote, treasury, administration, municipal publication and arbitrary
 workbench actions are not representable by its data adapter.
 

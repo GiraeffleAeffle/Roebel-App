@@ -40,6 +40,7 @@ import type {
   WalletSignatureVerifier,
 } from "./types.ts";
 import type { CitizenAdoptionService } from "./citizen-adoption.ts";
+import type { CitizenEligibilityStatusResolver } from "./citizen-eligibility-status.ts";
 import type { SyntheticCitizenAdoptionService } from "./synthetic-citizen-adoption.ts";
 
 const DEFAULT_MAX_REQUEST_BYTES = 8 * 1024;
@@ -117,6 +118,8 @@ export type StagingParticipantGatewayDependencies = Readonly<{
   readinessPins?: StagingParticipantReadinessPins;
   /** Separate ADR-0023 capability; absent deployments fail closed. */
   citizenAdoption?: CitizenAdoptionService;
+  /** Separately governed status reader; production composition leaves it absent. */
+  citizenEligibilityStatus?: CitizenEligibilityStatusResolver;
   /**
    * Isolated ADR-0023 synthetic browser tracer. Its incompatible interface
    * cannot emit a municipal receipt or call the real adoption/Case path.
@@ -541,18 +544,26 @@ export function createStagingParticipantGatewayHandler(
     if (AUTHORITY_PATHS.has(url.pathname)) {
       return json({ error: "authority_action_forbidden" }, 403, origin);
     }
-    if (CITIZEN_ELIGIBILITY_STATUS_PATH.test(url.pathname)) {
+    const eligibilityStatusPath = CITIZEN_ELIGIBILITY_STATUS_PATH.exec(url.pathname);
+    if (eligibilityStatusPath) {
       if (request.method !== "GET") {
         return json({ error: "method_not_allowed" }, 405, origin);
       }
-      // The adoption receipt deliberately reserves this public reference, but
-      // a fresh, nonce-bound CitizenNFT check belongs to later Case admission.
-      // Until that governed resolver exists, never emit a status envelope.
-      return json(
-        { error: "citizen_eligibility_status_not_activated" },
-        503,
-        origin,
-      );
+      if (!dependencies.citizenEligibilityStatus) {
+        return json({ error: "citizen_eligibility_status_not_activated" }, 503, origin);
+      }
+      const requestNonce = request.headers.get("x-stadtstack-status-nonce");
+      if (requestNonce === null || !/^[0-9a-f]{64}$/u.test(requestNonce)) {
+        return json({ error: "citizen_eligibility_status_request_invalid" }, 400, origin);
+      }
+      try {
+        const status = await dependencies.citizenEligibilityStatus.resolve({
+          payloadChecksum: eligibilityStatusPath[1]!, requestNonce,
+        });
+        return status ? json(status, 200, origin) : json({ error: "not_found" }, 404, origin);
+      } catch {
+        return json({ error: "citizen_eligibility_status_unavailable" }, 503, origin);
+      }
     }
     const citizenAdoptionPublicRead = CITIZEN_ADOPTION_PUBLIC_READ_PATH.exec(
       url.pathname,
