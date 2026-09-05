@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash, createPublicKey, verify as verifySignature } from "node:crypto";
 import { test } from "node:test";
 import {
   buildAgentNoteEvent,
@@ -9,12 +10,17 @@ import {
   createMunicipalCivicEligibilityReceiptProofVerifier,
   getPublicKeyHex,
   municipalCivicEligibilityReceiptProofPublicKey,
+  signMunicipalCivicEligibilityReceiptProof,
+  type MunicipalCivicEligibilityStatusV1,
 } from "@netizen-labs/nostr";
 
 import {
   createCitizenAdoptionService,
   type CitizenEligibilityReceiptStore,
 } from "../src/citizen-adoption.ts";
+import { createCitizenEligibilityStatusResolver } from "../src/citizen-eligibility-status.ts";
+import { createStagingParticipantGatewayHandler } from "../src/http.ts";
+import type { PinnedCitizenNftEligibilityEvidence } from "@netizen-labs/relay-sync";
 
 const WALLET = "0x1111111111111111111111111111111111111111";
 const PARTICIPANT_SECRET = new Uint8Array(32).fill(41);
@@ -232,6 +238,235 @@ function serviceFixture(options: {
     },
   };
 }
+
+async function statusFixture() {
+  const setup = serviceFixture();
+  const sessionBindingSha256 = "2".repeat(64);
+  const challenge = await setup.service.issueEligibilityChallenge({
+    walletAddress: WALLET, sessionBindingSha256,
+    subjectPubkey: getPublicKeyHex(ADOPTER_SECRET),
+    participantSuggestionId: setup.suggestion.suggestionId,
+  });
+  const issuance = await setup.service.issueEligibilityReceipt({
+    walletAddress: WALLET, sessionBindingSha256, challengeId: challenge.challengeId,
+    walletSignature: "0xaaaa",
+    nostrProofEvent: buildNoteEvent(ADOPTER_SECRET, challenge.message, {
+      createdAt: challenge.issuedAt,
+      tags: [
+        ["schema", "municipal_civic_eligibility_challenge_proof_v1"],
+        ["challenge", challenge.challengeId],
+        ["e", setup.suggestion.suggestionId, "", "eligibility-for-suggestion"],
+        ["municipality", "roebel-mueritz"],
+      ],
+    }),
+  });
+  const { municipalityId, policyVersion, issuer, statusBaseUrl } = issuance.eligibilityPolicy;
+  const policy = { municipalityId, policyVersion, issuer, statusBaseUrl, receiptTtlSeconds: 900 };
+  const receipt = issuance.eligibilityReceipt;
+  let record: unknown = { receipt, walletAddress: WALLET };
+  let currentTime = NOW_SECONDS + 20;
+  let check: () => Promise<PinnedCitizenNftEligibilityEvidence> = async () => ({
+    ...setup.getStoredReceipt()!.privateEligibilityEvidence,
+    finalizedBlockNumber: 12_400n,
+  });
+  let checks = 0;
+  const resolver = createCitizenEligibilityStatusResolver({
+    policy, issuer: { keyId: issuance.eligibilityPolicy.proof.keyId, privateKey: ISSUER_PRIVATE_KEY },
+    receipts: { async resolveForStatus(input) {
+      assert.deepEqual(input, { receiptId: receipt.receiptId, municipalityId, policyVersion });
+      return record as never;
+    } },
+    eligibilityVerifier: { async verifyActiveCitizen(input) {
+      assert.deepEqual(input, { address: WALLET });
+      checks += 1;
+      return check();
+    } },
+    now: () => new Date(currentTime * 1_000),
+    timeoutMs: 8_000,
+  });
+  const handler = (activated = true) => createStagingParticipantGatewayHandler({
+    config: {
+      origin: new URL(statusBaseUrl).origin,
+      sessionHmacKey: "k".repeat(32), inviteSha256: "c".repeat(64),
+      allowedWallets: [WALLET], cookieSecure: true, meckyPubkey: MECKY_PUBKEY,
+      topicPolicy: {
+        municipalityId, topicNamespace: `urn:stadtstack:topic:municipality:${municipalityId}`,
+        sourceConversationTopic: "roebel-app-conversation", policyVersion: "staging-participant-topic-v1",
+      },
+    },
+    data: {} as never, verifier: {} as never, mirror: {} as never,
+    citizenEligibilityStatus: activated ? resolver : undefined,
+  });
+  return {
+    receipt, policy, resolver, handler,
+    key: issuance.eligibilityPolicy.proof.publicKey,
+    stored: setup.getStoredReceipt()!,
+    setRecord: (value: unknown) => { record = value; },
+    setNow: (value: number) => { currentTime = value; },
+    setCheck: (value: typeof check) => { check = value; },
+    checks: () => checks,
+    adoptionWrites: setup.getAdoptionAcceptCalls,
+  };
+}
+
+function verifyStatusWithNode(status: MunicipalCivicEligibilityStatusV1, publicKey: string) {
+  const canonical = (value: object) => JSON.stringify(value, Object.keys(value).sort());
+  assert.equal(status.statusChecksum, createHash("sha256").update(canonical(status.statusCore)).digest("hex"));
+  const proofInput = {
+    domain: "municipal-civic-eligibility-status/v1",
+    schemaVersion: "municipal_civic_eligibility_status_v1",
+    statusChecksum: status.statusChecksum,
+  };
+  const key = createPublicKey({
+    key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(publicKey, "hex")]),
+    format: "der", type: "spki",
+  });
+  assert.equal(verifySignature(null, Buffer.from(canonical(proofInput)), key, Buffer.from(status.proof.signature, "base64url")), true);
+}
+
+test("HTTP rechecks an issued receipt for each nonce and returns only independently verifiable public status", async () => {
+  const setup = await statusFixture();
+  const handler = setup.handler();
+  const firstNonce = "a".repeat(64);
+  const getStatus = (nonce: string) => handler(new Request(setup.receipt.statusRef, {
+    headers: { "x-stadtstack-status-nonce": nonce },
+  }));
+  const first = await getStatus(firstNonce);
+  assert.equal(first.status, 200);
+  assert.equal(first.headers.get("cache-control"), "no-store");
+  const active = await first.json() as MunicipalCivicEligibilityStatusV1;
+  assert.deepEqual(Object.keys(active).sort(), ["proof", "statusChecksum", "statusCore"]);
+  assert.deepEqual(active.statusCore, {
+    schemaVersion: "municipal_civic_eligibility_status_v1",
+    receiptId: setup.receipt.receiptId, payloadChecksum: setup.receipt.payloadChecksum,
+    policyVersion: setup.policy.policyVersion, state: "active",
+    effectiveAt: NOW_SECONDS + 20, observedAt: NOW_SECONDS + 20,
+    audience: "stadtstack-case-steward-admission", requestNonce: firstNonce,
+  });
+  verifyStatusWithNode(active, setup.key);
+  const alteredCore = { ...active.statusCore, requestNonce: "c".repeat(64) };
+  const alteredChecksum = createHash("sha256")
+    .update(JSON.stringify(alteredCore, Object.keys(alteredCore).sort())).digest("hex");
+  assert.throws(() => verifyStatusWithNode({
+    ...active, statusCore: alteredCore, statusChecksum: alteredChecksum,
+  }, setup.key));
+  const serialized = JSON.stringify(active);
+  assert.equal(serialized.includes(WALLET), false);
+  for (const privateField of ["walletAddress", "subjectPubkey", "privateEligibilityEvidence", "finalizedBlockNumber", "sessionBindingSha256"])
+    assert.equal(serialized.includes(privateField), false, privateField);
+
+  setup.setCheck(async () => ({ ...setup.stored.privateEligibilityEvidence, active: false }));
+  setup.setNow(NOW_SECONDS + 30);
+  const secondNonce = "b".repeat(64);
+  const revoked = await (await getStatus(secondNonce)).json() as MunicipalCivicEligibilityStatusV1;
+  assert.equal(revoked.statusCore.state, "revoked");
+  assert.equal(revoked.statusCore.requestNonce, secondNonce);
+  assert.notEqual(revoked.statusChecksum, active.statusChecksum);
+  verifyStatusWithNode(revoked, setup.key);
+  assert.equal(setup.checks(), 2);
+  assert.equal(setup.adoptionWrites(), 0);
+  assert.equal(setup.stored.receipt, setup.receipt);
+});
+
+test("status HTTP stays disabled without composition and bounds the configured read surface", async () => {
+  const setup = await statusFixture();
+  const request = () => new Request(setup.receipt.statusRef, { headers: { "x-stadtstack-status-nonce": "a".repeat(64) } });
+  assert.equal((await setup.handler(false)(request())).status, 503);
+  const handler = setup.handler();
+  assert.equal((await handler(new Request(setup.receipt.statusRef))).status, 400);
+  assert.equal((await handler(new Request(setup.receipt.statusRef, { method: "POST" }))).status, 405);
+  assert.equal((await handler(new Request(`${setup.receipt.statusRef}?walletAddress=${WALLET}`))).status, 404);
+  assert.equal((await handler(new Request(setup.receipt.statusRef, { headers: { origin: "https://untrusted.example" } }))).status, 403);
+  setup.setRecord(null);
+  assert.equal((await handler(request())).status, 404);
+  setup.setRecord({ receipt: setup.receipt, walletAddress: WALLET });
+  for (const error of ["rpc_offline", "chain_mismatch", "deployment_mismatch", "block_reorged"]) {
+    setup.setCheck(async () => { throw new Error(`private detail: ${error} ${WALLET}`); });
+    const response = await handler(request());
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "citizen_eligibility_status_unavailable" });
+  }
+});
+
+test("status rejects invalid receipts, synthetic inputs and caller-selected holders before chain access", async () => {
+  const setup = await statusFixture();
+  const input = { payloadChecksum: setup.receipt.payloadChecksum, requestNonce: "a".repeat(64) };
+  for (const changed of [
+    { ...setup.receipt, schemaVersion: "synthetic_citizen_adoption_tracer_v1" },
+    { ...setup.receipt, walletAddress: WALLET },
+    { ...setup.receipt, payloadChecksum: "d".repeat(64) },
+    { ...setup.receipt, statusRef: "https://untrusted.example/status" },
+    { ...setup.receipt, eligibilityCore: { ...setup.receipt.eligibilityCore, municipalityId: "another-city" } },
+    { ...setup.receipt, proof: { ...setup.receipt.proof, signature: "a".repeat(86) } },
+    { ...setup.receipt, proof: { ...setup.receipt.proof, keyId: "unknown-issuer" } },
+  ]) {
+    setup.setRecord({ receipt: changed, walletAddress: WALLET });
+    await assert.rejects(setup.resolver.resolve(input), /citizen_eligibility_status_receipt_invalid/);
+  }
+  setup.setRecord({ receipt: setup.receipt, walletAddress: WALLET });
+  for (const changed of [ { ...input, walletAddress: WALLET }, { ...input, requestNonce: "short" } ])
+    await assert.rejects(setup.resolver.resolve(changed), /citizen_eligibility_status_request_invalid/);
+  setup.setNow(setup.receipt.eligibilityCore.expiresAt);
+  await assert.rejects(setup.resolver.resolve(input), /citizen_eligibility_status_receipt_expired/);
+  assert.equal(setup.checks(), 0);
+});
+
+test("status fails closed when a receipt expires during verification or an adapter returns indeterminate evidence", async () => {
+  const setup = await statusFixture();
+  const input = { payloadChecksum: setup.receipt.payloadChecksum, requestNonce: "a".repeat(64) };
+  setup.setCheck(async () => {
+    setup.setNow(setup.receipt.eligibilityCore.expiresAt);
+    return setup.stored.privateEligibilityEvidence;
+  });
+  await assert.rejects(setup.resolver.resolve(input), /citizen_eligibility_status_receipt_expired/);
+  setup.setNow(NOW_SECONDS + 20);
+  setup.setCheck(async () => ({ ...setup.stored.privateEligibilityEvidence, active: null } as never));
+  await assert.rejects(setup.resolver.resolve(input), /citizen_eligibility_status_evidence_invalid/);
+});
+
+test("status checks the pinned receipt lifetime even when an issuer signed a longer-lived receipt", async () => {
+  const setup = await statusFixture();
+  const core = { ...setup.receipt.eligibilityCore, expiresAt: NOW_SECONDS + 1_800 };
+  const payloadChecksum = createHash("sha256")
+    .update(JSON.stringify(core, Object.keys(core).sort())).digest("hex");
+  const receiptId = `urn:stadtstack:municipal-civic-eligibility-receipt:${payloadChecksum}`;
+  const statusRef = `${setup.policy.statusBaseUrl}/${payloadChecksum}`;
+  const receipt = {
+    ...setup.receipt, eligibilityCore: core, payloadChecksum, receiptId, statusRef,
+    proof: signMunicipalCivicEligibilityReceiptProof({
+      domain: "municipal-civic-eligibility-receipt/v1",
+      schemaVersion: "municipal_civic_eligibility_receipt_v1",
+      receiptId, payloadChecksum, statusRef,
+    }, { keyId: setup.receipt.proof.keyId, privateKey: ISSUER_PRIVATE_KEY }),
+  };
+  const resolver = createCitizenEligibilityStatusResolver({
+    policy: setup.policy,
+    issuer: { keyId: setup.receipt.proof.keyId, privateKey: ISSUER_PRIVATE_KEY },
+    receipts: { async resolveForStatus() { return { receipt, walletAddress: WALLET }; } },
+    eligibilityVerifier: { async verifyActiveCitizen() { assert.fail("Invalid lifetime must not reach the chain"); } },
+    now: () => new Date((NOW_SECONDS + 20) * 1_000),
+  });
+  await assert.rejects(resolver.resolve({ payloadChecksum, requestNonce: "a".repeat(64) }), /citizen_eligibility_status_receipt_invalid/);
+});
+
+test("a stalled status check times out without returning a late signed observation", async (t) => {
+  const setup = await statusFixture();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let finish!: (value: PinnedCitizenNftEligibilityEvidence) => void;
+  let reached!: () => void;
+  const checking = new Promise<void>((resolve) => { reached = resolve; });
+  setup.setCheck(() => { reached(); return new Promise((resolve) => { finish = resolve; }); });
+  const response = setup.handler()(new Request(setup.receipt.statusRef, {
+    headers: { "x-stadtstack-status-nonce": "a".repeat(64) },
+  }));
+  await checking;
+  t.mock.timers.tick(8_000);
+  const failed = await response;
+  assert.equal(failed.status, 503);
+  assert.deepEqual(await failed.json(), { error: "citizen_eligibility_status_unavailable" });
+  finish(setup.stored.privateEligibilityEvidence);
+  assert.equal(setup.adoptionWrites(), 0);
+});
 
 test("issues one session-bound challenge for the exact signed participant suggestion", async () => {
   const setup = serviceFixture();

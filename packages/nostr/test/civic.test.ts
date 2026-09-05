@@ -1527,12 +1527,8 @@ test("a selected conversation is verified against the signed mention and agent r
     "urn:stadtstack:topic:municipality:herzogtum-lauenburg:offener-treffpunkt";
   const sourceAppPostId = "018f1c63-7b2a-4a11-8a55-2e3d9c4b5a61";
   const sourceAppCommentId = "018f1c63-7b2a-4a11-8a55-2e3d9c4b5a62";
-  const sourcePost = buildNoteEvent(SECRET, "Treffpunkt", {
-    createdAt: 700,
-    tags: [["source-app-post", sourceAppPostId]],
-  });
   const mention = buildNoteEvent(SECRET, "@Mecky Was ist geprüft?", {
-    createdAt: 701,
+    createdAt: 700,
     tags: [
       ["p", MECKY],
       ["source-app-post", sourceAppPostId],
@@ -1540,6 +1536,9 @@ test("a selected conversation is verified against the signed mention and agent r
       ["t", "kair-app-conversation"],
     ],
   });
+  // Participant suggestions anchor the exact signed source mention; a separate
+  // ordinary note cannot substitute for the selected conversation witness.
+  const sourcePost = mention;
   const conversationReply = buildAgentNoteEvent(MECKY_AGENT, "Geprüfte Antwort", {
     createdAt: 701,
     tags: [

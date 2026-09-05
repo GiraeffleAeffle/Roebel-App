@@ -5,6 +5,11 @@ export {
 } from "./http.ts";
 export { resolveProductionGatewayConfig } from "./config.ts";
 export { createCitizenAdoptionService } from "./citizen-adoption.ts";
+export { createCitizenEligibilityStatusResolver } from "./citizen-eligibility-status.ts";
+export type {
+  CitizenEligibilityStatusReader,
+  CitizenEligibilityStatusResolver,
+} from "./citizen-eligibility-status.ts";
 export { createSyntheticCitizenAdoptionService } from "./synthetic-citizen-adoption.ts";
 export type {
   PublicSyntheticCitizenAdoptionProjectionV1,

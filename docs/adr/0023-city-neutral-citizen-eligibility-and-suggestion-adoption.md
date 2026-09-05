@@ -1,6 +1,6 @@
 # ADR 0023: City-neutral citizen eligibility and suggestion adoption
 
-- Status: Accepted boundary for staging; protocol kernel, browser signer and read-side Case handoff contract implemented; issuer/gateway/ledger/Case writer pending
+- Status: Accepted boundary for staging; protocol, browser signer, issuer/adoption ledger and read-side Case handoff code implemented; governed status activation and Case writer pending
 - Date: 2026-08-25
 
 ## Context
@@ -202,6 +202,25 @@ outage, timeout, malformed content or a receipt/status mismatch fail closed.
 Revocation or expiry prevents a new admission but does not erase an already
 issued public receipt or rewrite a previously admitted Case. Later governance
 and treasury actions perform their own current authorization checks.
+
+The status resolver and GET handler are implemented as a separately composed
+capability. The admission caller supplies a 32-byte random nonce as 64 lowercase
+hexadecimal characters in `x-stadtstack-status-nonce`; the receipt checksum is
+the only path parameter. There is no request-selected holder, policy, issuer,
+adapter, audience or status URL. Each call resolves the original private holder
+binding and performs a new pinned finalized-block eligibility check. The whole
+inspection has an eight-second deadline by default; absence is 404, while
+expiry, invalid evidence, an outage or a timeout returns generic 503. A verified
+inactive credential yields a signed `revoked` observation. `effectiveAt` is the
+observation time, not a claim about the historical moment of revocation.
+
+Production composition still omits this capability and retains
+`citizen_eligibility_status_not_activated`. Activation requires a reviewed private
+holder Adapter and its restricted database permission, the municipal issuer
+policy and responsible operator, and the separate Case Steward consumer that
+verifies freshness and atomically consumes its nonce. The proof verifier alone
+does not validate an admission or consume a nonce. No new environment switch or
+database permission activates this implementation implicitly.
 
 ### Citizen adoption event
 
