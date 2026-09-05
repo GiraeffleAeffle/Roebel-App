@@ -34,6 +34,9 @@ test("HTTP derives the wallet and session binding for an eligibility challenge i
   let eligibilityInput: unknown = null;
   let adoptionInput: unknown = null;
   let publicReadInput: unknown = null;
+  let acceptanceInput: unknown = null;
+  const acceptanceReceipt = { schemaVersion: "citizen_topic_suggestion_adoption_acceptance_receipt_v1", adoptionEventId: "e".repeat(64) };
+  let acceptanceResult: unknown = acceptanceReceipt;
   const adoptionProjection = {
     schemaVersion: "public_citizen_adoption_projection_v1",
     participantSuggestionId: SUGGESTION_ID,
@@ -97,6 +100,11 @@ test("HTTP derives the wallet and session binding for an eligibility challenge i
       async acceptAdoption(input: unknown) {
         adoptionInput = input;
         return adoptionProjection as never;
+      },
+      async readAcceptance(input: unknown) {
+        acceptanceInput = input;
+        if (acceptanceResult instanceof Error) throw acceptanceResult;
+        return acceptanceResult as never;
       },
       async readPublicAdoption(input: unknown) {
         publicReadInput = input;
@@ -258,4 +266,24 @@ test("HTTP derives the wallet and session binding for an eligibility challenge i
   assert.deepEqual(await reservedStatus.json(), {
     error: "citizen_eligibility_status_not_activated",
   });
+  const acceptanceUrl = "https://participant-gateway.staging.agentcart.eu/api/staging-participant/v1/citizen-adoption/acceptance/" + "e".repeat(64);
+  const exactAcceptance = await handler(new Request(acceptanceUrl));
+  assert.equal(exactAcceptance.status, 200);
+  assert.equal(exactAcceptance.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await exactAcceptance.json(), acceptanceReceipt);
+  assert.deepEqual(acceptanceInput, { adoptionEventId: "e".repeat(64) });
+  acceptanceInput = null;
+  for (const method of ["POST", "PUT", "HEAD", "DELETE"]) {
+    assert.equal((await handler(new Request(acceptanceUrl, { method }))).status, 405);
+  }
+  assert.equal((await handler(new Request(acceptanceUrl + "?municipalityId=another-city"))).status, 404);
+  assert.equal((await handler(new Request(acceptanceUrl.replace(/e{64}$/, "latest")))).status, 404);
+  assert.equal(acceptanceInput, null);
+  acceptanceResult = null;
+  assert.equal((await handler(new Request(acceptanceUrl))).status, 404);
+  acceptanceResult = new Error("private database detail");
+  const unavailable = await handler(new Request(acceptanceUrl));
+  assert.equal(unavailable.status, 503);
+  assert.deepEqual(await unavailable.json(), { error: "citizen_adoption_acceptance_unavailable" });
+
 });

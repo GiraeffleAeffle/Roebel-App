@@ -358,6 +358,7 @@ test("the real ADR-0023 service rejects the synthetic request schema before any 
     ledger: {
       async resolveReplay() { throw new Error("must_not_run"); },
       async accept() { throw new Error("must_not_run"); },
+      async readPublicByEvent() { return null; },
       async readPublic() { return null; },
     },
   });

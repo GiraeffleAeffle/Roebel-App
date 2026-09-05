@@ -48,26 +48,28 @@ measure a public/operator split with independent authentication and rollback.
 A broader backend extraction needs its own boundary evidence; deleting tests or
 moving folders does not establish a faster or safer build.
 
-## Current adoption-to-Case slice — 2026-09-05
+## Current adoption-to-Case slice — 2026-09-06
 
-Real citizen adoption remains step 5 of 10. PR #100 implemented ADR 0023's
-fresh, signed eligibility status resolver and bounded GET handler.
-It verifies the original issuer receipt, privately resolves the holder and
-rechecks the pinned credential on every request. Tests cover active/revoked
-observations, signature verification with a second cryptographic implementation,
-expiry during lookup, tampering, unavailable evidence and timeouts.
+Real citizen adoption remains step 5 of 10. PR #100 implemented the fresh,
+signed eligibility status resolver; PR #101 added its restricted private holder
+lookup. The independent neutral writer in
+[Stadtstack PR #62](https://github.com/GiraeffleAeffle/stadtstack/pull/62)
+now authenticates the Case Steward, checks original acceptance and current
+eligibility, and atomically creates one recoverable Case and public receipt.
 
-The next implementation adds its restricted private holder reader and an
-additive SQL migration. One exact receipt resolves to its original consumed
-challenge; municipality, policy, subject, suggestion and topic must still match.
-The existing signed-receipt fixture also exercises this reader through the
-public status handler. The database CI lane checks real PostgreSQL permissions,
-scope mismatch and corrupt bindings while retaining older preflight checks.
-Production composition awaits the reviewed migration/function permissions,
-responsible municipal eligibility operator and Case Steward nonce consumer.
-The next slice is that role-isolated consumer and its atomic intake. These are
-implementation steps toward human admission; real adoption and municipal
-response are still pending.
+The gateway now exposes the original acceptance by exact adoption event ID,
+using one additive, municipality-scoped ledger read. It verifies the complete
+stored projection and returns only the public acceptance receipt. Missing,
+substituted or inconsistent records fail closed; a late read does not renew
+eligibility. PostgreSQL CI exercises exact reads, role permissions and the
+staging capability while preserving older migration and preflight contracts.
+
+Next: compose the existing issuer status resolver into the gateway, pin both
+supplemental migrations and their function ACLs in Operations, and bind the
+Case runtime's issuer/HTTPS endpoint policy. The responsible eligibility
+operator and real municipal Case Steward still need assignment. These source
+changes are not live activation; real adoption and a municipal response remain
+pending. No additional wallet or contract deployment is needed for this slice.
 
 ### Later: a representative discussion demo
 

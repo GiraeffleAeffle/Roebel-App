@@ -508,3 +508,36 @@ test("normalizes tuple, request, idempotency, and event conflicts explicitly", a
     }), /citizen_adoption_idempotency_conflict/u);
   }
 });
+
+
+test("exact-event lookup pins the municipality and rejects substitute or malformed ledger projections", async () => {
+  const fixture = adoptionLedgerFixture();
+  let value: unknown = fixture.projection;
+  let calls = 0;
+  const adapter = createRestrictedSupabaseCitizenAdoptionAdapter({
+    ...RPC_CONFIG,
+    resolveSuggestionThread: async () => null,
+    fetch: async (url, options) => {
+      calls++;
+      assert.equal(String(url), `https://example.supabase.co/rest/v1/rpc/${restrictedCitizenAdoptionRpcNames.readAdoptionEvent}`);
+      assert.deepEqual(JSON.parse(String(options?.body)), {
+        p_municipality_id: RPC_CONFIG.municipalityId,
+        p_adoption_event_id: fixture.projection.adoptionEvent.id,
+      });
+      assert.equal(new Headers(options?.headers).get("x-staging-participant-rpc-secret"), RPC_CONFIG.rpcSecret);
+      return new Response(JSON.stringify(value), { status: 200 });
+    },
+  });
+  const input = { adoptionEventId: fixture.projection.adoptionEvent.id };
+  assert.deepEqual(await adapter.readPublicByEvent(input), fixture.projection);
+  for (value of [[], { ...fixture.projection, walletAddress: CHALLENGE.walletAddress },
+    { ...fixture.projection, adoptionEvent: { ...fixture.projection.adoptionEvent, id: "0".repeat(64) } },
+    { ...fixture.projection, acceptanceReceipt: { ...fixture.acceptanceReceipt, municipalityId: "another-city" } }]) {
+    await assert.rejects(adapter.readPublicByEvent(input), /projection_response_invalid/);
+  }
+  value = null;
+  assert.equal(await adapter.readPublicByEvent(input), null);
+  const before = calls;
+  await assert.rejects(adapter.readPublicByEvent({ adoptionEventId: "../latest" }), /public_read_invalid/);
+  assert.equal(calls, before);
+});

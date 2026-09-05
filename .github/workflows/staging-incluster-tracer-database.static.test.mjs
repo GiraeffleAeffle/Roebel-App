@@ -77,6 +77,7 @@ test("the database integration workflow is bounded and runs on relevant changes"
   for (const path of [
     "supabase/migrations/20260901_staging_citizen_adoption.sql",
     "supabase/migrations/20260905_staging_citizen_eligibility_status_lookup.sql",
+    "supabase/migrations/20260906_staging_citizen_adoption_acceptance_lookup.sql",
     "supabase/staging-citizen-adoption-schema-contract-v1.json",
     "supabase/migrations/20260902_staging_synthetic_citizen_adoption.sql",
     "supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json",

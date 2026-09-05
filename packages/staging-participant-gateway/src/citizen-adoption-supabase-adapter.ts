@@ -29,6 +29,8 @@ const ACCEPT_ADOPTION_RPC =
   "staging_participant_gateway_accept_citizen_adoption";
 const RESOLVE_REPLAY_RPC =
   "staging_participant_gateway_resolve_citizen_adoption_replay";
+const READ_ADOPTION_EVENT_RPC =
+  "staging_participant_gateway_read_citizen_adoption_event";
 const READ_PUBLIC_ADOPTION_RPC =
   "staging_participant_gateway_read_public_citizen_adoption";
 
@@ -415,6 +417,21 @@ export function createRestrictedSupabaseCitizenAdoptionAdapter(
       }
       return expected;
     },
+    async readPublicByEvent(input) {
+      if (typeof input.adoptionEventId !== "string" || !/^[0-9a-f]{64}$/u.test(input.adoptionEventId)) {
+        throw new Error("citizen_adoption_public_read_invalid");
+      }
+      const value = await invoke(READ_ADOPTION_EVENT_RPC, {
+        p_municipality_id: config.municipalityId,
+        p_adoption_event_id: input.adoptionEventId,
+      });
+      if (value === null) return null;
+      const projection = publicProjection(value, input);
+      if (projection.acceptanceReceipt.municipalityId !== config.municipalityId) {
+        throw new Error("citizen_adoption_projection_response_invalid");
+      }
+      return projection;
+    },
     async readPublic(input) {
       const value = await invoke(READ_PUBLIC_ADOPTION_RPC, {
         p_municipality_id: config.municipalityId,
@@ -436,4 +453,5 @@ export const restrictedCitizenAdoptionRpcNames = Object.freeze({
   resolveReplay: RESOLVE_REPLAY_RPC,
   acceptAdoption: ACCEPT_ADOPTION_RPC,
   readPublicAdoption: READ_PUBLIC_ADOPTION_RPC,
+  readAdoptionEvent: READ_ADOPTION_EVENT_RPC,
 });

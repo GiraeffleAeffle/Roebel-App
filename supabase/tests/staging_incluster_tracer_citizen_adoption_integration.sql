@@ -649,6 +649,93 @@ select (
   \quit 1
 \endif
 
+-- Exact-event reads preserve the first accepted projection and never fall back
+-- to another municipality, suggestion/adopter tuple, or latest candidate.
+select public.staging_participant_gateway_read_citizen_adoption_event(
+  :'municipality_id', :'adoption_event_id'
+) = :'accepted_projection_json'::jsonb
+and public.staging_participant_gateway_read_citizen_adoption_event(
+  'strausberg', :'adoption_event_id'
+) is null
+and public.staging_participant_gateway_read_citizen_adoption_event(
+  :'municipality_id', repeat('f', 64)
+) is null as acceptance_event_exact_and_scoped
+\gset
+\if :acceptance_event_exact_and_scoped
+\else
+  \echo 'Exact-event adoption lookup returned a substitute or changed history.'
+  \quit 1
+\endif
+
+do $acceptance_request_and_permissions$
+declare v_id text;
+begin
+  foreach v_id in array array[null, '', 'latest', repeat('A', 64)] loop
+    begin
+      perform public.staging_participant_gateway_read_citizen_adoption_event('roebel-mueritz', v_id);
+      raise exception 'Malformed event lookup succeeded' using errcode = 'XX000';
+    exception when sqlstate 'P0001' then
+      if sqlerrm <> 'STAGING_PARTICIPANT_CITIZEN_ADOPTION_LOOKUP_INVALID' then raise; end if;
+    end;
+  end loop;
+  foreach v_id in array array[null, '', 'UPPERCASE'] loop
+    begin
+      perform public.staging_participant_gateway_read_citizen_adoption_event(v_id, repeat('7', 64));
+      raise exception 'Malformed municipality lookup succeeded' using errcode = 'XX000';
+    exception when sqlstate 'P0001' then
+      if sqlerrm <> 'STAGING_PARTICIPANT_CITIZEN_ADOPTION_LOOKUP_INVALID' then raise; end if;
+    end;
+  end loop;
+  begin
+    perform set_config('request.headers', '{}', true);
+    perform public.staging_participant_gateway_read_citizen_adoption_event('roebel-mueritz', repeat('7', 64));
+    raise exception 'Event lookup without gateway capability succeeded' using errcode = 'XX000';
+  exception when sqlstate 'P0001' then
+    if sqlerrm <> 'STAGING_PARTICIPANT_GATEWAY_REQUIRED' then raise; end if;
+  end;
+  begin
+    perform public_projection from staging_participant_private.staging_participant_citizen_adoptions;
+    raise exception 'Anon read the private ledger table' using errcode = 'XX000';
+  exception when insufficient_privilege then null;
+  end;
+end;
+$acceptance_request_and_permissions$;
+
+reset role;
+set local role authenticated;
+do $acceptance_authenticated_denied$
+begin
+  perform public.staging_participant_gateway_read_citizen_adoption_event('roebel-mueritz', repeat('7', 64));
+  raise exception 'Authenticated role executed the event lookup' using errcode = 'XX000';
+exception when insufficient_privilege then null;
+end;
+$acceptance_authenticated_denied$;
+reset role;
+
+do $acceptance_catalog$
+declare v_function regprocedure := 'public.staging_participant_gateway_read_citizen_adoption_event(text,text)'::regprocedure;
+begin
+  if not exists (
+    select 1 from pg_proc where oid = v_function and prosecdef and provolatile = 's'
+      and proconfig = array['search_path=pg_catalog, staging_participant_private']
+  ) or not has_function_privilege('anon', v_function, 'EXECUTE') or exists (
+    select 1 from pg_proc p,
+      lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) acl
+     where p.oid = v_function and acl.grantee <> p.proowner
+       and (acl.grantee <> 'anon'::regrole or acl.privilege_type <> 'EXECUTE' or acl.is_grantable)
+  ) then
+    raise exception 'Event lookup catalog or permissions drifted' using errcode = 'XX000';
+  end if;
+  begin
+    update public.app_settings set value = 'production' where key = 'roebel_env';
+    perform public.staging_participant_gateway_read_citizen_adoption_event('roebel-mueritz', repeat('7', 64));
+    raise exception 'Unarmed event lookup succeeded' using errcode = 'XX000';
+  exception when sqlstate 'P0001' then
+    if sqlerrm <> 'STAGING_PARTICIPANT_ENVIRONMENT_REQUIRED' then raise; end if;
+  end;
+end;
+$acceptance_catalog$;
+
 rollback;
 \unset participant_rpc_secret
 \echo 'Citizen-adoption database behavior checks passed.'

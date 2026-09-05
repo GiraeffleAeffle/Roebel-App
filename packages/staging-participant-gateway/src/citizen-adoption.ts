@@ -158,6 +158,9 @@ export type CitizenAdoptionLedger = Readonly<{
     eligibilityReceipt: MunicipalCivicEligibilityReceiptV1;
     acceptanceReceipt: CitizenAdoptionAcceptanceReceiptV1;
   }>): Promise<PublicCitizenAdoptionProjectionV1>;
+  readPublicByEvent(input: Readonly<{
+    adoptionEventId: string;
+  }>): Promise<PublicCitizenAdoptionProjectionV1 | null>;
   readPublic(input: Readonly<{
     participantSuggestionId: string;
     adopterPubkey: string;
@@ -198,6 +201,9 @@ export type CitizenAdoptionService = Readonly<{
   acceptAdoption(
     request: CitizenAdoptionRequestV1,
   ): Promise<PublicCitizenAdoptionProjectionV1>;
+  readAcceptance(input: Readonly<{
+    adoptionEventId: string;
+  }>): Promise<CitizenAdoptionAcceptanceReceiptV1 | null>;
   readPublicAdoption(input: Readonly<{
     participantSuggestionId: string;
     adopterPubkey: string;
@@ -375,7 +381,8 @@ export function createCitizenAdoptionService(
 
   const verifyStoredProjection = async (input: Readonly<{
     projection: unknown;
-    participantSuggestionId: string;
+    participantSuggestionId?: string;
+    adoptionEventId?: string;
     adoptionEvent?: NostrEvent;
     requestChecksum?: string;
     adopterPubkey?: string;
@@ -395,6 +402,7 @@ export function createCitizenAdoptionService(
       "treasuryEffect",
       "paymentEffect",
     ]);
+    const participantSuggestionId = input.participantSuggestionId ?? projection?.participantSuggestionId;
     const acceptance = projection && plainRecord(projection.acceptanceReceipt, [
       "schemaVersion",
       "adoptionId",
@@ -418,10 +426,13 @@ export function createCitizenAdoptionService(
       | undefined;
     if (
       !projection ||
+      typeof participantSuggestionId !== "string" ||
+      !HEX64.test(participantSuggestionId) ||
       !acceptance ||
       projection.schemaVersion !== "public_citizen_adoption_projection_v1" ||
-      projection.participantSuggestionId !== input.participantSuggestionId ||
+      projection.participantSuggestionId !== participantSuggestionId ||
       !event ||
+      (input.adoptionEventId !== undefined && event.id !== input.adoptionEventId) ||
       !verifyEvent(event) ||
       (input.adoptionEvent !== undefined &&
         stableJson(event) !== stableJson(input.adoptionEvent)) ||
@@ -440,7 +451,7 @@ export function createCitizenAdoptionService(
       typeof acceptance.adoptionEventId !== "string" ||
       typeof acceptance.municipalityId !== "string" ||
       typeof acceptance.topicId !== "string" ||
-      acceptance.participantSuggestionId !== input.participantSuggestionId ||
+      acceptance.participantSuggestionId !== participantSuggestionId ||
       typeof acceptance.adopterPubkey !== "string" ||
       (input.adopterPubkey !== undefined &&
         acceptance.adopterPubkey !== input.adopterPubkey) ||
@@ -483,14 +494,14 @@ export function createCitizenAdoptionService(
     const references = adoptionReferences(event);
     if (
       !references ||
-      references.participantSuggestionId !== input.participantSuggestionId ||
+      references.participantSuggestionId !== participantSuggestionId ||
       references.eligibilityReceiptId !== acceptance.eligibilityReceiptId
     ) {
       throw new Error("citizen_adoption_public_projection_invalid");
     }
     const participantSuggestion =
       await dependencies.sources.resolveParticipantSuggestion({
-        participantSuggestionId: input.participantSuggestionId,
+        participantSuggestionId,
       });
     if (!participantSuggestion) {
       throw new Error("citizen_adoption_public_projection_invalid");
@@ -872,6 +883,19 @@ export function createCitizenAdoptionService(
       } catch {
         throw new Error("citizen_adoption_acceptance_mismatch");
       }
+    },
+    async readAcceptance(input: Readonly<{
+      adoptionEventId: string;
+    }>): Promise<CitizenAdoptionAcceptanceReceiptV1 | null> {
+      if (typeof input.adoptionEventId !== "string" || !HEX64.test(input.adoptionEventId)) {
+        throw new Error("citizen_adoption_public_read_invalid");
+      }
+      const projection = await dependencies.ledger.readPublicByEvent(input);
+      if (projection === null) return null;
+      const verified = await verifyStoredProjection({ projection, adoptionEventId: input.adoptionEventId });
+      // The Case writer needs the original acceptance, never private holder data
+      // or a new receipt-time assertion. Current eligibility is a separate read.
+      return verified.acceptanceReceipt;
     },
     async readPublicAdoption(input: Readonly<{
       participantSuggestionId: string;

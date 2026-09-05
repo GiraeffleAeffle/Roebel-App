@@ -218,6 +218,10 @@ function serviceFixture(options: {
         });
         return acceptedProjection;
       },
+      async readPublicByEvent(input) {
+        if (publicReadOverride !== undefined) return publicReadOverride as never;
+        return acceptedProjection?.adoptionEvent.id === input.adoptionEventId ? acceptedProjection : null;
+      },
       async readPublic() {
         return publicReadOverride === undefined
           ? acceptedProjection
@@ -894,6 +898,13 @@ test("accepts one immutable adoption and returns the original acceptance on an e
     adopterPubkey: adoption.signerPubkey,
   });
   assert.deepEqual(afterReload, accepted);
+  assert.deepEqual(await setup.service.readAcceptance({ adoptionEventId: adoption.event.id }), accepted.acceptanceReceipt);
+  assert.equal(await setup.service.readAcceptance({ adoptionEventId: "0".repeat(64) }), null);
+  await assert.rejects(setup.service.readAcceptance({ adoptionEventId: "../latest" }), /public_read_invalid/);
+  setup.setPublicReadProjection(accepted);
+  await assert.rejects(setup.service.readAcceptance({ adoptionEventId: "0".repeat(64) }), /public_projection_invalid/);
+  setup.setPublicReadProjection(undefined);
+
 
   const tamperedProjections = [
     {
@@ -931,6 +942,8 @@ test("accepts one immutable adoption and returns the original acceptance on an e
   ];
   for (const tampered of tamperedProjections) {
     setup.setPublicReadProjection(tampered);
+    await assert.rejects(setup.service.readAcceptance({ adoptionEventId: adoption.event.id }), /public_projection_invalid/);
+
     await assert.rejects(
       setup.service.readPublicAdoption({
         participantSuggestionId: setup.suggestion.suggestionId,
@@ -942,6 +955,7 @@ test("accepts one immutable adoption and returns the original acceptance on an e
   setup.setPublicReadProjection(undefined);
 
   setup.setNow(NOW_SECONDS + 3_600);
+  assert.deepEqual(await setup.service.readAcceptance({ adoptionEventId: adoption.event.id }), accepted.acceptanceReceipt);
   const retry = await setup.service.acceptAdoption(request);
   assert.deepEqual(retry, accepted);
   assert.equal(setup.getAdoptionAcceptCalls(), 1);
