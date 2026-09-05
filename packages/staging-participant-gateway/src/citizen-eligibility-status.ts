@@ -57,7 +57,7 @@ function checksum(value: unknown): string {
  * nonce remains the Case Steward's atomic operation, not an issuer-side cache.
  */
 export function createCitizenEligibilityStatusResolver(dependencies: Readonly<{
-  policy: Pick<CitizenAdoptionPolicy, "municipalityId" | "policyVersion" | "issuer" | "statusBaseUrl">;
+  policy: Pick<CitizenAdoptionPolicy, "municipalityId" | "policyVersion" | "issuer" | "statusBaseUrl" | "receiptTtlSeconds">;
   issuer: Readonly<{ keyId: string; privateKey: Uint8Array }>;
   receipts: CitizenEligibilityStatusReader;
   eligibilityVerifier: PinnedCitizenNftEligibilityVerifier;
@@ -72,6 +72,7 @@ export function createCitizenEligibilityStatusResolver(dependencies: Readonly<{
     !/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u.test(policy.municipalityId) ||
     !/^[a-z0-9][a-z0-9._-]{2,99}$/u.test(policy.policyVersion) ||
     !policy.issuer || policy.issuer !== policy.issuer.trim() ||
+    !Number.isSafeInteger(policy.receiptTtlSeconds) || policy.receiptTtlSeconds < 60 || policy.receiptTtlSeconds > 3_600 ||
     statusUrl.protocol !== "https:" || statusUrl.username || statusUrl.password ||
     statusUrl.search || statusUrl.hash || statusUrl.pathname.endsWith("/") ||
     !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000 ||
@@ -121,6 +122,7 @@ export function createCitizenEligibilityStatusResolver(dependencies: Readonly<{
       typeof core.topicId !== "string" || !core.topicId.startsWith(`urn:stadtstack:topic:municipality:${policy.municipalityId}:`) ||
       typeof core.issuedAt !== "number" || !Number.isSafeInteger(core.issuedAt) || core.issuedAt < 0 ||
       typeof core.expiresAt !== "number" || !Number.isSafeInteger(core.expiresAt) || core.expiresAt <= core.issuedAt ||
+      core.expiresAt - core.issuedAt !== policy.receiptTtlSeconds ||
       core.issuedAt > startedAt || checksum(core) !== payloadChecksum ||
       !verifyReceipt({
         domain: "municipal-civic-eligibility-receipt/v1",

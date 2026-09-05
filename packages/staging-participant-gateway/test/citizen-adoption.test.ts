@@ -10,6 +10,7 @@ import {
   createMunicipalCivicEligibilityReceiptProofVerifier,
   getPublicKeyHex,
   municipalCivicEligibilityReceiptProofPublicKey,
+  signMunicipalCivicEligibilityReceiptProof,
   type MunicipalCivicEligibilityStatusV1,
 } from "@netizen-labs/nostr";
 
@@ -260,7 +261,7 @@ async function statusFixture() {
     }),
   });
   const { municipalityId, policyVersion, issuer, statusBaseUrl } = issuance.eligibilityPolicy;
-  const policy = { municipalityId, policyVersion, issuer, statusBaseUrl };
+  const policy = { municipalityId, policyVersion, issuer, statusBaseUrl, receiptTtlSeconds: 900 };
   const receipt = issuance.eligibilityReceipt;
   let record: unknown = { receipt, walletAddress: WALLET };
   let currentTime = NOW_SECONDS + 20;
@@ -343,6 +344,12 @@ test("HTTP rechecks an issued receipt for each nonce and returns only independen
     audience: "stadtstack-case-steward-admission", requestNonce: firstNonce,
   });
   verifyStatusWithNode(active, setup.key);
+  const alteredCore = { ...active.statusCore, requestNonce: "c".repeat(64) };
+  const alteredChecksum = createHash("sha256")
+    .update(JSON.stringify(alteredCore, Object.keys(alteredCore).sort())).digest("hex");
+  assert.throws(() => verifyStatusWithNode({
+    ...active, statusCore: alteredCore, statusChecksum: alteredChecksum,
+  }, setup.key));
   const serialized = JSON.stringify(active);
   assert.equal(serialized.includes(WALLET), false);
   for (const privateField of ["walletAddress", "subjectPubkey", "privateEligibilityEvidence", "finalizedBlockNumber", "sessionBindingSha256"])
@@ -415,6 +422,31 @@ test("status fails closed when a receipt expires during verification or an adapt
   setup.setNow(NOW_SECONDS + 20);
   setup.setCheck(async () => ({ ...setup.stored.privateEligibilityEvidence, active: null } as never));
   await assert.rejects(setup.resolver.resolve(input), /citizen_eligibility_status_evidence_invalid/);
+});
+
+test("status checks the pinned receipt lifetime even when an issuer signed a longer-lived receipt", async () => {
+  const setup = await statusFixture();
+  const core = { ...setup.receipt.eligibilityCore, expiresAt: NOW_SECONDS + 1_800 };
+  const payloadChecksum = createHash("sha256")
+    .update(JSON.stringify(core, Object.keys(core).sort())).digest("hex");
+  const receiptId = `urn:stadtstack:municipal-civic-eligibility-receipt:${payloadChecksum}`;
+  const statusRef = `${setup.policy.statusBaseUrl}/${payloadChecksum}`;
+  const receipt = {
+    ...setup.receipt, eligibilityCore: core, payloadChecksum, receiptId, statusRef,
+    proof: signMunicipalCivicEligibilityReceiptProof({
+      domain: "municipal-civic-eligibility-receipt/v1",
+      schemaVersion: "municipal_civic_eligibility_receipt_v1",
+      receiptId, payloadChecksum, statusRef,
+    }, { keyId: setup.receipt.proof.keyId, privateKey: ISSUER_PRIVATE_KEY }),
+  };
+  const resolver = createCitizenEligibilityStatusResolver({
+    policy: setup.policy,
+    issuer: { keyId: setup.receipt.proof.keyId, privateKey: ISSUER_PRIVATE_KEY },
+    receipts: { async resolveForStatus() { return { receipt, walletAddress: WALLET }; } },
+    eligibilityVerifier: { async verifyActiveCitizen() { assert.fail("Invalid lifetime must not reach the chain"); } },
+    now: () => new Date((NOW_SECONDS + 20) * 1_000),
+  });
+  await assert.rejects(resolver.resolve({ payloadChecksum, requestNonce: "a".repeat(64) }), /citizen_eligibility_status_receipt_invalid/);
 });
 
 test("a stalled status check times out without returning a late signed observation", async (t) => {
