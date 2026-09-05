@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { resolveIdentityContractSet } from "../../../packages/blockchain/src/identity-contract-set.ts";
 
 const contractRoot = new URL(
   "../../../contracts/governor-contract/",
   import.meta.url
 );
 
-test("pins the reviewed Gnosis test pair and runtime code hashes", () => {
+test("preserves the historical v1 Gnosis test pair and runtime code hashes", () => {
   const manifest = JSON.parse(
     readFileSync(new URL("deployments/gnosis-test.json", contractRoot), "utf8")
   );
@@ -30,6 +31,30 @@ test("pins the reviewed Gnosis test pair and runtime code hashes", () => {
     manifest.runtimeCodeHashes.citizenNFTv2,
     "0x481949efe62483d881190ec16e7ac6ffd796b0e601ea952507fa6eee1986bafb"
   );
+});
+
+test("the current v2 profile matches its independently deployed owner and manifest", () => {
+  const manifest = JSON.parse(readFileSync(
+    new URL("deployments/gnosis-staging-test-v2.json", contractRoot), "utf8",
+  ));
+  const selected = resolveIdentityContractSet({
+    id: manifest.contractSetId,
+    attesterNFT: manifest.contracts.attesterNFTv2,
+    citizenNFT: manifest.contracts.citizenNFTv2,
+  });
+  assert.equal(selected.id, "gnosis-staging-test-v2");
+  assert.equal(selected.authorityBinding, "none");
+  assert.equal(manifest.owner, "0x728871179EeD015197CE7320040143534755FE2A");
+  assert.equal(manifest.cosigners.length, 5);
+  assert.equal(manifest.migrationFinalized, false);
+  assert.equal(manifest.deploymentTransactions.length, 9);
+  assert.equal(manifest.runtimeCodeHashes.citizenNFTv2,
+    "0x0131b35a46839c2c50e013a5702dd1a75ab2c079890711900071d56486d1bce4");
+  const library = readFileSync(new URL("scripts/test-env/lib.cjs", contractRoot), "utf8");
+  for (const value of [manifest.owner, manifest.contractSetId,
+    ...Object.values(manifest.contracts), ...Object.values(manifest.runtimeCodeHashes)]) {
+    assert.ok(library.includes(String(value)));
+  }
 });
 
 test("mutating helpers validate chain, owner, pair and code before writing", () => {

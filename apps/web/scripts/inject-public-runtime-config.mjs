@@ -25,6 +25,10 @@ const IDENTITY_CONTRACT_SETS = Object.freeze({
     attesterNFT: "0x5983F6300bCE3D9C1336a858Bd73F259bB8330F3",
     citizenNFT: "0x0Be374808A567c9088aC8208B90a4239432B3220",
   }),
+  "gnosis-staging-test-v2": Object.freeze({
+    attesterNFT: "0x76b558Feb869c77790431497554C9aa8797896Fa",
+    citizenNFT: "0x4765cB681E8eB080B3191DD550E81eaA41907323",
+  }),
 });
 
 const PUBLIC_BINDINGS = [

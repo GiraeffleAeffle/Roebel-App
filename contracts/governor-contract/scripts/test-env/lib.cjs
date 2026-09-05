@@ -14,20 +14,21 @@ const fs = require("fs");
 const path = require("path");
 const { ethers } = require("ethers");
 
-const MANIFEST = path.resolve(__dirname, "../../deployments/gnosis-test.json");
+const MANIFEST = path.resolve(__dirname, "../../deployments/gnosis-staging-test-v2.json");
 const EXPECTED_CHAIN_ID = 100;
 
 const PINNED_TEST_ENVIRONMENT = Object.freeze({
-  owner: "0xd5028284017A32C672CbD73Fe35aCD897bA874cf",
+  contractSetId: "gnosis-staging-test-v2",
+  owner: "0x728871179EeD015197CE7320040143534755FE2A",
   contracts: Object.freeze({
-    attesterNFTv2: "0x5983F6300bCE3D9C1336a858Bd73F259bB8330F3",
-    citizenNFTv2: "0x0Be374808A567c9088aC8208B90a4239432B3220",
+    attesterNFTv2: "0x76b558Feb869c77790431497554C9aa8797896Fa",
+    citizenNFTv2: "0x4765cB681E8eB080B3191DD550E81eaA41907323",
   }),
   runtimeCodeHashes: Object.freeze({
     attesterNFTv2:
       "0x3c12a034ea9c2749c786497b5d50dcfaa4eff84860819d788517145a2276ee51",
     citizenNFTv2:
-      "0x481949efe62483d881190ec16e7ac6ffd796b0e601ea952507fa6eee1986bafb",
+      "0x0131b35a46839c2c50e013a5702dd1a75ab2c079890711900071d56486d1bce4",
   }),
 });
 
@@ -124,7 +125,7 @@ function manifestExists() {
 function loadManifest() {
   if (!manifestExists()) {
     throw new Error(
-      "deployments/gnosis-test.json missing -- run scripts/test-env/deploy.cjs first."
+      "Reviewed deployments/gnosis-staging-test-v2.json missing. Restore the reviewed manifest; do not redeploy."
     );
   }
   const m = JSON.parse(fs.readFileSync(MANIFEST, "utf8"));
@@ -147,6 +148,9 @@ function sameAddress(left, right) {
 }
 
 function assertPinnedManifest(m) {
+  if (m.contractSetId !== PINNED_TEST_ENVIRONMENT.contractSetId) {
+    throw new Error("Manifest contract-set identity differs. Refusing.");
+  }
   for (const field of ["owner"]) {
     if (!sameAddress(m[field], PINNED_TEST_ENVIRONMENT[field])) {
       throw new Error(
@@ -284,6 +288,7 @@ async function loadValidatedTestEnvironment() {
 }
 
 function saveManifest(m) {
+  assertPinnedManifest(m);
   fs.writeFileSync(MANIFEST, JSON.stringify(m, null, 2) + "\n");
   return MANIFEST;
 }
@@ -295,9 +300,9 @@ function saveCandidateManifest(m, output) {
     );
   }
   const candidate = path.resolve(output);
-  if (candidate === MANIFEST) {
+  if ([MANIFEST, path.resolve(__dirname, "../../deployments/gnosis-test.json")].includes(candidate)) {
     throw new Error(
-      "Candidate manifest must not overwrite deployments/gnosis-test.json."
+      "Candidate manifest must not overwrite a reviewed deployment manifest."
     );
   }
   if (

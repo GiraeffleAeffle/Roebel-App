@@ -165,7 +165,7 @@ test("signs only the exact staging Test CitizenNFT challenge as a no-authority p
     challengeId: "4".repeat(32),
     audience: "roebel-staging-synthetic-citizen-adoption" as const,
     chainId: 100 as const,
-    testCitizenNftContract: "0x0be374808a567c9088ac8208b90a4239432b3220",
+    testCitizenNftContract: "0x4765cb681e8eb080b3191dd550e81eaa41907323",
     subjectPubkey,
     municipalityId: "roebel-mueritz",
     policyVersion: "roebel-test-citizen-nft-v2-staging-2026-09",
@@ -199,6 +199,20 @@ test("signs only the exact staging Test CitizenNFT challenge as a no-authority p
       testCitizenNftContract: "0x1111111111111111111111111111111111111111",
     }),
     /synthetic_citizen_pass_challenge_invalid/u,
+  );
+  const retiredCore = {
+    ...core,
+    testCitizenNftContract: "0x0be374808a567c9088ac8208b90a4239432b3220",
+  };
+  const retiredCanonical = stableJson(retiredCore);
+  await assert.rejects(
+    () => session.signSyntheticCitizenPassChallenge({
+      ...retiredCore,
+      canonicalChallenge: retiredCanonical,
+      message: retiredCanonical,
+    }),
+    /synthetic_citizen_pass_challenge_invalid/u,
+    "a correctly encoded old-contract challenge must not obtain a new signature",
   );
   assert.equal("secretKey" in session, false);
 });

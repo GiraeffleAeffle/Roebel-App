@@ -1,0 +1,250 @@
+{
+  "environment": "test",
+  "contractSetId": "gnosis-staging-test-v2",
+  "chainId": 100,
+  "owner": "0x728871179EeD015197CE7320040143534755FE2A",
+  "cosigners": [
+    "0x2234d5F5A3Cac82C43D786380563435909a2b9d1",
+    "0x291ebCE623ACeE01ffF542e6aC6911E84B384ED7",
+    "0x4f6271BC8f29a188D24121685f73D73aE3dC4661",
+    "0x8Ac63318c3964E32692624F8BaB3B3f05Ca5C19F",
+    "0xe329442B6Af574644FD080895BDFDd3Aa2599b2e"
+  ],
+  "founders": [
+    "0x2234d5F5A3Cac82C43D786380563435909a2b9d1",
+    "0x291ebCE623ACeE01ffF542e6aC6911E84B384ED7",
+    "0x4f6271BC8f29a188D24121685f73D73aE3dC4661"
+  ],
+  "bandProfile": "prod-shaped",
+  "bands": {
+    "attester": {
+      "approval": [
+        5000,
+        3,
+        7
+      ],
+      "rejection": [
+        5000,
+        3,
+        7
+      ]
+    },
+    "citizen": {
+      "attestationAttester": [
+        3000,
+        2,
+        7
+      ],
+      "attestationCitizen": [
+        0,
+        1,
+        1
+      ],
+      "revocationAttester": [
+        6700,
+        3,
+        65535
+      ],
+      "revocationCitizen": [
+        0,
+        1,
+        1
+      ],
+      "rejectionAttester": [
+        2500,
+        2,
+        5
+      ],
+      "rejectionCitizen": [
+        2500,
+        2,
+        5
+      ]
+    }
+  },
+  "migrationFinalized": false,
+  "contracts": {
+    "attesterNFTv2": "0x76b558Feb869c77790431497554C9aa8797896Fa",
+    "citizenNFTv2": "0x4765cB681E8eB080B3191DD550E81eaA41907323"
+  },
+  "runtimeCodeHashes": {
+    "attesterNFTv2": "0x3c12a034ea9c2749c786497b5d50dcfaa4eff84860819d788517145a2276ee51",
+    "citizenNFTv2": "0x0131b35a46839c2c50e013a5702dd1a75ab2c079890711900071d56486d1bce4"
+  },
+  "sourceRevision": "937744fcf0a64602689406a13baefa8302a1de7f",
+  "compiler": "0.8.28+commit.7893614a.Emscripten.clang",
+  "compilerSettings": {
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "viaIR": true,
+    "evmVersion": "paris",
+    "outputSelection": {
+      "*": {
+        "*": [
+          "abi",
+          "evm.bytecode",
+          "evm.deployedBytecode",
+          "evm.methodIdentifiers",
+          "metadata"
+        ],
+        "": [
+          "ast"
+        ]
+      }
+    }
+  },
+  "openzeppelinVersion": "5.2.0",
+  "sourceHashes": {
+    "contracts/verification-system/AttesterNFTv2.sol": "de082e319dbc4d05162caf4268af3638e644c7dca640af433d49a730d7c016ea",
+    "contracts/verification-system/CitizenNFTv2.sol": "8a91fe1951fc3f28ce01d662d411cd52013f34b5da81b637dd65f509edfab06c",
+    "contracts/verification-system/ThresholdBands.sol": "09016cfa628a28a97507e07316b648bd2cc6767815254e9deefa20aef525f55b"
+  },
+  "constructorArguments": {
+    "attesterNFTv2": [
+      "0x728871179EeD015197CE7320040143534755FE2A",
+      "Roebel TEST Attester",
+      "tROEBEL-ATT",
+      [
+        "0x2234d5F5A3Cac82C43D786380563435909a2b9d1",
+        "0x291ebCE623ACeE01ffF542e6aC6911E84B384ED7",
+        "0x4f6271BC8f29a188D24121685f73D73aE3dC4661"
+      ],
+      [
+        5000,
+        3,
+        7
+      ],
+      [
+        5000,
+        3,
+        7
+      ]
+    ],
+    "citizenNFTv2": [
+      "0x76b558Feb869c77790431497554C9aa8797896Fa",
+      "0x728871179EeD015197CE7320040143534755FE2A",
+      [
+        "0x2234d5F5A3Cac82C43D786380563435909a2b9d1",
+        "0x291ebCE623ACeE01ffF542e6aC6911E84B384ED7",
+        "0x4f6271BC8f29a188D24121685f73D73aE3dC4661"
+      ],
+      [
+        [
+          3000,
+          2,
+          7
+        ],
+        [
+          0,
+          1,
+          1
+        ],
+        [
+          6700,
+          3,
+          65535
+        ],
+        [
+          0,
+          1,
+          1
+        ],
+        [
+          2500,
+          2,
+          5
+        ],
+        [
+          2500,
+          2,
+          5
+        ]
+      ],
+      0
+    ]
+  },
+  "reviewStatus": "reviewed",
+  "warning": "TEST CONTRACTS. Project-owned test issuance only; no municipal, voting or treasury authority.",
+  "network": "gnosis",
+  "deployedAt": "2026-09-05T07:37:53.070Z",
+  "deployBlock": 48090189,
+  "cosignerDerivation": "keccak256(ownerPrivKey, 'roebel-onchain-test-env/cosigner/v1', i) for i in 1..5",
+  "deploymentPlanSha256": "33e7092d57213ded93d9e3d8fc354357acb4cd48f62cf85e0c1693e74fa642f5",
+  "deploymentTransactions": [
+    {
+      "label": "deploy-attester",
+      "hash": "0x636178dd82a524d7c7788d2df092301c3f4a242238f336a705d10518c84d5c01",
+      "blockNumber": 48090172,
+      "blockHash": "0x52755b9ea32a5b8c8d25013cd57b05b271a0a2bce6ad1c1ac9af380055946fa4",
+      "gasUsed": "2924875",
+      "feeWei": "55572625"
+    },
+    {
+      "label": "deploy-citizen",
+      "hash": "0x9f42058d6696fea8ae03271205d0bcf0733b588e22c43828811c89e1d15cb15e",
+      "blockNumber": 48090174,
+      "blockHash": "0x7d009ae2477422e470ae818f82622be2aa992ec2b86078d005ff0917714696dc",
+      "gasUsed": "5111113",
+      "feeWei": "97111147"
+    },
+    {
+      "label": "seed-extra-attesters",
+      "hash": "0x9c86f7061f16af81f5e6c22a897b3d24c9a270d9a0f68487bd9ba33839326494",
+      "blockNumber": 48090177,
+      "blockHash": "0x0f25101c7cb9f163b7d1d0c8c90b744cc49523faa970dd389bd91e14030ab789",
+      "gasUsed": "271844",
+      "feeWei": "5165036"
+    },
+    {
+      "label": "seed-extra-citizens",
+      "hash": "0xdbeff73702093d4de100d8d248fc167212e80475c0c9b5f5090985a22cf24827",
+      "blockNumber": 48090179,
+      "blockHash": "0xd396b509046f8c9d9650943851be65e9e617165285d8187cf87f547261e6544c",
+      "gasUsed": "464054",
+      "feeWei": "8817026"
+    },
+    {
+      "label": "fund-cosigner-1",
+      "hash": "0x5855fd0f0b0598ca7e8c13d087409cde792c5ea2dfc2725c04803a0aa2609fc3",
+      "blockNumber": 48090181,
+      "blockHash": "0xea97ee6a784d9a1264521d3d414e114337e7030154b3c2cde778784fac17d290",
+      "gasUsed": "21000",
+      "feeWei": "399000"
+    },
+    {
+      "label": "fund-cosigner-2",
+      "hash": "0xd6bb66b8414c3ec407d35427879d984608fd597ad438d9bb391261f3db3a0fac",
+      "blockNumber": 48090183,
+      "blockHash": "0x639f863ed4ca093e2c569386adab69e5f4d569ae84f83e56553f0bd7994f44cd",
+      "gasUsed": "21000",
+      "feeWei": "399000"
+    },
+    {
+      "label": "fund-cosigner-3",
+      "hash": "0x459c73240322af1056e02bd9a6182e71b21cef6f6cba4fc4cd82c645daf04d1b",
+      "blockNumber": 48090185,
+      "blockHash": "0x32083e790ee8ccc24bf7fb0df5fe39ce004df2b1ef3ae188345d49746eb7d0a0",
+      "gasUsed": "21000",
+      "feeWei": "378000"
+    },
+    {
+      "label": "fund-cosigner-4",
+      "hash": "0x632c2d75e19dbf4e6c4c044a2b469a6c168a9049f3b389c22c5977a90efc205e",
+      "blockNumber": 48090187,
+      "blockHash": "0xe59790a5b82449cf9b1e2f0079775486af8c4577ad8e9248256308525da5c589",
+      "gasUsed": "21000",
+      "feeWei": "378000"
+    },
+    {
+      "label": "fund-cosigner-5",
+      "hash": "0x356a92b063d2676edda6b42d50ad69ceeb23f6db5103c9d187caddf8681e0006",
+      "blockNumber": 48090189,
+      "blockHash": "0xa90807efed2b6cfe05e62a806e8aed8aed0e09d7857d45ac1b15b2ea82698a96",
+      "gasUsed": "21000",
+      "feeWei": "378000"
+    }
+  ],
+  "feesXdai": "0.000000000168597834"
+}

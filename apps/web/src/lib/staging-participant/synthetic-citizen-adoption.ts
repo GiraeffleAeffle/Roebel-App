@@ -3,6 +3,8 @@ import {
   type NostrEvent,
   type ParticipantTopicSuggestionV1,
 } from "@netizen-labs/nostr";
+import { STAGING_TEST_CITIZEN_NFT_ADDRESS } from "@roebel/blockchain";
+export { STAGING_TEST_CITIZEN_NFT_ADDRESS } from "@roebel/blockchain";
 
 import type { CitizenSession } from "@/lib/citizen-session/session";
 
@@ -10,8 +12,6 @@ const API_ROOT =
   "/api/staging-participant/v1/synthetic-citizen-adoption";
 const HEX64 = /^[0-9a-f]{64}$/u;
 const CACHE_PREFIX = "roebel-staging-synthetic-citizen-adopter-v1:";
-export const STAGING_TEST_CITIZEN_NFT_ADDRESS =
-  "0x0be374808a567c9088ac8208b90a4239432b3220" as const;
 
 export type StagingTestCitizenPass = Readonly<{
   schemaVersion: "staging_test_citizen_pass_v1";

@@ -318,9 +318,9 @@ function fixture(input: Partial<{
           async preflightSyntheticCitizenAdoption() {
             if (input.syntheticStorageFails) throw new Error("synthetic storage unavailable");
             return {
-              migrationId: "20260902_staging_synthetic_citizen_adoption",
+              migrationId: "20260905_staging_synthetic_citizen_pass_v2",
               databaseSchemaSha256:
-                "sha256:bcaa0b098a99b145e5111c17e29e5e7d9e9eb0840ee27643b3c26db34118bd66",
+                "sha256:c072fbc87a8fe6d4be9ef83359e919b639a5afddcef2a0dda337defad272462a",
             };
           },
         } : {}),
@@ -340,11 +340,11 @@ function fixture(input: Partial<{
         ...(input.syntheticReady ? {
           syntheticCitizenAdoptionMigrationSha256: `sha256:${"3".repeat(64)}`,
           syntheticCitizenAdoptionDatabaseSchemaSha256:
-            "sha256:bcaa0b098a99b145e5111c17e29e5e7d9e9eb0840ee27643b3c26db34118bd66",
+            "sha256:c072fbc87a8fe6d4be9ef83359e919b639a5afddcef2a0dda337defad272462a",
           syntheticCitizenNftAddress:
-            "0x0be374808a567c9088ac8208b90a4239432b3220",
+            "0x4765cb681e8eb080b3191dd550e81eaa41907323",
           syntheticCitizenNftRuntimeCodeKeccak256:
-            "0x481949efe62483d881190ec16e7ac6ffd796b0e601ea952507fa6eee1986bafb",
+            "0x0131b35a46839c2c50e013a5702dd1a75ab2c079890711900071d56486d1bce4",
         } : {}),
       },
       ...(input.citizenAdoptionReady === false ? {} : { citizenAdoption }),
@@ -356,9 +356,9 @@ function fixture(input: Partial<{
               schemaVersion: "staging_synthetic_citizen_adoption_verifier_preflight_v1" as const,
               chainId: 100 as const,
               testCitizenNftContract:
-                "0x0be374808a567c9088ac8208b90a4239432b3220",
+                "0x4765cb681e8eb080b3191dd550e81eaa41907323",
               testCitizenNftRuntimeCodeKeccak256:
-                "0x481949efe62483d881190ec16e7ac6ffd796b0e601ea952507fa6eee1986bafb",
+                "0x0131b35a46839c2c50e013a5702dd1a75ab2c079890711900071d56486d1bce4",
               finalizedBlockNumber: 12_345n,
               finalizedBlockHash: `0x${"a".repeat(64)}`,
               environment: "staging" as const,
@@ -1032,7 +1032,7 @@ test("internal readiness stays non-ingressed, rejects browser-shaped requests, a
   const syntheticStatus = await syntheticReady.json() as Record<string, unknown>;
   assert.equal(
     syntheticStatus.syntheticCitizenNftAddress,
-    "0x0be374808a567c9088ac8208b90a4239432b3220",
+    "0x4765cb681e8eb080b3191dd550e81eaa41907323",
   );
   assert.equal(syntheticStatus.syntheticCitizenNftFinalizedBlockNumber, "12345");
   assert.equal(syntheticStatus.syntheticCitizenAdoptionAuthorityBinding, "none");

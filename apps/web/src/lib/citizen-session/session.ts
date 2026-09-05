@@ -21,6 +21,7 @@ import {
   type ParticipantTopicSuggestionV1,
   type NostrEvent,
 } from "@netizen-labs/nostr";
+import { STAGING_TEST_CITIZEN_NFT_ADDRESS } from "@roebel/blockchain";
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const SIGNATURE = /^0x[0-9a-fA-F]+$/;
@@ -547,8 +548,7 @@ export function createCitizenSession(
         !/^[0-9a-f]{32}$/u.test(input.challengeId) ||
         input.audience !== "roebel-staging-synthetic-citizen-adoption" ||
         input.chainId !== 100 || input.chainId !== snapshot.credential.chainId ||
-        input.testCitizenNftContract !==
-          "0x0be374808a567c9088ac8208b90a4239432b3220" ||
+        input.testCitizenNftContract !== STAGING_TEST_CITIZEN_NFT_ADDRESS ||
         input.subjectPubkey !== signer.publicKey ||
         !/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u.test(input.municipalityId) ||
         !/^[a-z0-9][a-z0-9._-]{2,99}$/u.test(input.policyVersion) ||

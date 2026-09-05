@@ -20,13 +20,19 @@ Röbel Münzen are still not covered — see [Out of scope](#out-of-scope).
 
 |                            | Address                                                              |
 | -------------------------- | -------------------------------------------------------------------- |
-| **AttesterNFTv2 (test)**   | `0x5983F6300bCE3D9C1336a858Bd73F259bB8330F3`                         |
-| **CitizenNFTv2 (test)**    | `0x0Be374808A567c9088aC8208B90a4239432B3220`                         |
-| Owner (burner EOA)         | `0xd5028284017A32C672CbD73Fe35aCD897bA874cf`                         |
+| **AttesterNFTv2 (test)**   | `0x76b558Feb869c77790431497554C9aa8797896Fa`                         |
+| **CitizenNFTv2 (test)**    | `0x4765cB681E8eB080B3191DD550E81eaA41907323`                         |
+| Owner (burner EOA)         | `0x728871179EeD015197CE7320040143534755FE2A`                         |
 | Attester runtime code hash | `0x3c12a034ea9c2749c786497b5d50dcfaa4eff84860819d788517145a2276ee51` |
-| Citizen runtime code hash  | `0x481949efe62483d881190ec16e7ac6ffd796b0e601ea952507fa6eee1986bafb` |
+| Citizen runtime code hash  | `0x0131b35a46839c2c50e013a5702dd1a75ab2c079890711900071d56486d1bce4` |
 
-Manifest: [`contracts/governor-contract/deployments/gnosis-test.json`](../contracts/governor-contract/deployments/gnosis-test.json)
+Current immutable contract-set identity: `gnosis-staging-test-v2`. The original
+`gnosis-staging-test-v1` and its `gnosis-test.json` manifest remain historical.
+See [ADR 0025](adr/0025-project-owned-staging-identity-rotation.md). Activation
+requires the v2 Web/gateway release and the forward SQL migration; deployment
+alone does not activate the app.
+
+Manifest: [`contracts/governor-contract/deployments/gnosis-staging-test-v2.json`](../contracts/governor-contract/deployments/gnosis-staging-test-v2.json)
 
 Three deliberate differences from production:
 
@@ -46,8 +52,10 @@ stamps its EIP-712 domain with the chain it lives on, and `org-membership`,
 their ERC-1271 checks. `apps/expo/lib/citizen-commitment.ts` freezes `chainId: 100` as
 a _derivation constant_. Moving to Chiado would change the domain separator, break
 identity verification across several edge functions, and leave you testing a
-configuration production never runs. Gnosis gas is cheap enough that the whole deploy
-cost **0.05 xDAI** — the fake chain isn't worth it.
+configuration production never runs. The September 5 replacement used
+**0.000000000168597834 xDAI in network fees** across nine transactions, plus
+**0.0005 xDAI allocated to five project-controlled co-signers**. Allocations
+remain wallet balances; they are not deployment fees.
 
 ---
 
@@ -58,17 +66,17 @@ cost **0.05 xDAI** — the fake chain isn't worth it.
 **Expo** (`apps/expo/.env`):
 
 ```bash
-EXPO_PUBLIC_IDENTITY_CONTRACT_SET=gnosis-staging-test-v1
-EXPO_PUBLIC_ATTESTER_NFT_ADDRESS=0x5983F6300bCE3D9C1336a858Bd73F259bB8330F3
-EXPO_PUBLIC_CITIZEN_NFT_ADDRESS=0x0Be374808A567c9088aC8208B90a4239432B3220
+EXPO_PUBLIC_IDENTITY_CONTRACT_SET=gnosis-staging-test-v2
+EXPO_PUBLIC_ATTESTER_NFT_ADDRESS=0x76b558Feb869c77790431497554C9aa8797896Fa
+EXPO_PUBLIC_CITIZEN_NFT_ADDRESS=0x4765cB681E8eB080B3191DD550E81eaA41907323
 ```
 
 **Web** (`apps/web/.env.local`):
 
 ```bash
-NEXT_PUBLIC_IDENTITY_CONTRACT_SET=gnosis-staging-test-v1
-NEXT_PUBLIC_ATTESTER_NFT_ADDRESS=0x5983F6300bCE3D9C1336a858Bd73F259bB8330F3
-NEXT_PUBLIC_CITIZEN_NFT_ADDRESS=0x0Be374808A567c9088aC8208B90a4239432B3220
+NEXT_PUBLIC_IDENTITY_CONTRACT_SET=gnosis-staging-test-v2
+NEXT_PUBLIC_ATTESTER_NFT_ADDRESS=0x76b558Feb869c77790431497554C9aa8797896Fa
+NEXT_PUBLIC_CITIZEN_NFT_ADDRESS=0x4765cB681E8eB080B3191DD550E81eaA41907323
 ```
 
 Both apps select the pair through one fail-closed Module and show a persistent
@@ -203,12 +211,12 @@ The constructors take exactly three founders, so the deploy mints two more via
   `CitizenNFTv2` hardcodes its ERC721 name, so only the address differs. That is the
   entire reason the in-app banner exists. (`AttesterNFTv2` takes name/symbol
   arguments, so the test one is "Roebel TEST Attester".)
-- **`0x5983F6300bCE3D9C1336a858Bd73F259bB8330F3` is also an archived MACI governor on
+- **`0x76b558Feb869c77790431497554C9aa8797896Fa` is also an archived MACI governor on
   Base.** Same deployer, same nonce, different chain — so a repo-wide grep for that
   address hits `deployments/base.json` too. Harmless, but don't be confused by it.
 - **Anyone with the burner key can mint citizenship at will.** That is the point, and
   it is also why nothing here may ever be referenced from production config.
-- **Co-signers run out of gas.** They start with 0.01 xDAI each; `status.cjs` flags
+- **Co-signers run out of gas.** The v2 co-signers start with 0.0001 xDAI each; `status.cjs` flags
   low balances. Top up from the burner.
 - **Changing bands affects only requests created afterwards.** Every request
   snapshots its approval and rejection thresholds when it is created; pending

@@ -135,6 +135,14 @@ const QUALITY_EXACT_PACKAGE_PATHS = new Map([
     "supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json",
     "@roebel/staging-participant-gateway",
   ],
+  [
+    "supabase/migrations/20260905_staging_synthetic_citizen_pass_v2.sql",
+    "@roebel/staging-participant-gateway",
+  ],
+  [
+    "supabase/staging-synthetic-citizen-adoption-schema-contract-v2.json",
+    "@roebel/staging-participant-gateway",
+  ],
 ]);
 
 function qualitySelection(changedPaths, affected) {
