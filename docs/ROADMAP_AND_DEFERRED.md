@@ -50,15 +50,24 @@ moving folders does not establish a faster or safer build.
 
 ## Current adoption-to-Case slice — 2026-09-05
 
-Real citizen adoption remains step 5 of 10. The next technical slice implements
-ADR 0023's fresh, signed eligibility status resolver and bounded GET handler.
+Real citizen adoption remains step 5 of 10. PR #100 implemented ADR 0023's
+fresh, signed eligibility status resolver and bounded GET handler.
 It verifies the original issuer receipt, privately resolves the holder and
 rechecks the pinned credential on every request. Tests cover active/revoked
 observations, signature verification with a second cryptographic implementation,
-expiry during lookup, tampering, unavailable evidence and timeouts. Production
-composition stays closed until the private holder Adapter, responsible municipal
-eligibility operator and Case Steward consumer are in place. This is code toward
-human admission, not a completed real adoption or municipal response.
+expiry during lookup, tampering, unavailable evidence and timeouts.
+
+The next implementation adds its restricted private holder reader and an
+additive SQL migration. One exact receipt resolves to its original consumed
+challenge; municipality, policy, subject, suggestion and topic must still match.
+The existing signed-receipt fixture also exercises this reader through the
+public status handler. The database CI lane checks real PostgreSQL permissions,
+scope mismatch and corrupt bindings while retaining older preflight checks.
+Production composition awaits the reviewed migration/function permissions,
+responsible municipal eligibility operator and Case Steward nonce consumer.
+The next slice is that role-isolated consumer and its atomic intake. These are
+implementation steps toward human admission; real adoption and municipal
+response are still pending.
 
 ### Later: a representative discussion demo
 

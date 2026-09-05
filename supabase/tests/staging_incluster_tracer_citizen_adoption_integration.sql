@@ -265,6 +265,144 @@ select (
   \quit 1
 \endif
 
+-- The status reader gets exactly one private holder binding. The public
+-- receipt reader above and the adoption projection below stay wallet-free.
+select public.staging_participant_gateway_get_citizen_status_holder(
+  :'receipt_id', :'municipality_id', :'policy_version'
+) = jsonb_build_object(
+  'receipt', :'eligibility_receipt_json'::jsonb,
+  'walletAddress', :'participant_wallet'
+) and public.staging_participant_gateway_get_citizen_status_holder(
+  :'receipt_id', 'strausberg', :'policy_version'
+) is null and public.staging_participant_gateway_get_citizen_status_holder(
+  :'receipt_id', :'municipality_id', 'different-policy'
+) is null and public.staging_participant_gateway_get_citizen_status_holder(
+  'urn:stadtstack:municipal-civic-eligibility-receipt:' || repeat('f', 64),
+  :'municipality_id', :'policy_version'
+) is null as status_holder_exact_and_scoped
+\gset
+\if :status_holder_exact_and_scoped
+\else
+  \echo 'Status holder lookup drifted or disclosed another scope.'
+  \quit 1
+\endif
+
+do $status_request_and_permissions$
+declare v_id text;
+begin
+  foreach v_id in array array[null, '', 'not-a-receipt'] loop
+    begin
+      perform public.staging_participant_gateway_get_citizen_status_holder(
+        v_id, 'roebel-mueritz', 'roebel-citizen-nft-v2-staging-2026-09'
+      );
+      raise exception 'Malformed status lookup succeeded' using errcode = 'XX000';
+    exception when sqlstate 'P0001' then
+      if sqlerrm <> 'STAGING_PARTICIPANT_CITIZEN_STATUS_LOOKUP_INVALID' then raise; end if;
+    end;
+  end loop;
+  begin
+    perform wallet_address from staging_participant_private.staging_participant_citizen_eligibility_challenges;
+    raise exception 'Anon read a private holder table' using errcode = 'XX000';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform set_config('request.headers', '{}', true);
+    perform public.staging_participant_gateway_get_citizen_status_holder(
+      'urn:stadtstack:municipal-civic-eligibility-receipt:' || repeat('6', 64),
+      'roebel-mueritz', 'roebel-citizen-nft-v2-staging-2026-09'
+    );
+    raise exception 'Status lookup without capability succeeded' using errcode = 'XX000';
+  exception when sqlstate 'P0001' then
+    if sqlerrm <> 'STAGING_PARTICIPANT_GATEWAY_REQUIRED' then raise; end if;
+    -- The exception subtransaction restores request.headers.
+  end;
+end;
+$status_request_and_permissions$;
+
+reset role;
+set local role authenticated;
+do $status_authenticated_denied$
+begin
+  perform public.staging_participant_gateway_get_citizen_status_holder(
+    'urn:stadtstack:municipal-civic-eligibility-receipt:' || repeat('6', 64),
+    'roebel-mueritz', 'roebel-citizen-nft-v2-staging-2026-09'
+  );
+  raise exception 'Authenticated role executed the private lookup' using errcode = 'XX000';
+exception when insufficient_privilege then null;
+end;
+$status_authenticated_denied$;
+reset role;
+
+do $status_catalog_and_binding$
+declare
+  v_function regprocedure := 'public.staging_participant_gateway_get_citizen_status_holder(text,text,text)'::regprocedure;
+  v_change text;
+begin
+  if not exists (
+    select 1 from pg_proc where oid = v_function
+      and prosecdef and provolatile = 's'
+      and proconfig = array['search_path=pg_catalog, staging_participant_private']
+  ) or exists (
+    select 1 from pg_proc p,
+      lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) acl
+     where p.oid = v_function and acl.grantee <> p.proowner
+       and (acl.grantee <> 'anon'::regrole or acl.privilege_type <> 'EXECUTE' or acl.is_grantable)
+  ) then
+    raise exception 'Status lookup catalog or permissions drifted' using errcode = 'XX000';
+  end if;
+
+  -- Privileged fixture corruption must fail closed. Each caught exception
+  -- rolls back its mutation, leaving the original receipt/challenge intact.
+  foreach v_change in array array[
+    'consumed', 'wallet', 'challenge-id', 'municipality', 'policy',
+    'subject', 'suggestion', 'topic', 'public-id', 'public-subject'
+  ] loop
+    begin
+      case v_change
+        when 'consumed' then
+          update staging_participant_private.staging_participant_citizen_eligibility_challenges set consumed_at = null;
+        when 'wallet' then
+          update staging_participant_private.staging_participant_citizen_eligibility_challenges set wallet_address = '0x' || repeat('f', 40);
+        when 'challenge-id' then
+          update staging_participant_private.staging_participant_citizen_eligibility_challenges set challenge = jsonb_set(challenge, '{challengeId}', to_jsonb(repeat('f', 32)));
+        when 'municipality' then
+          update staging_participant_private.staging_participant_citizen_eligibility_challenges set municipality_id = 'strausberg', topic_id = 'urn:stadtstack:topic:municipality:strausberg:example';
+        when 'policy' then
+          update staging_participant_private.staging_participant_citizen_eligibility_challenges set policy_version = 'different-policy';
+        when 'subject' then
+          update staging_participant_private.staging_participant_citizen_eligibility_challenges set subject_pubkey = repeat('f', 64);
+        when 'suggestion' then
+          update staging_participant_private.staging_participant_citizen_eligibility_challenges set participant_suggestion_id = repeat('f', 64);
+        when 'topic' then
+          update staging_participant_private.staging_participant_citizen_eligibility_challenges set topic_id = 'urn:stadtstack:topic:municipality:roebel-mueritz:other';
+        when 'public-id' then
+          update staging_participant_private.staging_participant_citizen_eligibility_receipts set public_receipt = jsonb_set(public_receipt, '{receiptId}', to_jsonb('urn:stadtstack:municipal-civic-eligibility-receipt:' || repeat('f', 64)));
+        when 'public-subject' then
+          update staging_participant_private.staging_participant_citizen_eligibility_receipts set public_receipt = jsonb_set(public_receipt, '{eligibilityCore,subjectPubkey}', to_jsonb(repeat('f', 64)));
+      end case;
+      perform public.staging_participant_gateway_get_citizen_status_holder(
+        'urn:stadtstack:municipal-civic-eligibility-receipt:' || repeat('6', 64),
+        'roebel-mueritz', 'roebel-citizen-nft-v2-staging-2026-09'
+      );
+      raise exception 'Corrupt status binding succeeded: %', v_change using errcode = 'XX000';
+    exception when sqlstate 'P0001' then
+      if sqlerrm <> 'STAGING_PARTICIPANT_CITIZEN_STATUS_BINDING_INVALID' then raise; end if;
+    end;
+  end loop;
+  begin
+    update public.app_settings set value = 'production' where key = 'roebel_env';
+    perform public.staging_participant_gateway_get_citizen_status_holder(
+      'urn:stadtstack:municipal-civic-eligibility-receipt:' || repeat('6', 64),
+      'roebel-mueritz', 'roebel-citizen-nft-v2-staging-2026-09'
+    );
+    raise exception 'Unarmed status lookup succeeded' using errcode = 'XX000';
+  exception when sqlstate 'P0001' then
+    if sqlerrm <> 'STAGING_PARTICIPANT_ENVIRONMENT_REQUIRED' then raise; end if;
+  end;
+end;
+$status_catalog_and_binding$;
+set local role anon;
+
 select public.staging_participant_gateway_get_citizen_suggestion_root(
   :'municipality_id', :'participant_suggestion_id'
 ) = jsonb_build_object(

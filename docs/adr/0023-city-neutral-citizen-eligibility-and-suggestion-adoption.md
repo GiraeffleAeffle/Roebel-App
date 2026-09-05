@@ -214,6 +214,15 @@ expiry, invalid evidence, an outage or a timeout returns generic 503. A verified
 inactive credential yields a signed `revoked` observation. `effectiveAt` is the
 observation time, not a claim about the historical moment of revocation.
 
+The private holder read port is implemented by
+`createRestrictedSupabaseCitizenStatusReader` and the additive
+`20260905_staging_citizen_eligibility_status_lookup.sql` migration. Its one fixed
+RPC joins the receipt to its consumed challenge, checks municipality, policy
+and signed-subject/suggestion/topic bindings, and returns only the wallet and
+public receipt to the issuer. The original public receipt RPC and historical
+tables/migrations remain unchanged. The private gateway capability is mandatory;
+the reader never follows redirects or exposes database error bodies.
+
 Production composition still omits this capability and retains
 `citizen_eligibility_status_not_activated`. Activation requires a reviewed private
 holder Adapter and its restricted database permission, the municipal issuer
@@ -221,6 +230,11 @@ policy and responsible operator, and the separate Case Steward consumer that
 verifies freshness and atomically consumes its nonce. The proof verifier alone
 does not validate an admission or consume a nonce. No new environment switch or
 database permission activates this implementation implicitly.
+Operations must pin the additional migration and verify its function catalog and
+ACL separately; the older adoption preflight continues to attest only its
+original function list. The pinned PostgreSQL integration fixture exercises
+the new lookup, access denial, scope mismatch and corrupt bindings alongside the
+unchanged public receipt/adoption and older preflight behavior.
 
 ### Citizen adoption event
 

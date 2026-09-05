@@ -19,6 +19,8 @@ import {
   type CitizenEligibilityReceiptStore,
 } from "../src/citizen-adoption.ts";
 import { createCitizenEligibilityStatusResolver } from "../src/citizen-eligibility-status.ts";
+import { createRestrictedSupabaseCitizenStatusReader } from "../src/citizen-eligibility-status-supabase-adapter.ts";
+import { IN_CLUSTER_TRACER_POSTGREST_ORIGIN } from "../src/restricted-postgrest-origin.ts";
 import { createStagingParticipantGatewayHandler } from "../src/http.ts";
 import type { PinnedCitizenNftEligibilityEvidence } from "@netizen-labs/relay-sync";
 
@@ -239,7 +241,7 @@ function serviceFixture(options: {
   };
 }
 
-async function statusFixture() {
+async function statusFixture(privateReader = false) {
   const setup = serviceFixture();
   const sessionBindingSha256 = "2".repeat(64);
   const challenge = await setup.service.issueEligibilityChallenge({
@@ -272,7 +274,23 @@ async function statusFixture() {
   let checks = 0;
   const resolver = createCitizenEligibilityStatusResolver({
     policy, issuer: { keyId: issuance.eligibilityPolicy.proof.keyId, privateKey: ISSUER_PRIVATE_KEY },
-    receipts: { async resolveForStatus(input) {
+    receipts: privateReader ? createRestrictedSupabaseCitizenStatusReader({
+      url: IN_CLUSTER_TRACER_POSTGREST_ORIGIN,
+      anonKey: "public-anon-routing-key", rpcSecret: "private-test-capability".repeat(3),
+      municipalityId, policyVersion,
+      async fetch(url, init) {
+        assert.equal(String(url), `${IN_CLUSTER_TRACER_POSTGREST_ORIGIN}/rpc/staging_participant_gateway_get_citizen_status_holder`);
+        assert.equal(init?.method, "POST");
+        assert.equal(init?.redirect, "error");
+        assert.equal(init?.cache, "no-store");
+        assert.equal(new Headers(init?.headers).get("x-staging-participant-rpc-secret"), "private-test-capability".repeat(3));
+        assert.deepEqual(JSON.parse(String(init?.body)), {
+          p_receipt_id: receipt.receiptId, p_municipality_id: municipalityId, p_policy_version: policyVersion,
+        });
+        assert.ok(init?.signal instanceof AbortSignal);
+        return Response.json(record);
+      },
+    }) : { async resolveForStatus(input) {
       assert.deepEqual(input, { receiptId: receipt.receiptId, municipalityId, policyVersion });
       return record as never;
     } },
@@ -325,7 +343,7 @@ function verifyStatusWithNode(status: MunicipalCivicEligibilityStatusV1, publicK
 }
 
 test("HTTP rechecks an issued receipt for each nonce and returns only independently verifiable public status", async () => {
-  const setup = await statusFixture();
+  const setup = await statusFixture(true);
   const handler = setup.handler();
   const firstNonce = "a".repeat(64);
   const getStatus = (nonce: string) => handler(new Request(setup.receipt.statusRef, {
@@ -366,6 +384,83 @@ test("HTTP rechecks an issued receipt for each nonce and returns only independen
   assert.equal(setup.checks(), 2);
   assert.equal(setup.adoptionWrites(), 0);
   assert.equal(setup.stored.receipt, setup.receipt);
+});
+
+test("private status reader pins its scope and transport and rejects private response additions", async () => {
+  const setup = await statusFixture();
+  const { municipalityId, policyVersion } = setup.policy;
+  const input = { receiptId: setup.receipt.receiptId, municipalityId, policyVersion };
+  let value: unknown = { receipt: setup.receipt, walletAddress: WALLET };
+  let calls = 0;
+  const config = {
+    url: "https://example.supabase.co",
+    anonKey: "public-anon-routing-key", rpcSecret: "private-test-capability".repeat(3),
+    municipalityId, policyVersion,
+    async fetch(url: unknown) {
+      calls++;
+      assert.equal(String(url), "https://example.supabase.co/rest/v1/rpc/staging_participant_gateway_get_citizen_status_holder");
+      return Response.json(value);
+    },
+  };
+  const reader = createRestrictedSupabaseCitizenStatusReader(config);
+  // Pin primitive configuration at construction, even if its original object changes.
+  config.municipalityId = "strausberg";
+  assert.deepEqual(Object.keys(reader), ["resolveForStatus"]);
+  assert.deepEqual(await reader.resolveForStatus(input), value);
+  for (const changed of [
+    { ...input, receiptId: "not-a-receipt" },
+    { ...input, municipalityId: "strausberg" },
+    { ...input, policyVersion: "different-policy" },
+    { ...input, walletAddress: WALLET },
+  ]) await assert.rejects(reader.resolveForStatus(changed), /reader_request_invalid/);
+  assert.equal(calls, 1);
+  value = null;
+  assert.equal(await reader.resolveForStatus(input), null);
+  for (const invalid of [
+    [],
+    { receipt: setup.receipt, walletAddress: WALLET, privateEligibilityEvidence: {} },
+    { receipt: setup.receipt, walletAddress: "0xINVALID" },
+    { receipt: { ...setup.receipt, walletAddress: WALLET }, walletAddress: WALLET },
+    { receipt: { ...setup.receipt, receiptId: "another-receipt" }, walletAddress: WALLET },
+    { receipt: { ...setup.receipt, eligibilityCore: { ...setup.receipt.eligibilityCore, municipalityId: "strausberg" } }, walletAddress: WALLET },
+    { receipt: { ...setup.receipt, eligibilityCore: { ...setup.receipt.eligibilityCore, policyVersion: "different-policy" } }, walletAddress: WALLET },
+    { receipt: { ...setup.receipt, proof: { ...setup.receipt.proof, walletAddress: WALLET } }, walletAddress: WALLET },
+  ]) {
+    value = invalid;
+    await assert.rejects(reader.resolveForStatus(input), /reader_response_invalid/);
+  }
+});
+
+test("private status reader rejects unsafe routing and normalizes transport failures", async () => {
+  const setup = await statusFixture();
+  const { municipalityId, policyVersion } = setup.policy;
+  const config = {
+    url: IN_CLUSTER_TRACER_POSTGREST_ORIGIN,
+    anonKey: "public-anon-routing-key", rpcSecret: "private-test-capability".repeat(3),
+    municipalityId, policyVersion,
+  };
+  const serviceKey = ["header", Buffer.from(JSON.stringify({ role: "service_role" })).toString("base64url"), "signature"].join(".");
+  for (const changed of [
+    { url: "http://untrusted.example" },
+    { url: "https://user:password@example.supabase.co" },
+    { url: "https://example.supabase.co?redirect=other" },
+    { anonKey: serviceKey },
+    { anonKey: "sb_secret_" + "s".repeat(32) },
+    { anonKey: "header.invalid-json.signature" },
+    { rpcSecret: "short" },
+    { policyVersion: "../other" },
+  ]) assert.throws(() => createRestrictedSupabaseCitizenStatusReader({ ...config, ...changed }), /reader_config_invalid/);
+  for (const request of [
+    async () => { throw new Error(config.rpcSecret + WALLET); },
+    async () => new Response(config.rpcSecret + WALLET, { status: 500 }),
+    async () => new Response(config.rpcSecret + WALLET, { status: 200 }),
+    async () => new Response(null, { status: 302, headers: { location: "https://untrusted.example" } }),
+  ]) {
+    const reader = createRestrictedSupabaseCitizenStatusReader({ ...config, fetch: request });
+    await assert.rejects(reader.resolveForStatus({ receiptId: setup.receipt.receiptId, municipalityId, policyVersion }), {
+      message: "citizen_eligibility_status_reader_unavailable",
+    });
+  }
 });
 
 test("status HTTP stays disabled without composition and bounds the configured read surface", async () => {

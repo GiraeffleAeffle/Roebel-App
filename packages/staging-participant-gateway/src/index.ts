@@ -6,6 +6,8 @@ export {
 export { resolveProductionGatewayConfig } from "./config.ts";
 export { createCitizenAdoptionService } from "./citizen-adoption.ts";
 export { createCitizenEligibilityStatusResolver } from "./citizen-eligibility-status.ts";
+export { createRestrictedSupabaseCitizenStatusReader } from "./citizen-eligibility-status-supabase-adapter.ts";
+export type { RestrictedSupabaseCitizenStatusConfig } from "./citizen-eligibility-status-supabase-adapter.ts";
 export type {
   CitizenEligibilityStatusReader,
   CitizenEligibilityStatusResolver,

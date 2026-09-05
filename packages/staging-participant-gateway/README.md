@@ -24,9 +24,20 @@ Its resolver rechecks the original private holder and returns a signed public
 `active` or `revoked` observation without wallet or chain evidence. Unknown
 receipts return 404; expiry, invalid evidence and the bounded inspection timeout
 return generic 503. It has no write capability. Production `cli.ts` deliberately
-does not supply this resolver: the route remains 503 until the private holder
-Adapter, municipal policy and separate Case Steward nonce consumer are reviewed
-and wired. See [ADR 0023](../../docs/adr/0023-city-neutral-citizen-eligibility-and-suggestion-adoption.md).
+does not supply this resolver: activation requires the municipal policy,
+responsible operator, separate Case Steward nonce consumer and reviewed
+operations wiring. See [ADR 0023](../../docs/adr/0023-city-neutral-citizen-eligibility-and-suggestion-adoption.md).
+
+`createRestrictedSupabaseCitizenStatusReader` implements the private read port
+with one fixed RPC, pinned municipality/policy, an eight-second transport timeout
+and no redirects. The additive
+[`20260905_staging_citizen_eligibility_status_lookup.sql`](../../supabase/migrations/20260905_staging_citizen_eligibility_status_lookup.sql)
+joins one issued receipt to its consumed challenge and returns only the original
+holder and public receipt to the issuer. The Vault-bound gateway header is
+mandatory; ordinary browser roles cannot read the private tables. The old public
+receipt RPC stays unchanged. Before deployment, operations must independently pin
+the new migration and verify its function permissions: the existing adoption
+preflight covers its original RPC list, not this additional function.
 
 Case, vote, treasury, administration, municipal publication and arbitrary
 workbench actions are not representable by its data adapter.
