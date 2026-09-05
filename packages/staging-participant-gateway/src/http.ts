@@ -73,6 +73,8 @@ const CITIZEN_ADOPTION_ELIGIBILITY_PATH =
   "/api/staging-participant/v1/citizen-adoption/eligibility";
 const CITIZEN_ADOPTION_ACCEPT_PATH =
   "/api/staging-participant/v1/citizen-adoption/adoptions";
+const CITIZEN_ADOPTION_ACCEPTANCE_PATH =
+  /^\/api\/staging-participant\/v1\/citizen-adoption\/acceptance\/([0-9a-f]{64})$/u;
 const CITIZEN_ADOPTION_PUBLIC_READ_PATH =
   /^\/api\/staging-participant\/v1\/citizen-adoption\/by-suggestion\/([0-9a-f]{64})\/adopter\/([0-9a-f]{64})$/u;
 const SYNTHETIC_CITIZEN_ADOPTION_CHALLENGE_PATH =
@@ -563,6 +565,21 @@ export function createStagingParticipantGatewayHandler(
         return status ? json(status, 200, origin) : json({ error: "not_found" }, 404, origin);
       } catch {
         return json({ error: "citizen_eligibility_status_unavailable" }, 503, origin);
+      }
+    }
+    const citizenAdoptionAcceptance = CITIZEN_ADOPTION_ACCEPTANCE_PATH.exec(url.pathname);
+    if (citizenAdoptionAcceptance) {
+      if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405, origin);
+      if (!dependencies.citizenAdoption) return json({ error: "citizen_adoption_unavailable" }, 503, origin);
+      try {
+        const receipt = await dependencies.citizenAdoption.readAcceptance({
+          adoptionEventId: citizenAdoptionAcceptance[1]!,
+        });
+        return receipt
+          ? json(receipt, 200, origin)
+          : json({ error: "citizen_adoption_not_found" }, 404, origin);
+      } catch {
+        return json({ error: "citizen_adoption_acceptance_unavailable" }, 503, origin);
       }
     }
     const citizenAdoptionPublicRead = CITIZEN_ADOPTION_PUBLIC_READ_PATH.exec(

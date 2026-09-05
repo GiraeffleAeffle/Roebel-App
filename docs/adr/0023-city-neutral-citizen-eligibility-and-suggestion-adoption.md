@@ -1,6 +1,6 @@
 # ADR 0023: City-neutral citizen eligibility and suggestion adoption
 
-- Status: Accepted boundary for staging; protocol, browser signer, issuer/adoption ledger and read-side Case handoff code implemented; governed status activation and Case writer pending
+- Status: Accepted boundary for staging; protocol, browser signer, issuer/adoption ledger, exact-event acceptance read and neutral Case writer implemented; governed runtime activation pending
 - Date: 2026-08-25
 
 ## Context
@@ -47,6 +47,31 @@ The checksum-bound adoption acceptance receipt is trusted ledger state, not a
 sixth browser-supplied artifact. The Case Steward loads it from the configured
 adoption ledger by exact adoption event ID and fails closed on absence,
 duplication, checksum mismatch or event/receipt mismatch.
+
+The gateway exposes that historical ledger read as credential-free
+`GET /api/staging-participant/v1/citizen-adoption/acceptance/{adoptionEventId}`.
+It returns only the original acceptance receipt after checking the complete
+stored public projection, signature, issuer receipt and participant source.
+The selected event must match exactly; a tuple lookup or latest-event fallback
+cannot satisfy it. Expiry does not renew or erase historical acceptance;
+fresh eligibility status remains a separate requirement at Case admission.
+Unknown events return 404, and unavailable or inconsistent evidence returns
+503 without private diagnostics. Query selectors and write methods are rejected.
+
+`20260906_staging_citizen_adoption_acceptance_lookup.sql` adds one stable,
+security-definer read of the existing unique event ID within the configured
+municipality. It requires the staging arm and gateway's Vault-bound capability,
+allows only anon RPC routing, and grants no table access. It adds no store and
+changes none of the older migration bytes or preflight claims. Operations must
+pin this supplemental migration and its function ACL before enabling the route;
+the older readiness marker does not attest it. Missing installation fails
+closed when the read is attempted.
+
+The independent neutral Case writer was implemented in
+[Stadtstack PR #62](https://github.com/GiraeffleAeffle/stadtstack/pull/62).
+Its deployment must pin this HTTPS ledger endpoint separately from the issuer
+key and signed status endpoint. A browser-supplied acceptance checksum is never
+a substitute for that configured read.
 
 Joining them grants only eligibility to request Case Steward review. It does
 not create a Civic Case, publish for a municipality, open a vote, grant voting

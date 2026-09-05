@@ -274,6 +274,7 @@ function fixture(input: Partial<{
     async acceptAdoption() {
       throw new Error("not_used_by_readiness_test");
     },
+    async readAcceptance() { return null; },
     async readPublicAdoption() {
       return null;
     },
