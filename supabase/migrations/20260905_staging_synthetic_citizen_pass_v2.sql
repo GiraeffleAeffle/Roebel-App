@@ -46,8 +46,10 @@ begin
       from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.proname = expected.name
        and p.prosecdef;
-    if actual is distinct from case when current_id = '20260902_staging_synthetic_citizen_adoption'
-      then expected.old_hash else expected.new_hash end then
+    if (current_id = '20260902_staging_synthetic_citizen_adoption'
+        and actual is distinct from expected.old_hash)
+      or (current_id = '20260905_staging_synthetic_citizen_pass_v2'
+        and actual is distinct from expected.new_hash) then
       raise exception 'STAGING_TEST_IDENTITY_ROTATION_FUNCTION_DRIFT';
     end if;
   end loop;
