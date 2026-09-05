@@ -50,13 +50,13 @@ begin
 
   -- One statement gives the receipt and its original holder one snapshot.
   -- No wallet selector, list endpoint, admission renewal or cached status.
-  select receipt as receipt, challenge as challenge into v_binding
-    from staging_participant_private.staging_participant_citizen_eligibility_receipts receipt
-    join staging_participant_private.staging_participant_citizen_eligibility_challenges challenge
-      on challenge.challenge_id = receipt.challenge_id
-   where receipt.receipt_id = p_receipt_id
-     and receipt.municipality_id = p_municipality_id
-     and receipt.policy_version = p_policy_version;
+  select issued_receipt as receipt, original_challenge as challenge into v_binding
+    from staging_participant_private.staging_participant_citizen_eligibility_receipts issued_receipt
+    join staging_participant_private.staging_participant_citizen_eligibility_challenges original_challenge
+      on original_challenge.challenge_id = issued_receipt.challenge_id
+   where issued_receipt.receipt_id = p_receipt_id
+     and issued_receipt.municipality_id = p_municipality_id
+     and issued_receipt.policy_version = p_policy_version;
   if not found then return null; end if;
 
   if (v_binding.challenge).consumed_at is null
