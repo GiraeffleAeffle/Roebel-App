@@ -96,8 +96,9 @@ describe("staging component change detection", () => {
   });
 
   it("does not rebuild images for documentation-only changes", () => {
-    const result = affectedStagingComponents(["docs/adr/0016-example.md"]);
-    assert.deepEqual(selection(["docs/adr/0016-example.md"]), {
+    const paths = ["AGENTS.md", "CLAUDE.md", "docs/CI_AUTOMATION.md", "docs/adr/0016-example.md"];
+    const result = affectedStagingComponents(paths);
+    assert.deepEqual(selection(paths), {
       web: false,
       public_mecky: false,
       e2e_workbench: false,
