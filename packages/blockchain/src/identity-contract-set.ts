@@ -1,6 +1,7 @@
 export const IDENTITY_CONTRACT_SET_IDS = {
   production: "gnosis-production-v2",
-  stagingTest: "gnosis-staging-test-v1",
+  stagingTestV1: "gnosis-staging-test-v1",
+  stagingTest: "gnosis-staging-test-v2",
 } as const;
 
 export type IdentityContractSetId =
@@ -42,8 +43,8 @@ const PRODUCTION = Object.freeze({
   warning: null,
 } as const satisfies IdentityContractSet);
 
-const STAGING_TEST = Object.freeze({
-  id: IDENTITY_CONTRACT_SET_IDS.stagingTest,
+const STAGING_TEST_V1 = Object.freeze({
+  id: IDENTITY_CONTRACT_SET_IDS.stagingTestV1,
   chainId: 100,
   attesterNFT: "0x5983F6300bCE3D9C1336a858Bd73F259bB8330F3",
   citizenNFT: "0x0Be374808A567c9088aC8208B90a4239432B3220",
@@ -56,6 +57,17 @@ const STAGING_TEST = Object.freeze({
   warning:
     "Test-Bürger-Pass · keine reale Bürgerberechtigung, kommunale Entscheidung, Abstimmungs- oder Zahlungsbefugnis.",
 } as const satisfies IdentityContractSet);
+
+const STAGING_TEST = Object.freeze({
+  ...STAGING_TEST_V1,
+  id: IDENTITY_CONTRACT_SET_IDS.stagingTest,
+  attesterNFT: "0x76b558Feb869c77790431497554C9aa8797896Fa",
+  citizenNFT: "0x4765cB681E8eB080B3191DD550E81eaA41907323",
+} as const satisfies IdentityContractSet);
+
+/** The current reviewed synthetic signer target, independent of runtime input. */
+export const STAGING_TEST_CITIZEN_NFT_ADDRESS =
+  STAGING_TEST.citizenNFT.toLowerCase();
 
 const RUNTIME_PLACEHOLDER = Object.freeze({
   id: "gnosis-runtime-injection-required",
@@ -77,6 +89,7 @@ const RUNTIME_PLACEHOLDER = Object.freeze({
 const SETS_BY_ID: Readonly<Record<IdentityContractSetId, IdentityContractSet>> =
   Object.freeze({
     [PRODUCTION.id]: PRODUCTION,
+    [STAGING_TEST_V1.id]: STAGING_TEST_V1,
     [STAGING_TEST.id]: STAGING_TEST,
   });
 

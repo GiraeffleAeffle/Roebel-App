@@ -13,6 +13,8 @@ test("the gateway publisher carries real and synthetic citizen-adoption storage 
     "supabase/staging-citizen-adoption-schema-contract-v1.json",
     "supabase/migrations/20260902_staging_synthetic_citizen_adoption.sql",
     "supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json",
+    "supabase/migrations/20260905_staging_synthetic_citizen_pass_v2.sql",
+    "supabase/staging-synthetic-citizen-adoption-schema-contract-v2.json",
   ]) {
     assert.equal(
       (workflow.match(new RegExp(`- "${path.replaceAll(".", "\\.")}"`, "gu")) ?? [])
@@ -57,11 +59,11 @@ test("the gateway publisher carries real and synthetic citizen-adoption storage 
   );
   assert.match(
     workflow,
-    /test "\$\(jq -r \.syntheticCitizenAdoptionMigrationSha256 "\$RELEASE_PINS"\)" = "sha256:\$\(sha256sum source\/supabase\/migrations\/20260902_staging_synthetic_citizen_adoption\.sql/u,
+    /test "\$\(jq -r \.syntheticCitizenAdoptionMigrationSha256 "\$RELEASE_PINS"\)" = "sha256:\$\(sha256sum source\/supabase\/migrations\/20260905_staging_synthetic_citizen_pass_v2\.sql/u,
   );
   assert.match(
     workflow,
-    /test "\$\(jq -r \.syntheticCitizenAdoptionDatabaseSchemaSha256 "\$RELEASE_PINS"\)" = "sha256:\$\(sha256sum source\/supabase\/staging-synthetic-citizen-adoption-schema-contract-v1\.json/u,
+    /test "\$\(jq -r \.syntheticCitizenAdoptionDatabaseSchemaSha256 "\$RELEASE_PINS"\)" = "sha256:\$\(sha256sum source\/supabase\/staging-synthetic-citizen-adoption-schema-contract-v2\.json/u,
   );
 });
 

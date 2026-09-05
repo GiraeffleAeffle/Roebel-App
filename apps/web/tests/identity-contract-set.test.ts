@@ -11,9 +11,28 @@ import {
 
 const production = resolveIdentityContractSet();
 const stagingTest = resolveIdentityContractSet({
-  id: "gnosis-staging-test-v1",
-  attesterNFT: "0x5983F6300bCE3D9C1336a858Bd73F259bB8330F3",
-  citizenNFT: "0x0Be374808A567c9088aC8208B90a4239432B3220",
+  id: "gnosis-staging-test-v2",
+  attesterNFT: "0x76b558Feb869c77790431497554C9aa8797896Fa",
+  citizenNFT: "0x4765cB681E8eB080B3191DD550E81eaA41907323",
+});
+
+test("v1 keeps its historical addresses and cannot be relabelled or mixed with v2", () => {
+  const previous = resolveIdentityContractSet({
+    id: "gnosis-staging-test-v1",
+    attesterNFT: "0x5983F6300bCE3D9C1336a858Bd73F259bB8330F3",
+    citizenNFT: "0x0Be374808A567c9088aC8208B90a4239432B3220",
+  });
+  assert.equal(previous.id, IDENTITY_CONTRACT_SET_IDS.stagingTestV1);
+  assert.equal(isReviewedStagingTestIdentityContractSet(previous), false);
+  assert.throws(() => assertProductionGovernanceWritesAllowed(previous));
+  for (const configuration of [
+    { id: previous.id, attesterNFT: stagingTest.attesterNFT, citizenNFT: stagingTest.citizenNFT },
+    { id: stagingTest.id, attesterNFT: previous.attesterNFT, citizenNFT: previous.citizenNFT },
+    { id: stagingTest.id, attesterNFT: previous.attesterNFT, citizenNFT: stagingTest.citizenNFT },
+    { id: stagingTest.id, attesterNFT: stagingTest.attesterNFT, citizenNFT: previous.citizenNFT },
+  ]) {
+    assert.throws(() => resolveIdentityContractSet(configuration), /identity_contract_set_(?:profile_mismatch|mixed_pair)/u);
+  }
 });
 
 test("selects one complete known identity pair and derives authority metadata", () => {
@@ -73,13 +92,13 @@ test("selects one complete known identity pair and derives authority metadata", 
 
 test("fails closed for partial, mixed, unknown and profile-mismatched pairs", () => {
   assert.throws(
-    () => resolveIdentityContractSet({ id: "gnosis-staging-test-v1" }),
+    () => resolveIdentityContractSet({ id: "gnosis-staging-test-v2" }),
     /identity_contract_set_partial/u
   );
   assert.throws(
     () =>
       resolveIdentityContractSet({
-        id: "gnosis-staging-test-v1",
+        id: "gnosis-staging-test-v2",
         attesterNFT: stagingTest.attesterNFT,
         citizenNFT: production.citizenNFT,
       }),
@@ -97,7 +116,7 @@ test("fails closed for partial, mixed, unknown and profile-mismatched pairs", ()
   assert.throws(
     () =>
       resolveIdentityContractSet({
-        id: "gnosis-staging-test-v1",
+        id: "gnosis-staging-test-v2",
         attesterNFT: "0x0000000000000000000000000000000000000001",
         citizenNFT: stagingTest.citizenNFT,
       }),
@@ -229,7 +248,7 @@ test("production governance, coordinator, Circles and treasury surfaces stay exp
       /production/u,
       `${path} does not label the authority boundary`
     );
-    assert.doesNotMatch(source, /gnosis-staging-test-v1/u);
+    assert.doesNotMatch(source, /gnosis-staging-test-v2/u);
     assert.doesNotMatch(source, /@\/lib\/identity-contract-set/u);
   }
 

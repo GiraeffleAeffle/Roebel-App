@@ -13,7 +13,9 @@ on:
       - "supabase/migrations/20260901_staging_citizen_adoption.sql"
       - "supabase/staging-citizen-adoption-schema-contract-v1.json"
       - "supabase/migrations/20260902_staging_synthetic_citizen_adoption.sql"
+      - "supabase/migrations/20260905_staging_synthetic_citizen_pass_v2.sql"
       - "supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json"
+      - "supabase/staging-synthetic-citizen-adoption-schema-contract-v2.json"
       - "supabase/tests/staging_incluster_tracer_*.sql"
   pull_request:
     branches: [main]
@@ -27,7 +29,9 @@ on:
       - "supabase/migrations/20260901_staging_citizen_adoption.sql"
       - "supabase/staging-citizen-adoption-schema-contract-v1.json"
       - "supabase/migrations/20260902_staging_synthetic_citizen_adoption.sql"
+      - "supabase/migrations/20260905_staging_synthetic_citizen_pass_v2.sql"
       - "supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json"
+      - "supabase/staging-synthetic-citizen-adoption-schema-contract-v2.json"
       - "supabase/tests/staging_incluster_tracer_*.sql"
   workflow_dispatch:
 

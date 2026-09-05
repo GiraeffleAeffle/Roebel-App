@@ -18,8 +18,8 @@ select length(:'participant_rpc_secret') >= 32 as rpc_secret_valid
 \set adopter_pubkey '3333333333333333333333333333333333333333333333333333333333333333'
 \set challenge_id '11111111111111111111111111111111'
 \set session_binding_sha256 '2222222222222222222222222222222222222222222222222222222222222222'
-\set policy_version 'roebel-gnosis-staging-test-v1'
-\set test_citizen_nft '0x0be374808a567c9088ac8208b90a4239432b3220'
+\set policy_version 'roebel-gnosis-staging-test-v2'
+\set test_citizen_nft '0x4765cb681e8eb080b3191dd550e81eaa41907323'
 \set proof_event_id '7777777777777777777777777777777777777777777777777777777777777777'
 \set tracer_id 'urn:stadtstack:synthetic-citizen-adoption-tracer:9999999999999999999999999999999999999999999999999999999999999999'
 \set request_id '30000000-0000-4000-8000-000000000004'
@@ -152,6 +152,15 @@ select jsonb_build_object(
 \gset
 
 begin;
+-- Disposable CI fixture reset, rolled back at the end; retain the v1 witnesses.
+delete from staging_participant_private.staging_participant_synthetic_citizen_adoptions
+ where request_id = '30000000-0000-4000-8000-000000000004';
+delete from staging_participant_private.staging_participant_synthetic_citizen_challenges
+ where challenge_id = '11111111111111111111111111111111';
+delete from staging_participant_private.staging_participant_topic_suggestions
+ where request_id = '30000000-0000-4000-8000-000000000001';
+delete from staging_participant_private.staging_participant_admissions
+ where wallet_address = '0x1111111111111111111111111111111111111111';
 
 insert into staging_participant_private.staging_participant_admissions (
   wallet_address, expires_at
@@ -186,9 +195,9 @@ select set_config(
 
 select public.staging_participant_gateway_synthetic_adoption_preflight() =
   jsonb_build_object(
-    'migration_id', '20260902_staging_synthetic_citizen_adoption',
+    'migration_id', '20260905_staging_synthetic_citizen_pass_v2',
     'database_schema_sha256',
-      'sha256:bcaa0b098a99b145e5111c17e29e5e7d9e9eb0840ee27643b3c26db34118bd66'
+      'sha256:c072fbc87a8fe6d4be9ef83359e919b639a5afddcef2a0dda337defad272462a'
   ) as synthetic_preflight_exact
 \gset
 \if :synthetic_preflight_exact
@@ -196,6 +205,32 @@ select public.staging_participant_gateway_synthetic_adoption_preflight() =
   \echo 'Synthetic citizen-adoption preflight was not checksum exact.'
   \quit 1
 \endif
+
+select set_config('test.valid_v2_challenge', :'challenge_json', true) as bounded_test_challenge
+\gset
+
+do $retired_contract$
+declare
+  stored jsonb;
+  failure_message text;
+begin
+  -- Re-encode a valid challenge with only the old contract changed.
+  stored := current_setting('test.valid_v2_challenge')::jsonb;
+  stored := jsonb_set(stored, '{testCitizenNftContract}',
+    '"0x0be374808a567c9088ac8208b90a4239432b3220"'::jsonb);
+  stored := stored || jsonb_build_object(
+    'canonicalChallenge', (stored - 'canonicalChallenge' - 'message')::text,
+    'message', (stored - 'canonicalChallenge' - 'message')::text);
+  perform public.staging_participant_gateway_issue_synthetic_challenge(
+    stored, '0x1111111111111111111111111111111111111111', repeat('2',64));
+  raise exception 'Old contract accepted after rotation' using errcode = 'XX000';
+exception when sqlstate 'P0001' then
+  get stacked diagnostics failure_message = message_text;
+  if failure_message <> 'STAGING_PARTICIPANT_SYNTHETIC_CHALLENGE_MISMATCH' then
+    raise exception 'Wrong old-contract rejection: %', failure_message using errcode = 'XX000';
+  end if;
+end;
+$retired_contract$;
 
 select public.staging_participant_gateway_issue_synthetic_challenge(
   :'challenge_json'::jsonb, :'participant_wallet', :'session_binding_sha256'
@@ -502,10 +537,6 @@ select (
   \quit 1
 \endif
 
-\if :{?preserve_rotation_witness}
-commit;
-\else
 rollback;
-\endif
 \unset participant_rpc_secret
 \echo 'Synthetic citizen-adoption database behavior checks passed.'

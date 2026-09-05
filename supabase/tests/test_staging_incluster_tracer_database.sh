@@ -19,6 +19,10 @@ readonly SYNTHETIC_ADOPTION_MIGRATION="supabase/migrations/20260902_staging_synt
 readonly SYNTHETIC_ADOPTION_MIGRATION_SHA256="992e56a65af74b32e35d2211ac57714f32e2e72e4fb82ea59afeb7dbbcefb282"
 readonly SYNTHETIC_ADOPTION_SCHEMA_CONTRACT="supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json"
 readonly SYNTHETIC_ADOPTION_SCHEMA_CONTRACT_SHA256="bcaa0b098a99b145e5111c17e29e5e7d9e9eb0840ee27643b3c26db34118bd66"
+readonly SYNTHETIC_IDENTITY_ROTATION="supabase/migrations/20260905_staging_synthetic_citizen_pass_v2.sql"
+readonly SYNTHETIC_IDENTITY_ROTATION_SHA256="46aa0bd9efb89c837302f98a1ebd03151fc0f1828eb3212a79bc342ecc854f87"
+readonly SYNTHETIC_IDENTITY_SCHEMA_CONTRACT="supabase/staging-synthetic-citizen-adoption-schema-contract-v2.json"
+readonly SYNTHETIC_IDENTITY_SCHEMA_CONTRACT_SHA256="c072fbc87a8fe6d4be9ef83359e919b639a5afddcef2a0dda337defad272462a"
 readonly PARTICIPANT_PREFLIGHT_RPC_PATH="/rpc/staging_participant_gateway_preflight"
 readonly TOPIC_PREFLIGHT_RPC_PATH="/rpc/staging_participant_gateway_topic_tracer_preflight"
 readonly CITIZEN_ADOPTION_PREFLIGHT_RPC_PATH="/rpc/staging_participant_gateway_citizen_adoption_preflight"
@@ -58,6 +62,8 @@ require_sha256 "$CITIZEN_ADOPTION_MIGRATION" "$CITIZEN_ADOPTION_MIGRATION_SHA256
 require_sha256 "$CITIZEN_ADOPTION_SCHEMA_CONTRACT" "$CITIZEN_ADOPTION_SCHEMA_CONTRACT_SHA256"
 require_sha256 "$SYNTHETIC_ADOPTION_MIGRATION" "$SYNTHETIC_ADOPTION_MIGRATION_SHA256"
 require_sha256 "$SYNTHETIC_ADOPTION_SCHEMA_CONTRACT" "$SYNTHETIC_ADOPTION_SCHEMA_CONTRACT_SHA256"
+require_sha256 "$SYNTHETIC_IDENTITY_ROTATION" "$SYNTHETIC_IDENTITY_ROTATION_SHA256"
+require_sha256 "$SYNTHETIC_IDENTITY_SCHEMA_CONTRACT" "$SYNTHETIC_IDENTITY_SCHEMA_CONTRACT_SHA256"
 
 run_identity="${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-$$"
 safe_run_identity="${run_identity//[^a-zA-Z0-9_.-]/-}"
@@ -174,9 +180,29 @@ docker exec --interactive \
   --env PGPASSWORD="$database_password" \
   --env PARTICIPANT_RPC_SECRET="$participant_rpc_secret" \
   "$database_container_name" \
-  psql --no-psqlrc --quiet --set ON_ERROR_STOP=1 \
+  psql --no-psqlrc --quiet --set ON_ERROR_STOP=1 --set preserve_rotation_witness=true \
     --host 127.0.0.1 --username supabase_admin --dbname postgres \
   < supabase/tests/staging_incluster_tracer_synthetic_citizen_adoption_integration.sql
+
+docker exec "$database_container_name" mkdir -p /tmp/rotation/supabase/migrations
+docker cp "$SYNTHETIC_IDENTITY_ROTATION" "$database_container_name:/tmp/rotation/$SYNTHETIC_IDENTITY_ROTATION"
+
+docker exec --interactive --workdir /tmp/rotation \
+  --env PGPASSWORD="$database_password" \
+  --env PARTICIPANT_RPC_SECRET="$participant_rpc_secret" \
+  "$database_container_name" \
+  psql --no-psqlrc --quiet --set ON_ERROR_STOP=1 \
+    --host 127.0.0.1 --username supabase_admin --dbname postgres \
+  < supabase/tests/staging_incluster_tracer_synthetic_identity_rotation.sql
+
+docker exec --interactive \
+  --env PGPASSWORD="$database_password" \
+  --env PARTICIPANT_RPC_SECRET="$participant_rpc_secret" \
+  "$database_container_name" \
+  psql --no-psqlrc --quiet --set ON_ERROR_STOP=1 \
+    --host 127.0.0.1 --username supabase_admin --dbname postgres \
+  < supabase/tests/staging_incluster_tracer_synthetic_citizen_pass_v2_integration.sql
+
 
 database_uri="postgres://authenticator:${authenticator_password}@database:5432/postgres"
 docker run \
@@ -335,8 +361,8 @@ synthetic_adoption_preflight_response="$(
   rpc_request "$SYNTHETIC_ADOPTION_PREFLIGHT_RPC_PATH" '{}'
 )"
 if ! printf '%s' "$synthetic_adoption_preflight_response" | jq --exit-status \
-  --arg schema_sha256 "sha256:$SYNTHETIC_ADOPTION_SCHEMA_CONTRACT_SHA256" \
-  '.migration_id == "20260902_staging_synthetic_citizen_adoption"
+  --arg schema_sha256 "sha256:$SYNTHETIC_IDENTITY_SCHEMA_CONTRACT_SHA256" \
+  '.migration_id == "20260905_staging_synthetic_citizen_pass_v2"
    and .database_schema_sha256 == $schema_sha256' \
   >/dev/null; then
   printf 'Synthetic citizen-adoption preflight failed over HTTP.\n' >&2

@@ -23,6 +23,7 @@ on:
       - "scripts/verify-staging-service-oci.test.mjs"
       - "supabase/migrations/20260901_staging_citizen_adoption.sql"
       - "supabase/migrations/20260902_staging_synthetic_citizen_adoption.sql"
+      - "supabase/migrations/20260905_staging_synthetic_citizen_pass_v2.sql"
       - "supabase/migrations/20260825_staging_participant_gateway.sql"
       - "supabase/migrations/20260825_staging_participant_topic_tracer.sql"
       - "supabase/staging_incluster_tracer_baseline_v1.sql"
@@ -31,6 +32,7 @@ on:
       - "supabase/staging-participant-topic-tracer-schema-contract-v1.json"
       - "supabase/staging-citizen-adoption-schema-contract-v1.json"
       - "supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json"
+      - "supabase/staging-synthetic-citizen-adoption-schema-contract-v2.json"
       - ".github/workflows/staging-participant-gateway-publish.yml"
       - ".github/workflows/staging-participant-gateway-publish.static.test.mjs"
   push:
@@ -51,6 +53,7 @@ on:
       - "scripts/verify-staging-service-oci.test.mjs"
       - "supabase/migrations/20260901_staging_citizen_adoption.sql"
       - "supabase/migrations/20260902_staging_synthetic_citizen_adoption.sql"
+      - "supabase/migrations/20260905_staging_synthetic_citizen_pass_v2.sql"
       - "supabase/migrations/20260825_staging_participant_gateway.sql"
       - "supabase/migrations/20260825_staging_participant_topic_tracer.sql"
       - "supabase/staging_incluster_tracer_baseline_v1.sql"
@@ -59,6 +62,7 @@ on:
       - "supabase/staging-participant-topic-tracer-schema-contract-v1.json"
       - "supabase/staging-citizen-adoption-schema-contract-v1.json"
       - "supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json"
+      - "supabase/staging-synthetic-citizen-adoption-schema-contract-v2.json"
       - ".github/workflows/staging-participant-gateway-publish.yml"
       - ".github/workflows/staging-participant-gateway-publish.static.test.mjs"
   workflow_dispatch:
@@ -176,6 +180,8 @@ jobs:
             "$RUNNER_TEMP/test-context/supabase/migrations/"
           cp supabase/migrations/20260902_staging_synthetic_citizen_adoption.sql \
             "$RUNNER_TEMP/test-context/supabase/migrations/"
+          cp supabase/migrations/20260905_staging_synthetic_citizen_pass_v2.sql \
+            "$RUNNER_TEMP/test-context/supabase/migrations/"
           cp supabase/staging_incluster_tracer_baseline_v1.sql \
             "$RUNNER_TEMP/test-context/supabase/"
           cp supabase/staging_participant_gateway_deactivate.sql \
@@ -188,17 +194,19 @@ jobs:
             "$RUNNER_TEMP/test-context/supabase/"
           cp supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json \
             "$RUNNER_TEMP/test-context/supabase/"
+          cp supabase/staging-synthetic-citizen-adoption-schema-contract-v2.json \
+            "$RUNNER_TEMP/test-context/supabase/"
           mkdir -p "$RUNNER_TEMP/test-context/.github/workflows"
           cp .github/workflows/staging-participant-gateway-publish.yml \
             "$RUNNER_TEMP/test-context/.github/workflows/"
           schema_contract="$RUNNER_TEMP/test-context/supabase/staging-participant-gateway-schema-contract-v1.json"
           topic_tracer_schema_contract="$RUNNER_TEMP/test-context/supabase/staging-participant-topic-tracer-schema-contract-v1.json"
           citizen_adoption_schema_contract="$RUNNER_TEMP/test-context/supabase/staging-citizen-adoption-schema-contract-v1.json"
-          synthetic_citizen_adoption_schema_contract="$RUNNER_TEMP/test-context/supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json"
+          synthetic_citizen_adoption_schema_contract="$RUNNER_TEMP/test-context/supabase/staging-synthetic-citizen-adoption-schema-contract-v2.json"
           migration_source="supabase/migrations/20260825_staging_participant_gateway.sql"
           topic_tracer_migration_source="supabase/migrations/20260825_staging_participant_topic_tracer.sql"
           citizen_adoption_migration_source="supabase/migrations/20260901_staging_citizen_adoption.sql"
-          synthetic_citizen_adoption_migration_source="supabase/migrations/20260902_staging_synthetic_citizen_adoption.sql"
+          synthetic_citizen_adoption_migration_source="supabase/migrations/20260905_staging_synthetic_citizen_pass_v2.sql"
           deactivation_source="supabase/staging_participant_gateway_deactivate.sql"
           test "$(jq -cS . "$schema_contract")" = "$(tr -d '\n' < "$schema_contract")"
           test "$(jq -cS . "$topic_tracer_schema_contract")" = "$(tr -d '\n' < "$topic_tracer_schema_contract")"
@@ -333,9 +341,9 @@ jobs:
           test "$(jq -r .citizenAdoptionMigrationSha256 "$RELEASE_PINS")" = "sha256:$(sha256sum source/supabase/migrations/20260901_staging_citizen_adoption.sql | cut -d' ' -f1)"
           test "$(jq -cS . source/supabase/staging-citizen-adoption-schema-contract-v1.json)" = "$(tr -d '\n' < source/supabase/staging-citizen-adoption-schema-contract-v1.json)"
           test "$(jq -r .citizenAdoptionDatabaseSchemaSha256 "$RELEASE_PINS")" = "sha256:$(sha256sum source/supabase/staging-citizen-adoption-schema-contract-v1.json | cut -d' ' -f1)"
-          test "$(jq -r .syntheticCitizenAdoptionMigrationSha256 "$RELEASE_PINS")" = "sha256:$(sha256sum source/supabase/migrations/20260902_staging_synthetic_citizen_adoption.sql | cut -d' ' -f1)"
-          test "$(jq -cS . source/supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json)" = "$(tr -d '\n' < source/supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json)"
-          test "$(jq -r .syntheticCitizenAdoptionDatabaseSchemaSha256 "$RELEASE_PINS")" = "sha256:$(sha256sum source/supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json | cut -d' ' -f1)"
+          test "$(jq -r .syntheticCitizenAdoptionMigrationSha256 "$RELEASE_PINS")" = "sha256:$(sha256sum source/supabase/migrations/20260905_staging_synthetic_citizen_pass_v2.sql | cut -d' ' -f1)"
+          test "$(jq -cS . source/supabase/staging-synthetic-citizen-adoption-schema-contract-v2.json)" = "$(tr -d '\n' < source/supabase/staging-synthetic-citizen-adoption-schema-contract-v2.json)"
+          test "$(jq -r .syntheticCitizenAdoptionDatabaseSchemaSha256 "$RELEASE_PINS")" = "sha256:$(sha256sum source/supabase/staging-synthetic-citizen-adoption-schema-contract-v2.json | cut -d' ' -f1)"
           mkdir -p "$(dirname "$LAYOUT")"
           mkdir "$LAYOUT"
           tar -xf "$ARCHIVE" -C "$LAYOUT"

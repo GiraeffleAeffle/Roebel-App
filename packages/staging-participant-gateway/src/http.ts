@@ -482,7 +482,7 @@ export function createStagingParticipantGatewayHandler(
             pins.citizenAdoptionDatabaseSchemaSha256 ||
           (syntheticCapability && (
             syntheticAdoptionPreflight?.migrationId !==
-              "20260902_staging_synthetic_citizen_adoption" ||
+              "20260905_staging_synthetic_citizen_pass_v2" ||
             syntheticAdoptionPreflight.databaseSchemaSha256 !==
               pins.syntheticCitizenAdoptionDatabaseSchemaSha256 ||
             syntheticVerifierPreflight?.schemaVersion !==

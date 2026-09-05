@@ -67,13 +67,13 @@ const syntheticEnv = {
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION_POLICY_VERSION:
     "roebel-test-citizen-nft-v2-staging-2026-09",
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_TEST_CITIZEN_NFT_ADDRESS:
-    "0x0Be374808A567c9088aC8208B90a4239432B3220",
+    "0x4765cB681E8eB080B3191DD550E81eaA41907323",
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_TEST_CITIZEN_NFT_RUNTIME_CODE_KECCAK256:
-    "0x481949efe62483d881190ec16e7ac6ffd796b0e601ea952507fa6eee1986bafb",
+    "0x0131b35a46839c2c50e013a5702dd1a75ab2c079890711900071d56486d1bce4",
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION_MIGRATION_SHA256:
     `sha256:${"3".repeat(64)}`,
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION_DATABASE_SCHEMA_SHA256:
-    "sha256:bcaa0b098a99b145e5111c17e29e5e7d9e9eb0840ee27643b3c26db34118bd66",
+    "sha256:c072fbc87a8fe6d4be9ef83359e919b639a5afddcef2a0dda337defad272462a",
 };
 const productionConfig = (input: Record<string, string | undefined>) =>
   resolveProductionGatewayConfig(input, BAKED_SOURCE_REVISION);
@@ -252,7 +252,7 @@ test("production configuration fails closed unless explicit staging mode and eve
   const synthetic = productionConfig(syntheticEnv)?.syntheticCitizenAdoption;
   assert.equal(
     synthetic?.policy.testCitizenNftAddress,
-    "0x0be374808a567c9088ac8208b90a4239432b3220",
+    "0x4765cb681e8eb080b3191dd550e81eaa41907323",
   );
   assert.equal(
     synthetic?.policy.testCitizenNftRuntimeCodeKeccak256,
@@ -545,7 +545,7 @@ test("readiness adapter can call only the four fixed empty preflight RPCs and re
       calls.push({ url: String(url), init });
       const target = String(url);
       const migrationId = target.includes("synthetic_adoption")
-        ? "20260902_staging_synthetic_citizen_adoption"
+        ? "20260905_staging_synthetic_citizen_pass_v2"
         : target.includes("citizen_adoption")
         ? "20260901_staging_citizen_adoption"
         : target.includes("topic_tracer")
@@ -575,7 +575,7 @@ test("readiness adapter can call only the four fixed empty preflight RPCs and re
   );
   assert.equal(
     (await adapter.preflightSyntheticCitizenAdoption!()).migrationId,
-    "20260902_staging_synthetic_citizen_adoption",
+    "20260905_staging_synthetic_citizen_pass_v2",
   );
   assert.deepEqual(calls.map(({ url }) => url), [
     `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.preflight}`,
