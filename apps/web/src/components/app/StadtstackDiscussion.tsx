@@ -141,7 +141,8 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
       })
     : null;
   const bindingReceiptMismatch = Boolean(
-    bindingReceipt && thread?.topic && !topicBindingReceipt
+    bindingReceipt && bindingReceipt.schemaVersion !== "public_synthetic_case_binding_receipt_v1" &&
+    thread?.topic && !topicBindingReceipt
   );
   const citizenAdoptionVerified = Boolean(citizenAdoptionProjection);
   const canonicalCaseId = topicBindingReceipt?.caseId ?? null;
@@ -735,6 +736,8 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
                 <StadtstackSyntheticCitizenAdoption
                   suggestion={thread.suggestion}
                   session={citizenSession}
+                  bindingReceipt={bindingReceipt}
+                  bindingReceiptUnavailable={bindingReceiptUnavailable}
                 />
               )}
             {!topicSuggestionSigned && (

@@ -56,9 +56,31 @@ export type PublicAdoptedCaseBindingReceiptV2 = Readonly<{
   paymentEffect: false;
 }>;
 
+/** A separate staging receipt; it contains no municipal eligibility claims. */
+export type PublicSyntheticCaseBindingReceiptV1 = Readonly<
+  Omit<
+    PublicAdoptedCaseBindingReceiptV2,
+    | "schemaVersion"
+    | "candidateKind"
+    | "eligibilityReceiptId"
+    | "eligibilityReceiptChecksum"
+    | "eligibilityPolicyVersion"
+    | "eligibilityIssuer"
+  > & {
+    schemaVersion: "public_synthetic_case_binding_receipt_v1";
+    candidateKind: "synthetic_citizen_adoption_tracer_v1";
+    testPolicyVersion: string;
+    environment: "staging";
+    testOnly: true;
+    civicCaseCreated: false;
+    syntheticCaseCreated: true;
+  }
+>;
+
 export type PublicCaseBindingReceipt =
   | PublicCaseBindingReceiptV1
-  | PublicAdoptedCaseBindingReceiptV2;
+  | PublicAdoptedCaseBindingReceiptV2
+  | PublicSyntheticCaseBindingReceiptV1;
 
 const ROOT_EVENT_ID = /^[0-9a-f]{64}$/u;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
@@ -71,6 +93,12 @@ const CASE_ID = new RegExp(
   `^urn:stadtstack:case:municipality:(${MUNICIPALITY.source}):([0-9a-f-]{36})$`,
   "u"
 );
+const SYNTHETIC_CASE_ID = new RegExp(
+  `^urn:stadtstack:synthetic-case:municipality:(${MUNICIPALITY.source}):([0-9a-f-]{36})$`,
+  "u"
+);
+const SYNTHETIC_CANDIDATE_ID =
+  /^urn:stadtstack:synthetic-citizen-adoption-tracer:[0-9a-f]{64}$/u;
 const TOPIC_ID = /^urn:stadtstack:topic:municipality:([a-z0-9-]+):[a-z0-9-]+$/u;
 const DIRECT_CANDIDATE_ID =
   /^urn:stadtstack:signed-topic-suggestion:[0-9a-f]{64}$/u;
@@ -127,6 +155,21 @@ const V2_FIELDS = [
   "treasuryEffect",
   "paymentEffect",
 ] as const;
+
+const ELIGIBILITY_FIELDS = [
+  "eligibilityReceiptId",
+  "eligibilityReceiptChecksum",
+  "eligibilityPolicyVersion",
+  "eligibilityIssuer",
+];
+const SYNTHETIC_FIELDS = [
+  ...V2_FIELDS.filter((field) => !ELIGIBILITY_FIELDS.includes(field)),
+  "testPolicyVersion",
+  "environment",
+  "testOnly",
+  "civicCaseCreated",
+  "syntheticCaseCreated",
+];
 
 function invalid(): never {
   throw new Error("public_case_binding_receipt_invalid");
@@ -274,10 +317,13 @@ function checksum(value: unknown): string {
     .digest("hex")}`;
 }
 
-function verifiedCaseFields(record: Record<string, unknown>) {
+function verifiedCaseFields(
+  record: Record<string, unknown>,
+  pattern = CASE_ID
+) {
   if (record.caseVersion !== 3) invalid();
-  const caseId = exactString(record.caseId, CASE_ID, 256);
-  const caseIdParts = CASE_ID.exec(caseId);
+  const caseId = exactString(record.caseId, pattern, 256);
+  const caseIdParts = pattern.exec(caseId);
   if (!caseIdParts || !UUID_V7.test(caseIdParts[2]!)) invalid();
   const caseEventIds = exactTuple(record.caseEventIds);
   if (
@@ -354,39 +400,7 @@ function verifyV1(value: unknown): PublicCaseBindingReceiptV1 {
   });
 }
 
-function verifyV2(value: unknown): PublicAdoptedCaseBindingReceiptV2 {
-  const record = exactRecord(value, V2_FIELDS);
-  if (
-    record.schemaVersion !== "public_case_binding_receipt_v2" ||
-    record.candidateKind !== "eligible_citizen_adopted_topic_suggestion_v1" ||
-    record.authorityBinding !== "none" ||
-    record.administrativeEndorsement !== false ||
-    record.bindingVote !== false ||
-    record.councilDecision !== false ||
-    record.openDeskWrite !== false ||
-    record.treasuryEffect !== false ||
-    record.paymentEffect !== false
-  ) {
-    invalid();
-  }
-  const rootEventId = exactString(record.rootEventId, ROOT_EVENT_ID, 64);
-  const topicId = exactString(record.topicId, TOPIC_ID, 256);
-  const candidateId = exactString(
-    record.candidateId,
-    ADOPTED_CANDIDATE_ID,
-    160
-  );
-  const candidateEventId = exactString(
-    record.candidateEventId,
-    ROOT_EVENT_ID,
-    64
-  );
-  const participantSuggestionEventId = exactString(
-    record.participantSuggestionEventId,
-    ROOT_EVENT_ID,
-    64
-  );
-  const adopterPubkey = exactString(record.adopterPubkey, ROOT_EVENT_ID, 64);
+function verifiedEligibilityFields(record: Record<string, unknown>) {
   const eligibilityReceiptId = exactString(
     record.eligibilityReceiptId,
     ELIGIBILITY_RECEIPT_ID,
@@ -408,6 +422,79 @@ function verifyV2(value: unknown): PublicAdoptedCaseBindingReceiptV2 {
     256
   );
   const eligibilityIssuer = exactText(record.eligibilityIssuer, 256);
+  return {
+    eligibilityReceiptId,
+    eligibilityReceiptChecksum,
+    eligibilityPolicyVersion,
+    eligibilityIssuer,
+  };
+}
+
+function verifyAdoptionReceipt(
+  value: unknown,
+  synthetic: boolean
+): PublicAdoptedCaseBindingReceiptV2 | PublicSyntheticCaseBindingReceiptV1 {
+  const record = exactRecord(value, synthetic ? SYNTHETIC_FIELDS : V2_FIELDS);
+  if (
+    record.schemaVersion !==
+      (synthetic
+        ? "public_synthetic_case_binding_receipt_v1"
+        : "public_case_binding_receipt_v2") ||
+    record.candidateKind !==
+      (synthetic
+        ? "synthetic_citizen_adoption_tracer_v1"
+        : "eligible_citizen_adopted_topic_suggestion_v1") ||
+    record.authorityBinding !== "none" ||
+    record.administrativeEndorsement !== false ||
+    record.bindingVote !== false ||
+    record.councilDecision !== false ||
+    record.openDeskWrite !== false ||
+    record.treasuryEffect !== false ||
+    record.paymentEffect !== false
+  ) {
+    invalid();
+  }
+  const rootEventId = exactString(record.rootEventId, ROOT_EVENT_ID, 64);
+  const topicId = exactString(record.topicId, TOPIC_ID, 256);
+  const candidateId = exactString(
+    record.candidateId,
+    synthetic ? SYNTHETIC_CANDIDATE_ID : ADOPTED_CANDIDATE_ID,
+    160
+  );
+  const candidateEventId = exactString(
+    record.candidateEventId,
+    ROOT_EVENT_ID,
+    64
+  );
+  const participantSuggestionEventId = exactString(
+    record.participantSuggestionEventId,
+    ROOT_EVENT_ID,
+    64
+  );
+  const adopterPubkey = exactString(record.adopterPubkey, ROOT_EVENT_ID, 64);
+  if (
+    synthetic &&
+    (record.environment !== "staging" ||
+      record.testOnly !== true ||
+      record.civicCaseCreated !== false ||
+      record.syntheticCaseCreated !== true)
+  )
+    invalid();
+  const modeFields = synthetic
+    ? {
+        schemaVersion: "public_synthetic_case_binding_receipt_v1" as const,
+        candidateKind: "synthetic_citizen_adoption_tracer_v1" as const,
+        testPolicyVersion: exactText(record.testPolicyVersion, 256),
+        environment: "staging" as const,
+        testOnly: true as const,
+        civicCaseCreated: false as const,
+        syntheticCaseCreated: true as const,
+      }
+    : {
+        schemaVersion: "public_case_binding_receipt_v2" as const,
+        candidateKind: "eligible_citizen_adopted_topic_suggestion_v1" as const,
+        ...verifiedEligibilityFields(record),
+      };
   const adoptionAcceptanceReceiptChecksum = exactString(
     record.adoptionAcceptanceReceiptChecksum,
     HEX_SHA256,
@@ -423,25 +510,21 @@ function verifyV2(value: unknown): PublicAdoptedCaseBindingReceiptV2 {
     MECKY_RECEIPT_ID,
     160
   );
-  const caseFields = verifiedCaseFields(record);
-  const caseMunicipality = CASE_ID.exec(caseFields.caseId)?.[1];
+  const casePattern = synthetic ? SYNTHETIC_CASE_ID : CASE_ID;
+  const caseFields = verifiedCaseFields(record, casePattern);
+  const caseMunicipality = casePattern.exec(caseFields.caseId)?.[1];
   const topicMunicipality = TOPIC_ID.exec(topicId)?.[1];
   if (!caseMunicipality || caseMunicipality !== topicMunicipality) invalid();
 
   const receiptChecksum = exactString(record.receiptChecksum, SHA256, 71);
   const unsigned = {
-    schemaVersion: "public_case_binding_receipt_v2" as const,
+    ...modeFields,
     rootEventId,
     topicId,
-    candidateKind: "eligible_citizen_adopted_topic_suggestion_v1" as const,
     candidateId,
     candidateEventId,
     participantSuggestionEventId,
     adopterPubkey,
-    eligibilityReceiptId,
-    eligibilityReceiptChecksum,
-    eligibilityPolicyVersion,
-    eligibilityIssuer,
     adoptionAcceptanceReceiptChecksum,
     sourceAnswerEventId,
     sourceAnswerReceiptId,
@@ -471,7 +554,10 @@ export function verifyPublicCaseBindingReceipt(
 ): PublicCaseBindingReceipt {
   const version = schemaVersion(value);
   if (version === "public_case_binding_receipt_v1") return verifyV1(value);
-  if (version === "public_case_binding_receipt_v2") return verifyV2(value);
+  if (version === "public_case_binding_receipt_v2")
+    return verifyAdoptionReceipt(value, false);
+  if (version === "public_synthetic_case_binding_receipt_v1")
+    return verifyAdoptionReceipt(value, true);
   return invalid();
 }
 

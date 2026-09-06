@@ -188,7 +188,7 @@ test("only the exact reviewed staging-test profile exposes the synthetic adoptio
   assert.match(card, /<details/u);
   assert.match(card, /<summary/u);
   assert.match(card, /Synthetischer Staging-Test · keine Bürgerberechtigung/u);
-  assert.match(card, /Test-Pass prüfen und Testsignatur erzeugen/u);
+  assert.match(card, /Test-Pass prüfen und\s+Testsignatur erzeugen/u);
   assert.doesNotMatch(
     card,
     /PublicCitizenAdoptionProjection|onProjectionChange|StadtstackProposalReceipts/u

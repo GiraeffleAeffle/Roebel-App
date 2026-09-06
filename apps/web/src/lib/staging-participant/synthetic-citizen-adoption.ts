@@ -6,6 +6,9 @@ import {
 import { STAGING_TEST_CITIZEN_NFT_ADDRESS } from "@roebel/blockchain";
 export { STAGING_TEST_CITIZEN_NFT_ADDRESS } from "@roebel/blockchain";
 
+import { sha256 } from "@noble/hashes/sha256";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils";
+
 import type { CitizenSession } from "@/lib/citizen-session/session";
 
 const API_ROOT =
@@ -43,6 +46,12 @@ export type PublicSyntheticCitizenAdoptionProjection = Readonly<{
     municipalityId: string;
     topicId: string;
     participantSuggestionId: string;
+    participantSuggestionRef: string;
+    participantPubkey: string;
+    sourceDiscussionId: string;
+    sourceAnswerReceiptId: string;
+    title: string;
+    summary: string;
     adopterPubkey: string;
     proofEventId: string;
     entryState: "synthetic_journey_preview_only";
@@ -53,6 +62,15 @@ export type PublicSyntheticCitizenAdoptionProjection = Readonly<{
   }>;
   acceptanceReceipt: Readonly<{
     schemaVersion: "synthetic_citizen_adoption_tracer_acceptance_v1";
+    tracerId: string;
+    municipalityId: string;
+    topicId: string;
+    policyVersion: string;
+    requestChecksum: string;
+    receiptChecksum: string;
+    eventCreatedAt: number;
+    receivedAt: number;
+    status: "accepted_for_synthetic_preview";
     participantSuggestionId: string;
     adopterPubkey: string;
     proofEventId: string;
@@ -99,6 +117,10 @@ function stableJson(value: unknown): string {
     ).join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+function checksum(value: unknown): string {
+  return bytesToHex(sha256(utf8ToBytes(stableJson(value))));
 }
 
 function object(value: unknown): Record<string, unknown> | null {
@@ -242,7 +264,26 @@ function validProjection(
     Object.hasOwn(projection, "adoptionEvent") ||
     Object.hasOwn(projection, "caseBindingReceipt")
   ) return false;
-  return true;
+  if (tracer.participantSuggestionRef !== `nostr://event/${participantSuggestionId}` ||
+    typeof tracer.participantPubkey !== "string" || !HEX64.test(tracer.participantPubkey) ||
+    typeof tracer.sourceDiscussionId !== "string" || !HEX64.test(tracer.sourceDiscussionId) ||
+    typeof tracer.sourceAnswerReceiptId !== "string" ||
+    !/^urn:stadtstack:mecky-answer:[0-9a-f]{64}$/u.test(tracer.sourceAnswerReceiptId) ||
+    typeof tracer.municipalityId !== "string" || typeof tracer.topicId !== "string" ||
+    typeof tracer.title !== "string" || typeof tracer.summary !== "string" ||
+    acceptance.tracerId !== tracer.tracerId ||
+    acceptance.municipalityId !== tracer.municipalityId || acceptance.topicId !== tracer.topicId ||
+    acceptance.status !== "accepted_for_synthetic_preview" ||
+    typeof acceptance.policyVersion !== "string" || !acceptance.policyVersion.trim() ||
+    typeof acceptance.requestChecksum !== "string" || !HEX64.test(acceptance.requestChecksum) ||
+    acceptance.eventCreatedAt !== proofEvent.created_at || !Number.isSafeInteger(acceptance.receivedAt)
+  ) return false;
+  const tracerCore = Object.fromEntries(Object.entries(tracer).filter(([key]) => ![
+    "schemaVersion", "tracerId", "entryState", "environment", "testOnly", "authorityBinding", "submittedToCivicWorkflow",
+  ].includes(key)));
+  const acceptanceCore = Object.fromEntries(Object.entries(acceptance).filter(([key]) => key !== "receiptChecksum"));
+  return tracer.tracerId === `urn:stadtstack:synthetic-citizen-adoption-tracer:${checksum(tracerCore)}` &&
+    acceptance.receiptChecksum === checksum(acceptanceCore);
 }
 
 function storage(): Storage | null {

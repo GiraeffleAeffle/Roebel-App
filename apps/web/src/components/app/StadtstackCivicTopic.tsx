@@ -22,7 +22,8 @@ import { loadStadtstackAdministrationProgress } from "@/lib/stadtstack/staging-a
 import type { StadtstackAdministrationProgress as AdministrationProgress } from "@/lib/stadtstack/administration-progress";
 import {
   loadVerifiedPublicCaseBindingReceipt,
-  type VerifiedPublicCaseBindingReceipt,
+  isMunicipalCaseBindingReceipt,
+  type VerifiedPublicMunicipalCaseBindingReceipt,
 } from "@/lib/stadtstack/public-case-binding-receipt-client";
 import { StadtstackAdministrationProgress } from "./StadtstackAdministrationProgress";
 import { CivicJourneyRail } from "./CivicJourneyRail";
@@ -48,7 +49,7 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
     null
   );
   const [bindingReceipt, setBindingReceipt] =
-    useState<VerifiedPublicCaseBindingReceipt | null>(null);
+    useState<VerifiedPublicMunicipalCaseBindingReceipt | null>(null);
   const [bindingReceiptUnavailable, setBindingReceiptUnavailable] =
     useState(false);
   const administrationRequestId = useRef(0);
@@ -109,8 +110,8 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
       .then((receipts) => {
         if (!active) return;
         const matching = receipts.filter(
-          (receipt): receipt is VerifiedPublicCaseBindingReceipt =>
-            receipt !== null && receipt.topicId === detail.topic.topicId
+          (receipt): receipt is VerifiedPublicMunicipalCaseBindingReceipt =>
+            isMunicipalCaseBindingReceipt(receipt) && receipt.topicId === detail.topic.topicId
         );
         const unique = new Map(matching.map((receipt) => [receipt.caseId, receipt]));
         setBindingReceipt(unique.size === 1 ? [...unique.values()][0]! : null);

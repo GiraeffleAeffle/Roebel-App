@@ -3,10 +3,15 @@ import {
   type CitizenSignedTopicSuggestionV1,
   type ParticipantTopicSuggestionV1,
 } from "@netizen-labs/nostr";
-import type {
-  VerifiedPublicAdoptedCaseBindingReceipt,
-  VerifiedPublicCaseBindingReceipt,
+import {
+  isMunicipalCaseBindingReceipt,
+  type VerifiedPublicMunicipalCaseBindingReceipt,
+  type VerifiedPublicSyntheticCaseBindingReceipt,
+  type VerifiedPublicAdoptedCaseBindingReceipt,
+  type VerifiedPublicCaseBindingReceipt,
 } from "./public-case-binding-receipt-client";
+
+import type { PublicSyntheticCitizenAdoptionProjection } from "../staging-participant/synthetic-citizen-adoption";
 
 export type PublicProposalSignature = Readonly<{
   kind: "participant_request" | "legacy_citizen_candidate";
@@ -165,10 +170,10 @@ export function bindPublicCaseReceiptToProposal(
     rootEventId: string;
     topicId: string;
   }>
-): VerifiedPublicCaseBindingReceipt | null {
+): VerifiedPublicMunicipalCaseBindingReceipt | null {
   const { receipt, suggestion, rootEventId, topicId } = input;
   if (
-    !receipt ||
+    !isMunicipalCaseBindingReceipt(receipt) ||
     receipt.rootEventId !== rootEventId ||
     receipt.topicId !== topicId
   ) {
@@ -233,4 +238,54 @@ export function projectPublicCitizenAdoptionEvidence(
     eligibilityAuthorityBinding: "civic_eligibility_only" as const,
     authorityBinding: "none" as const,
   });
+}
+
+/** A test receipt belongs only to the exact immutable preview and suggestion.
+ * It never enters the municipal proposal binder or advances its journey. */
+export function bindPublicSyntheticCaseReceiptToProposal(
+  input: Readonly<{
+    suggestion: ParticipantTopicSuggestionV1;
+    receipt: VerifiedPublicCaseBindingReceipt | null;
+    projection: PublicSyntheticCitizenAdoptionProjection | null;
+  }>
+): VerifiedPublicSyntheticCaseBindingReceipt | null {
+  const { suggestion, receipt, projection } = input;
+  if (
+    receipt?.schemaVersion !== "public_synthetic_case_binding_receipt_v1" ||
+    !projection ||
+    projectPublicProposalSignature(suggestion)?.kind !== "participant_request"
+  )
+    return null;
+  const { draft } = suggestion;
+  const { tracer, acceptanceReceipt: acceptance, proofEvent } = projection;
+  return receipt.rootEventId === draft.sourceDiscussionId &&
+    receipt.topicId === draft.topicId &&
+    receipt.caseId.split(":")[4] === draft.municipalityId &&
+    receipt.participantSuggestionEventId === suggestion.event.id &&
+    receipt.sourceAnswerEventId === draft.sourceAnswerId &&
+    receipt.sourceAnswerReceiptId === draft.sourceAnswerReceiptId &&
+    receipt.candidateId === tracer.tracerId &&
+    receipt.candidateEventId === proofEvent.id &&
+    receipt.adopterPubkey === proofEvent.pubkey &&
+    receipt.testPolicyVersion === acceptance.policyVersion &&
+    receipt.adoptionAcceptanceReceiptChecksum === acceptance.receiptChecksum &&
+    projection.participantSuggestionId === suggestion.event.id &&
+    tracer.sourceDiscussionId === draft.sourceDiscussionId &&
+    tracer.sourceAnswerReceiptId === draft.sourceAnswerReceiptId &&
+    tracer.municipalityId === draft.municipalityId &&
+    tracer.topicId === draft.topicId &&
+    tracer.participantPubkey === suggestion.signerPubkey &&
+    tracer.title === draft.title &&
+    tracer.summary === draft.summary &&
+    tracer.participantSuggestionId === suggestion.event.id &&
+    tracer.proofEventId === proofEvent.id &&
+    tracer.adopterPubkey === proofEvent.pubkey &&
+    acceptance.tracerId === tracer.tracerId &&
+    acceptance.proofEventId === proofEvent.id &&
+    acceptance.participantSuggestionId === suggestion.event.id &&
+    acceptance.adopterPubkey === proofEvent.pubkey &&
+    acceptance.municipalityId === draft.municipalityId &&
+    acceptance.topicId === draft.topicId
+    ? receipt
+    : null;
 }

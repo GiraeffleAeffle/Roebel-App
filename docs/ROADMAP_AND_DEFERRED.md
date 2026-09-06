@@ -1,6 +1,6 @@
 # Roadmap and deferred work
 
-**Last updated: 2026-09-05.** Part of the [documentation index](README.md).
+**Last updated: 2026-09-06.** Part of the [documentation index](README.md).
 
 Everything here was **deliberately not built**, with a reason. This document exists so that
 "we decided that later" survives the conversation it was decided in. Each entry says what it
@@ -64,12 +64,24 @@ substituted or inconsistent records fail closed; a late read does not renew
 eligibility. PostgreSQL CI exercises exact reads, role permissions and the
 staging capability while preserving older migration and preflight contracts.
 
-Next: compose the existing issuer status resolver into the gateway, pin both
-supplemental migrations and their function ACLs in Operations, and bind the
-Case runtime's issuer/HTTPS endpoint policy. The responsible eligibility
-operator and real municipal Case Steward still need assignment. These source
-changes are not live activation; real adoption and a municipal response remain
-pending. No additional wallet or contract deployment is needed for this slice.
+The signed status runtime and its readiness migration are now implemented.
+For staging, the existing testing account is assigned both eligibility operator
+and Case Steward; real municipal appointments and trusted staff authentication
+remain separate requirements. No additional wallet or contract deployment is
+needed for this slice.
+
+[Stadtstack PR #66](https://github.com/GiraeffleAeffle/stadtstack/pull/66)
+implements an isolated synthetic Case admission. Röbel now verifies and displays
+its separately typed public receipt against the exact original test preview and
+participant suggestion. Test receipts never advance the real citizen, Case,
+administration or participation journey. The public receipt can recover its
+public preview without a login or signing prompt. The synthetic preview stays
+immutable.
+
+Next: verify the browser change in the hosted Web artifact and activate the
+reviewed staging Case workloads with exact image, storage and staff bindings.
+Live synthetic admission and test department handling remain pending. The real
+municipal eligibility gate remains step 5 of 10.
 
 ### Later: a representative discussion demo
 
