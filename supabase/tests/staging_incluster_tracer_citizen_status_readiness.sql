@@ -37,6 +37,21 @@ end;
 $$;
 reset role;
 
+-- IMMUTABLE functions see their calling statement's snapshot. Alter the
+-- checker in a separate statement so its next call sees the changed catalog,
+-- as a subsequent PostgREST request would. A single DO would see its old self.
+savepoint checker_volatility;
+alter function public.staging_participant_gateway_citizen_adoption_status_preflight() immutable;
+do $$
+begin
+  perform public.staging_participant_gateway_citizen_adoption_status_preflight();
+  raise exception 'Readiness missed checker volatility drift' using errcode = 'XX000';
+exception when sqlstate 'P0001' then
+  if sqlerrm <> 'STAGING_PARTICIPANT_CITIZEN_STATUS_CATALOG_DRIFT' then raise; end if;
+end;
+$$;
+rollback to savepoint checker_volatility;
+
 do $$
 declare
   v_function text;
@@ -59,6 +74,8 @@ begin
       'alter function ' || v_function || ' immutable',
       'alter function ' || v_function || ' strict'
     ] loop
+      if v_function = 'public.staging_participant_gateway_citizen_adoption_status_preflight()'
+         and v_change like '% immutable' then continue; end if;
       begin
         execute v_change;
         perform public.staging_participant_gateway_citizen_adoption_status_preflight();
