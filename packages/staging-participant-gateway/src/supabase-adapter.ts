@@ -5,6 +5,7 @@ import type {
   StagingParticipantPost,
   StagingParticipantPromotionReceipt,
   StagingParticipantReadinessAdapter,
+  StagingParticipantReadinessPins,
   StagingParticipantSourceMirrorBinding,
   StagingParticipantSuggestionReceipt,
 } from "./types.ts";
@@ -31,6 +32,8 @@ const PREFLIGHT_RPC = "staging_participant_gateway_preflight";
 const TOPIC_TRACER_PREFLIGHT_RPC = "staging_participant_gateway_topic_tracer_preflight";
 const CITIZEN_ADOPTION_PREFLIGHT_RPC =
   "staging_participant_gateway_citizen_adoption_preflight";
+const CITIZEN_ADOPTION_STATUS_PREFLIGHT_RPC =
+  "staging_participant_gateway_citizen_adoption_status_preflight";
 const SYNTHETIC_CITIZEN_ADOPTION_PREFLIGHT_RPC =
   "staging_participant_gateway_synthetic_adoption_preflight";
 
@@ -240,8 +243,8 @@ export function createRestrictedSupabaseDataAdapter(
 }
 
 /**
- * Readiness has a separate adapter so it holds exactly one empty-POST
- * capability. It has no caller-selected RPC, table, URL, or service role.
+ * Readiness holds only fixed, empty-POST capabilities. It has no
+ * caller-selected RPC, table, URL, or service role.
  */
 export function createStagingParticipantReadinessAdapter(
   config: RestrictedSupabaseRpcConfig,
@@ -260,9 +263,12 @@ export function createStagingParticipantReadinessAdapter(
           accept: "application/json",
         },
         body: "{}",
+        redirect: "error",
+        credentials: "omit",
+        cache: "no-store",
         signal: AbortSignal.timeout(4_000),
       });
-      if (!response.ok) throw new Error("staging_participant_preflight_failed");
+      if (!response.ok || response.redirected) throw new Error("staging_participant_preflight_failed");
       const value = await response.json() as unknown;
       if (!isRecord(value) || !exactKeys(value, ["migration_id", "database_schema_sha256"]) ||
         typeof value.migration_id !== "string" ||
@@ -276,9 +282,26 @@ export function createStagingParticipantReadinessAdapter(
     preflight: () => preflight(PREFLIGHT_RPC),
     preflightTopicTracer: () => preflight(TOPIC_TRACER_PREFLIGHT_RPC),
     preflightCitizenAdoption: () => preflight(CITIZEN_ADOPTION_PREFLIGHT_RPC),
+    preflightCitizenAdoptionStatus: () => preflight(CITIZEN_ADOPTION_STATUS_PREFLIGHT_RPC),
     preflightSyntheticCitizenAdoption: () =>
       preflight(SYNTHETIC_CITIZEN_ADOPTION_PREFLIGHT_RPC),
   };
+}
+
+/** The same live catalog gate protects startup, readiness and each status read. */
+export async function requireCitizenAdoptionStatusReadiness(
+  readiness: StagingParticipantReadinessAdapter,
+  pins: StagingParticipantReadinessPins,
+): Promise<void> {
+  if (!pins.citizenAdoptionStatusMigrationSha256 || !pins.citizenAdoptionStatusDatabaseSchemaSha256 ||
+    !readiness.preflightCitizenAdoptionStatus) {
+    throw new Error("citizen_adoption_status_not_ready");
+  }
+  const status = await readiness.preflightCitizenAdoptionStatus();
+  if (status.migrationId !== "20260906_staging_citizen_adoption_status_readiness" ||
+    status.databaseSchemaSha256 !== pins.citizenAdoptionStatusDatabaseSchemaSha256) {
+    throw new Error("citizen_adoption_status_not_ready");
+  }
 }
 
 function mirrorBody(input: Readonly<{
@@ -500,5 +523,6 @@ export const restrictedStagingParticipantRpcNames = {
   preflight: PREFLIGHT_RPC,
   topicTracerPreflight: TOPIC_TRACER_PREFLIGHT_RPC,
   citizenAdoptionPreflight: CITIZEN_ADOPTION_PREFLIGHT_RPC,
+  citizenAdoptionStatusPreflight: CITIZEN_ADOPTION_STATUS_PREFLIGHT_RPC,
   syntheticCitizenAdoptionPreflight: SYNTHETIC_CITIZEN_ADOPTION_PREFLIGHT_RPC,
 } as const;

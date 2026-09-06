@@ -30,6 +30,7 @@ export type ProductionGatewayConfig = Readonly<{
   workbench: PrivateWorkbenchMirrorConfig;
   readinessPins: StagingParticipantReadinessPins;
   citizenAdoption: ProductionCitizenAdoptionConfig;
+  citizenEligibilityStatusEnabled: boolean;
   syntheticCitizenAdoption: Readonly<{
     policy: SyntheticCitizenAdoptionPolicy;
   }> | null;
@@ -174,6 +175,16 @@ export function resolveProductionGatewayConfig(
   const citizenAdoptionDatabaseSchemaSha256 = sha256Digest(
     env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ADOPTION_DATABASE_SCHEMA_SHA256,
   );
+  const statusMode = env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ELIGIBILITY_STATUS;
+  const statusMigration = env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ADOPTION_STATUS_MIGRATION_SHA256;
+  const statusSchema = env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ADOPTION_STATUS_DATABASE_SCHEMA_SHA256;
+  if (statusMode !== undefined && statusMode !== "enabled") return null;
+  if (statusMode === undefined && (statusMigration !== undefined || statusSchema !== undefined)) return null;
+  const citizenEligibilityStatusEnabled = statusMode === "enabled";
+  const citizenAdoptionStatusMigrationSha256 = sha256Digest(statusMigration);
+  const citizenAdoptionStatusDatabaseSchemaSha256 = sha256Digest(statusSchema);
+  if (citizenEligibilityStatusEnabled &&
+    (!citizenAdoptionStatusMigrationSha256 || !citizenAdoptionStatusDatabaseSchemaSha256)) return null;
   const syntheticCitizenAdoptionMode =
     env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION;
   const syntheticCitizenAdoptionInputs = [
@@ -275,6 +286,10 @@ export function resolveProductionGatewayConfig(
     readinessPins: { sourceRevision: immutableSourceRevision, manifestDigest, migrationSha256, databaseSchemaSha256,
       topicTracerMigrationSha256, topicTracerDatabaseSchemaSha256,
       citizenAdoptionMigrationSha256, citizenAdoptionDatabaseSchemaSha256,
+      ...(citizenEligibilityStatusEnabled ? {
+        citizenAdoptionStatusMigrationSha256: citizenAdoptionStatusMigrationSha256!,
+        citizenAdoptionStatusDatabaseSchemaSha256: citizenAdoptionStatusDatabaseSchemaSha256!,
+      } : {}),
       ...(syntheticCitizenAdoptionEnabled ? {
         syntheticCitizenAdoptionMigrationSha256:
           syntheticCitizenAdoptionMigrationSha256!,
@@ -285,6 +300,7 @@ export function resolveProductionGatewayConfig(
           syntheticCitizenNftRuntimeCodeKeccak256!,
       } : {}),
     },
+    citizenEligibilityStatusEnabled,
     citizenAdoption: {
       policy: {
         municipalityId,

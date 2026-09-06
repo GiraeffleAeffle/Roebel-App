@@ -42,6 +42,7 @@ import type {
 import type { CitizenAdoptionService } from "./citizen-adoption.ts";
 import type { CitizenEligibilityStatusResolver } from "./citizen-eligibility-status.ts";
 import type { SyntheticCitizenAdoptionService } from "./synthetic-citizen-adoption.ts";
+import { requireCitizenAdoptionStatusReadiness } from "./supabase-adapter.ts";
 
 const DEFAULT_MAX_REQUEST_BYTES = 8 * 1024;
 const SOURCE_POST_PROMOTION_MAX_REQUEST_BYTES = 16 * 1024;
@@ -442,6 +443,13 @@ export function createStagingParticipantGatewayHandler(
       if (!dependencies.readiness || !pins || !dependencies.citizenAdoption) {
         return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
       }
+      const statusPinCount = [pins.citizenAdoptionStatusMigrationSha256,
+        pins.citizenAdoptionStatusDatabaseSchemaSha256].filter(Boolean).length;
+      const statusCapability = Boolean(dependencies.citizenEligibilityStatus);
+      if ((statusPinCount !== 0 && statusPinCount !== 2) ||
+        (statusPinCount === 2) !== statusCapability) {
+        return internalStatus({ schemaVersion: INTERNAL_STATUS_SCHEMA, status: "not_ready" }, 503);
+      }
       const syntheticPinCount = [
         pins.syntheticCitizenAdoptionMigrationSha256,
         pins.syntheticCitizenAdoptionDatabaseSchemaSha256,
@@ -476,6 +484,9 @@ export function createStagingParticipantGatewayHandler(
             : Promise.resolve(null),
           syntheticCapability
             ? dependencies.syntheticCitizenAdoption!.preflight()
+            : Promise.resolve(null),
+          statusCapability
+            ? requireCitizenAdoptionStatusReadiness(dependencies.readiness, pins)
             : Promise.resolve(null),
         ]);
         if (preflight.migrationId !== "20260825_staging_participant_gateway" ||
@@ -518,6 +529,10 @@ export function createStagingParticipantGatewayHandler(
           citizenAdoptionMigrationSha256: pins.citizenAdoptionMigrationSha256,
           citizenAdoptionDatabaseSchemaSha256:
             pins.citizenAdoptionDatabaseSchemaSha256,
+          ...(statusCapability ? {
+            citizenAdoptionStatusMigrationSha256: pins.citizenAdoptionStatusMigrationSha256,
+            citizenAdoptionStatusDatabaseSchemaSha256: pins.citizenAdoptionStatusDatabaseSchemaSha256,
+          } : {}),
           ...(syntheticCapability ? {
             syntheticCitizenAdoptionMigrationSha256:
               pins.syntheticCitizenAdoptionMigrationSha256,

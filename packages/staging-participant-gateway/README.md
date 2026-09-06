@@ -17,16 +17,28 @@ POST /api/staging-participant/v1/promote-source-post
 POST /api/staging-participant/v1/sign-topic-suggestion
 ```
 
-The separately composed ADR-0023 eligibility status Interface is
+The optional ADR-0023 eligibility status interface is
 `GET /api/civic/v1/eligibility/status/:payloadChecksum`, with one
 `x-stadtstack-status-nonce` header containing a 32-byte nonce in lowercase hex.
 Its resolver rechecks the original private holder and returns a signed public
 `active` or `revoked` observation without wallet or chain evidence. Unknown
 receipts return 404; expiry, invalid evidence and the bounded inspection timeout
-return generic 503. It has no write capability. Production `cli.ts` deliberately
-does not supply this resolver: activation requires the municipal policy,
-responsible operator, separate Case Steward nonce consumer and reviewed
-operations wiring. See [ADR 0023](../../docs/adr/0023-city-neutral-citizen-eligibility-and-suggestion-adoption.md).
+return generic 503. It has no write capability. Production composition shares
+the issuance policy, issuer key and pinned CitizenNFT verifier. Status remains
+disabled unless all three dedicated environment inputs below are present;
+startup checks the supplemental database contract before opening a socket.
+Governed deployment still requires the municipal policy, responsible operator,
+separate Case Steward nonce consumer and reviewed operations wiring.
+See [ADR 0023](../../docs/adr/0023-city-neutral-citizen-eligibility-and-suggestion-adoption.md).
+
+| Variable | Activation value |
+| --- | --- |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ELIGIBILITY_STATUS` | `enabled` |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ADOPTION_STATUS_MIGRATION_SHA256` | Reviewed SHA-256 of `20260906_staging_citizen_adoption_status_readiness.sql`, prefixed `sha256:` |
+| `ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ADOPTION_STATUS_DATABASE_SCHEMA_SHA256` | SHA-256 of `staging-citizen-adoption-status-schema-contract-v1.json`, prefixed `sha256:` |
+
+Omit all three to preserve the disabled default. Partial inputs and other mode
+values are configuration errors. The runtime never installs migrations.
 
 `createRestrictedSupabaseCitizenStatusReader` implements the private read port
 with one fixed RPC, pinned municipality/policy, an eight-second transport timeout
@@ -36,8 +48,14 @@ joins one issued receipt to its consumed challenge and returns only the original
 holder and public receipt to the issuer. The Vault-bound gateway header is
 mandatory; ordinary browser roles cannot read the private tables. The old public
 receipt RPC stays unchanged. Before deployment, operations must independently pin
-the new migration and verify its function permissions: the existing adoption
-preflight covers its original RPC list, not this additional function.
+the holder and exact-event acceptance migrations plus the supplemental
+[`20260906_staging_citizen_adoption_status_readiness.sql`](../../supabase/migrations/20260906_staging_citizen_adoption_status_readiness.sql).
+Its preflight checks both reviewed function bodies, signatures, owners,
+search paths, execution permissions and absence of overloads, then preserves
+the older adoption preflight's private-table and catalog checks. It creates no
+new table. Startup, internal readiness and every enabled status request use the
+same live gate. A status request's eight-second deadline includes that gate;
+late work cannot begin another private read or sign an observation.
 
 Case, vote, treasury, administration, municipal publication and arbitrary
 workbench actions are not representable by its data adapter.

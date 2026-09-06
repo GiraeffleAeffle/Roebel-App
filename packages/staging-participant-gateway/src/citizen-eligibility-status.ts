@@ -61,6 +61,8 @@ export function createCitizenEligibilityStatusResolver(dependencies: Readonly<{
   issuer: Readonly<{ keyId: string; privateKey: Uint8Array }>;
   receipts: CitizenEligibilityStatusReader;
   eligibilityVerifier: PinnedCitizenNftEligibilityVerifier;
+  /** Optional for a pure resolver; production requires the live catalog gate. */
+  preflight?: () => Promise<void>;
   now?: () => Date;
   timeoutMs?: number;
 }>): CitizenEligibilityStatusResolver {
@@ -92,11 +94,14 @@ export function createCitizenEligibilityStatusResolver(dependencies: Readonly<{
     return value;
   };
 
-  const inspect = async (payloadChecksum: string) => {
+  const inspect = async (payloadChecksum: string, checkBudget: () => void) => {
+    await dependencies.preflight?.();
+    checkBudget();
     const receiptId = `${RECEIPT_PREFIX}${payloadChecksum}`;
     const stored = await dependencies.receipts.resolveForStatus({
       receiptId, municipalityId: policy.municipalityId, policyVersion: policy.policyVersion,
     });
+    checkBudget();
     if (stored === null) return null;
     const holder = record(stored, ["receipt", "walletAddress"]);
     const receipt = record(holder?.receipt, [
@@ -134,6 +139,7 @@ export function createCitizenEligibilityStatusResolver(dependencies: Readonly<{
 
     // A new finalized-block check on every request. Never reuse issuance evidence.
     const evidence = await dependencies.eligibilityVerifier.verifyActiveCitizen({ address: holder.walletAddress });
+    checkBudget();
     const observedAt = timestamp();
     if (observedAt < startedAt) throw new Error("citizen_eligibility_status_time_invalid");
     if (observedAt >= core.expiresAt) throw new Error("citizen_eligibility_status_receipt_expired");
@@ -152,13 +158,19 @@ export function createCitizenEligibilityStatusResolver(dependencies: Readonly<{
         typeof request.requestNonce !== "string" || !CHECKSUM.test(request.requestNonce)
       ) throw new Error("citizen_eligibility_status_request_invalid");
       let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = performance.now() + timeoutMs;
+      let finished = false;
+      const checkBudget = () => {
+        if (finished || performance.now() >= deadline) throw new Error("citizen_eligibility_status_timeout");
+      };
       try {
         const observation = await Promise.race([
-          inspect(request.payloadChecksum),
+          inspect(request.payloadChecksum, checkBudget),
           new Promise<never>((_, reject) => {
             timer = setTimeout(() => reject(new Error("citizen_eligibility_status_timeout")), timeoutMs);
           }),
         ]);
+        checkBudget();
         if (!observation) return null;
         // Sign only after the bounded inspection succeeds; late work cannot sign.
         const statusCore = Object.freeze({
@@ -182,6 +194,7 @@ export function createCitizenEligibilityStatusResolver(dependencies: Readonly<{
           }, issuer),
         });
       } finally {
+        finished = true;
         if (timer !== undefined) clearTimeout(timer);
       }
     },

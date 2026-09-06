@@ -19,6 +19,10 @@ readonly CITIZEN_STATUS_LOOKUP_MIGRATION="supabase/migrations/20260905_staging_c
 readonly CITIZEN_STATUS_LOOKUP_MIGRATION_SHA256="81ae161df079a183d4782b91b528a83100414e89e08c1287c8a4c4ad282e7689"
 readonly CITIZEN_ACCEPTANCE_LOOKUP_MIGRATION="supabase/migrations/20260906_staging_citizen_adoption_acceptance_lookup.sql"
 readonly CITIZEN_ACCEPTANCE_LOOKUP_MIGRATION_SHA256="810e0a03bc8b9ba60271c606bcff8dcdc0d18bb53e3f0ea2d15068f4542519bb"
+readonly CITIZEN_STATUS_READINESS_MIGRATION="supabase/migrations/20260906_staging_citizen_adoption_status_readiness.sql"
+readonly CITIZEN_STATUS_READINESS_MIGRATION_SHA256="62b4974d8b52be7ba5f31c06ab1c9604ec3370bbab1443b8a95fe2ae6fc49de7"
+readonly CITIZEN_STATUS_SCHEMA_CONTRACT="supabase/staging-citizen-adoption-status-schema-contract-v1.json"
+readonly CITIZEN_STATUS_SCHEMA_CONTRACT_SHA256="85c778d6b805fbfb9c82e343cfd966b1865c15c1fad628173da247ceecff2332"
 readonly SYNTHETIC_ADOPTION_MIGRATION="supabase/migrations/20260902_staging_synthetic_citizen_adoption.sql"
 readonly SYNTHETIC_ADOPTION_MIGRATION_SHA256="992e56a65af74b32e35d2211ac57714f32e2e72e4fb82ea59afeb7dbbcefb282"
 readonly SYNTHETIC_ADOPTION_SCHEMA_CONTRACT="supabase/staging-synthetic-citizen-adoption-schema-contract-v1.json"
@@ -66,6 +70,8 @@ require_sha256 "$CITIZEN_ADOPTION_MIGRATION" "$CITIZEN_ADOPTION_MIGRATION_SHA256
 require_sha256 "$CITIZEN_ADOPTION_SCHEMA_CONTRACT" "$CITIZEN_ADOPTION_SCHEMA_CONTRACT_SHA256"
 require_sha256 "$CITIZEN_STATUS_LOOKUP_MIGRATION" "$CITIZEN_STATUS_LOOKUP_MIGRATION_SHA256"
 require_sha256 "$CITIZEN_ACCEPTANCE_LOOKUP_MIGRATION" "$CITIZEN_ACCEPTANCE_LOOKUP_MIGRATION_SHA256"
+require_sha256 "$CITIZEN_STATUS_READINESS_MIGRATION" "$CITIZEN_STATUS_READINESS_MIGRATION_SHA256"
+require_sha256 "$CITIZEN_STATUS_SCHEMA_CONTRACT" "$CITIZEN_STATUS_SCHEMA_CONTRACT_SHA256"
 require_sha256 "$SYNTHETIC_ADOPTION_MIGRATION" "$SYNTHETIC_ADOPTION_MIGRATION_SHA256"
 require_sha256 "$SYNTHETIC_ADOPTION_SCHEMA_CONTRACT" "$SYNTHETIC_ADOPTION_SCHEMA_CONTRACT_SHA256"
 require_sha256 "$SYNTHETIC_IDENTITY_ROTATION" "$SYNTHETIC_IDENTITY_ROTATION_SHA256"
@@ -165,6 +171,7 @@ run_participant_migration_file "$TOPIC_MIGRATION"
 run_participant_migration_file "$CITIZEN_ADOPTION_MIGRATION"
 run_participant_migration_file "$CITIZEN_STATUS_LOOKUP_MIGRATION"
 run_participant_migration_file "$CITIZEN_ACCEPTANCE_LOOKUP_MIGRATION"
+run_participant_migration_file "$CITIZEN_STATUS_READINESS_MIGRATION"
 run_participant_migration_file "$SYNTHETIC_ADOPTION_MIGRATION"
 
 docker exec --interactive \
@@ -183,6 +190,15 @@ docker exec --interactive \
   psql --no-psqlrc --quiet --set ON_ERROR_STOP=1 \
     --host 127.0.0.1 --username supabase_admin --dbname postgres \
   < supabase/tests/staging_incluster_tracer_citizen_adoption_integration.sql
+
+docker exec --interactive \
+  --env PGPASSWORD="$database_password" \
+  --env PARTICIPANT_RPC_SECRET="$participant_rpc_secret" \
+  "$database_container_name" \
+  psql --no-psqlrc --quiet --set ON_ERROR_STOP=1 \
+    --set citizen_status_schema_sha256="sha256:$CITIZEN_STATUS_SCHEMA_CONTRACT_SHA256" \
+    --host 127.0.0.1 --username supabase_admin --dbname postgres \
+  < supabase/tests/staging_incluster_tracer_citizen_status_readiness.sql
 
 docker exec --interactive \
   --env PGPASSWORD="$database_password" \

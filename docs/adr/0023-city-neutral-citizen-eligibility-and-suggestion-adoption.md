@@ -1,6 +1,6 @@
 # ADR 0023: City-neutral citizen eligibility and suggestion adoption
 
-- Status: Accepted boundary for staging; protocol, browser signer, issuer/adoption ledger, exact-event acceptance read and neutral Case writer implemented; governed runtime activation pending
+- Status: Accepted boundary for staging; protocol, issuer/adoption ledger, acceptance read, signed-status composition and neutral Case writer implemented; governed deployment pending
 - Date: 2026-08-25
 
 ## Context
@@ -248,16 +248,25 @@ public receipt to the issuer. The original public receipt RPC and historical
 tables/migrations remain unchanged. The private gateway capability is mandatory;
 the reader never follows redirects or exposes database error bodies.
 
-Production composition still omits this capability and retains
-`citizen_eligibility_status_not_activated`. Activation requires a reviewed private
-holder Adapter and its restricted database permission, the municipal issuer
-policy and responsible operator, and the separate Case Steward consumer that
-verifies freshness and atomically consumes its nonce. The proof verifier alone
-does not validate an admission or consume a nonce. No new environment switch or
-database permission activates this implementation implicitly.
-Operations must pin the additional migration and verify its function catalog and
-ACL separately; the older adoption preflight continues to attest only its
-original function list. The pinned PostgreSQL integration fixture exercises
+Production composition reuses the issuance policy, key and pinned verifier for
+status. It retains `citizen_eligibility_status_not_activated` by default. Explicit
+activation requires the status mode and both supplemental migration/schema
+pins documented in the [gateway contract](../../packages/staging-participant-gateway/README.md).
+The additive `20260906_staging_citizen_adoption_status_readiness.sql` checks the
+reviewed source hashes of the holder and accepted-event reads, their signatures,
+owners, search paths, execution permissions and absence of overloads. It calls
+the older adoption preflight for the existing private-table and catalog checks;
+it changes no old migration and creates no additional store. The preflight's own
+bytes are bound by the separately reviewed migration pin. A missing or changed
+dependency prevents startup, readiness and fresh status publication. The status
+deadline includes preflight; late completion cannot start further private work.
+
+Governed activation still requires the responsible municipal eligibility
+operator and the separate authenticated Case Steward consumer that verifies
+freshness and atomically consumes its nonce. A configuration switch assigns
+neither role. The proof verifier alone does not validate an admission or consume
+a nonce. Operations must apply and pin all three supplemental migrations before
+enabling the route. The pinned PostgreSQL integration fixture exercises
 the new lookup, access denial, scope mismatch and corrupt bindings alongside the
 unchanged public receipt/adoption and older preflight behavior.
 
