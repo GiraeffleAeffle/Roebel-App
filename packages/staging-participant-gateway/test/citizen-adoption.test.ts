@@ -567,6 +567,42 @@ test("a stalled status check times out without returning a late signed observati
   assert.equal(setup.adoptionWrites(), 0);
 });
 
+test("preflight and holder delays share the status deadline and cannot start later private work", async (t) => {
+  const setup = await statusFixture();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  for (const delayed of ["preflight", "holder"]) {
+    let finish!: () => void;
+    let reached!: () => void;
+    const started = new Promise<void>((resolve) => { reached = resolve; });
+    const delay = () => { reached(); return new Promise<void>((resolve) => { finish = resolve; }); };
+    let holderReads = 0;
+    let chainReads = 0;
+    const resolver = createCitizenEligibilityStatusResolver({
+      policy: setup.policy,
+      issuer: { keyId: setup.receipt.proof.keyId, privateKey: ISSUER_PRIVATE_KEY },
+      preflight: async () => { if (delayed === "preflight") await delay(); },
+      receipts: { async resolveForStatus() {
+        holderReads++;
+        if (delayed === "holder") await delay();
+        return { receipt: setup.receipt, walletAddress: WALLET };
+      } },
+      eligibilityVerifier: { async verifyActiveCitizen() {
+        chainReads++;
+        return setup.stored.privateEligibilityEvidence;
+      } },
+      now: () => new Date((NOW_SECONDS + 20) * 1_000),
+    });
+    const response = resolver.resolve({ payloadChecksum: setup.receipt.payloadChecksum, requestNonce: "a".repeat(64) });
+    await started;
+    t.mock.timers.tick(8_000);
+    await assert.rejects(response, /citizen_eligibility_status_timeout/);
+    finish();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(holderReads, delayed === "holder" ? 1 : 0);
+    assert.equal(chainReads, 0);
+  }
+});
+
 test("issues one session-bound challenge for the exact signed participant suggestion", async () => {
   const setup = serviceFixture();
   const challenge = await setup.service.issueEligibilityChallenge({

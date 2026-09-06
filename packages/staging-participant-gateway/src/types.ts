@@ -124,11 +124,12 @@ export type StagingParticipantDataAdapter = Readonly<{
   }>): Promise<StagingParticipantSuggestionReceipt>;
 }>;
 
-/** A single catalog-bound readiness capability; it cannot select any RPC. */
+/** Catalog-bound readiness capabilities; callers cannot select an arbitrary RPC. */
 export type StagingParticipantReadinessAdapter = Readonly<{
   preflight(): Promise<Readonly<{ migrationId: string; databaseSchemaSha256: string }>>;
   preflightTopicTracer(): Promise<Readonly<{ migrationId: string; databaseSchemaSha256: string }>>;
   preflightCitizenAdoption(): Promise<Readonly<{ migrationId: string; databaseSchemaSha256: string }>>;
+  preflightCitizenAdoptionStatus?(): Promise<Readonly<{ migrationId: string; databaseSchemaSha256: string }>>;
   preflightSyntheticCitizenAdoption?(): Promise<Readonly<{ migrationId: string; databaseSchemaSha256: string }>>;
 }>;
 
@@ -141,6 +142,8 @@ export type StagingParticipantReadinessPins = Readonly<{
   topicTracerDatabaseSchemaSha256: string;
   citizenAdoptionMigrationSha256: string;
   citizenAdoptionDatabaseSchemaSha256: string;
+  citizenAdoptionStatusMigrationSha256?: string;
+  citizenAdoptionStatusDatabaseSchemaSha256?: string;
   syntheticCitizenAdoptionMigrationSha256?: string;
   syntheticCitizenAdoptionDatabaseSchemaSha256?: string;
   syntheticCitizenNftAddress?: string;

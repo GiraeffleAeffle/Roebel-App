@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { once } from "node:events";
 import { test } from "node:test";
-import { municipalCivicEligibilityReceiptProofPublicKey } from "@netizen-labs/nostr";
+import {
+  municipalCivicEligibilityReceiptProofPublicKey,
+  signMunicipalCivicEligibilityReceiptProof,
+  createMunicipalCivicEligibilityStatusProofVerifier,
+  type MunicipalCivicEligibilityStatusV1,
+} from "@netizen-labs/nostr";
 
 import { resolveProductionGatewayConfig } from "../src/config.ts";
+import { createProductionGatewayServer } from "../src/runtime.ts";
 import {
   createRestrictedSupabaseDataAdapter,
   createStagingParticipantReadinessAdapter,
@@ -61,6 +68,12 @@ const env = {
 };
 
 const BAKED_SOURCE_REVISION = "a".repeat(40);
+const statusEnv = {
+  ...env,
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ELIGIBILITY_STATUS: "enabled",
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ADOPTION_STATUS_MIGRATION_SHA256: `sha256:${"3".repeat(64)}`,
+  ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ADOPTION_STATUS_DATABASE_SCHEMA_SHA256: `sha256:${"4".repeat(64)}`,
+};
 const syntheticEnv = {
   ...env,
   ROEBEL_STAGING_PARTICIPANT_GATEWAY_SYNTHETIC_CITIZEN_ADOPTION: "enabled",
@@ -288,13 +301,6 @@ test("production configuration fails closed unless explicit staging mode and eve
     /node packages\/staging-participant-gateway\/dist\/staging-participant-gateway\.cjs[\s\S]*?staging_participant_gateway_not_explicitly_configured/u,
   );
   assert.match(readFileSync(new URL("../src/cli.ts", import.meta.url), "utf8"), /COMPILED_SOURCE_REVISION/u);
-  const cliSource = readFileSync(new URL("../src/cli.ts", import.meta.url), "utf8");
-  for (const composition of [
-    "createCitizenAdoptionService",
-    "createRestrictedSupabaseCitizenAdoptionAdapter",
-    "createPrivateWorkbenchCitizenSuggestionThreadResolver",
-    "createPinnedCitizenNftEligibilityVerifier",
-  ]) assert.match(cliSource, new RegExp(composition, "u"));
   assert.match(readFileSync(new URL("../src/build-constants.ts", import.meta.url), "utf8"), /__ROEBEL_STAGING_PARTICIPANT_GATEWAY_SOURCE_REVISION__/u);
   assert.equal(buildConfig.resolveSourceRevision({ SOURCE_REVISION: "b".repeat(40) }, () => "a".repeat(40)), "b".repeat(40));
   assert.equal(buildConfig.resolveSourceRevision({}, () => "a".repeat(40)), "a".repeat(40));
@@ -535,7 +541,7 @@ test("ADR-0022 ledger adapter sends only closed claim bodies and rejects a drift
   await assert.rejects(malformed.reserveSourcePostPromotion(promotion), /promotion_receipt_mismatch/u);
 });
 
-test("readiness adapter can call only the four fixed empty preflight RPCs and rejects drifted rows", async () => {
+test("readiness adapter uses fixed empty preflight RPCs without following redirects and rejects drifted rows", async () => {
   const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
   const adapter = createStagingParticipantReadinessAdapter({
     url: "https://example.supabase.co",
@@ -544,7 +550,9 @@ test("readiness adapter can call only the four fixed empty preflight RPCs and re
     fetch: async (url, init) => {
       calls.push({ url: String(url), init });
       const target = String(url);
-      const migrationId = target.includes("synthetic_adoption")
+      const migrationId = target.includes("adoption_status")
+        ? "20260906_staging_citizen_adoption_status_readiness"
+        : target.includes("synthetic_adoption")
         ? "20260905_staging_synthetic_citizen_pass_v2"
         : target.includes("citizen_adoption")
         ? "20260901_staging_citizen_adoption"
@@ -564,6 +572,9 @@ test("readiness adapter can call only the four fixed empty preflight RPCs and re
   assert.equal(calls[0]?.url, `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.preflight}`);
   assert.equal(calls[0]?.init?.method, "POST");
   assert.equal(calls[0]?.init?.body, "{}");
+  assert.equal(calls[0]?.init?.redirect, "error");
+  assert.equal(calls[0]?.init?.credentials, "omit");
+  assert.equal(calls[0]?.init?.cache, "no-store");
   assert.equal(new Headers(calls[0]?.init?.headers).get("x-staging-participant-rpc-secret"), env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET);
   assert.equal(
     (await adapter.preflightTopicTracer()).migrationId,
@@ -577,11 +588,14 @@ test("readiness adapter can call only the four fixed empty preflight RPCs and re
     (await adapter.preflightSyntheticCitizenAdoption!()).migrationId,
     "20260905_staging_synthetic_citizen_pass_v2",
   );
+  assert.equal((await adapter.preflightCitizenAdoptionStatus!()).migrationId,
+    "20260906_staging_citizen_adoption_status_readiness");
   assert.deepEqual(calls.map(({ url }) => url), [
     `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.preflight}`,
     `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.topicTracerPreflight}`,
     `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.citizenAdoptionPreflight}`,
     `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.syntheticCitizenAdoptionPreflight}`,
+    `https://example.supabase.co/rest/v1/rpc/${restrictedStagingParticipantRpcNames.citizenAdoptionStatusPreflight}`,
   ]);
   const malformed = createStagingParticipantReadinessAdapter({
     url: "https://example.supabase.co",
@@ -590,4 +604,161 @@ test("readiness adapter can call only the four fixed empty preflight RPCs and re
     fetch: async () => new Response(JSON.stringify({ migration_id: "unexpected" }), { status: 200 }),
   });
   await assert.rejects(malformed.preflight(), /preflight_response_invalid/u);
+});
+
+test("signed status activation requires the explicit mode and both supplemental database pins", () => {
+  assert.equal(productionConfig(env)?.citizenEligibilityStatusEnabled, false);
+  assert.equal(productionConfig(statusEnv)?.citizenEligibilityStatusEnabled, true);
+  const keys = Object.keys(statusEnv).filter((key) => !(key in env));
+  for (const key of keys) {
+    assert.equal(productionConfig({ ...statusEnv, [key]: undefined }), null);
+    assert.equal(productionConfig({ ...statusEnv, [key]: "invalid" }), null);
+  }
+  assert.equal(productionConfig({ ...env,
+    ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_ELIGIBILITY_STATUS: "enabled",
+  }), null);
+});
+
+test("production keeps signed status disabled and performs no supplemental reads without activation", async (t) => {
+  const config = productionConfig(env);
+  assert.ok(config);
+  const nativeFetch = globalThis.fetch;
+  t.mock.method(globalThis, "fetch", async () => assert.fail("Disabled status must not read private storage"));
+  const server = await createProductionGatewayServer(config);
+  t.after(async () => { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const response = await nativeFetch(`http://127.0.0.1:${address.port}/api/civic/v1/eligibility/status/${"a".repeat(64)}`, {
+    headers: { "x-stadtstack-status-nonce": "b".repeat(64) },
+  });
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: "citizen_eligibility_status_not_activated" });
+});
+
+test("production composition gates startup and each signed status on the live catalog, using only the original holder and real policy", async (t) => {
+  const config = productionConfig({ ...statusEnv,
+    // Synthetic bytecode at a fake RPC; no deployed chain or credential is used.
+    ROEBEL_STAGING_PARTICIPANT_GATEWAY_GNOSIS_RPC_URL: "https://chain.example",
+    ROEBEL_STAGING_PARTICIPANT_GATEWAY_CITIZEN_NFT_RUNTIME_CODE_HASH:
+      "0x7efcce47028dabcb0d42f3a7eda8820bf6f7f4e618398c2547d52f703cafb073",
+  });
+  assert.ok(config);
+  const { policy, issuer } = config.citizenAdoption;
+  const issuedAt = Math.floor(Date.now() / 1_000) - 10;
+  const core = {
+    municipalityId: policy.municipalityId, policyVersion: policy.policyVersion,
+    issuer: policy.issuer, issuedAt, expiresAt: issuedAt + policy.receiptTtlSeconds,
+    eligibilityClass: "municipal_civic_participation", authorityBinding: "civic_eligibility_only",
+    subjectPubkey: "5".repeat(64), participantSuggestionId: "6".repeat(64),
+    topicId: "urn:stadtstack:topic:municipality:roebel-mueritz:traffic",
+  };
+  const payloadChecksum = createHash("sha256").update(JSON.stringify(core, Object.keys(core).sort())).digest("hex");
+  const receiptId = `urn:stadtstack:municipal-civic-eligibility-receipt:${payloadChecksum}`;
+  const statusRef = `${policy.statusBaseUrl}/${payloadChecksum}`;
+  const receipt = { schemaVersion: "municipal_civic_eligibility_receipt_v1", eligibilityCore: core,
+    payloadChecksum, receiptId, statusRef,
+    proof: signMunicipalCivicEligibilityReceiptProof({
+      domain: "municipal-civic-eligibility-receipt/v1",
+      schemaVersion: "municipal_civic_eligibility_receipt_v1", payloadChecksum, receiptId, statusRef,
+    }, issuer),
+  };
+  const wallet = env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_ALLOWED_WALLETS;
+  let catalog: "missing" | "drifted" | "ready" = "missing";
+  let holderExists = false;
+  let active = true;
+  let holderReads = 0;
+  const chainMethods: string[] = [];
+  const nativeFetch = globalThis.fetch;
+  t.mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    if (url.origin === "https://chain.example") {
+      const method = String(body.method);
+      chainMethods.push(method);
+      const params = body.params as Array<Record<string, string>>;
+      const result = (() => {
+        switch (method) {
+          case "eth_chainId": return "0x64";
+          case "eth_getBlockByNumber": return { number: "0x3039", hash: `0x${"a".repeat(64)}`, transactions: [] };
+          case "eth_getCode":
+            assert.equal(params[0], config.citizenAdoption.citizenNftAddress);
+            return "0x6001600055";
+          case "eth_call":
+            assert.equal(params[0]!.to, config.citizenAdoption.citizenNftAddress);
+            assert.ok(params[0]!.data!.endsWith(wallet.slice(2)));
+            return `0x${(active ? "1" : "0").padStart(64, "0")}`;
+          default: assert.fail(`Unexpected chain method: ${method}`);
+        }
+      })();
+      return Response.json({ jsonrpc: "2.0", id: body.id, result });
+    }
+    assert.equal(url.origin, "https://example.supabase.co");
+    assert.equal(new Headers(init?.headers).get("x-staging-participant-rpc-secret"), config.supabaseRpcSecret);
+    assert.equal(init?.redirect, "error");
+    if (url.pathname.endsWith("get_citizen_status_holder")) {
+      holderReads++;
+      assert.deepEqual(body, { p_receipt_id: receiptId,
+        p_municipality_id: policy.municipalityId, p_policy_version: policy.policyVersion });
+      return Response.json(holderExists ? { receipt, walletAddress: wallet } : null);
+    }
+    assert.deepEqual(body, {});
+    const pins = config.readinessPins;
+    if (url.pathname.endsWith("citizen_adoption_status_preflight")) {
+      if (catalog === "missing") return Response.json({}, { status: 404 });
+      return Response.json({ migration_id: "20260906_staging_citizen_adoption_status_readiness",
+        database_schema_sha256: catalog === "ready" ? pins.citizenAdoptionStatusDatabaseSchemaSha256 : `sha256:${"0".repeat(64)}` });
+    }
+    const pair = url.pathname.endsWith("citizen_adoption_preflight")
+      ? ["20260901_staging_citizen_adoption", pins.citizenAdoptionDatabaseSchemaSha256]
+      : url.pathname.endsWith("topic_tracer_preflight")
+        ? ["20260825_staging_participant_topic_tracer", pins.topicTracerDatabaseSchemaSha256]
+        : ["20260825_staging_participant_gateway", pins.databaseSchemaSha256];
+    return Response.json({ migration_id: pair[0], database_schema_sha256: pair[1] });
+  });
+  await assert.rejects(createProductionGatewayServer(config), /preflight_failed/);
+  catalog = "drifted";
+  await assert.rejects(createProductionGatewayServer(config), /citizen_adoption_status_not_ready/);
+  assert.equal(holderReads, 0);
+  catalog = "ready";
+  const server = await createProductionGatewayServer(config);
+  t.after(async () => { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const base = `http://127.0.0.1:${address.port}`;
+  const read = (nonce: string) => nativeFetch(`${base}${new URL(statusRef).pathname}`, {
+    headers: { "x-stadtstack-status-nonce": nonce },
+  });
+  assert.equal((await read("a".repeat(64))).status, 404);
+  holderExists = true;
+  const verifyStatus = createMunicipalCivicEligibilityStatusProofVerifier({
+    keyId: issuer.keyId, publicKey: CITIZEN_ISSUER_PUBLIC_KEY,
+  });
+  for (const state of [true, false]) {
+    active = state;
+    const nonce = (state ? "a" : "b").repeat(64);
+    const response = await read(nonce);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    const status = await response.json() as MunicipalCivicEligibilityStatusV1;
+    assert.equal(status.statusCore.state, state ? "active" : "revoked");
+    assert.equal(status.statusCore.requestNonce, nonce);
+    assert.equal(status.statusCore.policyVersion, policy.policyVersion);
+    assert.ok(verifyStatus({ domain: "municipal-civic-eligibility-status/v1",
+      schemaVersion: "municipal_civic_eligibility_status_v1", statusChecksum: status.statusChecksum }, status.proof));
+    assert.equal(JSON.stringify(status).includes(wallet), false);
+  }
+  assert.equal(chainMethods.filter((method) => method === "eth_getCode").length, 2);
+  const ready = await nativeFetch(`${base}/status`);
+  assert.equal(ready.status, 200);
+  assert.equal((await ready.json() as Record<string, unknown>).citizenAdoptionStatusDatabaseSchemaSha256,
+    config.readinessPins.citizenAdoptionStatusDatabaseSchemaSha256);
+  const previousReads = holderReads;
+  catalog = "drifted";
+  assert.equal((await nativeFetch(`${base}/status`)).status, 503);
+  assert.equal((await read("c".repeat(64))).status, 503);
+  assert.equal(holderReads, previousReads);
 });
