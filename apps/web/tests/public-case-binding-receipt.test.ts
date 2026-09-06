@@ -346,6 +346,73 @@ test("separates a real 404 from malformed, redirected, or oversized upstream dat
   );
 });
 
+test("reads the exact internal staging Case service without credentials", async () => {
+  const origin =
+    "http://roebel-case-public-binding.stadtstack-roebel-staging-lab.svc.cluster.local:18086";
+  const valid = receipt();
+  const requested: string[] = [];
+  for (const configuredOrigin of [origin, `${origin}/`]) {
+    const loaded = await fetchVerifiedPublicCaseBindingReceipt(ROOT, {
+      origin: configuredOrigin,
+      fetchImpl: (async (input, init) => {
+        requested.push(String(input));
+        assert.equal(init?.method, "GET");
+        assert.equal(init?.credentials, "omit");
+        assert.equal(init?.redirect, "error");
+        assert.equal(init?.cache, "no-store");
+        assert.equal(init?.headers, undefined);
+        assert.equal(init?.body, undefined);
+        return new Response(JSON.stringify(valid), {
+          headers: {
+            "content-type": "application/json",
+            "x-stadtstack-receipt-sha256": valid.receiptChecksum,
+          },
+        });
+      }) as typeof fetch,
+    });
+    assert.deepEqual(loaded, valid);
+  }
+  assert.deepEqual(requested, [
+    `${origin}/v1/public/case-bindings/by-discussion/${ROOT}`,
+    `${origin}/v1/public/case-bindings/by-discussion/${ROOT}`,
+  ]);
+});
+
+test("rejects other HTTP targets and staging origin aliases before fetching", async () => {
+  const host =
+    "roebel-case-public-binding.stadtstack-roebel-staging-lab.svc.cluster.local";
+  let fetched = false;
+  for (const origin of [
+    "http://127.0.0.1:18086",
+    "http://[::1]:18086",
+    "http://localhost:18086",
+    "http://roebel-case-steward-control.stadtstack-roebel-staging-lab.svc.cluster.local:18085",
+    "http://roebel-case-public-binding.other-namespace.svc.cluster.local:18086",
+    `http://${host}:18087`,
+    `http://${host}`,
+    `http://${host}.:18086`,
+    `http://${host}.example.org:18086`,
+    `http://user:secret@${host}:18086`,
+    `http://${host}:18086/base`,
+    `http://${host}:18086/base/..`,
+    `http://${host}:18086?query=1`,
+    `http://${host}:18086#fragment`,
+  ]) {
+    await assert.rejects(
+      () =>
+        fetchVerifiedPublicCaseBindingReceipt(ROOT, {
+          origin,
+          fetchImpl: (async () => {
+            fetched = true;
+            return new Response(null, { status: 404 });
+          }) as typeof fetch,
+        }),
+      /public_case_binding_unavailable/
+    );
+  }
+  assert.equal(fetched, false);
+});
+
 test("fails closed for malformed roots and unpinned origins", async () => {
   for (const origin of [
     "",

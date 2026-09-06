@@ -78,8 +78,13 @@ administration or participation journey. The public receipt can recover its
 public preview without a login or signing prompt. The synthetic preview stays
 immutable.
 
-Next: verify the browser change in the hosted Web artifact and activate the
-reviewed staging Case workloads with exact image, storage and staff bindings.
+The browser receipt change is merged and image-published in PR #104. The
+server-side reader now also accepts the exact reserved internal staging Case
+Service on 18086; other HTTP targets remain rejected. This connection still
+requires the reviewed Operations workload and network bindings.
+
+Next: activate the reviewed staging Case workloads with exact image, storage
+and staff bindings, then verify the saved test suggestion and a restart.
 Live synthetic admission and test department handling remain pending. The real
 municipal eligibility gate remains step 5 of 10.
 
