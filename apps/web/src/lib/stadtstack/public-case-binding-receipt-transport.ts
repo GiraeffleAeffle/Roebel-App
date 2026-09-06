@@ -5,6 +5,10 @@ import {
 } from "./public-case-binding-receipt-contract";
 
 const MAX_BODY_BYTES = 16 * 1024;
+// This exact staging route requires the reviewed Operations network boundary.
+// Its DNS name and port never come from a browser request.
+const STAGING_PUBLIC_READER_ORIGIN =
+  "http://roebel-case-public-binding.stadtstack-roebel-staging-lab.svc.cluster.local:18086";
 
 function unavailable(): never {
   throw new Error("public_case_binding_unavailable");
@@ -62,7 +66,9 @@ export async function fetchVerifiedPublicCaseBindingReceipt(
   } catch {
     unavailable();
   }
-  if (origin.protocol !== "https:" || origin.username || origin.password || origin.search ||
+  const pinnedStagingHttp = options.origin === STAGING_PUBLIC_READER_ORIGIN ||
+    options.origin === `${STAGING_PUBLIC_READER_ORIGIN}/`;
+  if ((origin.protocol !== "https:" && !pinnedStagingHttp) || origin.username || origin.password || origin.search ||
     origin.hash || origin.pathname !== "/") unavailable();
   const url = new URL(`/v1/public/case-bindings/by-discussion/${rootEventId}`, origin);
   const response = await (options.fetchImpl ?? fetch)(url, {

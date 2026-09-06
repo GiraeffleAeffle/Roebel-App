@@ -15,7 +15,17 @@ The Case Steward command accepts one closed request containing the exact signed 
 
 The atomic result includes a public-safe **Case binding receipt** that binds the municipality, topic, discussion root, Mecky answer, candidate, Civic Case identifier, case version, journal head and admission checksum with `authorityBinding: none`. A separate credential-free, GET-only public projection exposes that receipt after replaying the durable outbox. Its checksum detects corruption and binds the fields; it is not independently authentic without the trusted Stadtstack projection endpoint or a later signed inclusion proof. Röbel advances the journey from this receipt; it does not modify the signed Nostr root or infer admission from a missing or pending response. Existing case tags remain a labelled legacy staging compatibility path only.
 
-The Röbel Web consumes that projection only through its server-side BFF at `GET`/`HEAD` `/api/stadtstack/case-bindings/by-discussion/:rootId`. `STADTSTACK_PUBLIC_CASE_BINDING_ORIGIN` is a server-only HTTPS origin with no path, query, userinfo, browser exposure, forwarded request headers, or credentials. The BFF performs a short, no-store, credential-free exact-path read, verifies the complete `public_case_binding_receipt_v1` checksum and transport checksum, and returns only the verified receipt. `404` means no admitted binding; malformed upstream data and availability faults collapse to a generic `503`. The browser never receives the public-reader origin, and only this verified BFF result may advance CivicCase or administration stages.
+The Röbel Web consumes that projection only through its server-side BFF at `GET`/`HEAD` `/api/stadtstack/case-bindings/by-discussion/:rootId`. `STADTSTACK_PUBLIC_CASE_BINDING_ORIGIN` is a server-only HTTPS origin with no path, query, userinfo, browser exposure, forwarded request headers, or credentials, with the exact internal staging exception below. The BFF performs a short, no-store, credential-free exact-path read, verifies the complete `public_case_binding_receipt_v1` checksum and transport checksum, and returns only the verified receipt. `404` means no admitted binding; malformed upstream data and availability faults collapse to a generic `503`. The browser never receives the public-reader origin, and only this verified BFF result may advance CivicCase or administration stages.
+
+For the isolated staging deployment, the same reader also accepts exactly
+`http://roebel-case-public-binding.stadtstack-roebel-staging-lab.svc.cluster.local:18086`
+(with an optional trailing slash). Other HTTP origins, ports, namespaces and
+URL aliases are rejected before any request. This Adapter pin matches the
+reserved Operations Service; it does not grant deployment permission. The
+reviewed Service selectors and default-deny NetworkPolicies establish the
+trusted in-cluster route, so matching receipt checksums alone are insufficient
+for activation. No staff credentials or browser headers cross this connection.
+Operations must admit the exact reader workloads and Web egress together.
 
 ADR 0023 extends that same credential-free read path with
 `public_case_binding_receipt_v2` for the eligible-citizen adoption candidate.
