@@ -4,7 +4,10 @@ import type {
   StagingTopicPost,
 } from "./staging-api";
 import { projectCivicJourney, type CivicJourney } from "./civic-journey";
-import type { VerifiedPublicCaseBindingReceipt } from "./public-case-binding-receipt-client";
+import {
+  isMunicipalCaseBindingReceipt,
+  type VerifiedPublicCaseBindingReceipt,
+} from "./public-case-binding-receipt-client";
 
 const ROEBEL_TOPIC_ID =
   /^urn:stadtstack:topic:municipality:roebel-mueritz:[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -35,7 +38,10 @@ export function projectPublicCivicTopicJourney(
 ): CivicJourney | null {
   const discussions = detail.topic.discussions;
   const matchingReceipt =
-    bindingReceipt?.topicId === detail.topic.topicId ? bindingReceipt : null;
+    isMunicipalCaseBindingReceipt(bindingReceipt) &&
+    bindingReceipt.topicId === detail.topic.topicId
+      ? bindingReceipt
+      : null;
   const administrationStatus =
     matchingReceipt && administration?.caseId === matchingReceipt.caseId
       ? administration.status

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import {
@@ -106,6 +107,10 @@ function challenge(participantSuggestion = suggestion()) {
   return { ...core, canonicalChallenge, message: canonicalChallenge };
 }
 
+function digest(value: unknown): string {
+  return createHash("sha256").update(stableJson(value)).digest("hex");
+}
+
 function projection(participantSuggestion: ReturnType<typeof suggestion>, proofEvent: ReturnType<typeof buildNoteEvent>) {
   const adopterPubkey = proofEvent.pubkey;
   const tracer = {
@@ -128,14 +133,18 @@ function projection(participantSuggestion: ReturnType<typeof suggestion>, proofE
     authorityBinding: "none",
     submittedToCivicWorkflow: false,
   } as const;
-  return {
+  const tracerCore = Object.fromEntries(Object.entries(tracer).filter(([key]) => ![
+    "schemaVersion", "tracerId", "entryState", "environment", "testOnly", "authorityBinding", "submittedToCivicWorkflow",
+  ].includes(key)));
+  const canonicalTracer = { ...tracer, tracerId: `urn:stadtstack:synthetic-citizen-adoption-tracer:${digest(tracerCore)}` };
+  const result = {
     schemaVersion: "public_synthetic_citizen_adoption_projection_v1",
     participantSuggestionId: participantSuggestion.suggestionId,
     proofEvent,
-    tracer,
+    tracer: canonicalTracer,
     acceptanceReceipt: {
       schemaVersion: "synthetic_citizen_adoption_tracer_acceptance_v1",
-      tracerId: tracer.tracerId,
+      tracerId: canonicalTracer.tracerId,
       proofEventId: proofEvent.id,
       municipalityId: tracer.municipalityId,
       topicId: tracer.topicId,
@@ -168,6 +177,8 @@ function projection(participantSuggestion: ReturnType<typeof suggestion>, proofE
     treasuryEffect: false,
     paymentEffect: false,
   } as const;
+  const { receiptChecksum, ...acceptanceCore } = result.acceptanceReceipt;
+  return { ...result, acceptanceReceipt: { ...acceptanceCore, receiptChecksum: digest(acceptanceCore) } };
 }
 
 afterEach(() => {
