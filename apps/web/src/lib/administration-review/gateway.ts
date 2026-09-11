@@ -9,6 +9,7 @@ export type ReviewGrant = {
 export type ReviewGatewayConfig = {
   environment: "staging"; publicOrigin: string; upstreamOrigin: string; caseId: string;
   grants: ReviewGrant[];
+  assignmentTargets?: { departmentId: string; label: string; assignedAgentActorId: string; assignedReviewerActorId: string }[];
 };
 const CASE = /^urn:stadtstack:synthetic-case:municipality:[a-z0-9-]+:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const ENDPOINT = "/api/workspace/case-review";
@@ -60,6 +61,17 @@ export function createReviewGateway(config: ReviewGatewayConfig, dependencies: {
         grant.notBefore < 0 || grant.expiresAt <= grant.notBefore) throw Error();
       ids.add(grant.id); tokens.add(grant.token);
     }
+    const targets = settings.assignmentTargets ?? [];
+    if (!Array.isArray(targets) || targets.length > 64) throw Error();
+    const departmentIds = new Set<string>();
+    for (const target of targets) {
+      if (!/^[a-z0-9-]{1,64}$/.test(target.departmentId) || departmentIds.has(target.departmentId) ||
+        typeof target.label !== "string" || !target.label.trim() || target.label.length > 100 ||
+        !/^[A-Za-z0-9:._-]{1,256}$/.test(target.assignedAgentActorId) ||
+        !/^[A-Za-z0-9:._-]{1,256}$/.test(target.assignedReviewerActorId) ||
+        target.assignedAgentActorId === target.assignedReviewerActorId) throw Error();
+      departmentIds.add(target.departmentId);
+    }
   } catch { throw new Error("review_gateway_configuration_invalid"); }
   const fetcher = dependencies.fetch ?? fetch, now = dependencies.now ?? Date.now;
   return async (request: Request): Promise<Response> => {
@@ -91,6 +103,13 @@ export function createReviewGateway(config: ReviewGatewayConfig, dependencies: {
         try { command = JSON.parse(body); } catch { return error(400, "request_invalid"); }
         if (!command || Object.keys(command).sort().join() !== "expectedCaseVersion,operation,payload,schemaVersion" ||
           command.schemaVersion !== "administration_review_request_v1" || !["assign", "draft", "review"].includes(command.operation)) return error(400, "request_invalid");
+        if (command.operation === "assign") {
+          const pkg = command.payload?.departmentPackage;
+          const target = settings.assignmentTargets?.find((item) => item.departmentId === pkg?.departmentId);
+          if (grant.actorClass !== "case_steward" || !target ||
+            pkg.assignedAgentActorId !== target.assignedAgentActorId ||
+            pkg.assignedReviewerActorId !== target.assignedReviewerActorId) return error(403, "assignment_target_rejected");
+        }
       }
       const upstream = await fetcher(settings.upstreamOrigin + UPSTREAM, { method: request.method,
         headers: { authorization: `Bearer ${grant.token}`, accept: "application/json", ...(body === undefined ? {} : { "content-type": "application/json" }) },
@@ -109,6 +128,12 @@ export function createReviewGateway(config: ReviewGatewayConfig, dependencies: {
       // Expiry/revocation during a slow request must not expose its response.
       const current = await dependencies.authenticate(), finished = now();
       if (current?.sub !== session.sub || !Number.isSafeInteger(finished) || finished >= grant.expiresAt || finished < grant.notBefore) return error(401, "authentication_required");
+      if (request.method === "GET" && grant.actorClass === "case_steward") {
+        // Actor references are visible to the steward; credentials and subjects
+        // never appear in this directory. Backend registry checks still apply.
+        value.assignmentTargets = (settings.assignmentTargets ?? []).map(({ departmentId, label, assignedAgentActorId, assignedReviewerActorId }) =>
+          ({ departmentId, label, assignedAgentActorId, assignedReviewerActorId }));
+      }
       return reply(200, value);
     } catch { return error(503, "review_unavailable"); }
   };
