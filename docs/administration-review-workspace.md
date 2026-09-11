@@ -10,6 +10,31 @@ department reviewers can accept or reject that exact draft. The coordinator
 sees overall brief readiness and can assign configured departments from the page. Brief preparation/publication is not exposed
 by this gateway.
 
+## Original topic and overview
+
+Open `/verwaltung?discussion=<64-hex-root-event-id>` to load the original topic.
+The existing receipt BFF verifies its Case binding; the browser uses the existing
+receipt reader and follows only that receipt's topic ID. The public topic must
+contain the requested discussion and have no binding conflict. No private
+credentials are needed to read these public source records.
+
+The graph joins authenticated work only when its Case ID matches and its version
+is at least the receipt's admission version. Otherwise it hides all writes and
+shows department states as unknown. It must never borrow local rehearsal progress
+or interpret an unavailable department as unassigned. Eight department cards
+show the planned staging workflow; role-scoped access shows only visible packages.
+Recorded packages/readiness determine missing assignments, answers, reviews,
+rejected responses or blocked approvals. Source timestamps and the admission
+receipt are shown separately from the still-unavailable full administrative journal.
+Dependencies between departments and deadlines are not represented by this API.
+
+On 2026-09-11 the original B 198 topic and receipt were read from public staging
+and displayed in the local browser. The original Case's public administration
+endpoint returned 404. Its authenticated runtime is still not connected here;
+no live department status or public-return completion is claimed. This view is
+read-only until the exact Case connection is available. The main Röbel app still
+needs a navigation link and the Web change still needs its hosted build/rollout.
+
 ## Connection
 
 Browser → `/api/workspace/case-review` → existing server-side OIDC session →
@@ -71,7 +96,7 @@ Run the dependency-free boundary tests with the repository's supported Node:
 node --experimental-strip-types --test apps/web/tests/administration-review-gateway.test.ts
 ```
 
-Six tests cover grant isolation, expiry, request origin, bounded bodies,
+Eight focused tests cover grant isolation, expiry, request origin, bounded bodies,
 credential forwarding and response containment. On 2026-09-11 these passed;
 the gateway, tests and page also passed strict TypeScript checking using
 the actual React 19 types. The route passed syntax/transpile checks. A separate local integration check exercised
@@ -83,7 +108,7 @@ verify deployed OIDC, HTTP transport or a browser session.
 Local browser verification also completed assignment → answer with source →
 accepted review → reload with the accepted result visible. This used the actual
 page/gateway and temporary Stadtstack SQLite state, with an injected test login
-and in-process upstream transport. Six boundary tests include configured
+and in-process upstream transport. Six gateway tests include configured
 assignment targets and actor-forgery rejection. Duplicate clicks are guarded;
 uncertain writes disable mutations until current state is reloaded.
 

@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { TopicOverview } from "../../components/administration-review/TopicOverview";
+import { matchingCase, type TopicOrigin } from "../../lib/administration-review/overview";
+import { loadVerifiedPublicCaseBindingReceipt } from "../../lib/stadtstack/public-case-binding-receipt-client";
+
 
 type Role = { id: string; label: string; actorClass: string };
 type Package = { id: string; departmentId: string; request: string; packageChecksum: string;
   reviewState: string; draft?: { artifactChecksum: string; publicSummary: string; publicCitations: string[] } };
 type AssignmentTarget = { departmentId: string; label: string; assignedAgentActorId: string; assignedReviewerActorId: string };
-type View = { assignmentTargets?: AssignmentTarget[]; caseVersion: number; suggestion: { id: string; title: string; summary: string | null };
-  departmentPackages: Package[]; briefReadiness: { status: string; acceptedDepartmentIds: string[] } | null };
+type View = { caseId: string; assignmentTargets?: AssignmentTarget[]; caseVersion: number; suggestion: { id: string; title: string; summary: string | null };
+  departmentPackages: Package[]; briefReadiness: { status: string; requiredDepartmentIds: string[]; acceptedDepartmentIds: string[]; blockers?: { departmentId: string; reason: string }[] } | null };
 const ENDPOINT = "/api/workspace/case-review";
 const statusText: Record<string, string> = { assigned: "Zur Bearbeitung", draft_pending_review: "Prüfung ausstehend", accepted: "Geprüft", rejected: "Überarbeitung nötig" };
 const departments: Record<string, string> = { planning: "Stadtplanung", traffic: "Verkehr", environment: "Umwelt", finance: "Finanzen",
@@ -16,10 +20,41 @@ const button = "rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white d
 
 export default function AdministrationWorkspace() {
   const [roles, setRoles] = useState<Role[]>([]), [role, setRole] = useState("");
-  const [view, setView] = useState<View | null>(null), [message, setMessage] = useState("Arbeitsbereich wird geladen …");
+  const [rawView, setView] = useState<View | null>(null), [message, setMessage] = useState("Arbeitsbereich wird geladen …");
   const [login, setLogin] = useState(false), [busy, setBusy] = useState(false), [revision, setRevision] = useState(0);
   const generation = useRef(0), pendingWrite = useRef(false);
   const [needsRefresh, setNeedsRefresh] = useState(false);
+  const [origin, setOrigin] = useState<TopicOrigin | null>(null);
+  const [originRequested, setOriginRequested] = useState(false), [originMessage, setOriginMessage] = useState("");
+  const view = originRequested ? (origin ? matchingCase(origin, rawView) : null) : rawView;
+  useEffect(() => {
+    const rootId = new URLSearchParams(window.location.search).get("discussion");
+    if (rootId === null) return;
+    setOriginRequested(true); setOriginMessage("Originalthema wird aus den öffentlichen Staging-Projektionen geladen …");
+    let cancelled = false;
+    void (async () => {
+      if (!/^[0-9a-f]{64}$/.test(rootId)) throw Error();
+      const receipt = await loadVerifiedPublicCaseBindingReceipt(rootId, (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(15_000) }));
+      if (!receipt) throw Error();
+      const response = await fetch(`/api/civic/v1/topics/${encodeURIComponent(receipt.topicId)}`, { cache: "no-store", signal: AbortSignal.timeout(15_000) });
+      if (!response.ok) throw Error();
+      const payload = await response.json();
+      if (payload.schemaVersion !== "roebel_public_civic_topic_detail_v1" || payload.authorityBinding !== "none") throw Error();
+      const detail = payload.detail as { caseBindingConflict: boolean; topic: { topicId: string; topicTitle: string; discussionIds: string[];
+        discussions: { id: string; content: string; createdAt: string }[] }; sourcePosts: { id: string; content: string; createdAt: string }[] };
+      if (!detail || detail.caseBindingConflict !== false || detail.topic.topicId !== receipt.topicId ||
+        !detail.topic.discussionIds.includes(rootId) || typeof detail.topic.topicTitle !== "string") throw Error();
+      const discussion = detail.topic.discussions.find(d => d.id === rootId);
+      if (!discussion || typeof discussion.content !== "string" || typeof discussion.createdAt !== "string" ||
+        !Array.isArray(detail.sourcePosts) || !detail.sourcePosts.every(p => p && typeof p.id === "string" && typeof p.content === "string" && typeof p.createdAt === "string")) throw Error();
+      if (!cancelled) { setOrigin({ rootId, caseId: receipt.caseId, topicId: receipt.topicId,
+        title: detail.topic.topicTitle, content: discussion.content, createdAt: discussion.createdAt,
+        admissionVersion: receipt.caseVersion, receiptChecksum: receipt.receiptChecksum,
+        testOnly: receipt.schemaVersion === "public_synthetic_case_binding_receipt_v1",
+        sources: detail.sourcePosts.map(p => ({ id: p.id, content: p.content, createdAt: p.createdAt })).sort((a,b) => a.createdAt.localeCompare(b.createdAt)) }); setOriginMessage(""); }
+    })().catch(() => { if (!cancelled) setOriginMessage("Die verifizierte Verbindung zum Originalthema ist gerade nicht verfügbar. Es wird kein anderer Testfall als Ersatz angezeigt."); });
+    return () => { cancelled = true; };
+  }, []);
   const active = roles.find((item) => item.id === role);
   useEffect(() => {
     const controller = new AbortController();
@@ -59,9 +94,12 @@ export default function AdministrationWorkspace() {
       <a href="/app" className="text-sm text-primary underline">Zur Bürger-App</a></header>
     <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">Testumgebung · Rollen und Fall sind ausdrücklich für den Test vergeben. Eine Testprüfung ist keine amtliche Entscheidung.</div>
     <div className="flex flex-wrap items-center gap-3">
-      {roles.length > 0 && <label className="text-sm font-medium">Arbeiten als <select aria-label="Zugewiesene Testrolle" value={role} disabled={busy} onChange={(event) => { setView(null); setRole(event.target.value); }} className="ml-2 rounded-lg border bg-white p-2">{roles.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
-      {role && <button className="rounded-lg border px-4 py-2 text-sm" disabled={busy} onClick={() => setRevision((value) => value + 1)}>Aktualisieren</button>}
+      {roles.length > 0 && (!originRequested || view) && <label className="text-sm font-medium">Arbeiten als <select aria-label="Zugewiesene Testrolle" value={role} disabled={busy} onChange={(event) => { setView(null); setRole(event.target.value); }} className="ml-2 rounded-lg border bg-white p-2">{roles.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
+      {role && (!originRequested || view) && <button className="rounded-lg border px-4 py-2 text-sm" disabled={busy} onClick={() => setRevision((value) => value + 1)}>Aktualisieren</button>}
     </div>
+    {originMessage && <p role="status" className="rounded-xl border bg-slate-50 p-4">{originMessage}</p>}
+    {origin && <TopicOverview origin={origin} view={view} />}
+    {!originRequested && view && <TopicOverview origin={null} view={view} />}
     {message && <p role="status" className="rounded-xl border bg-slate-50 p-4">{message}</p>}
     {login && <a className={button} href="/api/workspace/auth/login?returnTo=%2Fverwaltung">Mit bestehendem Konto anmelden</a>}
     {view && <><section className="rounded-2xl border bg-white p-6"><p className="text-xs uppercase tracking-wide text-slate-500">Übernommener Fall · Stand {view.caseVersion}</p>
@@ -88,7 +126,7 @@ export default function AdministrationWorkspace() {
           </form> : <p className="text-sm text-slate-600">{view.assignmentTargets?.length ? "Alle hinterlegten Fachbereiche haben ein Arbeitspaket." : "Die Fachbereiche und ihre Testrollen sind für diese Umgebung noch nicht hinterlegt."}</p>}
       </section>}
       {view.departmentPackages.length === 0 && <p className="rounded-xl border border-dashed p-6 text-slate-600">Für diese Rolle liegt noch kein zugewiesenes Arbeitspaket vor. Die Fallkoordination bereitet die Zuweisung vor.</p>}
-      {view.departmentPackages.map((item) => <section key={`${item.id}:${view.caseVersion}`} className="space-y-4 rounded-2xl border bg-white p-6">
+      {view.departmentPackages.map((item) => <section id={`work-${encodeURIComponent(item.id)}`} key={`${item.id}:${view.caseVersion}`} className="space-y-4 rounded-2xl border bg-white p-6">
         <div className="flex items-center justify-between gap-3"><h2 className="text-xl font-semibold">{departments[item.departmentId] ?? item.departmentId}</h2><span className="rounded-full bg-slate-100 px-3 py-1 text-xs">{statusText[item.reviewState] ?? "Stand prüfen"}</span></div><p>{item.request}</p>
         {item.draft && <div className="rounded-xl bg-slate-50 p-4"><h3 className="font-medium">Antwortentwurf</h3><p className="mt-2 whitespace-pre-wrap">{item.draft.publicSummary}</p><ul className="mt-3 text-sm text-slate-600">{item.draft.publicCitations.map((ref) => <li key={ref} className="break-all">{ref}</li>)}</ul></div>}
         {active?.actorClass === "department_agent" && !item.draft && <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget);
