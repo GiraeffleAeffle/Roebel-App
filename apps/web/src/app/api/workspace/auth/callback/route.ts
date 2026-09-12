@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { workspaceConfig, type WorkspaceConfig } from "@/lib/workspace/config";
+import { workspaceIdentityConfig, type WorkspaceIdentityConfig } from "@/lib/workspace/config";
 import { exchangeCode, fetchUserinfo, groupsFrom, verifyIdToken } from "@/lib/workspace/oidc";
 import { newSessionId } from "@/lib/workspace/session";
 import { createSessionStore } from "@/lib/workspace/session-store";
@@ -27,7 +27,7 @@ const PKCE_COOKIES = [
  * not leave them sitting around for their full 10-minute TTL after the flow
  * that needed them has already ended.
  */
-function loginFailed(cfg: WorkspaceConfig, origin?: string): NextResponse {
+function loginFailed(cfg: WorkspaceIdentityConfig, origin?: string): NextResponse {
   const response = NextResponse.redirect(
     `${origin ?? cfg.appOrigin}/arbeitsbereich?fehler=anmeldung`,
   );
@@ -38,7 +38,7 @@ function loginFailed(cfg: WorkspaceConfig, origin?: string): NextResponse {
 }
 
 export const GET = withWorkspaceRoute(async (request: Request) => {
-  const cfg = workspaceConfig();
+  const cfg = workspaceIdentityConfig();
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -140,4 +140,4 @@ export const GET = withWorkspaceRoute(async (request: Request) => {
     console.error("workspace auth callback failed", err);
     return loginFailed(cfg, origin);
   }
-});
+}, "identity");

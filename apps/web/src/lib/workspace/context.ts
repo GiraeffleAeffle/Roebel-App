@@ -8,7 +8,7 @@ import {
   type Provisioner,
   type WorkspaceScope,
 } from "@netizen-labs/workspace";
-import { workspaceConfig } from "./config";
+import { workspaceConfig, workspaceIdentityConfig } from "./config";
 import { fetchUserinfo, groupsFrom, refreshTokens } from "./oidc";
 import { createSessionStore } from "./session-store";
 import {
@@ -226,7 +226,7 @@ export function freshGroupsFromUserinfo(
 export async function loadSession(
   sessionId: string,
 ): Promise<WorkspaceSession | null> {
-  const cfg = workspaceConfig();
+  const cfg = workspaceIdentityConfig();
   const store = createSessionStore();
 
   const session = await store.get(sessionId);

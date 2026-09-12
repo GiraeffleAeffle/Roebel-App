@@ -8,4 +8,4 @@ export const dynamic = "force-dynamic";
 export const GET = withWorkspaceRoute(async () => {
   const session = await readSession();
   return NextResponse.json({ sub: session?.sub ?? null });
-});
+}, "identity");

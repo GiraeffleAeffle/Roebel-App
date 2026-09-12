@@ -9,6 +9,7 @@ import {
   withWorkspaceRoute,
 } from "../src/lib/workspace/request";
 import { WorkspaceAuthError } from "../src/lib/workspace/context";
+import { workspaceIdentityConfig, workspaceConfig } from "../src/lib/workspace/config";
 import { NextcloudError, ScopeViolationError } from "@netizen-labs/workspace";
 
 describe("parseScopeRequest", () => {
@@ -228,6 +229,38 @@ describe("withWorkspaceRoute — the config gate", () => {
 
   const allUnset = Object.fromEntries(REQUIRED.map((k) => [k, undefined]));
   const allSet = Object.fromEntries(REQUIRED.map((k) => [k, "x"]));
+
+  const identity = {
+    ROEBEL_ID_ISSUER: "https://id.example.invalid",
+    WORKSPACE_CLIENT_ID: "test-workspace",
+    WORKSPACE_CLIENT_SECRET: "synthetic-client-secret",
+    NEXT_PUBLIC_APP_ORIGIN: "https://town.example.invalid",
+  };
+
+  it("allows identity and review routes without enabling document access", async () => {
+    let config: ReturnType<typeof workspaceIdentityConfig> | undefined;
+    const login = withWorkspaceRoute(async () => { config = workspaceIdentityConfig(); return new Response("login ready"); }, "identity");
+    const documents = withWorkspaceRoute(async () => { workspaceConfig(); return new Response("files"); });
+    const response = await withEnv({ ...allUnset, ...identity, WORKSPACE_ALLOWED_ORIGINS: undefined }, () => login());
+    assert.equal(response.status, 200);
+    assert.ok(config);
+    assert.equal(config.issuer, identity.ROEBEL_ID_ISSUER);
+    assert.deepEqual(config.allowedOrigins, [identity.NEXT_PUBLIC_APP_ORIGIN]);
+    assert.equal("nextcloudAdminPassword" in config, false);
+    assert.equal("wopiSecret" in config, false);
+    assert.equal((await withEnv({ ...allUnset, ...identity }, () => documents())).status, 503);
+    withEnv({ ...allUnset, ...identity }, () => assert.throws(workspaceConfig, /workspace is not configured/));
+  });
+
+  it("keeps identity routes unavailable when any login requirement is missing", async () => {
+    let reached = false;
+    const handler = withWorkspaceRoute(async () => { reached = true; return new Response("login"); }, "identity");
+    for (const missing of Object.keys(identity)) {
+      const response = await withEnv({ ...allUnset, ...identity, [missing]: undefined }, () => handler());
+      assert.equal(response.status, 503);
+    }
+    assert.equal(reached, false);
+  });
 
   it("answers 503 {reason:'unconfigured'} instead of running the handler", async () => {
     let ran = false;
