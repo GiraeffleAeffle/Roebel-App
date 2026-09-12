@@ -101,7 +101,10 @@ export default function AdministrationWorkspace() {
     {origin && <TopicOverview origin={origin} view={view} />}
     {!originRequested && view && <TopicOverview origin={null} view={view} />}
     {message && <p role="status" className="rounded-xl border bg-slate-50 p-4">{message}</p>}
-    {login && <a className={button} href="/api/workspace/auth/login?returnTo=%2Fverwaltung">Mit bestehendem Konto anmelden</a>}
+    {login && <button type="button" className={button} onClick={() => {
+      // OIDC starts a document navigation; retain the original discussion on return.
+      window.location.assign(`/api/workspace/auth/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+    }}>Mit bestehendem Konto anmelden</button>}
     {view && <><section className="rounded-2xl border bg-white p-6"><p className="text-xs uppercase tracking-wide text-slate-500">Übernommener Fall · Stand {view.caseVersion}</p>
       <h2 className="mt-2 text-2xl font-semibold">{view.suggestion.title}</h2>{view.suggestion.summary && <p className="mt-3 text-slate-600">{view.suggestion.summary}</p>}
       <p className="mt-4 text-sm">{view.briefReadiness ? `${view.briefReadiness.acceptedDepartmentIds.length} ${view.briefReadiness.acceptedDepartmentIds.length === 1 ? "Fachbereich" : "Fachbereiche"} geprüft. ${view.briefReadiness.status === "citizen_brief_current" ? "Die Bürger-Kurzfassung liegt vor." : "Die Bürger-Kurzfassung ist noch nicht abgeschlossen."}` : "Hier siehst du die Arbeitspakete deiner zugewiesenen Rolle."}</p></section>
