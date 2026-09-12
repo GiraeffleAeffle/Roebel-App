@@ -31,7 +31,6 @@ const IDENTITY_REQUIRED = [
   "ROEBEL_ID_ISSUER",
   "WORKSPACE_CLIENT_ID",
   "WORKSPACE_CLIENT_SECRET",
-  "NEXT_PUBLIC_APP_ORIGIN",
 ] as const;
 
 const REQUIRED = [
@@ -43,12 +42,18 @@ const REQUIRED = [
   "COLLABORA_BASE_URL",
 ] as const;
 
+function identityAppOrigin(): string {
+  return process.env.WORKSPACE_APP_ORIGIN || process.env.NEXT_PUBLIC_APP_ORIGIN || "";
+}
+
 export function isWorkspaceIdentityEnabled(): boolean {
-  return IDENTITY_REQUIRED.every((name) => (process.env[name] ?? "").length > 0);
+  return IDENTITY_REQUIRED.every((name) => (process.env[name] ?? "").length > 0) &&
+    identityAppOrigin().length > 0;
 }
 
 export function isWorkspaceEnabled(): boolean {
-  return REQUIRED.every((name) => (process.env[name] ?? "").length > 0);
+  return isWorkspaceIdentityEnabled() &&
+    REQUIRED.every((name) => (process.env[name] ?? "").length > 0);
 }
 
 function requireVariables(names: readonly string[]): void {
@@ -61,13 +66,15 @@ function requireVariables(names: readonly string[]): void {
 /** Login and Case review need identity configuration, independently of Office. */
 export function workspaceIdentityConfig(): WorkspaceIdentityConfig {
   requireVariables(IDENTITY_REQUIRED);
+  const appOrigin = identityAppOrigin();
+  if (!appOrigin) throw new Error("workspace is not configured: missing WORKSPACE_APP_ORIGIN");
   return {
     issuer: process.env.ROEBEL_ID_ISSUER!,
     clientId: process.env.WORKSPACE_CLIENT_ID!,
     clientSecret: process.env.WORKSPACE_CLIENT_SECRET!,
-    appOrigin: process.env.NEXT_PUBLIC_APP_ORIGIN!,
+    appOrigin,
     allowedOrigins: allowedOrigins(
-      process.env.NEXT_PUBLIC_APP_ORIGIN!,
+      appOrigin,
       process.env.WORKSPACE_ALLOWED_ORIGINS,
     ),
   };

@@ -227,7 +227,7 @@ describe("withWorkspaceRoute — the config gate", () => {
     }
   }
 
-  const allUnset = Object.fromEntries(REQUIRED.map((k) => [k, undefined]));
+  const allUnset = Object.fromEntries([...REQUIRED, "WORKSPACE_APP_ORIGIN"].map((k) => [k, undefined]));
   const allSet = Object.fromEntries(REQUIRED.map((k) => [k, "x"]));
 
   const identity = {
@@ -236,6 +236,17 @@ describe("withWorkspaceRoute — the config gate", () => {
     WORKSPACE_CLIENT_SECRET: "synthetic-client-secret",
     NEXT_PUBLIC_APP_ORIGIN: "https://town.example.invalid",
   };
+
+  it("uses the runtime workspace origin before the public build-time fallback", () => {
+    withEnv({ ...allUnset, ...identity, WORKSPACE_APP_ORIGIN: "https://staging-town.example.invalid",
+      WORKSPACE_ALLOWED_ORIGINS: undefined }, () => {
+      const config = workspaceIdentityConfig();
+      assert.equal(config.appOrigin, "https://staging-town.example.invalid");
+      assert.deepEqual(config.allowedOrigins, [config.appOrigin]);
+      delete process.env.NEXT_PUBLIC_APP_ORIGIN;
+      assert.equal(workspaceIdentityConfig().appOrigin, config.appOrigin);
+    });
+  });
 
   it("allows identity and review routes without enabling document access", async () => {
     let config: ReturnType<typeof workspaceIdentityConfig> | undefined;

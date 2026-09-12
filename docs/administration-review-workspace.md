@@ -46,6 +46,9 @@ existing workspace OIDC login and opaque `roebel_ws` session. No new identity
 provider, session implementation, frontend deployment or desktop shell is added.
 
 The identity configuration gate requires the issuer, OIDC client and app origin.
+Use server-side `WORKSPACE_APP_ORIGIN` for a runtime deployment; the existing
+`NEXT_PUBLIC_APP_ORIGIN` remains a legacy fallback. The callback must be
+registered for the selected origin at the issuer.
 Login, session refresh and Case review use that configuration independently of
 Nextcloud and Collabora. Document routes keep their complete Office configuration
 gate. Verify
@@ -54,6 +57,21 @@ subject in the intended deployment before assigning a grant. An existing app
 wallet login alone is insufficient. Municipal employment/authority is not claimed.
 
 ## Deployment configuration
+
+Configure `WORKSPACE_SESSION_DATABASE_URL` and `WORKSPACE_SESSION_DATABASE_KEY`
+together for the server-owned `workspace_sessions` table. Talos staging requires
+these runtime values: its Web build intentionally substitutes an unusable
+`NEXT_PUBLIC_SUPABASE_URL`, so that compiled value cannot locate the session
+database. The key should grant only the required session-table operations;
+it never goes to the browser.
+
+The URL may be a Supabase HTTPS origin or the existing staging PostgREST origin
+`http://roebel-tracer-postgrest.stadtstack-roebel-staging-lab.svc.cluster.local:3000`.
+For the latter, the session store translates the SDK's `/rest/v1/workspace_sessions`
+path to `/workspace_sessions`. Requests stay on that one table and origin and
+never follow redirects. Other deployments retain their existing Supabase
+configuration when both dedicated values are absent. An incomplete pair fails
+without falling back to unrelated credentials.
 
 Set the server-only `ROEBEL_ADMIN_REVIEW_CONFIG_FILE` to a read-only private JSON
 file containing the following `ReviewGatewayConfig` fields:

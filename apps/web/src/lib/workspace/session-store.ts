@@ -9,6 +9,37 @@ export interface SessionStore {
 }
 
 function serviceClient() {
+  const url = process.env.WORKSPACE_SESSION_DATABASE_URL;
+  const key = process.env.WORKSPACE_SESSION_DATABASE_KEY;
+  if (url || key || process.env.ROEBEL_PUBLIC_DEPLOYMENT_PROFILE === "talos_staging_synthetic_workflow") {
+    if (!url || !key || key.length < 16 || /\s/u.test(key)) {
+      throw new Error("workspace_session_database_configuration_incomplete");
+    }
+    const target = new URL(url);
+    const direct = target.origin ===
+      "http://roebel-tracer-postgrest.stadtstack-roebel-staging-lab.svc.cluster.local:3000";
+    if ((!direct && target.protocol !== "https:") || target.username || target.password ||
+      target.pathname !== "/" || target.search || target.hash) {
+      throw new Error("workspace_session_database_url_invalid");
+    }
+    return createClient(target.origin, key, {
+      auth: { autoRefreshToken: false, detectSessionInUrl: false, persistSession: false },
+      global: {
+        fetch: async (input, init) => {
+          const request = new Request(input, init);
+          const destination = new URL(request.url);
+          if (destination.origin !== target.origin || destination.pathname !== "/rest/v1/workspace_sessions") {
+            throw new Error("workspace_session_database_request_invalid");
+          }
+          if (direct) destination.pathname = "/workspace_sessions";
+          // Session credentials never follow a database redirect to another host.
+          return globalThis.fetch(new Request(new Request(destination, request), { redirect: "error" }));
+        },
+      },
+    });
+  }
+  // Existing production configuration remains supported. Staging uses the
+  // dedicated runtime variables above instead of a compiled NEXT_PUBLIC value.
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
