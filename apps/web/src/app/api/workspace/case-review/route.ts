@@ -22,7 +22,7 @@ const handle = withWorkspaceRoute(async (request: Request) => {
   } catch {
     return Response.json({ error: "review_unavailable" }, { status: 503 });
   } finally { if (fd !== undefined) closeSync(fd); }
-});
+}, "identity");
 
 export async function GET(request: Request) {
   const response = await handle(request);

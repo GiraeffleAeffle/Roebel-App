@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { NextcloudError, ScopeViolationError } from "@netizen-labs/workspace";
 import { WorkspaceAuthError } from "./context";
-import { isWorkspaceEnabled } from "./config";
+import { isWorkspaceEnabled, isWorkspaceIdentityEnabled } from "./config";
 
 /**
  * The status every workspace route answers with while the deployment has no
@@ -44,28 +44,18 @@ export function readOnlyResponse(): Response {
 }
 
 /**
- * THE config gate for every route under /api/workspace. One place, not one
- * check per route — a route added later that forgets the check is the failure
- * mode this exists to remove, so wrapping the handler is the only way to
- * export one.
- *
- * Without it, the merge-day state (no workspace env vars set) played out like
- * this: no cookie -> requireWorkspace() throws WorkspaceAuthError("no-session")
- * -> 401 -> FileBrowser hard-navigates to /api/workspace/auth/login ->
- * workspaceConfig() throws, uncaught -> Next 500. Every visit to a page that
- * mounts FileBrowser, including /dashboard/arbeitsbereich, which worked before
- * this branch existed.
- *
- * The trailing catch is a second safety net: several routes (login, callback,
- * session, logout, the two WOPI handlers) had no try/catch of their own, so an
- * unexpected throw surfaced as a framework 500 with whatever the message
- * happened to be. `errorResponse` never forwards an error message.
+ * Document routes require the complete Office configuration by default.
+ * Login/session and Case review explicitly select identity configuration.
+ * Unconfigured routes return 503 before starting authentication or reaching
+ * upstream tools; unexpected errors still use the shared contained response.
  */
 export function withWorkspaceRoute<A extends unknown[]>(
   handler: (...args: A) => Promise<Response>,
+  requirement: "documents" | "identity" = "documents",
 ): (...args: A) => Promise<Response> {
   return async (...args: A): Promise<Response> => {
-    if (!isWorkspaceEnabled()) return unconfiguredResponse();
+    const enabled = requirement === "identity" ? isWorkspaceIdentityEnabled() : isWorkspaceEnabled();
+    if (!enabled) return unconfiguredResponse();
     try {
       return await handler(...args);
     } catch (error) {

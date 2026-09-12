@@ -45,8 +45,10 @@ organisation or wallet does not establish a municipal role. It reuses the
 existing workspace OIDC login and opaque `roebel_ws` session. No new identity
 provider, session implementation, frontend deployment or desktop shell is added.
 
-The existing workspace configuration gate still applies. It currently requires
-OIDC, Nextcloud and Collabora settings; this change does not decouple them. Verify
+The identity configuration gate requires the issuer, OIDC client and app origin.
+Login, session refresh and Case review use that configuration independently of
+Nextcloud and Collabora. Document routes keep their complete Office configuration
+gate. Verify
 the configured issuer, callback, durable session store and actual test-account
 subject in the intended deployment before assigning a grant. An existing app
 wallet login alone is insufficient. Municipal employment/authority is not claimed.
@@ -89,6 +91,14 @@ does not automatically replay a mutation. Every draft/review uses the displayed
 Case version and package/draft checksum.
 
 ## Verification and remaining acceptance
+
+On 2026-09-12 the identity/document configuration separation passed 86 focused
+route, session, origin and review-gateway tests using the locked Next 15.5.14
+runtime. The changed TypeScript files passed strict checking with TypeScript
+5.8.3. The regression proves identity-only configuration enables login/review
+while document handlers remain unavailable; missing identity settings still
+return 503. This is local source evidence. Deployed OIDC, role mapping and the
+full hosted Web build remain acceptance work.
 
 Run the dependency-free boundary tests with the repository's supported Node:
 
