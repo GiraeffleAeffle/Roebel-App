@@ -70,6 +70,7 @@ function writeLayout(root, sourceRevision, component, entrypoint, mutate, option
 }
 
 for (const service of [
+  { component: "roebel-id-staging", entrypoint: ["node", "/app/apps/roebel-id/dist/index.js"] },
   { component: "public-mecky", entrypoint: ["node", "/app/agent-watcher.cjs"] },
   { component: "roebel-e2e-workbench", entrypoint: ["node", "/app/e2e-workbench.cjs"] },
   { component: "roebel-staging-relay", entrypoint: ["node", "/app/staging-relay.cjs"] },
@@ -98,11 +99,11 @@ for (const service of [
   });
 }
 
-test("rejects a credential embedded in a service image", () => {
+for (const key of ["MECKY_INFERENCE_API_KEY", "JWKS_JSON", "COOKIE_KEYS", "WEB_CLIENT_SECRET", "STAGING_IDENTITY_DATABASE_KEY"]) test(`rejects embedded ${key} in a service image`, () => {
   const root = mkdtempSync(join(tmpdir(), "roebel-service-oci-negative-"));
   try {
     writeLayout(root, "a".repeat(40), "public-mecky", ["node", "/app/agent-watcher.cjs"], (config) => {
-      config.config.Env.push("MECKY_INFERENCE_API_KEY=must-not-be-in-image");
+      config.config.Env.push(`${key}=must-not-be-in-image`);
     });
     assert.throws(
       () => verifyStagingServiceOci(root, "a".repeat(40), "public-mecky"),
