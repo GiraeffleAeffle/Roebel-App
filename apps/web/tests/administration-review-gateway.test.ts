@@ -18,11 +18,56 @@ function setup(actorClass: "case_steward" | "department_reviewer" = "department_
     fetch: async (url, init) => { calls.push({ url: String(url), init: init! }); return upstream(); } });
   const request = (query = "?role=planning-reviewer", method = "GET", headers: Record<string, string> = {}, body?: string) => gateway(new Request(config.publicOrigin + "/api/workspace/case-review" + query,
     { method, headers, ...(body === undefined ? {} : { body }) }));
-  return { config, grant, view, calls, request, subject: (s: string | null) => { subject = s; }, time: (t: number) => { time = t; }, upstream: (f: typeof upstream) => { upstream = f; } };
+  return { config, grant, view, calls, request, gateway, subject: (s: string | null) => { subject = s; }, time: (t: number) => { time = t; }, upstream: (f: typeof upstream) => { upstream = f; } };
 }
 const command = JSON.stringify({ schemaVersion: "administration_review_request_v1", operation: "review", expectedCaseVersion: 5,
   payload: { review: { packageId: "package:planning", decision: "accepted" } } });
 const headers = { origin: "https://workspace.example", "content-type": "application/json", cookie: "roebel_ws=opaque-session" };
+
+test("ingress requests use the exact public Host while Next's URL names its bind address", async () => {
+  const h = setup();
+  const proxyHeaders = { host: "workspace.example", "x-forwarded-proto": "https" };
+  const url = "https://0.0.0.0:8080/api/workspace/case-review";
+  const roles = await h.gateway(new Request(url, { headers: proxyHeaders }));
+  assert.equal(roles.status, 200);
+  assert.equal((await roles.json()).roles[0].id, h.grant.id);
+  const view = await h.gateway(new Request(url + "?role=planning-reviewer", { headers: proxyHeaders }));
+  assert.equal(view.status, 200);
+  assert.deepEqual(await view.json(), h.view);
+  assert.equal(h.calls.length, 1);
+});
+
+test("forwarded host spoofing and nonpublic request origins cannot reach review", async () => {
+  for (const [url, extra] of [
+    ["https://0.0.0.0:8080", {}],
+    ["https://0.0.0.0:8080", { host: "elsewhere.example", "x-forwarded-host": "workspace.example", "x-forwarded-proto": "https" }],
+    ["https://0.0.0.0:8080", { host: "workspace.example.evil.example", "x-forwarded-proto": "https" }],
+    ["https://0.0.0.0:8080", { host: "workspace.example", "x-forwarded-proto": "http" }],
+    ["https://0.0.0.0:8080", { host: "workspace.example", "x-forwarded-proto": "https,http" }],
+    ["http://0.0.0.0:8080", { host: "workspace.example", "x-forwarded-proto": "https" }],
+    ["https://elsewhere.example", { host: "workspace.example", "x-forwarded-proto": "https" }],
+  ] as [string, Record<string, string>][]) {
+    const h = setup();
+    const response = await h.gateway(new Request(url + "/api/workspace/case-review?role=planning-reviewer", { headers: extra }));
+    assert.equal(response.status, 404);
+    assert.equal(h.calls.length, 0);
+  }
+});
+
+test("proxied review writes retain the browser-origin and credential checks", async () => {
+  const h = setup();
+  const url = "https://0.0.0.0:8080/api/workspace/case-review?role=planning-reviewer";
+  const proxyHeaders = { host: "workspace.example", "x-forwarded-proto": "https", ...headers };
+  h.upstream(() => Response.json({ schemaVersion: "synthetic_administration_review_receipt_v1", caseId, testOnly: true, authorityBinding: "none" }) as never);
+  const response = await h.gateway(new Request(url, { method: "POST", headers: proxyHeaders, body: command }));
+  assert.equal(response.status, 200);
+  assert.equal(h.calls[0].init.body, command);
+  for (const extra of [{ origin: "https://elsewhere.example" }, { origin: "" }, { "sec-fetch-site": "cross-site" }, { authorization: "Bearer browser-controlled" }] as Record<string, string>[]) {
+    const before = h.calls.length;
+    assert.equal((await h.gateway(new Request(url, { method: "POST", headers: { ...proxyHeaders, ...extra }, body: command }))).status, 403);
+    assert.equal(h.calls.length, before);
+  }
+});
 
 test("verified subject sees only assigned roles; backend receives only the server-owned credential", async () => {
   const h = setup(), roles = await (await h.request("")).json();

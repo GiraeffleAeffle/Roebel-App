@@ -24,6 +24,17 @@ function origin(raw: string, upstream = false): string {
     !(url.protocol === "https:" || (upstream && internal && url.protocol === "http:"))) throw Error();
   return url.origin;
 }
+function matchesPublicOrigin(request: Request, url: URL, publicOrigin: string): boolean {
+  if (url.origin === publicOrigin) return true;
+  // Next's standalone server builds request.url from its bind address.
+  // Behind ingress, require the exact configured Host and HTTPS protocol;
+  // forwarded-host headers never select or expand the public origin.
+  const expected = new URL(publicOrigin);
+  return ["0.0.0.0", "127.0.0.1", "[::1]", "localhost"].includes(url.hostname) &&
+    url.protocol === expected.protocol &&
+    request.headers.get("host") === expected.host &&
+    request.headers.get("x-forwarded-proto") === expected.protocol.slice(0, -1);
+}
 async function boundedText(response: Request | Response, limit: number): Promise<string> {
   if (!response.body) return "";
   const reader = response.body.getReader(); const parts: Uint8Array[] = []; let total = 0;
@@ -79,7 +90,7 @@ export function createReviewGateway(config: ReviewGatewayConfig, dependencies: {
       const session = await dependencies.authenticate();
       if (!session?.sub) return error(401, "authentication_required");
       const url = new URL(request.url);
-      if (url.origin !== settings.publicOrigin || url.pathname !== ENDPOINT) return error(404, "not_found");
+      if (!matchesPublicOrigin(request, url, settings.publicOrigin) || url.pathname !== ENDPOINT) return error(404, "not_found");
       if (!["GET", "POST"].includes(request.method)) return error(405, "method_not_allowed");
       if (request.headers.has("authorization") || request.headers.get("sec-fetch-site") === "cross-site" ||
         (request.headers.has("origin") && request.headers.get("origin") !== settings.publicOrigin) ||
