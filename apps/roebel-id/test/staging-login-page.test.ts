@@ -21,8 +21,10 @@ function browser(reply = new Response(JSON.stringify({ redirectTo: `${origin}/au
   })
   const fetcher = vi.fn().mockResolvedValueOnce(new Response('abcdef1234567890')).mockResolvedValueOnce(reply)
   const html = renderStagingLoginPage('test')
-  const script = html.split('<script type="module">')[1].split('</script>')[0].replace(/import .* from '[^']+'/g, '')
-  runInNewContext(script, { SiweMessage, URL, TextEncoder, Error, location,
+  // Execute the complete delivered script with browser globals only. Login
+  // must initialize without loading a CDN or injecting a SIWE implementation.
+  const script = html.split('<script>')[1].split('</script>')[0]
+  runInNewContext(script, { URL, TextEncoder, Error, location,
     document: { getElementById: (id: string) => id === 'login' ? button : status },
     window: { ethereum: { request } }, fetch: fetcher,
   })
@@ -37,6 +39,7 @@ describe('independent staging wallet login', () => {
     const submitted = JSON.parse(page.fetcher.mock.calls[1][1].body)
     const siwe = new SiweMessage(submitted.message)
     expect(siwe).toMatchObject({ domain: new URL(origin).host, uri: origin, chainId: 100, nonce: 'abcdef1234567890' })
+    expect(new Date(siwe.expirationTime!).getTime() - new Date(siwe.issuedAt!).getTime()).toBe(120000)
     expect(await verifyMessage({ address: account.address, ...submitted })).toBe(true)
     expect(page.location.href).toBe(`${origin}/auth/resume`)
   })
@@ -60,5 +63,14 @@ describe('independent staging wallet login', () => {
     expect(page.status.textContent).toContain('abgebrochen')
     expect(page.fetcher).not.toHaveBeenCalled()
     expect(page.button.disabled).toBe(false)
+  })
+
+  it('rejects a malformed challenge before asking the wallet to sign', async () => {
+    const page = browser()
+    page.fetcher.mockReset().mockResolvedValue(new Response('bad\\nchallenge'))
+    await page.button.onclick!()
+    expect(page.request.mock.calls.map(([input]) => input.method)).toEqual(['eth_requestAccounts'])
+    expect(page.button.disabled).toBe(false)
+    expect(page.status.textContent).toContain('Ungültige Anmeldeanfrage')
   })
 })
