@@ -17,8 +17,7 @@ export function renderStagingLoginPage(uid: string): string {
 <button id="login" type="button">Wallet verbinden und anmelden</button>
 <p id="status" role="status" aria-live="polite"></p>
 <small>Keine Transaktion, keine Gebühren. Der Testzugang bestätigt weder Wohnsitz noch ein kommunales Amt. Ein separates Testkonto übernimmt keine bestehende Röbel-Identität.</small>
-</main><script type="module">
-  import { SiweMessage } from 'https://esm.sh/siwe@3.0.0'
+</main><script>
   const button = document.getElementById('login')
   const status = document.getElementById('status')
   button.onclick = async () => {
@@ -31,10 +30,15 @@ export function renderStagingLoginPage(uid: string): string {
       if (typeof address !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(address)) throw new Error('Keine Wallet ausgewählt.')
       const nonceResponse = await fetch('/interaction/${uid}/nonce', { credentials: 'same-origin' })
       if (!nonceResponse.ok) throw new Error('Anmeldung ist nicht erreichbar. Bitte erneut versuchen.')
-      const message = new SiweMessage({ domain: location.host, address, uri: location.origin,
-        version: '1', chainId: 100, nonce: await nonceResponse.text(),
-        statement: 'Anmeldung im Roebel Testbetrieb',
-        expirationTime: new Date(Date.now() + 120000).toISOString() }).prepareMessage()
+      const nonce = await nonceResponse.text()
+      if (!/^[A-Za-z0-9]{8,}$/.test(nonce)) throw new Error('Ungültige Anmeldeanfrage. Bitte starte die Anmeldung neu.')
+      // This one fixed SIWE message needs no browser CDN dependency. The
+      // server still parses and verifies it using the pinned SIWE library.
+      const issuedAt = new Date()
+      const message = [location.host + ' wants you to sign in with your Ethereum account:', address, '',
+        'Anmeldung im Roebel Testbetrieb', '', 'URI: ' + location.origin, 'Version: 1', 'Chain ID: 100',
+        'Nonce: ' + nonce, 'Issued At: ' + issuedAt.toISOString(),
+        'Expiration Time: ' + new Date(issuedAt.getTime() + 120000).toISOString()].join('\\n')
       const encoded = '0x' + Array.from(new TextEncoder().encode(message), b => b.toString(16).padStart(2, '0')).join('')
       status.textContent = 'Bitte bestätige die Signatur in deiner Wallet.'
       const signature = await window.ethereum.request({ method: 'personal_sign', params: [encoded, address] })
