@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createServer } from "node:http";
+import { once } from "node:events";
 import { createReviewGateway, type ReviewGatewayConfig } from "../src/lib/administration-review/gateway.ts";
+import { fetchReviewWithPinnedHost } from "../src/lib/administration-review/transport.ts";
 
 const caseId = "urn:stadtstack:synthetic-case:municipality:example-city:00000000-0000-4000-8000-000000000001";
-function setup(actorClass: "case_steward" | "department_reviewer" = "department_reviewer") {
+function setup(actorClass: "case_steward" | "department_reviewer" = "department_reviewer", upstreamOrigin = "https://review.example") {
   const grant = { id: "planning-reviewer", label: "Stadtplanung · Prüfung", subject: "test-subject", actorId: "example:reviewer",
     actorClass, token: Buffer.alloc(32, 1).toString("base64url"), notBefore: 100, expiresAt: 1000 };
-  const config: ReviewGatewayConfig = { environment: "staging", publicOrigin: "https://workspace.example", upstreamOrigin: "https://review.example", caseId,
+  const config: ReviewGatewayConfig = { environment: "staging", publicOrigin: "https://workspace.example", upstreamOrigin, caseId,
     assignmentTargets: [{ departmentId: "planning", label: "Stadtplanung", assignedAgentActorId: "example:agent", assignedReviewerActorId: "example:reviewer" }],
     grants: [grant, { ...grant, id: "other-department", subject: "another-subject", actorId: "other:reviewer", token: Buffer.alloc(32, 2).toString("base64url") }] };
   let subject: string | null = "test-subject", time = 200;
@@ -18,11 +21,83 @@ function setup(actorClass: "case_steward" | "department_reviewer" = "department_
     fetch: async (url, init) => { calls.push({ url: String(url), init: init! }); return upstream(); } });
   const request = (query = "?role=planning-reviewer", method = "GET", headers: Record<string, string> = {}, body?: string) => gateway(new Request(config.publicOrigin + "/api/workspace/case-review" + query,
     { method, headers, ...(body === undefined ? {} : { body }) }));
-  return { config, grant, view, calls, request, subject: (s: string | null) => { subject = s; }, time: (t: number) => { time = t; }, upstream: (f: typeof upstream) => { upstream = f; } };
+  return { config, grant, view, calls, request, gateway, subject: (s: string | null) => { subject = s; }, time: (t: number) => { time = t; }, upstream: (f: typeof upstream) => { upstream = f; } };
 }
 const command = JSON.stringify({ schemaVersion: "administration_review_request_v1", operation: "review", expectedCaseVersion: 5,
   payload: { review: { packageId: "package:planning", decision: "accepted" } } });
 const headers = { origin: "https://workspace.example", "content-type": "application/json", cookie: "roebel_ws=opaque-session" };
+
+test("the real HTTP transport preserves the private Host and exact UTF-8 framing", async (t) => {
+  const server = createServer(async (request, response) => {
+    let body = "";
+    for await (const chunk of request) body += String(chunk);
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ host: request.headers.host, length: request.headers["content-length"] ?? null, body }));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const port = (server.address() as { port: number }).port;
+  const url = `http://127.0.0.1:${port}/v1/staging/administration/review`;
+  const get = await fetchReviewWithPinnedHost(url, { method: "GET", headers: { host: "127.0.0.1" } });
+  assert.deepEqual(await get.json(), { host: "127.0.0.1", length: null, body: "" });
+  const body = JSON.stringify({ request: "Straße prüfen" });
+  const post = await fetchReviewWithPinnedHost(url, { method: "POST", headers: { host: "127.0.0.1", "content-type": "application/json" }, body });
+  assert.deepEqual(await post.json(), { host: "127.0.0.1", length: String(Buffer.byteLength(body)), body });
+});
+
+test("the admitted internal listener receives its pinned Host without browser credentials", async () => {
+  const upstream = "http://roebel-case-steward-control.stadtstack-roebel-staging-lab.svc.cluster.local:18090";
+  const h = setup(undefined, upstream);
+  assert.equal((await h.request(undefined, "GET", headers)).status, 200);
+  assert.equal(h.calls[0].url, upstream + "/v1/staging/administration/review");
+  assert.deepEqual(h.calls[0].init.headers, { authorization: `Bearer ${h.grant.token}`, accept: "application/json", host: "127.0.0.1" });
+});
+
+test("ingress requests use the exact public Host while Next's URL names its bind address", async () => {
+  const h = setup();
+  const proxyHeaders = { host: "workspace.example", "x-forwarded-proto": "https" };
+  const url = "https://0.0.0.0:8080/api/workspace/case-review";
+  const roles = await h.gateway(new Request(url, { headers: proxyHeaders }));
+  assert.equal(roles.status, 200);
+  assert.equal((await roles.json()).roles[0].id, h.grant.id);
+  const view = await h.gateway(new Request(url + "?role=planning-reviewer", { headers: proxyHeaders }));
+  assert.equal(view.status, 200);
+  assert.deepEqual(await view.json(), h.view);
+  assert.equal(h.calls.length, 1);
+});
+
+test("forwarded host spoofing and nonpublic request origins cannot reach review", async () => {
+  for (const [url, extra] of [
+    ["https://0.0.0.0:8080", {}],
+    ["https://0.0.0.0:8080", { host: "elsewhere.example", "x-forwarded-host": "workspace.example", "x-forwarded-proto": "https" }],
+    ["https://0.0.0.0:8080", { host: "workspace.example.evil.example", "x-forwarded-proto": "https" }],
+    ["https://0.0.0.0:8080", { host: "workspace.example", "x-forwarded-proto": "http" }],
+    ["https://0.0.0.0:8080", { host: "workspace.example", "x-forwarded-proto": "https,http" }],
+    ["http://0.0.0.0:8080", { host: "workspace.example", "x-forwarded-proto": "https" }],
+    ["https://elsewhere.example", { host: "workspace.example", "x-forwarded-proto": "https" }],
+  ] as [string, Record<string, string>][]) {
+    const h = setup();
+    const response = await h.gateway(new Request(url + "/api/workspace/case-review?role=planning-reviewer", { headers: extra }));
+    assert.equal(response.status, 404);
+    assert.equal(h.calls.length, 0);
+  }
+});
+
+test("proxied review writes retain the browser-origin and credential checks", async () => {
+  const h = setup();
+  const url = "https://0.0.0.0:8080/api/workspace/case-review?role=planning-reviewer";
+  const proxyHeaders = { host: "workspace.example", "x-forwarded-proto": "https", ...headers };
+  h.upstream(() => Response.json({ schemaVersion: "synthetic_administration_review_receipt_v1", caseId, testOnly: true, authorityBinding: "none" }) as never);
+  const response = await h.gateway(new Request(url, { method: "POST", headers: proxyHeaders, body: command }));
+  assert.equal(response.status, 200);
+  assert.equal(h.calls[0].init.body, command);
+  for (const extra of [{ origin: "https://elsewhere.example" }, { origin: "" }, { "sec-fetch-site": "cross-site" }, { authorization: "Bearer browser-controlled" }] as Record<string, string>[]) {
+    const before = h.calls.length;
+    assert.equal((await h.gateway(new Request(url, { method: "POST", headers: { ...proxyHeaders, ...extra }, body: command }))).status, 403);
+    assert.equal(h.calls.length, before);
+  }
+});
 
 test("verified subject sees only assigned roles; backend receives only the server-owned credential", async () => {
   const h = setup(), roles = await (await h.request("")).json();

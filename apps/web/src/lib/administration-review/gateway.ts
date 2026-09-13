@@ -1,6 +1,7 @@
 /** Browser session → explicit server-owned staging role → private Case service.
  * No app, wallet or organisation membership implicitly grants municipal roles.
  */
+import { fetchReviewWithPinnedHost } from "./transport";
 export type ReviewGrant = {
   id: string; label: string; subject: string; actorId: string;
   actorClass: "case_steward" | "administration" | "department_agent" | "department_reviewer";
@@ -14,15 +15,27 @@ export type ReviewGatewayConfig = {
 const CASE = /^urn:stadtstack:synthetic-case:municipality:[a-z0-9-]+:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const ENDPOINT = "/api/workspace/case-review";
 const UPSTREAM = "/v1/staging/administration/review";
+const INTERNAL_UPSTREAM = "http://roebel-case-steward-control.stadtstack-roebel-staging-lab.svc.cluster.local:18090";
 const HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" };
 const reply = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: HEADERS });
 const error = (status: number, code: string) => reply(status, { error: code });
 function origin(raw: string, upstream = false): string {
   const url = new URL(raw);
-  const internal = url.hostname === "roebel-case-steward-control.stadtstack-roebel-staging-lab.svc.cluster.local" && url.port === "18090";
+  const internal = url.origin === INTERNAL_UPSTREAM;
   if (url.origin !== raw || url.username || url.password ||
     !(url.protocol === "https:" || (upstream && internal && url.protocol === "http:"))) throw Error();
   return url.origin;
+}
+function matchesPublicOrigin(request: Request, url: URL, publicOrigin: string): boolean {
+  if (url.origin === publicOrigin) return true;
+  // Next's standalone server builds request.url from its bind address.
+  // Behind ingress, require the exact configured Host and HTTPS protocol;
+  // forwarded-host headers never select or expand the public origin.
+  const expected = new URL(publicOrigin);
+  return ["0.0.0.0", "127.0.0.1", "[::1]", "localhost"].includes(url.hostname) &&
+    url.protocol === expected.protocol &&
+    request.headers.get("host") === expected.host &&
+    request.headers.get("x-forwarded-proto") === expected.protocol.slice(0, -1);
 }
 async function boundedText(response: Request | Response, limit: number): Promise<string> {
   if (!response.body) return "";
@@ -73,13 +86,14 @@ export function createReviewGateway(config: ReviewGatewayConfig, dependencies: {
       departmentIds.add(target.departmentId);
     }
   } catch { throw new Error("review_gateway_configuration_invalid"); }
-  const fetcher = dependencies.fetch ?? fetch, now = dependencies.now ?? Date.now;
+  const fetcher = dependencies.fetch ?? (settings.upstreamOrigin === INTERNAL_UPSTREAM ? fetchReviewWithPinnedHost : fetch);
+  const now = dependencies.now ?? Date.now;
   return async (request: Request): Promise<Response> => {
     try {
       const session = await dependencies.authenticate();
       if (!session?.sub) return error(401, "authentication_required");
       const url = new URL(request.url);
-      if (url.origin !== settings.publicOrigin || url.pathname !== ENDPOINT) return error(404, "not_found");
+      if (!matchesPublicOrigin(request, url, settings.publicOrigin) || url.pathname !== ENDPOINT) return error(404, "not_found");
       if (!["GET", "POST"].includes(request.method)) return error(405, "method_not_allowed");
       if (request.headers.has("authorization") || request.headers.get("sec-fetch-site") === "cross-site" ||
         (request.headers.has("origin") && request.headers.get("origin") !== settings.publicOrigin) ||
@@ -112,7 +126,11 @@ export function createReviewGateway(config: ReviewGatewayConfig, dependencies: {
         }
       }
       const upstream = await fetcher(settings.upstreamOrigin + UPSTREAM, { method: request.method,
-        headers: { authorization: `Bearer ${grant.token}`, accept: "application/json", ...(body === undefined ? {} : { "content-type": "application/json" }) },
+        headers: { authorization: `Bearer ${grant.token}`, accept: "application/json",
+          // The admitted private listener pins this virtual Host independently
+          // of Service discovery. Never forward a browser-controlled Host.
+          ...(settings.upstreamOrigin === INTERNAL_UPSTREAM ? { host: "127.0.0.1" } : {}),
+          ...(body === undefined ? {} : { "content-type": "application/json" }) },
         body, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(10_000) });
       if (!upstream.ok) {
         // Never forward upstream error bodies, headers, credentials or redirects.
