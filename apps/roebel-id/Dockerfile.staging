@@ -1,0 +1,46 @@
+FROM --platform=linux/amd64 docker.io/library/node@sha256:a17d50af28002a160548bd4225b3cfcb12c5efcb171f79e68758f2885fb1b066 AS builder
+ARG SOURCE_REVISION
+ARG SOURCE_DATE_EPOCH
+RUN test "${#SOURCE_REVISION}" -eq 40 \
+    && case "${SOURCE_REVISION}" in *[!0-9a-f]*) exit 1;; esac \
+    && test -n "${SOURCE_DATE_EPOCH}" \
+    && case "${SOURCE_DATE_EPOCH}" in *[!0-9]*) exit 1;; esac
+ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
+WORKDIR /workspace
+RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
+    corepack enable && corepack prepare pnpm@9.15.0 --activate
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY apps/roebel-id/package.json ./apps/roebel-id/package.json
+COPY apps/roebel-id/tsconfig.json ./apps/roebel-id/tsconfig.json
+COPY apps/roebel-id/src ./apps/roebel-id/src
+RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
+    --mount=type=bind,from=pnpm-store,source=.,target=/pnpm/store,ro \
+    pnpm --filter @roebel/roebel-id... install --frozen-lockfile --offline --ignore-scripts \
+    && pnpm --filter @roebel/roebel-id build
+
+FROM --platform=linux/amd64 docker.io/library/node@sha256:a17d50af28002a160548bd4225b3cfcb12c5efcb171f79e68758f2885fb1b066 AS production-deps
+ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
+WORKDIR /workspace
+RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
+    corepack enable && corepack prepare pnpm@9.15.0 --activate
+COPY --from=dependency-manifests / /workspace/
+RUN --mount=type=bind,from=corepack-cache,source=.,target=/root/.cache/node/corepack,ro \
+    --mount=type=bind,from=pnpm-store,source=.,target=/pnpm/store,ro \
+    pnpm --filter @roebel/roebel-id... install --prod --frozen-lockfile --offline --ignore-scripts
+
+FROM --platform=linux/amd64 docker.io/library/node@sha256:a17d50af28002a160548bd4225b3cfcb12c5efcb171f79e68758f2885fb1b066 AS runtime
+ARG SOURCE_REVISION
+LABEL org.opencontainers.image.source="https://github.com/GiraeffleAeffle/Roebel-App" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      stadtstack.io/component="roebel-id-staging" \
+      stadtstack.io/environment="isolated-staging-e2e" \
+      stadtstack.io/civic-authority="none"
+ENV NODE_ENV=production ROEBEL_ID_DEPLOYMENT_PROFILE=staging-synthetic HOME=/tmp
+WORKDIR /app
+COPY --from=production-deps --chown=65532:65532 /workspace/node_modules /app/node_modules
+COPY --from=production-deps --chown=65532:65532 /workspace/apps/roebel-id /app/apps/roebel-id
+COPY --from=builder --chown=65532:65532 /workspace/apps/roebel-id/dist /app/apps/roebel-id/dist
+USER 65532:65532
+EXPOSE 3010
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["node", "/app/apps/roebel-id/dist/index.js"]

@@ -11,12 +11,14 @@ import type { NetizenClaims } from './claims/types.js'
 import { makeSupabaseAdapterFactory } from './store/supabase-adapter.js'
 import { buildProvider } from './oidc/provider.js'
 import { createInteractionRouter } from './interaction/router.js'
+import type { renderLoginPage } from './interaction/login-page.js'
 import { createApp } from './app.js'
 
 export interface WireOverrides {
   bridge?: AuthBridge
   resolveClaims?: (address: string) => Promise<NetizenClaims>
   adapterFactory?: (name: string) => Adapter
+  loginPage?: typeof renderLoginPage
 }
 
 // Composition root: config -> verifier -> bridge -> readers -> resolver -> adapter -> provider -> app.
@@ -43,6 +45,7 @@ export function wireApp(config: Config = loadConfig(), overrides: WireOverrides 
     thirdwebClientId: config.thirdwebClientId,
     chainId: config.chainId,
     relyingParties: config.relyingParties,
+    loginPage: overrides.loginPage,
   })
 
   // Interaction routes must be mounted before provider.callback() so panva's catch-all OIDC

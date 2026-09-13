@@ -308,5 +308,46 @@ never shows `id.roebel.app`.
 ## Architecture
 
 - **Auth flow:** Nextcloud → OIDC authorize → Gnosis contract check (CitizenNFTv2) → sign & return ID token
-- **Sessions:** In-memory; keys signed with JWK from `JWKS_JSON`
+- **Sessions:** OIDC state in the configured Supabase adapter; pending SIWE nonces are in memory. Signing keys come from `JWKS_JSON`.
 - **Smart contract gates:** `CITIZEN_NFT_ADDRESS` (join gate), `ATTESTER_NFT_ADDRESS` (role checks)
+
+## Independent synthetic staging instance
+
+`ROEBEL_ID_DEPLOYMENT_PROFILE=staging-synthetic` selects the isolated configuration
+in [`.env.staging.example`](.env.staging.example). It pins the issuer to
+`https://roebel-id.staging.agentcart.eu`, registers only
+`roebel-town-workspace-staging`, and accepts exactly the Web staging callback.
+The normal production configuration remains the default when no profile is set.
+
+This profile uses browser-wallet signatures and an explicit allowlist of at most
+eight test wallets. It needs no Thirdweb project, production profile database,
+production client secret or NFT deployment. The wallet proof uses the existing
+SIWE nonce and Gnosis verifier. It issues a wallet subject, empty groups and false
+citizen/attester claims. A separate test wallet does not become the existing app
+account; municipal review still needs a verified callback subject and explicit,
+unexpired synthetic role grants. Reusing the existing email/Google-backed wallet
+later requires verifying that project's integration settings and identity
+continuity. No account migration is performed here.
+
+Create independent persistent RSA signing keys, two distinct random cookie keys
+and a separate random workspace client secret. Keep all of them in private runtime
+Secrets. The server-held `STAGING_IDENTITY_DATABASE_KEY` is a restricted PostgREST
+JWT for `roebel_staging_identity`, with `iss=roebel-id-staging`,
+`aud=roebel-id-state-store` and a bounded expiry. It accesses only the staging
+`oidc_payloads` table. The additive table/RLS migration and its rollback rehearsal
+belong to the staging-operations repository's `proposals/town-workspace-connection`;
+the production migration does not grant the required staging role.
+
+Run one issuer replica while the nonce store is process-local. Restarting the
+issuer discards pending wallet challenges; users retry login. OAuth state and
+signing keys must survive restarts. Runtime readiness requires a real browser
+login, verified callback, code-replay rejection and session logout; passing unit
+tests alone does not establish a live connection.
+
+[`Dockerfile.staging`](Dockerfile.staging) builds only this package with the pinned
+repository lockfile and Node base. It runs as a non-root user and copies only
+production dependencies and compiled server code. The manual
+`roebel-id-staging-publish.yml` workflow publishes one source-bound image with
+provenance and SBOM through the existing staging publisher environment. It has no
+cluster access and does not activate a deployment. Live DNS/TLS, network policy,
+private credentials and the exact admitted image belong to Operations.

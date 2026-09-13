@@ -12,6 +12,7 @@ const FALLBACK_BRANDING: BrandingConfig = { preset: 'roebel' }
 
 export function createInteractionRouter(deps: {
   provider: Provider; bridge: AuthBridge; thirdwebClientId: string; chainId: number; relyingParties: RelyingPartyConfig[]
+  loginPage?: typeof renderLoginPage
 }): express.Router {
   const router = express.Router()
   const { provider, bridge, relyingParties } = deps
@@ -26,7 +27,7 @@ export function createInteractionRouter(deps: {
       // Röbel copy/colors. Resolved by client_id since that's all the pending interaction
       // carries at this point — no session/account yet.
       const branding = brandingByClientId.get(String(details.params.client_id)) ?? FALLBACK_BRANDING
-      res.set('cache-control', 'no-store').send(renderLoginPage(details.uid, deps.thirdwebClientId, deps.chainId, branding))
+      res.set('cache-control', 'no-store').send((deps.loginPage ?? renderLoginPage)(details.uid, deps.thirdwebClientId, deps.chainId, branding))
     } catch (e) { next(e) }
   })
 
