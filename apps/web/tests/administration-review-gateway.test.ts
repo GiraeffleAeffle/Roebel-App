@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createServer } from "node:http";
+import { once } from "node:events";
 import { createReviewGateway, type ReviewGatewayConfig } from "../src/lib/administration-review/gateway.ts";
+import { fetchReviewWithPinnedHost } from "../src/lib/administration-review/transport.ts";
 
 const caseId = "urn:stadtstack:synthetic-case:municipality:example-city:00000000-0000-4000-8000-000000000001";
-function setup(actorClass: "case_steward" | "department_reviewer" = "department_reviewer") {
+function setup(actorClass: "case_steward" | "department_reviewer" = "department_reviewer", upstreamOrigin = "https://review.example") {
   const grant = { id: "planning-reviewer", label: "Stadtplanung · Prüfung", subject: "test-subject", actorId: "example:reviewer",
     actorClass, token: Buffer.alloc(32, 1).toString("base64url"), notBefore: 100, expiresAt: 1000 };
-  const config: ReviewGatewayConfig = { environment: "staging", publicOrigin: "https://workspace.example", upstreamOrigin: "https://review.example", caseId,
+  const config: ReviewGatewayConfig = { environment: "staging", publicOrigin: "https://workspace.example", upstreamOrigin, caseId,
     assignmentTargets: [{ departmentId: "planning", label: "Stadtplanung", assignedAgentActorId: "example:agent", assignedReviewerActorId: "example:reviewer" }],
     grants: [grant, { ...grant, id: "other-department", subject: "another-subject", actorId: "other:reviewer", token: Buffer.alloc(32, 2).toString("base64url") }] };
   let subject: string | null = "test-subject", time = 200;
@@ -23,6 +26,33 @@ function setup(actorClass: "case_steward" | "department_reviewer" = "department_
 const command = JSON.stringify({ schemaVersion: "administration_review_request_v1", operation: "review", expectedCaseVersion: 5,
   payload: { review: { packageId: "package:planning", decision: "accepted" } } });
 const headers = { origin: "https://workspace.example", "content-type": "application/json", cookie: "roebel_ws=opaque-session" };
+
+test("the real HTTP transport preserves the private Host and exact UTF-8 framing", async (t) => {
+  const server = createServer(async (request, response) => {
+    let body = "";
+    for await (const chunk of request) body += String(chunk);
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ host: request.headers.host, length: request.headers["content-length"] ?? null, body }));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const port = (server.address() as { port: number }).port;
+  const url = `http://127.0.0.1:${port}/v1/staging/administration/review`;
+  const get = await fetchReviewWithPinnedHost(url, { method: "GET", headers: { host: "127.0.0.1" } });
+  assert.deepEqual(await get.json(), { host: "127.0.0.1", length: null, body: "" });
+  const body = JSON.stringify({ request: "Straße prüfen" });
+  const post = await fetchReviewWithPinnedHost(url, { method: "POST", headers: { host: "127.0.0.1", "content-type": "application/json" }, body });
+  assert.deepEqual(await post.json(), { host: "127.0.0.1", length: String(Buffer.byteLength(body)), body });
+});
+
+test("the admitted internal listener receives its pinned Host without browser credentials", async () => {
+  const upstream = "http://roebel-case-steward-control.stadtstack-roebel-staging-lab.svc.cluster.local:18090";
+  const h = setup(undefined, upstream);
+  assert.equal((await h.request(undefined, "GET", headers)).status, 200);
+  assert.equal(h.calls[0].url, upstream + "/v1/staging/administration/review");
+  assert.deepEqual(h.calls[0].init.headers, { authorization: `Bearer ${h.grant.token}`, accept: "application/json", host: "127.0.0.1" });
+});
 
 test("ingress requests use the exact public Host while Next's URL names its bind address", async () => {
   const h = setup();

@@ -1,6 +1,7 @@
 /** Browser session → explicit server-owned staging role → private Case service.
  * No app, wallet or organisation membership implicitly grants municipal roles.
  */
+import { fetchReviewWithPinnedHost } from "./transport";
 export type ReviewGrant = {
   id: string; label: string; subject: string; actorId: string;
   actorClass: "case_steward" | "administration" | "department_agent" | "department_reviewer";
@@ -14,12 +15,13 @@ export type ReviewGatewayConfig = {
 const CASE = /^urn:stadtstack:synthetic-case:municipality:[a-z0-9-]+:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const ENDPOINT = "/api/workspace/case-review";
 const UPSTREAM = "/v1/staging/administration/review";
+const INTERNAL_UPSTREAM = "http://roebel-case-steward-control.stadtstack-roebel-staging-lab.svc.cluster.local:18090";
 const HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" };
 const reply = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: HEADERS });
 const error = (status: number, code: string) => reply(status, { error: code });
 function origin(raw: string, upstream = false): string {
   const url = new URL(raw);
-  const internal = url.hostname === "roebel-case-steward-control.stadtstack-roebel-staging-lab.svc.cluster.local" && url.port === "18090";
+  const internal = url.origin === INTERNAL_UPSTREAM;
   if (url.origin !== raw || url.username || url.password ||
     !(url.protocol === "https:" || (upstream && internal && url.protocol === "http:"))) throw Error();
   return url.origin;
@@ -84,7 +86,8 @@ export function createReviewGateway(config: ReviewGatewayConfig, dependencies: {
       departmentIds.add(target.departmentId);
     }
   } catch { throw new Error("review_gateway_configuration_invalid"); }
-  const fetcher = dependencies.fetch ?? fetch, now = dependencies.now ?? Date.now;
+  const fetcher = dependencies.fetch ?? (settings.upstreamOrigin === INTERNAL_UPSTREAM ? fetchReviewWithPinnedHost : fetch);
+  const now = dependencies.now ?? Date.now;
   return async (request: Request): Promise<Response> => {
     try {
       const session = await dependencies.authenticate();
@@ -123,7 +126,11 @@ export function createReviewGateway(config: ReviewGatewayConfig, dependencies: {
         }
       }
       const upstream = await fetcher(settings.upstreamOrigin + UPSTREAM, { method: request.method,
-        headers: { authorization: `Bearer ${grant.token}`, accept: "application/json", ...(body === undefined ? {} : { "content-type": "application/json" }) },
+        headers: { authorization: `Bearer ${grant.token}`, accept: "application/json",
+          // The admitted private listener pins this virtual Host independently
+          // of Service discovery. Never forward a browser-controlled Host.
+          ...(settings.upstreamOrigin === INTERNAL_UPSTREAM ? { host: "127.0.0.1" } : {}),
+          ...(body === undefined ? {} : { "content-type": "application/json" }) },
         body, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(10_000) });
       if (!upstream.ok) {
         // Never forward upstream error bodies, headers, credentials or redirects.
