@@ -9,3 +9,6 @@ export * from "./syntheticLifecycleReceipt";
 export * from "./syntheticLifecycleReceiptContracts";
 export * from "./topicContext";
 export * from "./topicContextContracts";
+
+export { verifySyntheticCitizenBrief, readSyntheticBriefResponse, syntheticBriefPath } from "./syntheticCitizenBrief";
+export type { SyntheticCitizenBriefReturn, SyntheticCitizenBriefBinding } from "./syntheticCitizenBrief";

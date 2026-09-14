@@ -29,6 +29,7 @@ tracer, not a protocol default.
 | **Case binding receipt** | The public-safe, append-only proof that one exact signed candidate and source discussion were admitted as one exact Civic Case version. | A mutation of the signed Nostr root, the private admission command, or permission to advance later stages. |
 | **Administrative feedback** | Human-reviewed department packages attached to the civic case. | Mecky output. |
 | **Public administration progress** | The redacted journey view of accepted, current department responses and any current Citizen Brief. An absent response means only that no publicly reviewed answer is available. | A private work queue, a rejected response, or an inferred review status. |
+| **Synthetic Citizen Brief return** | The separately typed, checksum-verified return of a confirmed test Brief to its original topic, discussion and Mecky evidence reader. | A municipal publication, actual department finding, or participation right. |
 | **Citizen Brief** | The public, source-bound explanation of reviewed options and constraints. | A press release or binding decision. |
 | **Mitmachen readiness** | The public state in which a current reviewed Citizen Brief is visible in Mitmachen but no advisory participation round or result exists yet. | An open poll, an accepted input, a tally, or a formal vote. |
 | **Mitmachen opinion signal** | A separate advisory participation round over reviewed options. | A formal municipal vote or binding on-chain governance action. |

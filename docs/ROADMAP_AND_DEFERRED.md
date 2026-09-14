@@ -655,3 +655,15 @@ because without the seam a local model is just one more hardcoded integration.
 **Trigger for the gateway:** the second distinct model provider in production use. **Trigger
 for local inference:** a model that meets the German-language civic bar on hardware a region
 can afford — re-evaluate quarterly, this moves fast.
+
+### Connected flow 7C — confirmed synthetic Brief return
+
+The Workspace prepare/confirm controls, canonical synthetic Brief reader,
+original discussion/topic display and opt-in Mecky evidence adapter are
+implemented and locally tested. The reader shares the coordinator's exact
+fixture and verifies both checksums. A generic continuation never accepts the
+eight pending live drafts. Image publication and staging rollout remain pending;
+the personal invitation/passkey/recovery work follows this connected flow.
+
+See [the civic-journey decision](adr/0015-one-civic-journey-with-embedded-stage-tools.md)
+for the API, test authority and withdrawal behaviour.

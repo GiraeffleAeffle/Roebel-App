@@ -49,6 +49,7 @@ import {
 import { identityContractSet } from "@/lib/identity-contract-set";
 import { isReviewedStagingTestIdentityContractSet } from "@roebel/blockchain";
 import type { PublicCitizenAdoptionProjection } from "@/lib/staging-participant/citizen-adoption";
+import { SyntheticCitizenBrief } from "./SyntheticCitizenBrief";
 import { StadtstackAdministrationProgress } from "./StadtstackAdministrationProgress";
 import { CivicJourneyRail } from "./CivicJourneyRail";
 import { StadtstackProposalReceipts } from "./StadtstackProposalReceipts";
@@ -669,6 +670,9 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
             </p>
           </div>
         )}
+        {bindingReceipt?.schemaVersion === "public_synthetic_case_binding_receipt_v1" && bindingReceipt.rootEventId === rootId &&
+          bindingReceipt.topicId === thread.topic?.id && <SyntheticCitizenBrief binding={{ caseId: bindingReceipt.caseId,
+            discussionId: rootId, topicId: bindingReceipt.topicId }} />}
         {topicBindingReceipt && (
           <StadtstackAdministrationProgress
             progress={administrationProgress}

@@ -190,3 +190,17 @@ test("only the steward sees assignment targets and can use the configured depart
     assert.throws(() => createReviewGateway({...h.config, assignmentTargets: targets}, {authenticate: async () => null}), /configuration_invalid/);
   }
 });
+
+test("only the steward can prepare and confirm a Brief through the existing session and origin checks", async () => {
+  const h = setup("case_steward");
+  for (const operation of ["prepare_brief", "apply_brief"]) {
+    const schemaVersion = operation === "prepare_brief" ? "synthetic_citizen_brief_preparation_v1" : "synthetic_administration_review_receipt_v1";
+    h.upstream(() => Response.json({ schemaVersion, caseId, testOnly: true, authorityBinding: "none" }));
+    const body = JSON.stringify({ schemaVersion: "administration_review_request_v1", operation, expectedCaseVersion: 27, payload: { briefId: "brief:demo" } });
+    assert.equal((await h.request(undefined, "POST", headers, body)).status, 200);
+    assert.equal((await h.request(undefined, "POST", { ...headers, origin: "https://foreign.example" }, body)).status, 403);
+    const other = setup("department_reviewer");
+    assert.equal((await other.request(undefined, "POST", headers, body)).status, 403);
+    assert.equal(other.calls.length, 0);
+  }
+});

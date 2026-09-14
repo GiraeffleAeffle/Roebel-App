@@ -25,6 +25,7 @@ import {
   isMunicipalCaseBindingReceipt,
   type VerifiedPublicMunicipalCaseBindingReceipt,
 } from "@/lib/stadtstack/public-case-binding-receipt-client";
+import { SyntheticCitizenBrief } from "./SyntheticCitizenBrief";
 import { StadtstackAdministrationProgress } from "./StadtstackAdministrationProgress";
 import { CivicJourneyRail } from "./CivicJourneyRail";
 
@@ -48,6 +49,7 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
   const [administrationError, setAdministrationError] = useState<string | null>(
     null
   );
+  const [syntheticBinding, setSyntheticBinding] = useState<{ caseId: string; discussionId: string; topicId: string } | null>(null);
   const [bindingReceipt, setBindingReceipt] =
     useState<VerifiedPublicMunicipalCaseBindingReceipt | null>(null);
   const [bindingReceiptUnavailable, setBindingReceiptUnavailable] =
@@ -100,7 +102,7 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
 
   useEffect(() => {
     let active = true;
-    setBindingReceipt(null);
+    setBindingReceipt(null); setSyntheticBinding(null);
     setBindingReceiptUnavailable(false);
     if (!detail) return () => {
       active = false;
@@ -109,6 +111,11 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
     void Promise.all(rootIds.map((rootId) => loadVerifiedPublicCaseBindingReceipt(rootId)))
       .then((receipts) => {
         if (!active) return;
+        const synthetic = receipts.filter(r => r?.schemaVersion === "public_synthetic_case_binding_receipt_v1" && r.topicId === detail.topic.topicId);
+        const allCases = new Set(receipts.filter(r => r?.topicId === detail.topic.topicId).map(r => r!.caseId));
+        if (allCases.size > 1) { setBindingReceiptUnavailable(true); return; }
+        if (synthetic.length && synthetic[0]) setSyntheticBinding({ caseId: synthetic[0].caseId,
+          discussionId: synthetic[0].rootEventId, topicId: synthetic[0].topicId });
         const matching = receipts.filter(
           (receipt): receipt is VerifiedPublicMunicipalCaseBindingReceipt =>
             isMunicipalCaseBindingReceipt(receipt) && receipt.topicId === detail.topic.topicId
@@ -229,6 +236,7 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
         </div>
       )}
 
+      {syntheticBinding && <SyntheticCitizenBrief binding={syntheticBinding} />}
       {bindingReceipt && (
         <StadtstackAdministrationProgress
           progress={administrationProgress}
