@@ -208,6 +208,7 @@ const PREFIXES = {
     "packages/protocol/",
     "packages/publisher/",
     "packages/record-client/",
+    "packages/stadtstack-federation-client/",
     "packages/workspace/",
   ],
   public_mecky: [

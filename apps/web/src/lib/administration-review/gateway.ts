@@ -109,6 +109,7 @@ export function createReviewGateway(config: ReviewGatewayConfig, dependencies: {
       const grant = grants.find((g) => g.id === role);
       if (!grant) return error(403, "review_role_required");
       let body: string | undefined;
+      let operation: string | undefined;
       if (request.method === "POST") {
         if (request.headers.get("content-type")?.split(";")[0].trim() !== "application/json") return error(400, "request_invalid");
         try { body = await boundedText(request, 65_536); }
@@ -116,7 +117,9 @@ export function createReviewGateway(config: ReviewGatewayConfig, dependencies: {
         let command;
         try { command = JSON.parse(body); } catch { return error(400, "request_invalid"); }
         if (!command || Object.keys(command).sort().join() !== "expectedCaseVersion,operation,payload,schemaVersion" ||
-          command.schemaVersion !== "administration_review_request_v1" || !["assign", "draft", "review"].includes(command.operation)) return error(400, "request_invalid");
+          command.schemaVersion !== "administration_review_request_v1" || !["assign", "draft", "review", "prepare_brief", "apply_brief"].includes(command.operation)) return error(400, "request_invalid");
+        operation = command.operation;
+        if ((operation === "prepare_brief" || operation === "apply_brief") && grant.actorClass !== "case_steward") return error(403, "review_role_required");
         if (command.operation === "assign") {
           const pkg = command.payload?.departmentPackage;
           const target = settings.assignmentTargets?.find((item) => item.departmentId === pkg?.departmentId);
@@ -142,7 +145,7 @@ export function createReviewGateway(config: ReviewGatewayConfig, dependencies: {
       if (!value || value.caseId !== settings.caseId || value.testOnly !== true || value.authorityBinding !== "none") throw Error();
       if (request.method === "GET" && (value.schemaVersion !== "administration_case_view_v1" || value.caseKind !== "synthetic_case" ||
         value.actingAs?.actorId !== grant.actorId || value.actingAs?.actorClass !== grant.actorClass)) throw Error();
-      if (request.method === "POST" && value.schemaVersion !== "synthetic_administration_review_receipt_v1") throw Error();
+      if (request.method === "POST" && value.schemaVersion !== (operation === "prepare_brief" ? "synthetic_citizen_brief_preparation_v1" : "synthetic_administration_review_receipt_v1")) throw Error();
       // Expiry/revocation during a slow request must not expose its response.
       const current = await dependencies.authenticate(), finished = now();
       if (current?.sub !== session.sub || !Number.isSafeInteger(finished) || finished >= grant.expiresAt || finished < grant.notBefore) return error(401, "authentication_required");

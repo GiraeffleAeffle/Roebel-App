@@ -14,6 +14,7 @@ export const PUBLIC_EVIDENCE_SOURCE_KINDS = [
   "local_news",
   "ratsinformation",
   "reviewed_civic_case",
+  "synthetic_citizen_brief",
 ] as const;
 
 export type PublicEvidenceSourceKind = (typeof PUBLIC_EVIDENCE_SOURCE_KINDS)[number];
@@ -23,6 +24,7 @@ export const PUBLIC_EVIDENCE_AUTHORITIES = [
   "editorial_report",
   "official_record",
   "reviewed_civic_evidence",
+  "synthetic_demo",
 ] as const;
 
 export type PublicEvidenceAuthority = (typeof PUBLIC_EVIDENCE_AUTHORITIES)[number];
@@ -75,12 +77,23 @@ export interface ReviewedCivicCaseEvidence extends PublicEvidenceCommon {
   readonly reviewedAt: string;
 }
 
+export interface SyntheticCitizenBriefEvidence extends PublicEvidenceCommon {
+  readonly sourceKind: "synthetic_citizen_brief";
+  readonly authority: "synthetic_demo";
+  readonly caseId: string;
+  readonly caseUrl: string;
+  readonly reviewedAt: string;
+  readonly briefChecksum: string;
+  readonly testOnly: true;
+}
+
 /** Closed source schema. The authority is tied to its source kind. */
 export type PublicEvidence =
   | NostrPostEvidence
   | LocalNewsEvidence
   | RatsinformationEvidence
-  | ReviewedCivicCaseEvidence;
+  | ReviewedCivicCaseEvidence
+  | SyntheticCitizenBriefEvidence;
 
 export interface PromptPublicEvidence {
   readonly evidenceId: `sha256:${string}`;
@@ -160,6 +173,7 @@ const AUTHORITY_BY_SOURCE_KIND: Record<PublicEvidenceSourceKind, PublicEvidenceA
   local_news: "editorial_report",
   ratsinformation: "official_record",
   reviewed_civic_case: "reviewed_civic_evidence",
+  synthetic_citizen_brief: "synthetic_demo",
 };
 
 const AUTHORITY_TIE_BREAK: Record<PublicEvidenceAuthority, number> = {
@@ -167,6 +181,7 @@ const AUTHORITY_TIE_BREAK: Record<PublicEvidenceAuthority, number> = {
   reviewed_civic_evidence: 3,
   editorial_report: 2,
   community_statement: 1,
+  synthetic_demo: 0,
 };
 
 const STOP_WORDS = new Set([
@@ -256,6 +271,14 @@ export function parsePublicEvidence(value: unknown): PublicEvidence {
         throw new Error("Invalid Ratsinformationssystem evidence.");
       }
       return value as unknown as RatsinformationEvidence;
+    case "synthetic_citizen_brief":
+      if (!exactKeys(value, [...common, "caseId", "caseUrl", "reviewedAt", "briefChecksum", "testOnly"]) ||
+        value.authority !== "synthetic_demo" || value.testOnly !== true ||
+        typeof value.caseId !== "string" || !/^urn:stadtstack:synthetic-case:municipality:[a-z0-9-]+:[0-9a-f-]{36}$/.test(value.caseId) ||
+        !isPublicHttpsUrl(value.caseUrl) || !isIsoDate(value.reviewedAt) || !isEvidenceId(value.briefChecksum)) {
+        throw new Error("Invalid synthetic Citizen Brief evidence.");
+      }
+      return value as unknown as SyntheticCitizenBriefEvidence;
     case "reviewed_civic_case":
       if (!exactKeys(value, [...common, "caseId", "caseUrl", "reviewedAt"]) ||
         value.authority !== "reviewed_civic_evidence" || !isNonEmptyString(value.caseId) ||
@@ -273,7 +296,8 @@ export function publicEvidenceUrl(entry: PublicEvidence): string {
     case "nostr_post": return entry.eventUrl;
     case "local_news": return entry.articleUrl;
     case "ratsinformation": return entry.recordUrl;
-    case "reviewed_civic_case": return entry.caseUrl;
+    case "reviewed_civic_case":
+    case "synthetic_citizen_brief": return entry.caseUrl;
   }
 }
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { syntheticBriefConfig } from "./synthetic-citizen-brief";
 import { deriveAgentIdentity } from "@netizen-labs/nostr";
 import { DEFAULT_BOUNDS, emptyHistory } from "./bounds";
 import { createDirectMentionEvidence } from "./conversation-evidence";
@@ -74,7 +75,10 @@ async function main(): Promise<void> {
     ? createPublicMeckyReplyProjectionSink({ endpoint: replyProjectionUrl })
     : undefined;
 
-  const evidenceMode = resolvePublicMeckyEvidenceMode(process.env);
+  const evidenceMode = resolvePublicMeckyEvidenceMode({
+    STADTSTACK_E2E_MODE: process.env.STADTSTACK_E2E_MODE,
+    STADTSTACK_E2E_SYNTHETIC_EVIDENCE_ALLOWED: process.env.STADTSTACK_E2E_SYNTHETIC_EVIDENCE_ALLOWED,
+  });
   const syntheticEvidenceMode = evidenceMode.kind === "synthetic_reviewed";
   if (syntheticEvidenceMode && enabledReviewedSourceKinds.length > 0) {
     throw new Error("Synthetic reviewed evidence cannot enable public source projections.");
@@ -84,6 +88,8 @@ async function main(): Promise<void> {
       "ignoring legacy STADTSTACK_E2E_MODE without the explicit E2E synthetic-evidence capability",
     );
   }
+  const briefConfig = syntheticBriefConfig(process.env);
+  if (syntheticEvidenceMode && briefConfig) throw Error("Synthetic Brief return cannot use the legacy static evidence mode.");
   const publicMecky = createPublicMecky({
     ...(syntheticEvidenceMode
       ? {
@@ -97,6 +103,7 @@ async function main(): Promise<void> {
             baseUrl: publicEvidenceBaseUrl,
             municipalityId,
             reviewedSourceKinds: enabledReviewedSourceKinds,
+            ...(briefConfig ? { syntheticBrief: briefConfig } : {}),
             ...(reviewedKnowledgeBaseUrl ? { reviewedKnowledgeBaseUrl } : {}),
           }),
         }),

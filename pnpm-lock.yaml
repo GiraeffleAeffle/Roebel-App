@@ -665,6 +665,9 @@ importers:
       '@roebel/blockchain':
         specifier: workspace:*
         version: link:../../packages/blockchain
+      '@roebel/stadtstack-federation-client':
+        specifier: workspace:*
+        version: link:../../packages/stadtstack-federation-client
       '@noble/hashes':
         specifier: ^1.8.0
         version: 1.8.0

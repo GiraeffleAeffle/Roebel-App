@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { BriefResponses, type BriefResponse } from "../../components/administration-review/BriefResponses";
 import { TopicOverview } from "../../components/administration-review/TopicOverview";
 import { matchingCase, type TopicOrigin } from "../../lib/administration-review/overview";
 import { loadVerifiedPublicCaseBindingReceipt } from "../../lib/stadtstack/public-case-binding-receipt-client";
@@ -12,6 +13,8 @@ type Package = { id: string; departmentId: string; request: string; packageCheck
 type AssignmentTarget = { departmentId: string; label: string; assignedAgentActorId: string; assignedReviewerActorId: string };
 type View = { caseId: string; assignmentTargets?: AssignmentTarget[]; caseVersion: number; suggestion: { id: string; title: string; summary: string | null };
   departmentPackages: Package[]; briefReadiness: { status: string; requiredDepartmentIds: string[]; acceptedDepartmentIds: string[]; blockers?: { departmentId: string; reason: string }[] } | null };
+type Preparation = { schemaVersion: "synthetic_citizen_brief_preparation_v1"; caseId: string; caseVersion: number;
+  briefId: string; preparationChecksum: string; state: "prepared_not_applied"; preview: { title: string; responses: BriefResponse[] } };
 const ENDPOINT = "/api/workspace/case-review";
 const statusText: Record<string, string> = { assigned: "Zur Bearbeitung", draft_pending_review: "Prüfung ausstehend", accepted: "Geprüft", rejected: "Überarbeitung nötig" };
 const departments: Record<string, string> = { planning: "Stadtplanung", traffic: "Verkehr", environment: "Umwelt", finance: "Finanzen",
@@ -22,6 +25,7 @@ export default function AdministrationWorkspace() {
   const [roles, setRoles] = useState<Role[]>([]), [role, setRole] = useState("");
   const [rawView, setView] = useState<View | null>(null), [message, setMessage] = useState("Arbeitsbereich wird geladen …");
   const [login, setLogin] = useState(false), [busy, setBusy] = useState(false), [revision, setRevision] = useState(0);
+  const [preparation, setPreparation] = useState<Preparation | null>(null);
   const generation = useRef(0), pendingWrite = useRef(false);
   const [needsRefresh, setNeedsRefresh] = useState(false);
   const [origin, setOrigin] = useState<TopicOrigin | null>(null);
@@ -65,7 +69,7 @@ export default function AdministrationWorkspace() {
     return () => controller.abort();
   }, []);
   useEffect(() => {
-    generation.current++; setView(null);
+    generation.current++; setView(null); setPreparation(null);
     if (!role) return;
     const controller = new AbortController();
     fetch(`${ENDPOINT}?role=${encodeURIComponent(role)}`, { cache: "no-store", signal: controller.signal }).then(async (response) => {
@@ -74,17 +78,24 @@ export default function AdministrationWorkspace() {
     }).catch((error) => { if (!controller.signal.aborted) setMessage(error.message); });
     return () => controller.abort();
   }, [role, revision]);
-  async function submit(operation: "assign" | "draft" | "review", payload: unknown) {
+  async function submit(operation: "assign" | "draft" | "review" | "prepare_brief" | "apply_brief", payload: unknown) {
     if (!view || pendingWrite.current || needsRefresh) return;
     pendingWrite.current = true;
     const current = generation.current;
     setBusy(true); setMessage("");
+    if (operation === "prepare_brief") setPreparation(null);
     try {
       const response = await fetch(`${ENDPOINT}?role=${encodeURIComponent(role)}`, { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ schemaVersion: "administration_review_request_v1", operation, expectedCaseVersion: view.caseVersion, payload }) });
       if (current !== generation.current) return;
       if (!response.ok) { setNeedsRefresh(true); setMessage(response.status === 409 ? "Der Fall wurde inzwischen verändert. Bitte neu laden und die aktuelle Fassung prüfen." : "Speichern nicht bestätigt. Bitte den Fall neu laden, bevor du erneut sendest."); return; }
-      setRevision((value) => value + 1);
+      if (operation === "prepare_brief") {
+        const prepared: Preparation = await response.json();
+        if (current !== generation.current) return;
+        if (prepared.schemaVersion !== "synthetic_citizen_brief_preparation_v1" || prepared.state !== "prepared_not_applied" ||
+          prepared.caseId !== view.caseId || prepared.caseVersion !== view.caseVersion || prepared.preview.responses.length !== 8) throw Error();
+        setPreparation(prepared);
+      } else { setPreparation(null); setRevision((value) => value + 1); }
     } catch { if (current === generation.current) { setNeedsRefresh(true); setMessage("Speichern nicht bestätigt. Bitte neu laden und den aktuellen Stand prüfen."); } }
     finally { pendingWrite.current = false; setBusy(false); }
   }
@@ -108,6 +119,22 @@ export default function AdministrationWorkspace() {
     {view && <><section className="rounded-2xl border bg-white p-6"><p className="text-xs uppercase tracking-wide text-slate-500">Übernommener Fall · Stand {view.caseVersion}</p>
       <h2 className="mt-2 text-2xl font-semibold">{view.suggestion.title}</h2>{view.suggestion.summary && <p className="mt-3 text-slate-600">{view.suggestion.summary}</p>}
       <p className="mt-4 text-sm">{view.briefReadiness ? `${view.briefReadiness.acceptedDepartmentIds.length} ${view.briefReadiness.acceptedDepartmentIds.length === 1 ? "Fachbereich" : "Fachbereiche"} geprüft. ${view.briefReadiness.status === "citizen_brief_current" ? "Die Bürger-Kurzfassung liegt vor." : "Die Bürger-Kurzfassung ist noch nicht abgeschlossen."}` : "Hier siehst du die Arbeitspakete deiner zugewiesenen Rolle."}</p></section>
+      {active?.actorClass === "case_steward" && view.briefReadiness && <section className="space-y-4 rounded-2xl border bg-white p-6" aria-label="Bürger-Kurzfassung freigeben">
+        <h2 className="text-xl font-semibold">Bürger-Kurzfassung und Rücklauf</h2>
+        {view.briefReadiness.status === "citizen_brief_current" ? <p>Die bestätigte Testfassung ist im öffentlichen Rücklauf verfügbar.{origin && <> <a className="text-primary underline" href={`/app/diskussion/${origin.rootId}`}>Zur Originaldiskussion</a></>}</p>
+          : <><p className="text-sm text-slate-600">Erst die acht Fachprüfungen abschließen, dann die genaue Kurzfassung prüfen und für den Test-Rücklauf bestätigen. Die Vorschau speichert noch nichts.</p>
+            {view.briefReadiness.status !== "ready_for_case_steward" && <p role="status">Noch {view.briefReadiness.requiredDepartmentIds.length - view.briefReadiness.acceptedDepartmentIds.length} Fachprüfungen offen.</p>}
+            <button type="button" className={button} disabled={busy || needsRefresh || view.briefReadiness.status !== "ready_for_case_steward"}
+              onClick={() => void submit("prepare_brief", { briefId: `brief:${crypto.randomUUID()}` })}>Kurzfassung vorbereiten</button>
+            {preparation && preparation.caseVersion === view.caseVersion && <div className="space-y-4 rounded-xl border border-amber-300 bg-amber-50 p-4">
+              <p className="font-semibold">Vorschau · {preparation.preview.title}</p><BriefResponses responses={preparation.preview.responses} />
+              <p className="text-sm">Mit der Bestätigung werden genau diese geprüften Testantworten öffentlich in Röbel sichtbar und für Mecky als Testquelle lesbar. Das ist keine amtliche Veröffentlichung.</p>
+              <button type="button" className={button} disabled={busy || needsRefresh} onClick={() => void submit("apply_brief", { briefId: preparation.briefId,
+                preparationChecksum: preparation.preparationChecksum })}>Diese Testfassung für Röbel bestätigen</button>
+              <button type="button" className="ml-3 text-sm underline" disabled={busy} onClick={() => setPreparation(null)}>Vorschau verwerfen</button>
+            </div>}
+          </>}
+      </section>}
       {active?.actorClass === "case_steward" && <section className="space-y-4 rounded-2xl border bg-white p-6">
         <h2 className="text-xl font-semibold">Fachbereich beauftragen</h2>
         {(view.assignmentTargets ?? []).some((target) => !view.departmentPackages.some((pkg) => pkg.departmentId === target.departmentId)) ?
