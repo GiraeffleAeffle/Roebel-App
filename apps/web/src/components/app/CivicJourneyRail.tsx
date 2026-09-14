@@ -29,6 +29,13 @@ export function CivicJourneyRail({ journey }: { journey: CivicJourney }) {
     (stage) => stage.state === "complete"
   ).length;
 
+  const groups = [
+    { label: "Diskussion", ids: ["topic", "discussion", "mecky"] },
+    { label: "Vorschlag", ids: ["proposal", "adoption", "case"] },
+    { label: "Fachprüfung", ids: ["administration"] },
+    { label: "Rücklauf", ids: ["participation"] },
+    { label: "Entscheidung", ids: ["decision", "execution"] },
+  ];
   return (
     <section
       aria-labelledby="civic-journey-title"
@@ -37,17 +44,25 @@ export function CivicJourneyRail({ journey }: { journey: CivicJourney }) {
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h2 id="civic-journey-title" className="font-bold">
-            Bürgerprozess
+            Stand des Themas
           </h2>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Eine sichtbare Linie – getrennte Records, Signaturen und
-            Zuständigkeiten.
+            Vom Gespräch über die Fachprüfung zurück in die Diskussion.
           </p>
         </div>
         <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
-          keine automatische Wirkung
+          {journey.displayScope === "synthetic_demo" ? "Synthetischer Demo-Ablauf" : "Öffentlicher Stand"}
         </span>
       </div>
+      <ol aria-label="Ablaufübersicht" className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {groups.map(group => {
+          const stages = journey.stages.filter(stage => group.ids.includes(stage.id));
+          const state = stages.some(stage => stage.state === "current") ? "current" : stages.every(stage => stage.state === "complete") ? "complete" : "gated";
+          return <li key={group.label} className={`rounded-lg border px-3 py-2 ${STATE_CLASS[state]}`}>
+            <p className="text-xs font-bold">{group.label}</p><p className="mt-1 text-[11px]">{state === "complete" ? group.label === "Diskussion" ? "Grundlage vorhanden" : "Abgeschlossen" : state === "current" ? "Jetzt" : "Noch offen"}</p>
+          </li>;
+        })}
+      </ol>
       {currentStage ? (
         <div
           aria-current="step"

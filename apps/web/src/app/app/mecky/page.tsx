@@ -1,5 +1,7 @@
 "use client";
 
+import { meckyPresentation } from "@/lib/mecky-presentation";
+
 import { useEffect, useRef, useState } from "react";
 import { Bot, ExternalLink, Send, ShieldCheck, User } from "lucide-react";
 
@@ -185,7 +187,7 @@ export default function MeckyPage() {
                 ? "rounded-tr-sm bg-primary text-primary-foreground"
                 : "rounded-tl-sm border border-border bg-card text-foreground"
             }`}>
-              <p className="whitespace-pre-wrap">{message.text}</p>
+              <p className="whitespace-pre-wrap break-words">{meckyPresentation(message.text, message.evidenceRefs?.map(e => e.publicCaseUrl) ?? []).body}</p>
               {message.evidenceRefs?.length ? (
                 <div className="mt-3 border-t border-border pt-2">
                   <p className="mb-1 text-xs font-semibold text-muted-foreground">

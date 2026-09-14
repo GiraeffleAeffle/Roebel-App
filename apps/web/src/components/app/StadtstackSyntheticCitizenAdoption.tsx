@@ -193,7 +193,7 @@ export function StadtstackSyntheticCitizenAdoption({
       </h3>
       <p className="mt-2 text-xs leading-5">
         {testCaseReceipt
-          ? "Der Case Steward hat genau diesen Testnachweis und den unveränderten Entwurf in den isolierten Testablauf aufgenommen. Die Fachprüfung im Testablauf ist der nächste, noch nicht geöffnete Schritt."
+          ? "Der Case Steward hat genau diesen Testnachweis und den unveränderten Entwurf in den isolierten Testablauf aufgenommen. Den aktuellen Stand der Fachprüfung und den Rücklauf zeigt die Übersicht oben."
           : "Erst eine passende öffentliche Quittung bestätigt die getrennte Testfall-Aufnahme. Du kannst den Stand durch erneutes Laden dieser Diskussion prüfen."}
       </p>
       {testCaseReceipt && (

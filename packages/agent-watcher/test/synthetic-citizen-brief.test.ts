@@ -5,6 +5,7 @@ import test from "node:test";
 import { createSyntheticBriefEvidenceAdapter, syntheticBriefConfig } from "../src/synthetic-citizen-brief";
 import { createPublicKnowledgeCatalog, parsePublicEvidence } from "../src/public-evidence";
 import { createPublicMecky } from "../src/public-mecky";
+import { createPublicMeckyEvidenceReply } from "../src/public-mecky-receipt";
 
 const { returned } = JSON.parse(readFileSync(new URL("../../stadtstack-federation-client/src/fixtures/synthetic-citizen-brief-return-v1.json", import.meta.url), "utf8"));
 const config = { environment: "staging" as const, publicOrigin: "https://app.example", caseId: returned.caseId,
@@ -30,7 +31,11 @@ test("Mecky cites the current coordinator Brief with synthetic authority and no 
   assert.equal(answer.status, "answered");
   if (answer.status !== "answered") throw Error("answer missing");
   assert.ok(answer.content.startsWith("Synthetischer Testkontext"));
-  assert.ok(answer.evidenceRefs[0]!.publicCaseUrl.includes("/synthetic-citizen-brief/"));
+  assert.equal(answer.evidenceRefs[0]!.publicCaseUrl, `${config.publicOrigin}/app/diskussion/${config.discussionId}`);
+  const feedReply = createPublicMeckyEvidenceReply(answer);
+  assert.equal(feedReply.content, answer.content);
+  assert.deepEqual(feedReply.tags, answer.evidenceRefs.map(e => ["evidence", e.evidenceId, e.publicCaseUrl]));
+  assert.ok(feedReply.tags.every(tag => tag[0] === "evidence"));
   assert.ok(calls.every(c => c.method === "GET" && c.credentials === "omit" && !c.body));
   await assert.rejects(adapter.load({ ...query, municipalityId: "other-city" }));
 });
@@ -71,7 +76,7 @@ test("staging uses the existing Web service while citations retain the public or
   for (const record of records) {
     const evidence = parsePublicEvidence(record);
     if (evidence.sourceKind !== "synthetic_citizen_brief") throw Error("unexpected evidence source");
-    assert.equal(evidence.caseUrl, `${config.publicOrigin}/api/stadtstack/synthetic-citizen-brief/by-discussion/${config.discussionId}`);
+    assert.equal(evidence.caseUrl, `${config.publicOrigin}/app/diskussion/${config.discussionId}`);
     assert.ok(!JSON.stringify(record).includes("svc.cluster.local"));
   }
 });
@@ -81,5 +86,14 @@ test("the staging transport does not accept a caller-selected network destinatio
     { transport: "staging_web_service", readOrigin: "http://other-service:8080" }]) {
     assert.throws(() => syntheticBriefConfig({ MECKY_ALLOW_SYNTHETIC_BRIEF: "true",
       MECKY_SYNTHETIC_BRIEF_CONFIG: JSON.stringify({ ...config, ...extra }) }), /synthetic_brief_configuration_invalid/);
+  }
+});
+
+test("German department questions select that department before incidental mentions elsewhere", async () => {
+  const catalog = createPublicKnowledgeCatalog([createSyntheticBriefEvidenceAdapter(config, async () => Response.json(returned))]);
+  for (const name of ["Verkehr", "Stadtplanung", "Finanzen", "Umwelt", "Recht", "Soziales", "Technische Dienste", "Öffentliche Ordnung"]) {
+    const packet = await catalog.retrieve({ ...query, question: `Was sagt ${name} im synthetischen Test?` });
+    assert.ok(packet.passages.length > 0);
+    assert.match(packet.passages[0]!.evidence.title, new RegExp(`Testantwort ${name} ·`));
   }
 });

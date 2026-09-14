@@ -50,6 +50,8 @@ import { identityContractSet } from "@/lib/identity-contract-set";
 import { isReviewedStagingTestIdentityContractSet } from "@roebel/blockchain";
 import type { PublicCitizenAdoptionProjection } from "@/lib/staging-participant/citizen-adoption";
 import { SyntheticCitizenBrief } from "./SyntheticCitizenBrief";
+import { useSyntheticCitizenBrief } from "@/lib/stadtstack/use-synthetic-citizen-brief";
+import { projectSyntheticJourney } from "@/lib/stadtstack/synthetic-journey";
 import { StadtstackAdministrationProgress } from "./StadtstackAdministrationProgress";
 import { CivicJourneyRail } from "./CivicJourneyRail";
 import { StadtstackProposalReceipts } from "./StadtstackProposalReceipts";
@@ -141,6 +143,12 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
         topicId: thread.topic.id,
       })
     : null;
+  const syntheticBinding = bindingReceipt?.schemaVersion === "public_synthetic_case_binding_receipt_v1" &&
+    bindingReceipt.rootEventId === rootId && bindingReceipt.topicId === thread?.topic?.id &&
+    thread?.suggestion?.schemaVersion === "staging_participant_signed_topic_suggestion_v1" &&
+    bindingReceipt.participantSuggestionEventId === thread.suggestion.suggestionId
+    ? { caseId: bindingReceipt.caseId, discussionId: rootId, topicId: bindingReceipt.topicId } : null;
+  const syntheticBrief = useSyntheticCitizenBrief(syntheticBinding);
   const bindingReceiptMismatch = Boolean(
     bindingReceipt && bindingReceipt.schemaVersion !== "public_synthetic_case_binding_receipt_v1" &&
     thread?.topic && !topicBindingReceipt
@@ -559,21 +567,26 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
         </div>
       </header>
 
-      {journey && <CivicJourneyRail journey={journey} />}
+      {journey && <CivicJourneyRail journey={syntheticBinding ? projectSyntheticJourney(journey, syntheticBinding, syntheticBrief.value) : journey} />}
+      {syntheticBinding && <SyntheticCitizenBrief binding={syntheticBinding} state={syntheticBrief} sourcePostId={thread.sourceAppPostId ?? undefined} />}
+      <nav aria-label="Diskussion navigieren" className="flex flex-wrap gap-2 text-sm font-semibold">
+        <a className="rounded-full border px-4 py-2" href="#discussion-arguments">Argumente · {argumentSummary?.argumentCount ?? 0}</a>
+        <a className="rounded-full border px-4 py-2" href="#discussion-proposal">Vorschlag</a>
+        {thread.sourceConversation && <a className="rounded-full border px-4 py-2" href="#discussion-sources">Ausgangsquellen</a>}
+        {thread.sourceAppPostId && <Link className="rounded-full border px-4 py-2" href={`/app/posts/${thread.sourceAppPostId}`}>Im Feed weiterdiskutieren ↗</Link>}
+      </nav>
 
       {thread.sourceConversation && (
-        <section className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-950">
+        <details id="discussion-sources" className="scroll-mt-24 rounded-xl border border-border bg-card p-4">
+          <summary className="cursor-pointer text-sm font-semibold">Ausgangsbeitrag und erste Mecky-Antwort</summary>
           <div className="flex items-start gap-3">
             <Bot className="mt-0.5 h-5 w-5 shrink-0" />
             <div className="min-w-0">
               <h2 className="text-sm font-bold">
-                Aus einem ausdrücklich ausgewählten @Mecky-Austausch
+                Ursprung dieser Diskussion
               </h2>
               <p className="mt-1 text-xs leading-5 text-blue-900">
-                Die Autorin oder der Autor hat genau diese beantwortete
-                Erwähnung als Kontext übernommen. Sie bleibt Quellenkontext und
-                ist weder die Antwort dieser neuen Diskussion noch ein
-                Vorschlag oder CivicCase.
+                Die Diskussion entstand aus diesem Austausch. Die ursprüngliche Antwort bleibt als Quelle erhalten.
               </p>
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
                 <Link
@@ -610,12 +623,12 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
               </div>
             </div>
           </div>
-        </section>
+        </details>
       )}
 
       {error && <div role="alert" className="flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900"><ShieldAlert className="h-4 w-4" /> {error}</div>}
 
-      <section className="rounded-xl border border-border bg-card p-4">
+      <section id="discussion-arguments" className="scroll-mt-24 rounded-xl border border-border bg-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-bold">Argumente abwägen</h2>
           <div className="flex rounded-lg bg-muted p-1" role="group" aria-label="Diskussionsansicht">
@@ -653,12 +666,13 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
         </section>
       )}
 
-      <section className="rounded-xl border border-amber-300 bg-amber-50 p-4">
+      <details className="rounded-xl border border-border bg-card p-4">
+        <summary className="cursor-pointer text-sm font-semibold">Meckys Einordnung zu Beginn der Diskussion</summary>
         <div className="flex items-start gap-3"><Bot className="mt-0.5 h-6 w-6 shrink-0 text-amber-800" /><div><h2 className="font-bold text-amber-950">@Mecky · geprüfte Assistenz</h2>{thread.mecky ? <><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-amber-950">{thread.mecky.event.content}</p><p className="mt-2 text-xs text-amber-800">{thread.mecky.evidenceRefs.length} checksum-gebundene Quellen · KI-Antwort, keine Verwaltungsfreigabe</p></> : <div className="mt-2 flex items-center gap-2 text-sm text-amber-900"><RefreshCw className="h-4 w-4" /> Mecky verarbeitet die Erwähnung. <button type="button" onClick={() => void reload()} className="font-bold underline">Neu laden</button></div>}</div></div>
-      </section>
+      </details>
 
-      <section className="rounded-xl border border-border bg-card p-5">
-        <div className="flex items-start gap-3"><FileSignature className="mt-0.5 h-6 w-6 shrink-0 text-primary" /><div><h2 className="text-lg font-bold">Röbel-Verbesserungsvorschlag</h2><p className="mt-1 text-sm leading-6 text-muted-foreground">Hier wird aus der Diskussion ein unveränderlicher Entwurf. Der Bürgerprozess oben zeigt den aktuellen Stand und alle späteren, getrennten Zuständigkeiten.</p></div></div>
+      <section id="discussion-proposal" className="scroll-mt-24 rounded-xl border border-border bg-card p-5">
+        <div className="flex items-start gap-3"><FileSignature className="mt-0.5 h-6 w-6 shrink-0 text-primary" /><div><h2 className="text-lg font-bold">Röbel-Verbesserungsvorschlag</h2><p className="mt-1 text-sm leading-6 text-muted-foreground">Der signierte Vorschlag hält fest, was geprüft werden soll. Fachantworten und weitere Diskussion bleiben damit verknüpft.</p></div></div>
         {argumentSummary && (
           <div className="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-3 text-blue-950">
             <p className="text-xs font-bold uppercase tracking-wide">Diskussionsgrundlage für die Anfrage</p>
@@ -670,9 +684,6 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
             </p>
           </div>
         )}
-        {bindingReceipt?.schemaVersion === "public_synthetic_case_binding_receipt_v1" && bindingReceipt.rootEventId === rootId &&
-          bindingReceipt.topicId === thread.topic?.id && <SyntheticCitizenBrief binding={{ caseId: bindingReceipt.caseId,
-            discussionId: rootId, topicId: bindingReceipt.topicId }} />}
         {topicBindingReceipt && (
           <StadtstackAdministrationProgress
             progress={administrationProgress}
@@ -697,7 +708,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
         {thread.topic && (thread.suggestion || topicBindingReceipt) && (
           <StadtstackProposalReceipts suggestion={thread.suggestion} bindingReceipt={topicBindingReceipt} adoptionProjection={citizenAdoptionProjection} rootId={rootId} topicId={thread.topic.id} />
         )}
-        {!topicBindingReceipt && (
+        {!topicBindingReceipt && !syntheticBinding && (
           <>
             <div className={`mt-5 rounded-lg border p-3 text-sm ${topicSuggestionSigned ? "border-emerald-300 bg-emerald-50 text-emerald-950" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
               <p className="text-[11px] font-bold uppercase tracking-wide opacity-75">Aktueller Vorschlagsstand</p>
@@ -769,7 +780,15 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
             )}
           </>
         )}
-        {(!topicSuggestionSigned || topicBindingReceipt) && (
+        {syntheticBinding && visibleProposalRequest && <article className="mt-4 rounded-xl bg-muted/30 p-4">
+          <p className="text-xs font-semibold text-emerald-700">Im Testfall aufgenommen · ursprünglicher Vorschlag</p>
+          <h3 className="mt-2 font-bold">{visibleProposalRequest.title}</h3>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">{visibleProposalRequest.summary}</p>
+          <details className="mt-4 text-xs text-muted-foreground"><summary className="cursor-pointer">Testübernahme und Aufnahmebeleg</summary>
+            {thread.suggestion?.schemaVersion === "staging_participant_signed_topic_suggestion_v1" && <StadtstackSyntheticCitizenAdoption suggestion={thread.suggestion} session={citizenSession} bindingReceipt={bindingReceipt} bindingReceiptUnavailable={bindingReceiptUnavailable} />}
+          </details>
+        </article>}
+        {!syntheticBinding && (!topicSuggestionSigned || topicBindingReceipt) && (
           <button type="button" onClick={startProposal} disabled={proposalDisabled} className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50">{workflowBusy ? <><Loader2 className="h-4 w-4 animate-spin" /> {topicSuggestionReceiptPending ? "Quittung wird abgeschlossen…" : participantTracerMode ? "Entwurf wird signiert…" : "Vorschlag wird signiert…"}</> : topicBindingReceipt ? <><CheckCircle2 className="h-4 w-4" /> CivicCase quittiert</> : topicSuggestionReceiptPending ? <><RefreshCw className="h-4 w-4" /> Quittung erneut abschließen</> : topicProposalMode && !citizenSession ? <><Landmark className="h-4 w-4" /> Anmelden, um {participantTracerMode ? "Entwurf" : "Vorschlag"} zu signieren</> : <><FileSignature className="h-4 w-4" /> {participantTracerMode ? "Entwurf" : "Vorschlag"} prüfen und signieren</>}</button>
         )}
         <aside aria-label="Wirkungsgrenzen" className="mt-4 rounded-lg border border-border bg-muted/40 p-3">

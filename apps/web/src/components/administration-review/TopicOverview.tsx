@@ -1,6 +1,7 @@
 "use client";
-import { departmentOverview, matchingCase, type OverviewCase, type TopicOrigin } from "../../lib/administration-review/overview";
+import { departmentOverview, matchingCase, publicReturnStatus, type OverviewCase, type TopicOrigin } from "../../lib/administration-review/overview";
 import { STADTSTACK_REQUIRED_DEPARTMENTS } from "../../lib/stadtstack/administration-progress";
+import { useSyntheticCitizenBrief } from "../../lib/stadtstack/use-synthetic-citizen-brief";
 const labels = Object.fromEntries(STADTSTACK_REQUIRED_DEPARTMENTS.map(d => [d.id, d.label]));
 function displayTime(value: string) {
   const date = new Date(value);
@@ -11,6 +12,11 @@ const states: Record<string, string> = { unknown: "Stand unbekannt", unassigned:
 export function TopicOverview({ origin, view }: { origin: TopicOrigin | null; view: OverviewCase | null }) {
   const current = matchingCase(origin, view);
   const wholeCase = current?.briefReadiness;
+  const publicReturn = useSyntheticCitizenBrief(origin?.testOnly ? { caseId: origin.caseId, discussionId: origin.rootId, topicId: origin.topicId } : null);
+  const returnStatus = publicReturnStatus(origin, current, publicReturn.value);
+  const returnText = returnStatus === "available" ? "Geprüfte Kurzfassung in der Bürger-App verfügbar" : returnStatus === "changed" ? "Stand geändert · bitte aktualisieren"
+    : returnStatus === "withdrawn" ? "Kurzfassung zurückgezogen" : returnStatus === "not_ready" ? "Kurzfassung noch nicht bestätigt"
+    : publicReturn.error ? "Öffentlicher Rücklauf gerade nicht erreichbar" : wholeCase?.status === "citizen_brief_current" ? "Kurzfassung bestätigt · öffentlichen Rücklauf prüfen" : "Kurzfassung noch nicht bestätigt";
   const ids = current ? wholeCase?.requiredDepartmentIds ?? [...new Set(current.departmentPackages.map(p => p.departmentId))]
     : STADTSTACK_REQUIRED_DEPARTMENTS.map(d => d.id);
   const departments = departmentOverview(ids, current);
@@ -25,9 +31,13 @@ export function TopicOverview({ origin, view }: { origin: TopicOrigin | null; vi
     <div aria-label="Ablauf" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       {[ ["1 · Diskussion", origin ? "Originalquelle verknüpft" : "Lokaler Testfall"], ["2 · Fall", origin ? `Übernahmebeleg · Stand ${origin.admissionVersion}` : `Stand ${current?.caseVersion ?? "unbekannt"}`],
         ["3 · Fachbereiche", current ? `${accepted} von ${ids.length} sichtbar geprüft` : "Verbindung ausstehend"],
-        ["4 · Rücklauf zur App", wholeCase?.status === "citizen_brief_current" ? "Kurzfassung vorhanden; App-Rücklauf nicht bestätigt" : "Bürger-Kurzfassung hier noch nicht bestätigt"] ].map(([title, detail]) =>
+        ["4 · Rücklauf zur App", returnText] ].map(([title, detail]) =>
         <div key={title} className="rounded-xl border border-slate-200 bg-slate-50 p-4"><h3 className="font-semibold">{title}</h3><p className="mt-2 text-sm text-slate-600">{detail}</p></div>)}
     </div>
+    {origin && <div className="flex flex-wrap items-center gap-3 text-sm">
+      {returnStatus === "available" && <a className="rounded-full bg-emerald-700 px-4 py-2 font-semibold text-white" href={`/app/diskussion/${origin.rootId}#citizen-brief`}>Rücklauf in der Bürger-App ansehen ↗</a>}
+      <button type="button" className="text-primary underline" onClick={publicReturn.refresh}>Öffentlichen Rücklauf prüfen</button>
+    </div>}
     <div className="text-center"><div className="inline-block rounded-full bg-primary px-5 py-2 text-sm font-semibold text-white">Ein Thema · gemeinsame Fallverknüpfung</div><div aria-hidden="true" className="mx-auto h-5 w-px bg-slate-300" /></div>
     <div className="grid grid-cols-2 gap-3 border-t border-slate-300 pt-4 lg:grid-cols-4">
       {departments.map(d => <article key={d.id} className={`relative break-words rounded-xl border p-4 ${d.state === "accepted" ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-slate-50"}`}>

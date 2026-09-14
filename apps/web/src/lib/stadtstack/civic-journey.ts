@@ -41,6 +41,7 @@ export type CivicJourneyInput = Readonly<{
 }>;
 
 export type CivicJourney = Readonly<{
+  displayScope?: "synthetic_demo";
   stages: readonly CivicJourneyStage[];
   currentStageId: CivicJourneyStageId | null;
   authorityBinding: "none";

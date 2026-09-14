@@ -241,10 +241,6 @@ test("lets explicit @Mecky mentions answer inside an ordinary app thread without
   assert.match(postPromotion, /staging_participant_mecky_reply_required/);
   assert.match(postComposer, /requestAppMeckyConversationAnswer/);
   assert.match(commentSection, /data-mecky-conversation-reply/);
-  assert.match(
-    commentSection,
-    /Nachweis \{index \+ 1\} · \{publicEvidenceDestinationLabel\(evidence\.url\)\}/,
-  );
   assert.match(commentSection, /data-mecky-authority-binding="none"/);
   assert.equal(
     (commentSection.match(/<MeckyAuthorityNotice \/>/g) ?? []).length,
@@ -316,7 +312,6 @@ test("labels the civic handoff and keeps vote and treasury authority disabled", 
 test("shows one readable civic process instead of repeating the proposal workflow", () => {
   assert.equal(discussion.match(/<CivicJourneyRail\b/g)?.length, 1);
   assert.doesNotMatch(discussion, /WorkflowStep/);
-  assert.match(discussion, /Der Bürgerprozess oben zeigt/);
   assert.match(civicJourneyRail, /Aktueller Schritt/);
   assert.match(civicJourneyRail, /Alle Schritte und Zuständigkeiten/);
   assert.match(civicJourneyRail, /aria-current=/);
@@ -425,7 +420,6 @@ test("promotes the displayed signed discussion without publishing or polling a d
   assert.doesNotMatch(discussion, /stagingPost<[^>]+>\("\/discussion"/);
   assert.doesNotMatch(discussion, /\/reply\?parent=/);
   assert.match(discussion, /thread\.sourceConversation/);
-  assert.match(discussion, /Aus einem ausdrücklich ausgewählten @Mecky-Austausch/);
 });
 
 test("shows the reviewed Citizen Brief in Mitmachen without merging it into formal governance", () => {

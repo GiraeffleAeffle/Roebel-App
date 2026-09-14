@@ -26,6 +26,8 @@ import {
   type VerifiedPublicMunicipalCaseBindingReceipt,
 } from "@/lib/stadtstack/public-case-binding-receipt-client";
 import { SyntheticCitizenBrief } from "./SyntheticCitizenBrief";
+import { useSyntheticCitizenBrief } from "@/lib/stadtstack/use-synthetic-citizen-brief";
+import { projectSyntheticJourney } from "@/lib/stadtstack/synthetic-journey";
 import { StadtstackAdministrationProgress } from "./StadtstackAdministrationProgress";
 import { CivicJourneyRail } from "./CivicJourneyRail";
 
@@ -50,6 +52,7 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
     null
   );
   const [syntheticBinding, setSyntheticBinding] = useState<{ caseId: string; discussionId: string; topicId: string } | null>(null);
+  const syntheticBrief = useSyntheticCitizenBrief(syntheticBinding);
   const [bindingReceipt, setBindingReceipt] =
     useState<VerifiedPublicMunicipalCaseBindingReceipt | null>(null);
   const [bindingReceiptUnavailable, setBindingReceiptUnavailable] =
@@ -211,7 +214,7 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
         </div>
       </header>
 
-      {journey && <CivicJourneyRail journey={journey} />}
+      {journey && <CivicJourneyRail journey={syntheticBinding ? projectSyntheticJourney(journey, syntheticBinding, syntheticBrief.value) : journey} />}
 
       {detail.caseBindingConflict && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
@@ -236,7 +239,7 @@ export function StadtstackCivicTopic({ topicId }: { topicId: string }) {
         </div>
       )}
 
-      {syntheticBinding && <SyntheticCitizenBrief binding={syntheticBinding} />}
+      {syntheticBinding && <SyntheticCitizenBrief binding={syntheticBinding} state={syntheticBrief} />}
       {bindingReceipt && (
         <StadtstackAdministrationProgress
           progress={administrationProgress}

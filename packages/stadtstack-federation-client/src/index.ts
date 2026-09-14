@@ -12,3 +12,4 @@ export * from "./topicContextContracts";
 
 export { verifySyntheticCitizenBrief, readSyntheticBriefResponse, syntheticBriefPath } from "./syntheticCitizenBrief";
 export type { SyntheticCitizenBriefReturn, SyntheticCitizenBriefBinding } from "./syntheticCitizenBrief";
+export { DEPARTMENT_LABELS, departmentLabel } from "./departments";

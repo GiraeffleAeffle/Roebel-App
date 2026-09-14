@@ -1,38 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { readSyntheticBriefResponse, syntheticBriefPath, type SyntheticCitizenBriefBinding, type SyntheticCitizenBriefReturn }
-  from "@roebel/stadtstack-federation-client";
+import type { SyntheticCitizenBriefBinding } from "@roebel/stadtstack-federation-client";
+import type { useSyntheticCitizenBrief } from "../../lib/stadtstack/use-synthetic-citizen-brief";
 import { BriefResponses } from "../administration-review/BriefResponses";
 
-/** A separate demo view. It cannot open the municipal Mitmachen or vote lane. */
-export function SyntheticCitizenBrief({ binding }: { binding: SyntheticCitizenBriefBinding }) {
-  const [value, setValue] = useState<SyntheticCitizenBriefReturn | null>(null);
-  const [error, setError] = useState(false), [revision, setRevision] = useState(0);
-  const { caseId, discussionId, topicId } = binding;
-  useEffect(() => {
-    const controller = new AbortController();
-    setValue(null); setError(false);
-    void fetch(syntheticBriefPath(discussionId), { credentials: "omit", cache: "no-store", redirect: "error",
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]) })
-      .then(response => readSyntheticBriefResponse(response, { caseId, discussionId, topicId }))
-      .then(result => { if (!controller.signal.aborted) setValue(result); })
-      .catch(() => { if (!controller.signal.aborted) setError(true); });
-    return () => controller.abort();
-  }, [caseId, discussionId, topicId, revision]);
-  return <section className="mt-5 space-y-4 rounded-xl border border-amber-300 bg-amber-50 p-5" aria-label="Rücklauf aus dem Test-Arbeitsbereich">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold text-amber-900">Synthetischer Test · keine amtliche Stellungnahme</p>
-      <h2 className="mt-1 text-lg font-bold">Rücklauf aus dem Town Workspace</h2></div>
-      <button type="button" className="rounded-lg border bg-white px-3 py-2 text-sm" onClick={() => setRevision(r => r + 1)}>Rücklauf aktualisieren</button></div>
+export function SyntheticCitizenBrief({ binding, state, sourcePostId }: {
+  binding: SyntheticCitizenBriefBinding; sourcePostId?: string; state: ReturnType<typeof useSyntheticCitizenBrief>;
+}) {
+  const { value, error, refresh } = state;
+  return <section id="citizen-brief" className="scroll-mt-24 space-y-4 rounded-2xl border border-emerald-200 bg-card p-5 sm:p-6" aria-label="Rücklauf aus dem Test-Arbeitsbereich">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div>
+      <p className="text-xs font-semibold text-emerald-700">Town Workspace → Diskussion</p>
+      <h2 className="mt-1 text-xl font-bold">{value?.status === "current" ? "Die Antworten sind zurück" : "Rücklauf aus den Fachbereichen"}</h2></div>
+      <button type="button" className="rounded-lg border px-3 py-2 text-xs text-muted-foreground" onClick={refresh}>Aktualisieren</button></div>
     {error ? <p role="status">Der aktuelle Rücklauf ist gerade nicht erreichbar. Eine frühere Fassung wird nicht als aktuell angezeigt.</p>
       : !value ? <p role="status">Geprüften Rücklauf laden …</p>
-      : value.status === "not_ready" ? <p>Noch keine Bürger-Kurzfassung freigegeben. Sie wird nach den Fachprüfungen und der anschließenden Bestätigung im Workspace sichtbar.</p>
-      : value.status === "withdrawn" ? <p role="status">Die bisherige Kurzfassung ist nicht mehr aktuell. Geänderte Fachantworten müssen erneut geprüft und zusammengeführt werden.</p>
-      : value.brief && <><p className="font-semibold">{value.brief.title}</p>
-        <p className="text-sm">Diese Kurzfassung enthält die acht geprüften Testantworten. Sie wurde vom Case Steward bestätigt. Quellen, offene Fragen und nächste Prüfschritte bleiben pro Fachbereich nachvollziehbar.</p>
-        <BriefResponses responses={value.brief.responses} />
-        <p className="break-all text-xs">Fallversion {value.caseVersion} · Brief-Prüfsumme {value.brief.briefChecksum}</p>
-        <p className="text-sm">Mecky kann diese Fassung als Testquelle zitieren. Sie belegt keine tatsächliche Prüfung oder Entscheidung der Stadt.</p></>}
-    <a href={`/verwaltung?discussion=${discussionId}`} className="inline-block text-sm font-semibold text-primary underline">Originalthema im Town Workspace öffnen</a>
+      : value.status === "not_ready" ? <p>Noch keine Kurzfassung bestätigt. Die Fachbereiche arbeiten an ihren Antworten.</p>
+      : value.status === "withdrawn" ? <p role="status">Die bisherige Kurzfassung ist nicht mehr aktuell. Geänderte Fachantworten müssen erneut geprüft werden.</p>
+      : value.brief && <>
+        <p className="text-sm leading-6">{value.brief.responses.length} Fachantworten wurden geprüft und vom Case Steward als gemeinsame Kurzfassung bestätigt. Lies die Ergebnisse und bring Rückfragen in die Diskussion ein.</p>
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">Synthetischer Test · Die Aussagen beschreiben den Teststand, keine tatsächliche Prüfung der Stadt. „Geprüft“ bedeutet nicht, dass jede fachliche Frage geklärt ist.</p>
+        <BriefResponses responses={value.brief.responses} collapsible />
+        <div className="flex flex-wrap gap-3 text-sm font-semibold">
+          <a href={`/app/diskussion/${binding.discussionId}#discussion-arguments`} className="rounded-full bg-primary px-4 py-2 text-primary-foreground">Rücklauf diskutieren</a>
+          <a href={sourcePostId ? `/app/posts/${sourcePostId}` : "/app/mecky"} className="rounded-full border px-4 py-2 text-primary">{sourcePostId ? "Im Feed mit @Mecky weiterdiskutieren" : "Mecky zu den Antworten fragen"}</a>
+        </div>
+        <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">Version und Prüfnachweis</summary>
+          <p className="mt-2 break-all">Fallversion {value.caseVersion} · Brief-Prüfsumme {value.brief.briefChecksum}</p></details>
+      </>}
+    <a href={`/verwaltung?discussion=${binding.discussionId}`} className="inline-block text-xs font-semibold text-primary underline">Bearbeitung im Town Workspace ansehen ↗</a>
   </section>;
 }
