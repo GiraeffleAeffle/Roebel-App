@@ -1,3 +1,4 @@
+import type { SyntheticCitizenBriefReturn } from "@roebel/stadtstack-federation-client";
 export type DepartmentWork = {
   id: string; departmentId: string; request: string; reviewState: string;
   draft?: { publicSummary: string; publicCitations: string[] };
@@ -31,4 +32,12 @@ export function departmentOverview(ids: readonly string[], view: OverviewCase | 
     if (blocked || (view.briefReadiness && !view.briefReadiness.acceptedDepartmentIds.includes(id))) return { id, state: "blocked", next: "Fallkoordination: Gültigkeit der Prüfung klären", packages };
     return { id, state: "accepted", next: "Geprüfte Antwort liegt vor", packages };
   });
+}
+
+/** Public availability is read back from the citizen endpoint, not inferred from a private review flag. */
+export function publicReturnStatus(origin: TopicOrigin | null, view: OverviewCase | null, returned: SyntheticCitizenBriefReturn | null) {
+  if (!origin || !returned || returned.caseId !== origin.caseId || returned.discussionId !== origin.rootId || returned.topicId !== origin.topicId) return "unverified";
+  if (view && (view.caseId !== returned.caseId || view.caseVersion !== returned.caseVersion)) return "changed";
+  if (returned.status === "current" && returned.brief) return "available";
+  return returned.status === "withdrawn" ? "withdrawn" : "not_ready";
 }

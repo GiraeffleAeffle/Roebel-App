@@ -673,3 +673,30 @@ the personal invitation/passkey/recovery work follows this connected flow.
 
 See [the civic-journey decision](adr/0015-one-civic-journey-with-embedded-stage-tools.md)
 for the API, test authority and withdrawal behaviour.
+
+
+## Discussion return and a useful demonstration — 2026-09-14
+
+The first synthetic Case proves reviewed transport back to Röbel and Mecky, but
+its eight responses intentionally identify missing evidence. It does not yet
+prove a substantive proposal outcome. The discussion UI repair projects that
+completed test path separately, removes the obsolete adoption prompt, exposes
+compact department responses, checks public availability from the Workspace and
+improves Mecky citations in both chat and feed.
+
+The next demonstration should use explicitly fictional participants and source
+materials: a diverse, nested pro/con discussion; a concrete proposal with options;
+eight complete department packages; a reviewed comparison of feasible options;
+Mecky's source-bound feed reply; and subsequent objections or a revised proposal.
+Each package needs its own finding, evidence, recommendation and next action.
+A completed review is allowed to reject an option or retain a specific blocker;
+it must not replace all useful findings with generic requests for more data.
+A new version or separate named dataset preserves the first demo's signed
+history. Never turn hypothetical measurements, costs, approvals or participants
+into actual municipal findings. A later advisory round needs its own contract;
+the returned Brief alone is not a vote or an execution instruction.
+
+Retire only the four old UI-copy assertions for citation wording, the journey
+intro and the source-exchange heading. Their replacement checks exercise compact
+citation parsing and the actual synthetic journey state; existing signature,
+authority, privacy and correction tests remain in place.

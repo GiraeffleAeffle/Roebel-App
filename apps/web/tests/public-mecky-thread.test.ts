@@ -168,10 +168,6 @@ describe("normal Röbel comment thread with Public Mecky", () => {
       (comments.match(/<MeckyAuthorityNotice \/>/g) ?? []).length,
       2
     );
-    assert.match(
-      comments,
-      /Nachweis \{index \+ 1\} · \{publicEvidenceDestinationLabel\(evidence\.url\)\}/,
-    );
     assert.match(comments, /!projectedReplyIds\.has\(reply\.id\)/);
   });
 });

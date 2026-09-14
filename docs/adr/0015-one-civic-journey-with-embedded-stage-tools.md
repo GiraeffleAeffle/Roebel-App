@@ -131,3 +131,29 @@ the real Workspace component, gateway and coordinator, followed by the public
 reader and component; its session identity is a fixture, not a new OIDC proof.
 The existing staging login remains in place. Remote builds, deployment and
 human review of the actual eight drafts remain separate gates.
+
+### Visible synthetic return — 2026-09-14
+
+A verified synthetic admission must not leave the page displaying the real
+citizen-adoption gate as its active task. Röbel now projects a separately labelled
+**synthetic demo journey** from the exact public admission and the current,
+checksum-verified Brief return. The municipal journey and its eligibility state
+remain unchanged. The page reads the return once for both the progress display
+and the response panel; withdrawal, failure or a different binding cannot retain
+a completed return. A current test Brief makes “Rücklauf diskutieren” the active
+next task. It opens neither a participation round nor a vote.
+
+The returned answers appear before the original argument tree; source exchanges
+and signatures remain available as details. The Workspace verifies public
+availability through the same reader and compares Case versions, instead of
+inferring delivery from its private review flag. “Reviewed” describes acceptance
+of a response, not the resolution of every factual question it identifies.
+
+Ordinary feed mentions and public chat share Mecky's evidence reader. German
+department labels make department-specific retrieval possible without changing
+source authority or evidence identifiers. Brief citations link to the original,
+readable discussion; the reader still validates the fixed machine-readable
+Brief endpoint. Chat and feed may omit the deterministic source footer from
+visible prose only when its URLs exactly match the separately verified citations.
+Signed content is retained unchanged. A new question reads the current Brief;
+older signed answers remain historical, and are not silently rewritten.

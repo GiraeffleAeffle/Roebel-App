@@ -1,5 +1,7 @@
 "use client";
 
+import { meckyPresentation } from "@/lib/mecky-presentation";
+
 import { useState, useRef, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { useActiveAccount } from "thirdweb/react";
@@ -169,7 +171,7 @@ function PublicMeckyCommentItem({ comment }: { comment: PostComment }) {
             </span>
           </div>
           <p className="mt-1 whitespace-pre-wrap break-words text-sm text-foreground">
-            {linkifyMeckyText(comment.content)}
+            {linkifyMeckyText(meckyPresentation(comment.content, agent.evidenceRefs.map(e => e.url)).body)}
           </p>
           {hasEvidence && (
             <div className="mt-2 flex flex-wrap gap-2">
@@ -181,7 +183,7 @@ function PublicMeckyCommentItem({ comment }: { comment: PostComment }) {
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                 >
-                  Nachweis {index + 1} <ExternalLink className="h-3 w-3" />
+                  {meckyPresentation(comment.content, agent.evidenceRefs.map(e => e.url)).sources[index]?.title ?? `Quelle ${index + 1}`} <ExternalLink className="h-3 w-3" />
                 </a>
               ))}
             </div>
@@ -211,7 +213,7 @@ function MeckyCommentItem({ reply }: { reply: StagingMeckyConversationReply }) {
             </span>
           </div>
           <p className="mt-1 whitespace-pre-wrap break-words text-sm text-foreground">
-            {linkifyMeckyText(reply.content)}
+            {linkifyMeckyText(meckyPresentation(reply.content, reply.evidenceRefs.map(e => e.url)).body)}
           </p>
           {reply.evidenceRefs.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">
@@ -223,7 +225,7 @@ function MeckyCommentItem({ reply }: { reply: StagingMeckyConversationReply }) {
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                 >
-                  Nachweis {index + 1} · {publicEvidenceDestinationLabel(evidence.url)}{" "}
+                  {meckyPresentation(reply.content, reply.evidenceRefs.map(e => e.url)).sources[index]?.title ?? publicEvidenceDestinationLabel(evidence.url)}{" "}
                   <ExternalLink className="h-3 w-3" />
                 </a>
               ))}

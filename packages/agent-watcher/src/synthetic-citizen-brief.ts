@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readSyntheticBriefResponse, syntheticBriefPath, type SyntheticCitizenBriefBinding } from "@roebel/stadtstack-federation-client";
+import { readSyntheticBriefResponse, syntheticBriefPath, departmentLabel, type SyntheticCitizenBriefBinding } from "@roebel/stadtstack-federation-client";
 import type { PublicEvidence, PublicEvidenceQuery, PublicEvidenceSourceAdapter } from "./public-evidence";
 
 const STAGING_WEB_ORIGIN = "http://roebel-web-presentation.stadtstack-roebel-web-preview.svc.cluster.local:8080";
@@ -32,6 +32,7 @@ export function createSyntheticBriefEvidenceAdapter(config: Config, fetcher: typ
   const pinned = syntheticBriefConfig({ MECKY_ALLOW_SYNTHETIC_BRIEF: "true", MECKY_SYNTHETIC_BRIEF_CONFIG: JSON.stringify(config) })!;
   const municipality = pinned.caseId.split(":")[4]!;
   const url = pinned.publicOrigin + syntheticBriefPath(pinned.discussionId);
+  const citationUrl = `${pinned.publicOrigin}/app/diskussion/${pinned.discussionId}`;
   const readUrl = pinned.transport === "staging_web_service"
     ? STAGING_WEB_ORIGIN + syntheticBriefPath(pinned.discussionId) : url;
   return Object.freeze({
@@ -48,10 +49,10 @@ export function createSyntheticBriefEvidenceAdapter(config: Config, fetcher: typ
         return {
           evidenceId: `sha256:${createHash("sha256").update(JSON.stringify([returned.returnChecksum, brief.briefChecksum, item.departmentId])).digest("hex")}`,
           municipalityId: returned.municipalityId, sourceKind: "synthetic_citizen_brief", authority: "synthetic_demo",
-          title: `Synthetischer Test: ${brief.title} · ${item.departmentId}`,
+          title: `Testantwort ${departmentLabel(item.departmentId)} · ${brief.title}`,
           summary: `Geprüfte Testantwort, keine tatsächliche fachamtliche Stellungnahme: ${item.publicSummary}`,
           publishedAt: reviewedAt, reviewedAt, admissionState: "admitted", lifecycle: "current",
-          caseId: returned.caseId, caseUrl: url, briefChecksum: brief.briefChecksum, testOnly: true,
+          caseId: returned.caseId, caseUrl: citationUrl, briefChecksum: brief.briefChecksum, testOnly: true,
         };
       });
     },
