@@ -57,3 +57,29 @@ test("synthetic evidence needs the explicit deployment opt-in", () => {
   assert.throws(() => syntheticBriefConfig({ MECKY_ALLOW_SYNTHETIC_BRIEF: "true", MECKY_SYNTHETIC_BRIEF_CONFIG: JSON.stringify({ ...config, environment: "production" }) }));
   assert.deepEqual(syntheticBriefConfig({ MECKY_ALLOW_SYNTHETIC_BRIEF: "true", MECKY_SYNTHETIC_BRIEF_CONFIG: raw }), config);
 });
+
+test("staging uses the existing Web service while citations retain the public origin", async () => {
+  const adapter = createSyntheticBriefEvidenceAdapter({ ...config, transport: "staging_web_service" }, async (url, init) => {
+    assert.equal(String(url), `http://roebel-web-presentation.stadtstack-roebel-web-preview.svc.cluster.local:8080/api/stadtstack/synthetic-citizen-brief/by-discussion/${config.discussionId}`);
+    assert.equal(init?.redirect, "error");
+    assert.equal(init?.credentials, "omit");
+    assert.deepEqual(init?.headers, { accept: "application/json" });
+    return Response.json(returned);
+  });
+  const records = await adapter.load(query);
+  assert.equal(records.length, 8);
+  for (const record of records) {
+    const evidence = parsePublicEvidence(record);
+    if (evidence.sourceKind !== "synthetic_citizen_brief") throw Error("unexpected evidence source");
+    assert.equal(evidence.caseUrl, `${config.publicOrigin}/api/stadtstack/synthetic-citizen-brief/by-discussion/${config.discussionId}`);
+    assert.ok(!JSON.stringify(record).includes("svc.cluster.local"));
+  }
+});
+
+test("the staging transport does not accept a caller-selected network destination", () => {
+  for (const extra of [{ transport: "http://other-service:8080" }, { transport: null },
+    { transport: "staging_web_service", readOrigin: "http://other-service:8080" }]) {
+    assert.throws(() => syntheticBriefConfig({ MECKY_ALLOW_SYNTHETIC_BRIEF: "true",
+      MECKY_SYNTHETIC_BRIEF_CONFIG: JSON.stringify({ ...config, ...extra }) }), /synthetic_brief_configuration_invalid/);
+  }
+});

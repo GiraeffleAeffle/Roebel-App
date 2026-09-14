@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { readSyntheticBriefResponse, syntheticBriefPath, type SyntheticCitizenBriefBinding } from "@roebel/stadtstack-federation-client";
 import type { PublicEvidence, PublicEvidenceQuery, PublicEvidenceSourceAdapter } from "./public-evidence";
 
-type Config = SyntheticCitizenBriefBinding & { environment: "staging"; publicOrigin: string };
+const STAGING_WEB_ORIGIN = "http://roebel-web-presentation.stadtstack-roebel-web-preview.svc.cluster.local:8080";
+type Config = SyntheticCitizenBriefBinding & {
+  environment: "staging"; publicOrigin: string; transport?: "staging_web_service";
+};
 
 /** Explicit deployment opt-in. No public query can select a Case or URL. */
 export function syntheticBriefConfig(env: Record<string, string | undefined>): Config | undefined {
@@ -11,7 +14,9 @@ export function syntheticBriefConfig(env: Record<string, string | undefined>): C
   if (enabled !== "true" || !raw || raw.length > 4096) throw Error("synthetic_brief_configuration_invalid");
   try {
     const value = JSON.parse(raw);
-    if (!value || Object.keys(value).sort().join() !== "caseId,discussionId,environment,publicOrigin,topicId" || value.environment !== "staging") throw Error();
+    if (!value || Object.keys(value).sort().join() !==
+      `caseId,discussionId,environment,publicOrigin,topicId${Object.hasOwn(value, "transport") ? ",transport" : ""}` ||
+      value.environment !== "staging" || (Object.hasOwn(value, "transport") && value.transport !== "staging_web_service")) throw Error();
     const url = new URL(value.publicOrigin);
     if (url.origin !== value.publicOrigin || url.protocol !== "https:" || url.username || url.password ||
       !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(url.hostname) || url.hostname.endsWith(".local") ||
@@ -27,11 +32,13 @@ export function createSyntheticBriefEvidenceAdapter(config: Config, fetcher: typ
   const pinned = syntheticBriefConfig({ MECKY_ALLOW_SYNTHETIC_BRIEF: "true", MECKY_SYNTHETIC_BRIEF_CONFIG: JSON.stringify(config) })!;
   const municipality = pinned.caseId.split(":")[4]!;
   const url = pinned.publicOrigin + syntheticBriefPath(pinned.discussionId);
+  const readUrl = pinned.transport === "staging_web_service"
+    ? STAGING_WEB_ORIGIN + syntheticBriefPath(pinned.discussionId) : url;
   return Object.freeze({
     sourceKind: "synthetic_citizen_brief" as const,
     async load(query: PublicEvidenceQuery): Promise<readonly PublicEvidence[]> {
       if (query.municipalityId !== municipality) throw Error("synthetic_brief_municipality_mismatch");
-      const response = await fetcher(url, { method: "GET", credentials: "omit", redirect: "error", cache: "no-store",
+      const response = await fetcher(readUrl, { method: "GET", credentials: "omit", redirect: "error", cache: "no-store",
         headers: { accept: "application/json" }, signal: AbortSignal.timeout(5000) });
       const returned = await readSyntheticBriefResponse(response, pinned);
       if (!returned.brief || returned.status !== "current") return [];

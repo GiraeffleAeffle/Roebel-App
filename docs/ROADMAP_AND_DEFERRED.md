@@ -658,6 +658,12 @@ can afford — re-evaluate quarterly, this moves fast.
 
 ### Connected flow 7C — confirmed synthetic Brief return
 
+Mecky's optional `MECKY_SYNTHETIC_BRIEF_CONFIG.transport` value
+`staging_web_service` uses the fixed internal Röbel Web service already covered
+by the staging network policy. `publicOrigin` remains the HTTPS citation origin.
+The transport adds no configurable network destination, credential forwarding or
+fallback; without it, the existing public HTTPS reader remains selected.
+
 The Workspace prepare/confirm controls, canonical synthetic Brief reader,
 original discussion/topic display and opt-in Mecky evidence adapter are
 implemented and locally tested. The reader shares the coordinator's exact
