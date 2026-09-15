@@ -93,7 +93,24 @@ test("German department questions select that department before incidental menti
   const catalog = createPublicKnowledgeCatalog([createSyntheticBriefEvidenceAdapter(config, async () => Response.json(returned))]);
   for (const name of ["Verkehr", "Stadtplanung", "Finanzen", "Umwelt", "Recht", "Soziales", "Technische Dienste", "Öffentliche Ordnung"]) {
     const packet = await catalog.retrieve({ ...query, question: `Was sagt ${name} im synthetischen Test?` });
-    assert.ok(packet.passages.length > 0);
+    assert.equal(packet.passages.length, 1);
     assert.match(packet.passages[0]!.evidence.title, new RegExp(`Testantwort ${name} ·`));
   }
+});
+
+test("explicit department questions exclude incidental mentions and retain requested comparisons", async () => {
+  const adapter = createSyntheticBriefEvidenceAdapter(config, async () => Response.json(returned));
+  const catalog = createPublicKnowledgeCatalog([adapter]);
+  for (const question of [
+    "@Mecky, welche nächsten Prüfschritte nennt die bestätigte Fachantwort Verkehr zu diesem B-198-Testfall? Bitte verlinke die gemeinsame Kurzfassung aus dem Town Workspace.",
+    "Was steht in der Antwort des Fachbereichs Verkehr?", "Was sagen die Fachbereiche Verkehr?",
+  ]) {
+    const packet = await catalog.retrieve({ ...query, question });
+    assert.equal(packet.passages.length, 1);
+    assert.match(packet.passages[0]!.evidence.title, /^Testantwort Verkehr ·/);
+  }
+  const comparison = await adapter.load({ ...query, question: "Vergleiche die Fachantworten von Verkehr und Finanzen." });
+  assert.deepEqual(comparison.map(e => parsePublicEvidence(e).title.split(" · ")[0]).sort(), ["Testantwort Finanzen", "Testantwort Verkehr"]);
+  assert.equal((await adapter.load({ ...query, question: "Wie können wir Verkehr und Kosten der Querung verbessern?" })).length, 8);
+  assert.equal((await adapter.load({ ...query, question: "Was sagt Verkehrsplanung?" })).length, 8);
 });

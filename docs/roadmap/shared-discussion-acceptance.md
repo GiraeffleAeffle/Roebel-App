@@ -1,7 +1,8 @@
 # Shared discussion and independent accounts
 
-Status: implementation and local verification complete; publication, activation
-and independent-user acceptance pending, 2026-09-15.
+Status, 2026-09-15: the four discussion views and signed shared-feed answer are
+deployed and verified with the existing test participant. Separate-user
+onboarding and the complete fictional demonstration remain open.
 
 The technical synthetic Case return is proved. Independent people completing
 that journey in their own browsers is the next acceptance gate. A generated
@@ -64,11 +65,54 @@ checking the saved author, main-feed parent, original write audit and content.
 It uses the existing workbench, watcher and public reply projection. It grants no
 post-promotion, Case, role, vote or budget capability.
 
-Activation requires the comment migration, new gateway/Web images, and the exact
-new ingress method/path. The old ingress denies the new path. Source tests and a
-local PostgreSQL rehearsal are not evidence of live deployment or multi-person
+The comment migration and gateway/Web rollout are complete. One labelled test
+comment received a signed, source-bound Mecky reply that survived reload. This
+proves the shared-feed transport with the existing account, not multi-person
 onboarding. Preserve the existing B198 Case; use the separate complete fictional
 example for the richer demonstration instead of rewriting its historical answers.
+
+The next source change makes the feed read the same verified synthetic return
+as the discussion. It binds the exact signed proposal before advancing the test
+journey, rejects unavailable or mismatched returns, and reopens review after
+withdrawal. Department source links open Fachantworten while preserving the
+original signed URL and digest. Explicit department questions restrict synthetic
+retrieval to those departments; broader questions retain cross-department search.
+This follow-up is locally verified and awaiting source/image publication.
+
+## Options, simulations, map and game connection
+
+The owner confirmed this direction on 2026-09-15. Keep one connected sequence:
+discussion and meetings → options → department review → Citizen Brief →
+comparison and further discussion → decision and funding → execution and return.
+Mecky can explain the permitted records at each stage. Argument trees, sunbursts
+and polls show their own inputs; argument counts do not stand for people or votes.
+
+| View | Shared context it consumes | Next bounded integration |
+| --- | --- | --- |
+| Citizen App and Town Workspace | Discussion, Case, exact reviewed Brief and option versions | Two controlled citizen accounts and separately assigned staff subjects complete the fictional example. |
+| Option comparison and simulation | Status quo and alternatives, inputs, units, time horizon, source versions, assumptions and uncertainty | Present capital cost, annual operation, construction time and benefits together; reproduce each scenario from its inputs. The existing local comparison is fictional review scaffolding, not a deployed simulator. |
+| Treasury view | Cost scenario plus separately recorded available, requested, approved, committed and spent amounts | Show projected funding gaps without treating a simulated balance or preferred option as a payment authorization. Budget decisions retain their own owner and evidence. |
+| Map and timeline | Reviewed public project/Case binding, option geometry, dated milestones and evidence | Add an optional Röbel map layer through the Atlas projection Adapter; retain a list for missing geometry. Layer toggle and 3D rendering do not change Case state. |
+| Game chapter | A pinned public scenario snapshot with the same option and source identifiers | Let the player explore different outcomes locally, with a return link to the real discussion. A played outcome cannot advance the live project or cast a vote. |
+
+Before implementing the map/game Adapter, specify a versioned snapshot binding
+municipality, topic, discussion, optional Case, project and option identifiers;
+source/Brief checksums; scenario/model version; units, baseline and horizon;
+geometry CRS and precision; review, withdrawal and freshness. Distinguish observed
+facts, estimates and fictional inputs. A project may exist without a Case; matching
+titles or map proximity never create that binding. Reviewed municipal context and
+research-only Atlas records remain distinguishable.
+
+The existing Atlas exposes `project-atlas-map-v1`, WGS84 geometry and source
+references. Its local validator is not yet the trusted remote publication
+contract. Röbel retains its Mapbox implementation; Atlas uses MapLibre. The Mecky
+game already has a local fictional shade-project chapter, two options, costs and
+one project journal. Its participation revision and a live context connection
+remain pending. The game uses a local UTM-derived coordinate frame and needs an
+explicit geometry Adapter; it must not assume that WGS84 degrees are game metres.
+
+Implement these consumers after the independent-user return demonstration.
+Neither a 3D engine rewrite nor a new treasury backend is a prerequisite for step 8.
 
 ## Following workflow work
 

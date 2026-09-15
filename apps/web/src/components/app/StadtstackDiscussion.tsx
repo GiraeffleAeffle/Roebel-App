@@ -51,7 +51,7 @@ import { isReviewedStagingTestIdentityContractSet } from "@roebel/blockchain";
 import type { PublicCitizenAdoptionProjection } from "@/lib/staging-participant/citizen-adoption";
 import { SyntheticCitizenBrief } from "./SyntheticCitizenBrief";
 import { useSyntheticCitizenBrief } from "@/lib/stadtstack/use-synthetic-citizen-brief";
-import { projectSyntheticJourney } from "@/lib/stadtstack/synthetic-journey";
+import { bindSyntheticCitizenBrief, projectSyntheticJourney } from "@/lib/stadtstack/synthetic-journey";
 import { StadtstackAdministrationProgress } from "./StadtstackAdministrationProgress";
 import { CivicJourneyRail } from "./CivicJourneyRail";
 import { StadtstackProposalReceipts } from "./StadtstackProposalReceipts";
@@ -153,11 +153,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
         topicId: thread.topic.id,
       })
     : null;
-  const syntheticBinding = bindingReceipt?.schemaVersion === "public_synthetic_case_binding_receipt_v1" &&
-    bindingReceipt.rootEventId === rootId && bindingReceipt.topicId === thread?.topic?.id &&
-    thread?.suggestion?.schemaVersion === "staging_participant_signed_topic_suggestion_v1" &&
-    bindingReceipt.participantSuggestionEventId === thread.suggestion.suggestionId
-    ? { caseId: bindingReceipt.caseId, discussionId: rootId, topicId: bindingReceipt.topicId } : null;
+  const syntheticBinding = bindSyntheticCitizenBrief(bindingReceipt, thread, rootId);
   const syntheticBrief = useSyntheticCitizenBrief(syntheticBinding);
   const bindingReceiptMismatch = Boolean(
     bindingReceipt && bindingReceipt.schemaVersion !== "public_synthetic_case_binding_receipt_v1" &&
