@@ -130,3 +130,21 @@ The opt-in coexistence path is split into four separately reviewable effects:
 Only slice 1 may begin before the first complete Thirdweb-backed civic journey
 has passed staging. Slices 2–4 remain opt-in migration work and cannot become a
 signup prerequisite.
+
+## Staging Workspace login through the existing app account — 2026-09-15
+
+The separate-user acceptance slice can reuse `CitizenSession.signMessage`
+without changing providers or linking new credentials. A user-initiated window
+from the independent staging issuer opens the app's account confirmation page.
+That page constructs only the fixed, short-lived Gnosis SIWE statement for the
+pinned staging issuer and signs with its current account. The channel binds both
+window identity and origin, rejects extra fields and arbitrary signing targets,
+and discards signatures after account changes or unmount. The issuer verifies the
+signature and nonce through its existing login endpoint; no JWT, session cookie
+or private key crosses this channel.
+
+This is an authentication Adapter, not an entitlement or stable-member migration.
+The staging wallet allowlist and expiring staff grants remain separate owner
+decisions. Production municipal OIDC remains the intended employee login path.
+The prepared code has local fixture evidence; hosted publication, staged
+activation and login by independently controlled people are still required.

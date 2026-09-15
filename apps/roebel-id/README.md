@@ -319,15 +319,32 @@ in [`.env.staging.example`](.env.staging.example). It pins the issuer to
 `roebel-town-workspace-staging`, and accepts exactly the Web staging callback.
 The normal production configuration remains the default when no profile is set.
 
-This profile uses browser-wallet signatures and an explicit allowlist of at most
-eight test wallets. It needs no Thirdweb project, production profile database,
+This profile uses wallet signatures and an explicit allowlist of at most
+eight test wallets. The issuer needs no Thirdweb project, production profile database,
 production client secret or NFT deployment. The wallet proof uses the existing
 SIWE nonce and Gnosis verifier. It issues a wallet subject, empty groups and false
 citizen/attester claims. A separate test wallet does not become the existing app
 account; municipal review still needs a verified callback subject and explicit,
-unexpired synthetic role grants. Reusing the existing email/Google-backed wallet
-later requires verifying that project's integration settings and identity
-continuity. No account migration is performed here.
+unexpired synthetic role grants. No account migration is performed here.
+
+The prepared app-login path opens the existing Web staging route
+`/app/verwaltung-anmelden`. The person signs in there through Röbel's existing
+account provider and explicitly confirms a fixed, two-minute SIWE login for this
+issuer. The two windows accept messages only from their exact peer and pinned
+origin. The app constructs the statement itself: the message channel cannot
+choose a domain, chain, redirect, arbitrary message or another credential. Its
+signature returns through the issuer's existing same-origin login endpoint.
+The existing Gnosis verifier, nonce consumption, wallet allowlist and downstream
+staff grants still decide access. Changing account or leaving the page discards
+a late signature. The original browser-wallet path remains available.
+
+The app needs neither the operator's wallet nor a new credential import. This
+reuses its currently selected provider; it does not implement the deferred
+passkey/Safe migration, create roles or move an existing identity. The issuer
+page still has no external JavaScript dependency. Tests exercise both windows'
+protocol with distinct fixture keys and the real SIWE verifier; that is not a
+live browser or independent-person enrollment claim. Both Web and issuer images
+must be reviewed and activated before this login path can be used in staging.
 
 Create independent persistent RSA signing keys, two distinct random cookie keys
 and a separate random workspace client secret. Keep all of them in private runtime
