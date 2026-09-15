@@ -1,7 +1,7 @@
 "use client";
 
 import { requestStagingCommentMecky } from "@/lib/staging-participant/comment-mecky";
-import { meckyPresentation } from "@/lib/mecky-presentation";
+import { meckyPresentation, meckySourceHref } from "@/lib/mecky-presentation";
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import Image from "next/image";
@@ -156,6 +156,7 @@ function MeckyAuthorityNotice() {
 function PublicMeckyCommentItem({ comment }: { comment: PostComment }) {
   const agent = comment.agent!;
   const hasEvidence = agent.evidenceRefs.length > 0;
+  const presentation = meckyPresentation(comment.content, agent.evidenceRefs.map(e => e.url));
   return (
     <div className="flex gap-2.5 py-2" data-public-mecky-reply={comment.id}>
       <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
@@ -172,19 +173,19 @@ function PublicMeckyCommentItem({ comment }: { comment: PostComment }) {
             </span>
           </div>
           <p className="mt-1 whitespace-pre-wrap break-words text-sm text-foreground">
-            {linkifyMeckyText(meckyPresentation(comment.content, agent.evidenceRefs.map(e => e.url)).body)}
+            {linkifyMeckyText(presentation.body)}
           </p>
           {hasEvidence && (
             <div className="mt-2 flex flex-wrap gap-2">
               {agent.evidenceRefs.map((evidence, index) => (
                 <a
                   key={evidence.digest}
-                  href={evidence.url}
+                  href={meckySourceHref(evidence.url, presentation.sources[index]?.title ?? "")}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                 >
-                  {meckyPresentation(comment.content, agent.evidenceRefs.map(e => e.url)).sources[index]?.title ?? `Quelle ${index + 1}`} <ExternalLink className="h-3 w-3" />
+                  {presentation.sources[index]?.title ?? `Quelle ${index + 1}`} <ExternalLink className="h-3 w-3" />
                 </a>
               ))}
             </div>
@@ -200,6 +201,7 @@ function PublicMeckyCommentItem({ comment }: { comment: PostComment }) {
 }
 
 function MeckyCommentItem({ reply }: { reply: StagingMeckyConversationReply }) {
+  const presentation = meckyPresentation(reply.content, reply.evidenceRefs.map(e => e.url));
   return (
     <div className="flex gap-2.5 py-2" data-mecky-conversation-reply>
       <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
@@ -214,19 +216,19 @@ function MeckyCommentItem({ reply }: { reply: StagingMeckyConversationReply }) {
             </span>
           </div>
           <p className="mt-1 whitespace-pre-wrap break-words text-sm text-foreground">
-            {linkifyMeckyText(meckyPresentation(reply.content, reply.evidenceRefs.map(e => e.url)).body)}
+            {linkifyMeckyText(presentation.body)}
           </p>
           {reply.evidenceRefs.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">
               {reply.evidenceRefs.map((evidence, index) => (
                 <a
                   key={evidence.digest}
-                  href={evidence.url}
+                  href={meckySourceHref(evidence.url, presentation.sources[index]?.title ?? "")}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                 >
-                  {meckyPresentation(reply.content, reply.evidenceRefs.map(e => e.url)).sources[index]?.title ?? publicEvidenceDestinationLabel(evidence.url)}{" "}
+                  {presentation.sources[index]?.title ?? publicEvidenceDestinationLabel(evidence.url)}{" "}
                   <ExternalLink className="h-3 w-3" />
                 </a>
               ))}

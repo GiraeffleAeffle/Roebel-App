@@ -1,8 +1,30 @@
 import { createHash } from "node:crypto";
-import { readSyntheticBriefResponse, syntheticBriefPath, departmentLabel, type SyntheticCitizenBriefBinding } from "@roebel/stadtstack-federation-client";
+import { readSyntheticBriefResponse, syntheticBriefPath, departmentLabel, DEPARTMENT_LABELS, type SyntheticCitizenBriefBinding } from "@roebel/stadtstack-federation-client";
 import type { PublicEvidence, PublicEvidenceQuery, PublicEvidenceSourceAdapter } from "./public-evidence";
 
 const STAGING_WEB_ORIGIN = "http://roebel-web-presentation.stadtstack-roebel-web-preview.svc.cluster.local:8080";
+
+/** An explicit department question should not pick other replies just because
+ * their summaries also mention traffic or the common discussion title. */
+function requestedDepartments(question: string): Set<string> {
+  const selected = new Set<string>();
+  const prefixes = /\b(?:fachantwort(?:en)?|fachbereich(?:e|en|s)?|abteilung(?:en)?|was\s+sag(?:t|en))\s+(?:(?:von|vom|der|des|die|dem)\s+)*/giu;
+  for (const prefix of question.matchAll(prefixes)) {
+    let rest = question.slice(prefix.index! + prefix[0].length);
+    while (rest) {
+      const match = Object.entries(DEPARTMENT_LABELS).find(([, label]) =>
+        rest.toLocaleLowerCase("de-DE").startsWith(label.toLocaleLowerCase("de-DE")) &&
+        !/[\p{L}\p{N}]/u.test(rest.charAt(label.length)));
+      if (!match) break;
+      selected.add(match[0]);
+      rest = rest.slice(match[1].length);
+      const separator = /^(?:\s*,\s*(?:(?:und|sowie)\s+)?|\s+(?:und|sowie|&)\s+)/iu.exec(rest);
+      if (!separator) break;
+      rest = rest.slice(separator[0].length);
+    }
+  }
+  return selected;
+}
 type Config = SyntheticCitizenBriefBinding & {
   environment: "staging"; publicOrigin: string; transport?: "staging_web_service";
 };
@@ -44,7 +66,8 @@ export function createSyntheticBriefEvidenceAdapter(config: Config, fetcher: typ
       const returned = await readSyntheticBriefResponse(response, pinned);
       if (!returned.brief || returned.status !== "current") return [];
       const brief = returned.brief;
-      return brief.responses.map(item => {
+      const departments = requestedDepartments(query.question);
+      return brief.responses.filter(item => !departments.size || departments.has(item.departmentId)).map(item => {
         const reviewedAt = brief.provenance.packageBindings.find(p => p.departmentId === item.departmentId)!.reviewedAt;
         return {
           evidenceId: `sha256:${createHash("sha256").update(JSON.stringify([returned.returnChecksum, brief.briefChecksum, item.departmentId])).digest("hex")}`,
