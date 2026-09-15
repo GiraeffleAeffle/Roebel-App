@@ -4,8 +4,9 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { createReviewGateway, type ReviewGatewayConfig } from "../src/lib/administration-review/gateway.ts";
 import { fetchReviewWithPinnedHost } from "../src/lib/administration-review/transport.ts";
+import { workspaceReviewPath } from "../src/lib/administration-review/case-routing.ts";
 
-const caseId = "urn:stadtstack:synthetic-case:municipality:example-city:00000000-0000-4000-8000-000000000001";
+const caseId = "urn:stadtstack:synthetic-case:municipality:example-city:00000000-0000-7000-8000-000000000001";
 function setup(actorClass: "case_steward" | "department_reviewer" = "department_reviewer", upstreamOrigin = "https://review.example") {
   const grant = { id: "planning-reviewer", label: "Stadtplanung · Prüfung", subject: "test-subject", actorId: "example:reviewer",
     actorClass, token: Buffer.alloc(32, 1).toString("base64url"), notBefore: 100, expiresAt: 1000 };
@@ -202,5 +203,41 @@ test("only the steward can prepare and confirm a Brief through the existing sess
     const other = setup("department_reviewer");
     assert.equal((await other.request(undefined, "POST", headers, body)).status, 403);
     assert.equal(other.calls.length, 0);
+  }
+});
+
+test("separate account grants select only their admitted Case and never inherit the default role", async () => {
+  const h = setup(), secondId = caseId.replace(/1$/, "2");
+  const secondGrant = { ...h.grant, id: "second-reviewer", subject: "second-subject", caseId: secondId,
+    token: Buffer.alloc(32, 3).toString("base64url") };
+  const config = { ...h.config, additionalCaseIds: [secondId], grants: [...h.config.grants, secondGrant] };
+  let subject = "second-subject", wrongCase = false;
+  const calls: { url: string; init?: RequestInit }[] = [];
+  const gateway = createReviewGateway(config, { now: () => 200, authenticate: async () => ({ sub: subject }),
+    fetch: async (url, init) => { calls.push({ url: String(url), init }); return Response.json({ ...h.view, caseId: wrongCase ? caseId : secondId }); } });
+  const request = (selected: string | null, role?: string) => gateway(new Request(config.publicOrigin + workspaceReviewPath(selected, role)));
+  assert.equal((await request(null)).status, 403);
+  const roles = await request(secondId); assert.equal(roles.status, 200);
+  assert.deepEqual(await roles.json(), { caseId: secondId, testOnly: true, roles: [{ id: secondGrant.id, label: secondGrant.label, actorClass: secondGrant.actorClass }] });
+  assert.equal(calls.length, 0);
+  assert.equal((await request(secondId, h.grant.id)).status, 403);
+  assert.equal((await request(caseId, secondGrant.id)).status, 403);
+  assert.equal((await request(secondId, secondGrant.id)).status, 200);
+  assert.equal(calls[0].url, `${config.upstreamOrigin}/v1/staging/administration/cases/${encodeURIComponent(secondId)}/review`);
+  assert.deepEqual(calls[0].init!.headers, { authorization: `Bearer ${secondGrant.token}`, accept: "application/json" });
+  wrongCase = true;
+  assert.equal((await request(secondId, secondGrant.id)).status, 503);
+  subject = h.grant.subject;
+  const before = calls.length;
+  assert.equal((await request(secondId, secondGrant.id)).status, 403);
+  assert.equal((await request(null)).status, 200);
+  assert.equal(calls.length, before);
+  const duplicate = config.publicOrigin + workspaceReviewPath(secondId, secondGrant.id) + `&caseId=${encodeURIComponent(caseId)}`;
+  assert.equal((await gateway(new Request(duplicate))).status, 400);
+  for (const patch of [{ additionalCaseIds: [caseId] }, { additionalCaseIds: [secondId, secondId] },
+    { additionalCaseIds: null as never }, { grants: [{ ...secondGrant, caseId: null as never }] },
+    { additionalCaseIds: [secondId.replace("example-city", "another-city")] },
+    { grants: [...h.config.grants, { ...secondGrant, caseId: secondId.replace(/2$/, "3") }] }]) {
+    assert.throws(() => createReviewGateway({ ...config, ...patch }, { authenticate: async () => null }), /configuration_invalid/);
   }
 });

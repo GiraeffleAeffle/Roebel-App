@@ -12,7 +12,7 @@ const states: Record<string, string> = { unknown: "Stand unbekannt", unassigned:
 export function TopicOverview({ origin, view }: { origin: TopicOrigin | null; view: OverviewCase | null }) {
   const current = matchingCase(origin, view);
   const wholeCase = current?.briefReadiness;
-  const publicReturn = useSyntheticCitizenBrief(origin?.testOnly ? { caseId: origin.caseId, discussionId: origin.rootId, topicId: origin.topicId } : null);
+  const publicReturn = useSyntheticCitizenBrief(origin?.testOnly ? { caseId: origin.caseId, discussionId: origin.rootId, topicId: origin.topicId } : null, current?.caseVersion);
   const returnStatus = publicReturnStatus(origin, current, publicReturn.value);
   const returnText = returnStatus === "available" ? "Geprüfte Kurzfassung in der Bürger-App verfügbar" : returnStatus === "changed" ? "Stand geändert · bitte aktualisieren"
     : returnStatus === "withdrawn" ? "Kurzfassung zurückgezogen" : returnStatus === "not_ready" ? "Kurzfassung noch nicht bestätigt"
