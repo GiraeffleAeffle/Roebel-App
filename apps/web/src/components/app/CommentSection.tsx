@@ -1,5 +1,6 @@
 "use client";
 
+import { requestStagingCommentMecky } from "@/lib/staging-participant/comment-mecky";
 import { meckyPresentation } from "@/lib/mecky-presentation";
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -340,6 +341,24 @@ export function CommentSection({
   );
   const [conversationPollVersion, setConversationPollVersion] = useState(0);
   const [meckyPollingPaused, setMeckyPollingPaused] = useState(false);
+  const [requestingCommentId, setRequestingCommentId] = useState<string | null>(null);
+  const meckyRequestLock = useRef(false);
+  async function askMeckyInComment(comment: PostComment) {
+    if (!citizenSession || meckyRequestLock.current) return;
+    meckyRequestLock.current = true;
+    setRequestingCommentId(comment.id);
+    try {
+      const mentionId = await requestStagingCommentMecky({ comment, session: citizenSession });
+      setWaitingForMentionId(mentionId);
+      setConversationPollVersion(value => value + 1);
+      toast.success("Mecky antwortet hier im gemeinsamen Verlauf.");
+    } catch (error) {
+      toast.warning(error instanceof Error ? error.message : "Mecky konnte noch nicht gefragt werden.");
+    } finally {
+      meckyRequestLock.current = false;
+      setRequestingCommentId(null);
+    }
+  }
 
   // Media state
   const [imageFiles, setImageFiles] = useState<File[]>([]);
@@ -619,9 +638,7 @@ export function CommentSection({
           isStagingParticipant &&
           containsExplicitMeckyMention(result.data.content)
         ) {
-          toast.warning(
-            "Kommentar veröffentlicht. Die signierte Mecky-Antwort wird mit dem nächsten, getrennt geprüften Diskussionsschritt aktiviert."
-          );
+          await askMeckyInComment(result.data);
         }
       } else {
         // Rollback
@@ -662,7 +679,16 @@ export function CommentSection({
             </div>
           ) : (
             comments.map((comment) => (
-              <CommentItem key={comment.id} comment={comment} />
+              <div key={comment.id}>
+                <CommentItem comment={comment} />
+                {isStagingParticipant && citizenSession &&
+                  comment.wallet_address.toLowerCase() === citizenSession.snapshot.credential.address.toLowerCase() &&
+                  containsExplicitMeckyMention(comment.content) &&
+                  !meckyConversation?.requests.some(request => request.sourceAppCommentId === comment.id) &&
+                  !meckyConversation?.replies.some(reply => reply.sourceAppCommentId === comment.id) &&
+                  <button type="button" className="mb-3 ml-10 text-xs font-semibold text-primary underline" disabled={requestingCommentId !== null}
+                    onClick={() => void askMeckyInComment(comment)}>{requestingCommentId === comment.id ? "Mecky wird gefragt …" : "Mecky zu diesem Kommentar fragen"}</button>}
+              </div>
             ))
           )}
           {!isLoading &&

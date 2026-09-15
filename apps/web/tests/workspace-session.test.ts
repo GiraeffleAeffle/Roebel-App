@@ -261,3 +261,14 @@ describe("groupsFrom", () => {
     assert.deepEqual(groupsFrom({ groups: 42 }), []);
   });
 });
+
+it("explicit account switching forces a fresh issuer login while preserving PKCE", () => {
+  const params = { issuer: "https://id.example", clientId: "workspace", redirectUri: "https://app.example/callback", state: "state", codeChallenge: "challenge" };
+  const usual = new URL(buildAuthorizationUrl(params));
+  const switched = new URL(buildAuthorizationUrl({ ...params, reauthenticate: true }));
+  assert.equal(usual.searchParams.has("prompt"), false);
+  assert.equal(switched.searchParams.get("prompt"), "login");
+  assert.equal(switched.searchParams.get("state"), "state");
+  assert.equal(switched.searchParams.get("code_challenge"), "challenge");
+  assert.equal(switched.searchParams.get("code_challenge_method"), "S256");
+});

@@ -107,6 +107,16 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
   const [config, setConfig] = useState<StagingConfigResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [section, setSection] = useState("discussion-arguments");
+  useEffect(() => {
+    const selectSection = () => {
+      const id = window.location.hash.slice(1);
+      setSection(["discussion-arguments", "citizen-brief", "discussion-proposal", "discussion-sources"].includes(id) ? id : "discussion-arguments");
+    };
+    selectSection();
+    window.addEventListener("hashchange", selectSection);
+    return () => window.removeEventListener("hashchange", selectSection);
+  }, [rootId]);
   const [view, setView] = useState<"tree" | "sunburst">("tree");
   const [persona, setPersona] = useState<StagingPersona | null>(null);
   const [replyTo, setReplyTo] = useState<StagingArgument | null>(null);
@@ -547,15 +557,16 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
   if (loading) return <div className="flex min-h-60 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>;
   if (!thread || !graph || !rootEvent) return <div className="rounded-xl border border-rose-300 bg-rose-50 p-5 text-rose-900">{error ?? "Diskussion nicht gefunden"}</div>;
 
+  const participantCount = new Set(thread.arguments.filter(item => item.author.kind !== "mecky").map(item => item.author.pubkey)).size;
+
   return (
     <div className="space-y-5">
       <Link href="/app" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Zurück zum Feed</Link>
       <header className="rounded-xl border border-emerald-700/25 bg-emerald-950 p-5 text-white">
-        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-200"><GitFork className="h-4 w-4" /> Signierte Nostr-Diskussion · Staging</div>
+        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-200"><GitFork className="h-4 w-4" /> Gemeinsam im Gespräch · Testumgebung</div>
         <h1 className="mt-2 text-xl font-bold leading-8">{thread.topic?.title ?? rootEvent.content}</h1>
-        {thread.topic && <p className="mt-2 text-sm leading-6 text-emerald-50">{rootEvent.content}</p>}
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-emerald-100">
-          <span>Staging · signierter Beitrag von {rootEvent.author.name} · Ereignis {rootId.slice(0, 12)}…</span>
+          <span>{argumentSummary?.argumentCount ?? 0} Argumente · {participantCount} {participantCount === 1 ? "Profil" : "Profile"}</span>
           {thread.sourceAppPostId && (
             <Link
               href={`/app/posts/${thread.sourceAppPostId}`}
@@ -568,16 +579,22 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
       </header>
 
       {journey && <CivicJourneyRail journey={syntheticBinding ? projectSyntheticJourney(journey, syntheticBinding, syntheticBrief.value) : journey} />}
-      {syntheticBinding && <SyntheticCitizenBrief binding={syntheticBinding} state={syntheticBrief} sourcePostId={thread.sourceAppPostId ?? undefined} />}
-      <nav aria-label="Diskussion navigieren" className="flex flex-wrap gap-2 text-sm font-semibold">
-        <a className="rounded-full border px-4 py-2" href="#discussion-arguments">Argumente · {argumentSummary?.argumentCount ?? 0}</a>
-        <a className="rounded-full border px-4 py-2" href="#discussion-proposal">Vorschlag</a>
-        {thread.sourceConversation && <a className="rounded-full border px-4 py-2" href="#discussion-sources">Ausgangsquellen</a>}
-        {thread.sourceAppPostId && <Link className="rounded-full border px-4 py-2" href={`/app/posts/${thread.sourceAppPostId}`}>Im Feed weiterdiskutieren ↗</Link>}
+      <nav aria-label="Diskussion navigieren" className="flex flex-wrap gap-2 border-b border-border pb-3 text-sm font-semibold">
+        {[
+          { id: "discussion-arguments", label: `Argumente · ${argumentSummary?.argumentCount ?? 0}` },
+          ...(syntheticBinding ? [{ id: "citizen-brief", label: syntheticBrief.value?.status === "current" ? `Fachantworten · ${syntheticBrief.value.brief?.responses.length ?? 0}` : "Fachantworten" }] : []),
+          { id: "discussion-proposal", label: "Vorschlag" },
+          { id: "discussion-sources", label: "Hintergrund" },
+        ].map(item => <a key={item.id} href={`#${item.id}`} aria-current={section === item.id ? "page" : undefined}
+          className={`rounded-full px-4 py-2 ${section === item.id ? "bg-primary text-primary-foreground" : "bg-muted/50 text-muted-foreground hover:bg-muted"}`}>{item.label}</a>)}
       </nav>
+      {syntheticBinding && <div hidden={section !== "citizen-brief"}>
+        <SyntheticCitizenBrief binding={syntheticBinding} state={syntheticBrief} sourcePostId={thread.sourceAppPostId ?? undefined} />
+      </div>}
+      <div id="discussion-sources" hidden={section !== "discussion-sources"} className="space-y-4 scroll-mt-24">
 
       {thread.sourceConversation && (
-        <details id="discussion-sources" className="scroll-mt-24 rounded-xl border border-border bg-card p-4">
+        <details className="scroll-mt-24 rounded-xl border border-border bg-card p-4">
           <summary className="cursor-pointer text-sm font-semibold">Ausgangsbeitrag und erste Mecky-Antwort</summary>
           <div className="flex items-start gap-3">
             <Bot className="mt-0.5 h-5 w-5 shrink-0" />
@@ -626,16 +643,27 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
         </details>
       )}
 
+      <details className="rounded-xl border border-border bg-card p-4">
+        <summary className="cursor-pointer text-sm font-semibold">Meckys Einordnung zu Beginn der Diskussion</summary>
+        <div className="flex items-start gap-3"><Bot className="mt-0.5 h-6 w-6 shrink-0 text-amber-800" /><div><h2 className="font-bold text-amber-950">@Mecky · geprüfte Assistenz</h2>{thread.mecky ? <><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-amber-950">{thread.mecky.event.content}</p><p className="mt-2 text-xs text-amber-800">{thread.mecky.evidenceRefs.length} checksum-gebundene Quellen · KI-Antwort, keine Verwaltungsfreigabe</p></> : <div className="mt-2 flex items-center gap-2 text-sm text-amber-900"><RefreshCw className="h-4 w-4" /> Mecky verarbeitet die Erwähnung. <button type="button" onClick={() => void reload()} className="font-bold underline">Neu laden</button></div>}</div></div>
+      </details>
+      </div>
+
       {error && <div role="alert" className="flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900"><ShieldAlert className="h-4 w-4" /> {error}</div>}
 
-      <section id="discussion-arguments" className="scroll-mt-24 rounded-xl border border-border bg-card p-4">
+      <section id="discussion-arguments" hidden={section !== "discussion-arguments"} className="scroll-mt-24 rounded-xl border border-border bg-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-base font-bold">Argumente abwägen</h2>
+          <div><h2 className="text-base font-bold">Argumente abwägen</h2>
+            <p className="mt-1 text-xs text-muted-foreground">{argumentSummary?.proArgumentCount ?? 0} Pro · {argumentSummary?.conArgumentCount ?? 0} Contra · Argumente, keine Stimmen</p></div>
           <div className="flex rounded-lg bg-muted p-1" role="group" aria-label="Diskussionsansicht">
             <button type="button" onClick={() => setView("tree")} className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-semibold ${view === "tree" ? "bg-card shadow-sm" : "text-muted-foreground"}`}><GitFork className="h-4 w-4" /> Argumentbaum</button>
             <button type="button" onClick={() => setView("sunburst")} className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-semibold ${view === "sunburst" ? "bg-card shadow-sm" : "text-muted-foreground"}`}><PieChart className="h-4 w-4" /> Sunburst</button>
           </div>
         </div>
+        {thread.sourceAppPostId && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted/40 px-4 py-3">
+          <p className="text-sm">Rückfragen und @Mecky-Antworten gehören in den gemeinsamen Verlauf.</p>
+          <Link className="text-sm font-semibold text-primary underline underline-offset-2" href={`/app/posts/${thread.sourceAppPostId}`}>Gemeinsamen Feed öffnen ↗</Link>
+        </div>}
         {view === "tree" ? (
           <ol className="mt-4 space-y-3"><ArgumentNode node={graph.root} onReply={setReplyTo} /></ol>
         ) : (
@@ -650,7 +678,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
         )}
       </section>
 
-      {replyTo && (
+      {replyTo && section === "discussion-arguments" && (
         <section className="rounded-xl border border-primary/30 bg-card p-4">
           <h2 className="text-sm font-bold">Auf „{replyTo.content.slice(0, 90)}{replyTo.content.length > 90 ? "…" : ""}“ antworten</h2>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -666,12 +694,9 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
         </section>
       )}
 
-      <details className="rounded-xl border border-border bg-card p-4">
-        <summary className="cursor-pointer text-sm font-semibold">Meckys Einordnung zu Beginn der Diskussion</summary>
-        <div className="flex items-start gap-3"><Bot className="mt-0.5 h-6 w-6 shrink-0 text-amber-800" /><div><h2 className="font-bold text-amber-950">@Mecky · geprüfte Assistenz</h2>{thread.mecky ? <><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-amber-950">{thread.mecky.event.content}</p><p className="mt-2 text-xs text-amber-800">{thread.mecky.evidenceRefs.length} checksum-gebundene Quellen · KI-Antwort, keine Verwaltungsfreigabe</p></> : <div className="mt-2 flex items-center gap-2 text-sm text-amber-900"><RefreshCw className="h-4 w-4" /> Mecky verarbeitet die Erwähnung. <button type="button" onClick={() => void reload()} className="font-bold underline">Neu laden</button></div>}</div></div>
-      </details>
 
-      <section id="discussion-proposal" className="scroll-mt-24 rounded-xl border border-border bg-card p-5">
+
+      <section id="discussion-proposal" hidden={section !== "discussion-proposal"} className="scroll-mt-24 rounded-xl border border-border bg-card p-5">
         <div className="flex items-start gap-3"><FileSignature className="mt-0.5 h-6 w-6 shrink-0 text-primary" /><div><h2 className="text-lg font-bold">Röbel-Verbesserungsvorschlag</h2><p className="mt-1 text-sm leading-6 text-muted-foreground">Der signierte Vorschlag hält fest, was geprüft werden soll. Fachantworten und weitere Diskussion bleiben damit verknüpft.</p></div></div>
         {argumentSummary && (
           <div className="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-3 text-blue-950">

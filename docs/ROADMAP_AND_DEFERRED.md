@@ -1,6 +1,6 @@
 # Roadmap and deferred work
 
-**Last updated: 2026-09-06.** Part of the [documentation index](README.md).
+**Last updated: 2026-09-15.** Part of the [documentation index](README.md).
 
 Everything here was **deliberately not built**, with a reason. This document exists so that
 "we decided that later" survives the conversation it was decided in. Each entry says what it
@@ -9,6 +9,20 @@ is, why it waits, and **what has to be true before it makes sense** — a trigge
 An item without a trigger is a wish. An item without a reason is an oversight.
 
 ---
+
+## Active: separate people and a shared discussion — 2026-09-15
+
+The technical synthetic Case-to-Brief return is demonstrated. It used an
+operator-controlled staff account; independent people enrolling and completing
+the same journey remain an acceptance gate. The newest source slice adds four
+discussion views, Workspace account switching and a signed comment-to-Mecky
+path. Local checks pass; deployment and independent-user acceptance are pending.
+
+The [shared discussion acceptance record](roadmap/shared-discussion-acceptance.md)
+defines the remaining citizen invitations, staff role grants, public feed reply,
+complete fictional Case and later decision/execution steps. Preserve the original
+Case. Generated personas are useful fixtures, but do not prove actual resident
+participation. The checkpoints below retain their historical dates.
 
 ## Current civic recovery and efficiency slice — 2026-09-05
 

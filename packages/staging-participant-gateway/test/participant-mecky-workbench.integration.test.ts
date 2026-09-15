@@ -17,7 +17,8 @@ import {
   PRIVATE_WORKBENCH_URL,
 } from "../src/workbench-adapter.ts";
 
-test("a participant signed post reaches the real workbench, watcher, and cited conversation projection", async () => {
+for (const sourceCommentId of [null, "10000000-0000-4000-8000-000000000002"]) {
+test(`a participant signed ${sourceCommentId ? "comment" : "post"} reaches the real workbench, watcher, and cited conversation projection`, async () => {
   const agent = deriveAgentIdentity(
     "participant-mirror-real-workbench-watcher-test-entropy-0123456789",
     "roebel-staging",
@@ -56,7 +57,7 @@ test("a participant signed post reaches the real workbench, watcher, and cited c
     const bindingEvent = buildBindingEvent(participant.secretKey, wallet, { createdAt: 1_787_659_199 });
     const event = buildNoteEvent(participant.secretKey, "@Mecky, welche geprüften Informationen liegen vor?", {
       createdAt: 1_787_659_200,
-      tags: [["p", agent.publicKey], ["source-app-post", sourcePostId], ["t", "roebel-app-conversation"]],
+      tags: [["p", agent.publicKey], ["source-app-post", sourcePostId], ...(sourceCommentId ? [["source-app-comment", sourceCommentId]] : []), ["t", "roebel-app-conversation"]],
     });
     const adapter = createPrivateWorkbenchMeckyMirrorAdapter({
       url: PRIVATE_WORKBENCH_URL,
@@ -126,12 +127,12 @@ test("a participant signed post reaches the real workbench, watcher, and cited c
     assert.equal(conversation.pendingCount, 0);
     assert.equal(conversation.requests.length, 1);
     assert.equal(conversation.requests[0]?.mentionId, event.id);
-    assert.equal(conversation.requests[0]?.sourceAppCommentId, null);
+    assert.equal(conversation.requests[0]?.sourceAppCommentId, sourceCommentId);
     assert.equal(conversation.requests[0]?.state, "answered");
     assert.equal(conversation.requests[0]?.replyId, agentEvents[0]?.id ?? null);
     assert.equal(conversation.replies.length, 1);
     assert.equal(conversation.replies[0]?.mentionId, event.id);
-    assert.equal(conversation.replies[0]?.sourceAppCommentId, null);
+    assert.equal(conversation.replies[0]?.sourceAppCommentId, sourceCommentId);
     assert.deepEqual(conversation.replies[0]?.evidenceRefs, [
       {
         digest: `sha256:${"b".repeat(64)}`,
@@ -142,3 +143,5 @@ test("a participant signed post reaches the real workbench, watcher, and cited c
     await running.close();
   }
 });
+
+}
