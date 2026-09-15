@@ -196,3 +196,27 @@ GitOps resources are labelled `stadtstack.io/civic-authority: none` and
 - one participant-created `@Mecky` post produces one signed cited Mecky reply
   under that same normal feed post, with `synthetic_reviewed` visibly labelled
   until a separately reviewed real Röbel source runtime is deployed.
+
+## Comment mention extension — 2026-09-15
+
+The next reviewed source slice adds only
+`POST /api/staging-participant/v1/nostr-comment`; live activation is pending.
+It uses the existing participant session and wallet/Nostr verification. The
+signed event must name the exact saved comment and its main-feed parent, the
+configured Mecky recipient, and the ordinary conversation topic. No additional
+civic tags are accepted. The new private comment receipt is separate from
+source-post promotion bindings and cannot serve as one.
+
+Migration `20260915_staging_comment_mecky_mirror.sql` adds two closed RPCs. They
+reuse the existing staging arm, gateway secret and admission/revocation checks.
+The reserve function proves the saved author, parent, original gateway-write
+receipt and content digest atomically. The first request/event is immutable;
+completion and recovery recheck the same source. The public signed request can
+be retained for browser retries; wallet proofs, invite values and session
+credentials are never retained in that record. The existing watcher returns the
+answer to the original feed post/comment. No automatic topic/Case promotion is
+introduced. The migration must precede the gateway image and exact ingress
+extension; no broad Web POST access is needed.
+
+Independent-account acceptance is recorded in
+[Shared discussion and independent accounts](../roadmap/shared-discussion-acceptance.md).

@@ -33,6 +33,8 @@ export function buildAuthorizationUrl(params: {
   redirectUri: string;
   state: string;
   codeChallenge: string;
+  /** Account switching must not silently reuse the issuer's previous login. */
+  reauthenticate?: boolean;
 }): string {
   const url = new URL("/auth", params.issuer);
   url.searchParams.set("response_type", "code");
@@ -42,6 +44,7 @@ export function buildAuthorizationUrl(params: {
   url.searchParams.set("state", params.state);
   url.searchParams.set("code_challenge", params.codeChallenge);
   url.searchParams.set("code_challenge_method", "S256");
+  if (params.reauthenticate) url.searchParams.set("prompt", "login");
   return url.toString();
 }
 

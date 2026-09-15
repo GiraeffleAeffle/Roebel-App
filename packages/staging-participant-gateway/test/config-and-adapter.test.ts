@@ -361,6 +361,42 @@ test("PostgREST RPC names fit PostgreSQL identifiers and bind the promotion reso
   );
 });
 
+test("comment mirrors use only their two RPCs and reject another comment or unfinished completion", async () => {
+  const calls: Array<{ url: string; body: Record<string, string> }> = [];
+  let receipt = { ...MIRROR_RECEIPT, source_comment_id: COMMENT.id };
+  const adapter = createRestrictedSupabaseDataAdapter({
+    url: "https://example.supabase.co",
+    anonKey: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_ANON_KEY,
+    rpcSecret: env.ROEBEL_STAGING_PARTICIPANT_GATEWAY_SUPABASE_RPC_SECRET,
+    fetch: async (url, init) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+      return Response.json(receipt);
+    },
+  });
+  const input = {
+    walletAddress: MIRROR_RECEIPT.wallet_address, sourcePostId: POST.id,
+    sourceCommentId: COMMENT.id, requestId: MIRROR_RECEIPT.request_id,
+    eventId: MIRROR_RECEIPT.event_id, eventCreatedAt: MIRROR_RECEIPT.event_created_at,
+    contentSha256: MIRROR_RECEIPT.content_sha256,
+  };
+  assert.equal((await adapter.commentMirror!.reserve(input)).state, "reserved");
+  receipt = { ...receipt, state: "published" };
+  assert.equal((await adapter.commentMirror!.complete(input)).state, "published");
+  const body = {
+    p_wallet_address: input.walletAddress, p_source_post_id: input.sourcePostId,
+    p_source_comment_id: input.sourceCommentId, p_request_id: input.requestId,
+    p_event_id: input.eventId, p_event_created_at: String(input.eventCreatedAt),
+    p_content_sha256: input.contentSha256,
+  };
+  assert.deepEqual(calls, ["reserve_comment_mirror", "complete_comment_mirror"].map(operation => ({
+    url: `https://example.supabase.co/rest/v1/rpc/staging_participant_gateway_${operation}`, body,
+  })));
+  receipt = { ...receipt, source_comment_id: POST.id };
+  await assert.rejects(adapter.commentMirror!.reserve(input), /comment_mirror_receipt_mismatch/u);
+  receipt = { ...receipt, source_comment_id: COMMENT.id, state: "reserved" };
+  await assert.rejects(adapter.commentMirror!.complete(input), /comment_mirror_receipt_mismatch/u);
+});
+
 test("published promotion resolution uses the catalog-exposed RPC and a closed request", async () => {
   const calls: Array<{ url: string; body: Record<string, string> }> = [];
   const adapter = createRestrictedSupabaseDataAdapter({

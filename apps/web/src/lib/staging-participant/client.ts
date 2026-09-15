@@ -174,7 +174,7 @@ export function savePendingStagingParticipantMeckyMirror(
   try {
     storage.setItem(
       pendingStorageKey(validated.walletAddress),
-      JSON.stringify({ schemaVersion: PENDING_MIRROR_SCHEMA, ...validated }),
+      JSON.stringify(validated),
     );
   } catch {
     // The in-memory result still gives the caller one retry opportunity.
@@ -426,7 +426,7 @@ export async function mirrorStagingParticipantMeckyPost(input: Readonly<{
     // The proof is intentionally ephemeral. A retry uses the exact public
     // event/request while asking the current session to sign a fresh proof.
     const admissionProof = await session.createAdmissionProof();
-    let result = await request(
+    let result = await request<{ status: "published"; eventId: string }>(
       "nostr-post",
       {
         schemaVersion: NOSTR_POST_SCHEMA,
@@ -461,7 +461,7 @@ export async function mirrorStagingParticipantMeckyPost(input: Readonly<{
       pendingForRetry = refreshed;
       savePendingStagingParticipantMeckyMirror(refreshed);
       const refreshedAdmissionProof = await session.createAdmissionProof();
-      result = await request(
+      result = await request<{ status: "published"; eventId: string }>(
         "nostr-post",
         {
           schemaVersion: NOSTR_POST_SCHEMA,

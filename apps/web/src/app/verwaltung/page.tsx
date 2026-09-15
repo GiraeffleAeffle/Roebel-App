@@ -25,6 +25,7 @@ export default function AdministrationWorkspace() {
   const [roles, setRoles] = useState<Role[]>([]), [role, setRole] = useState("");
   const [rawView, setView] = useState<View | null>(null), [message, setMessage] = useState("Arbeitsbereich wird geladen …");
   const [login, setLogin] = useState(false), [busy, setBusy] = useState(false), [revision, setRevision] = useState(0);
+  const [signedIn, setSignedIn] = useState(false);
   const [preparation, setPreparation] = useState<Preparation | null>(null);
   const generation = useRef(0), pendingWrite = useRef(false);
   const [needsRefresh, setNeedsRefresh] = useState(false);
@@ -63,6 +64,8 @@ export default function AdministrationWorkspace() {
   useEffect(() => {
     const controller = new AbortController();
     fetch(ENDPOINT, { cache: "no-store", signal: controller.signal }).then(async (response) => {
+      if (controller.signal.aborted) return;
+      setSignedIn(response.ok || response.status === 403);
       if (!response.ok) { setLogin(response.status === 401); throw Error(response.status === 403 ? "Für dieses Konto ist keine Verwaltungsrolle zugewiesen." : "Die Verbindung zur Verwaltung ist noch nicht verfügbar."); }
       const result = await response.json(); setRoles(result.roles); setRole(result.roles[0]?.id ?? ""); setMessage("");
     }).catch((error) => { if (!controller.signal.aborted) setMessage(error.message); });
@@ -78,6 +81,21 @@ export default function AdministrationWorkspace() {
     }).catch((error) => { if (!controller.signal.aborted) setMessage(error.message); });
     return () => controller.abort();
   }, [role, revision]);
+  async function switchAccount() {
+    if (busy || pendingWrite.current) return;
+    setBusy(true);
+    try {
+      const response = await fetch("/api/workspace/auth/logout", { method: "POST" });
+      const result = await response.json();
+      if (!response.ok || result.ok !== true) throw Error();
+      generation.current++;
+      setView(null); setPreparation(null); setRoles([]); setRole("");
+      window.location.assign(`/api/workspace/auth/login?reauthenticate=1&returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+    } catch {
+      setMessage("Abmeldung nicht bestätigt. Das Konto wurde nicht gewechselt. Bitte erneut versuchen.");
+      setBusy(false);
+    }
+  }
   async function submit(operation: "assign" | "draft" | "review" | "prepare_brief" | "apply_brief", payload: unknown) {
     if (!view || pendingWrite.current || needsRefresh) return;
     pendingWrite.current = true;
@@ -105,6 +123,7 @@ export default function AdministrationWorkspace() {
       <a href="/app" className="text-sm text-primary underline">Zur Bürger-App</a></header>
     <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">Testumgebung · Rollen und Fall sind ausdrücklich für den Test vergeben. Eine Testprüfung ist keine amtliche Entscheidung.</div>
     <div className="flex flex-wrap items-center gap-3">
+      {signedIn && <button type="button" className="rounded-lg border px-4 py-2 text-sm" disabled={busy} onClick={() => void switchAccount()}>Konto wechseln</button>}
       {roles.length > 0 && (!originRequested || view) && <label className="text-sm font-medium">Arbeiten als <select aria-label="Zugewiesene Testrolle" value={role} disabled={busy} onChange={(event) => { setView(null); setRole(event.target.value); }} className="ml-2 rounded-lg border bg-white p-2">{roles.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
       {role && (!originRequested || view) && <button className="rounded-lg border px-4 py-2 text-sm" disabled={busy} onClick={() => setRevision((value) => value + 1)}>Aktualisieren</button>}
     </div>
@@ -112,10 +131,13 @@ export default function AdministrationWorkspace() {
     {origin && <TopicOverview origin={origin} view={view} />}
     {!originRequested && view && <TopicOverview origin={null} view={view} />}
     {message && <p role="status" className="rounded-xl border bg-slate-50 p-4">{message}</p>}
-    {login && <button type="button" className={button} onClick={() => {
+    {login && <section className="space-y-3 rounded-xl border bg-white p-5" aria-label="Zugang zur Verwaltung">
+      <h2 className="font-semibold">Mit deinem eigenen Testkonto mitarbeiten</h2>
+      <p className="text-sm text-slate-600">Für die Mitarbeit brauchst du eine freigeschaltete Test-Wallet und eine zugewiesene Fachrolle. Ein Konto in der Bürger-App vergibt keine Verwaltungsrechte.</p>
+      <button type="button" className={button} onClick={() => {
       // OIDC starts a document navigation; retain the original discussion on return.
       window.location.assign(`/api/workspace/auth/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`);
-    }}>Mit bestehendem Konto anmelden</button>}
+    }}>Mit freigeschaltetem Testkonto anmelden</button></section>}
     {view && <><section className="rounded-2xl border bg-white p-6"><p className="text-xs uppercase tracking-wide text-slate-500">Übernommener Fall · Stand {view.caseVersion}</p>
       <h2 className="mt-2 text-2xl font-semibold">{view.suggestion.title}</h2>{view.suggestion.summary && <p className="mt-3 text-slate-600">{view.suggestion.summary}</p>}
       <p className="mt-4 text-sm">{view.briefReadiness ? `${view.briefReadiness.acceptedDepartmentIds.length} ${view.briefReadiness.acceptedDepartmentIds.length === 1 ? "Fachbereich" : "Fachbereiche"} geprüft. ${view.briefReadiness.status === "citizen_brief_current" ? "Die Bürger-Kurzfassung liegt vor." : "Die Bürger-Kurzfassung ist noch nicht abgeschlossen."}` : "Hier siehst du die Arbeitspakete deiner zugewiesenen Rolle."}</p></section>

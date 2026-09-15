@@ -49,6 +49,7 @@ export const GET = withWorkspaceRoute(async (request: Request) => {
       redirectUri: `${origin}/api/workspace/auth/callback`,
       state,
       codeChallenge: challenge,
+      reauthenticate: new URL(request.url).searchParams.get("reauthenticate") === "1",
     }),
   );
 }, "identity");

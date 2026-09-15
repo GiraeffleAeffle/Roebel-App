@@ -15,6 +15,11 @@ export type WalletSignatureVerifier = Readonly<{
  * arbitrary application row or a civic-authority table.
  */
 export type StagingParticipantDataAdapter = Readonly<{
+  /** Separate comment receipts cannot serve as a source-post promotion binding. */
+  commentMirror?: Readonly<{
+    reserve(input: StagingParticipantCommentMirrorInput): Promise<StagingParticipantCommentMirrorReceipt>;
+    complete(input: StagingParticipantCommentMirrorInput): Promise<StagingParticipantCommentMirrorReceipt>;
+  }>;
   createMainTextPost(input: Readonly<{
     walletAddress: string;
     content: string;
@@ -122,6 +127,20 @@ export type StagingParticipantDataAdapter = Readonly<{
     suggestionId: string;
     suggestionSha256: string;
   }>): Promise<StagingParticipantSuggestionReceipt>;
+}>;
+
+export type StagingParticipantCommentMirrorInput = Readonly<{
+  walletAddress: string;
+  sourcePostId: string;
+  sourceCommentId: string;
+  requestId: string;
+  eventId: string;
+  eventCreatedAt: number;
+  contentSha256: string;
+}>;
+
+export type StagingParticipantCommentMirrorReceipt = StagingParticipantMirrorReceipt & Readonly<{
+  source_comment_id: string;
 }>;
 
 /** Catalog-bound readiness capabilities; callers cannot select an arbitrary RPC. */

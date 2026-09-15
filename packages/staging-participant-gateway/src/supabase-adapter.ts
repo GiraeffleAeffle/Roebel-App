@@ -1,5 +1,7 @@
 import type {
   StagingParticipantComment,
+  StagingParticipantCommentMirrorInput,
+  StagingParticipantCommentMirrorReceipt,
   StagingParticipantDataAdapter,
   StagingParticipantMirrorReceipt,
   StagingParticipantPost,
@@ -14,6 +16,8 @@ import {
   type RestrictedPostgrestOrigin,
 } from "./restricted-postgrest-origin.ts";
 
+const RESERVE_COMMENT_RPC = "staging_participant_gateway_reserve_comment_mirror";
+const COMPLETE_COMMENT_RPC = "staging_participant_gateway_complete_comment_mirror";
 const POST_RPC = "staging_participant_gateway_create_main_text_post";
 const COMMENT_RPC = "staging_participant_gateway_create_main_text_comment";
 const OWNED_POST_RPC = "staging_participant_gateway_read_owned_main_text_post";
@@ -117,6 +121,10 @@ export function createRestrictedSupabaseDataAdapter(
     });
     if (!response.ok) {
       const failure = await response.text();
+      if (rpc === RESERVE_COMMENT_RPC || rpc === COMPLETE_COMMENT_RPC) {
+        if (failure.includes("COMMENT_MIRROR_STALE")) throw Error("staging_participant_comment_mirror_stale");
+        if (failure.includes("COMMENT_MIRROR_CONFLICT")) throw Error("staging_participant_comment_mirror_conflict");
+      }
       if (rpc === RESERVE_MIRROR_RPC && /STAGING_PARTICIPANT_MIRROR_EVENT_STALE/u.test(failure)) {
         throw new Error("staging_participant_mirror_stale");
       }
@@ -137,7 +145,21 @@ export function createRestrictedSupabaseDataAdapter(
     return await response.json() as unknown;
   };
 
+  const commentMirror = async (rpc: string, input: StagingParticipantCommentMirrorInput): Promise<StagingParticipantCommentMirrorReceipt> => {
+    const value = await invoke(rpc, { ...reserveMirrorBody(input), p_source_comment_id: input.sourceCommentId });
+    const receipt = readMirrorReceipt(value, input);
+    if (!isRecord(value) || value.source_comment_id !== input.sourceCommentId ||
+      (rpc === COMPLETE_COMMENT_RPC && receipt.state !== "published")) {
+      throw Error("staging_participant_comment_mirror_receipt_mismatch");
+    }
+    return { ...receipt, source_comment_id: input.sourceCommentId };
+  };
+
   return {
+    commentMirror: {
+      reserve: input => commentMirror(RESERVE_COMMENT_RPC, input),
+      complete: input => commentMirror(COMPLETE_COMMENT_RPC, input),
+    },
     async createMainTextPost({ walletAddress, content, requestId }): Promise<StagingParticipantPost> {
       const value = await invoke(POST_RPC, {
         p_wallet_address: walletAddress,
@@ -510,6 +532,8 @@ function isSuggestionReceipt(value: unknown): value is StagingParticipantSuggest
 export const restrictedStagingParticipantRpcNames = {
   createMainTextPost: POST_RPC,
   createMainTextComment: COMMENT_RPC,
+  reserveCommentMirror: RESERVE_COMMENT_RPC,
+  completeCommentMirror: COMPLETE_COMMENT_RPC,
   readOwnedMainTextPost: OWNED_POST_RPC,
   reserveNostrPostMirror: RESERVE_MIRROR_RPC,
   completeNostrPostMirror: COMPLETE_MIRROR_RPC,

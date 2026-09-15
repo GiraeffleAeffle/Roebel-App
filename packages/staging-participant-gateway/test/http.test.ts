@@ -71,6 +71,7 @@ function jsonRequest(path: string, body: unknown, cookie?: string): Request {
 }
 
 function fixture(input: Partial<{
+  commentMirror: StagingParticipantDataAdapter["commentMirror"];
   verify: boolean;
   nowMs: number;
   mirrorFails: boolean;
@@ -104,6 +105,7 @@ function fixture(input: Partial<{
   const receiptKey = (walletAddress: string, sourcePostId: string) =>
     `${walletAddress.toLowerCase()}:${sourcePostId.toLowerCase()}`;
   const data: StagingParticipantDataAdapter = {
+    ...(input.commentMirror ? { commentMirror: input.commentMirror } : {}),
     async createMainTextPost({ walletAddress, content }) {
       calls.push({ kind: "post", walletAddress, content });
       return {
@@ -1089,4 +1091,58 @@ test("prunes stale challenges and caps a leaked invite's in-memory footprint", (
   store.set(first, { ...store.get(first)!, expiresAt: 999 });
   prepareChallengeStore(store, 1_000, "0xffffffffffffffffffffffffffffffffffffffff");
   assert.equal(store.size, MAX_PENDING_CHALLENGES - 1);
+});
+
+test("a comment mention keeps its parent binding and retries only the same public event", async () => {
+  const postId = "10000000-0000-4000-8000-000000000001";
+  const commentId = "10000000-0000-4000-8000-000000000002";
+  const identity = deriveNostrIdentity("0x" + "1".repeat(130));
+  const bindingEvent = buildBindingEvent(identity.secretKey, WALLET, { createdAt: 1_787_659_199 });
+  const event = buildNoteEvent(identity.secretKey, "@Mecky, welche Antwort kommt aus dem Fachbereich Verkehr?", {
+    createdAt: 1_787_659_200, tags: [["p", MECKY_PUBKEY], ["source-app-post", postId], ["source-app-comment", commentId], ["t", "roebel-app-conversation"]],
+  });
+  let receipt: (StagingParticipantMirrorReceipt & { source_comment_id: string }) | undefined;
+  const commentMirror: NonNullable<StagingParticipantDataAdapter["commentMirror"]> = {
+    async reserve(input) {
+      assert.equal(input.sourceCommentId, commentId);
+      assert.equal(input.sourcePostId, postId);
+      assert.equal(input.walletAddress, WALLET);
+      assert.equal(input.contentSha256, createHash("sha256").update(event.content).digest("hex"));
+      if (receipt) {
+        if (receipt.event_id !== input.eventId) throw Error("staging_participant_comment_mirror_conflict");
+        return receipt;
+      }
+      receipt = { wallet_address: WALLET, source_post_id: postId, source_comment_id: commentId,
+        request_id: input.requestId, event_id: input.eventId, event_created_at: input.eventCreatedAt,
+        content_sha256: input.contentSha256, state: "reserved" };
+      return receipt;
+    },
+    async complete() { receipt = { ...receipt!, state: "published" }; return receipt; },
+  };
+  const setup = await enrolledSession({ commentMirror, mirrorFails: true });
+  const body = { schemaVersion: "staging_participant_nostr_comment_request_v1",
+    requestId: "20000000-0000-4000-8000-000000000030", sourcePostId: postId, sourceCommentId: commentId,
+    admissionProof: { schemaVersion: "roebel_citizen_admission_proof_v1",
+      credential: { kind: "thirdweb_smart_account", address: WALLET, chainId: 100 },
+      statement: bindingEvent.content, walletSignature: "0xaaaa", bindingEvent }, event };
+  const send = (value = body) => setup.handler(jsonRequest("/api/staging-participant/v1/nostr-comment", value, setup.sessionCookie));
+  assert.equal((await send()).status, 503);
+  assert.equal(receipt?.state, "reserved");
+  setup.setMirrorFails(false);
+  assert.equal((await send()).status, 201);
+  const publications = setup.mirrored.length;
+  assert.equal((await send()).status, 200);
+  assert.equal(setup.mirrored.length, publications);
+  assert.equal((await send({ ...body, sourcePostId: "10000000-0000-4000-8000-000000000003" })).status, 400);
+  assert.equal((await send({ ...body, admissionProof: { ...body.admissionProof,
+    credential: { ...body.admissionProof.credential, address: OTHER_WALLET } } })).status, 400);
+  const changed = buildNoteEvent(identity.secretKey, event.content, { createdAt: event.created_at + 1, tags: event.tags });
+  assert.equal((await send({ ...body, event: changed })).status, 409);
+  const extraTag = buildNoteEvent(identity.secretKey, event.content, { createdAt: event.created_at, tags: [...event.tags, ["case", "forged"]] });
+  assert.equal((await send({ ...body, event: extraTag })).status, 400);
+  const invalidSignature = { ...event, sig: "0".repeat(128) };
+  assert.equal((await send({ ...body, event: invalidSignature })).status, 400);
+  assert.equal(setup.calls.length, 0, "no new app row, proposal or civic effect");
+  const missingCapability = await enrolledSession();
+  assert.equal((await missingCapability.handler(jsonRequest("/api/staging-participant/v1/nostr-comment", body, missingCapability.sessionCookie))).status, 503);
 });

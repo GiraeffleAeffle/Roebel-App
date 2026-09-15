@@ -65,6 +65,7 @@ const CHALLENGE_PATH = "/api/staging-participant/v1/challenge";
 const SESSION_PATH = "/api/staging-participant/v1/session";
 const POSTS_PATH = "/api/staging-participant/v1/posts";
 const COMMENTS_PATH = "/api/staging-participant/v1/comments";
+const NOSTR_COMMENT_PATH = "/api/staging-participant/v1/nostr-comment";
 const NOSTR_POST_PATH = "/api/staging-participant/v1/nostr-post";
 const PROMOTE_SOURCE_POST_PATH = "/api/staging-participant/v1/promote-source-post";
 const SIGN_TOPIC_SUGGESTION_PATH = "/api/staging-participant/v1/sign-topic-suggestion";
@@ -649,7 +650,7 @@ export function createStagingParticipantGatewayHandler(
     if (request.method === "OPTIONS" &&
       [
         STATUS_PATH, CHALLENGE_PATH, SESSION_PATH, POSTS_PATH, COMMENTS_PATH,
-        NOSTR_POST_PATH, PROMOTE_SOURCE_POST_PATH, SIGN_TOPIC_SUGGESTION_PATH,
+        NOSTR_POST_PATH, NOSTR_COMMENT_PATH, PROMOTE_SOURCE_POST_PATH, SIGN_TOPIC_SUGGESTION_PATH,
         CITIZEN_ADOPTION_CHALLENGE_PATH, CITIZEN_ADOPTION_ELIGIBILITY_PATH,
         CITIZEN_ADOPTION_ACCEPT_PATH,
         SYNTHETIC_CITIZEN_ADOPTION_CHALLENGE_PATH,
@@ -686,7 +687,7 @@ export function createStagingParticipantGatewayHandler(
       }, 200, origin);
     }
     if (url.pathname !== CHALLENGE_PATH && url.pathname !== SESSION_PATH &&
-      url.pathname !== POSTS_PATH && url.pathname !== COMMENTS_PATH && url.pathname !== NOSTR_POST_PATH &&
+      url.pathname !== POSTS_PATH && url.pathname !== COMMENTS_PATH && url.pathname !== NOSTR_POST_PATH && url.pathname !== NOSTR_COMMENT_PATH &&
       url.pathname !== PROMOTE_SOURCE_POST_PATH && url.pathname !== SIGN_TOPIC_SUGGESTION_PATH) {
       if (
         url.pathname !== CITIZEN_ADOPTION_CHALLENGE_PATH &&
@@ -1063,6 +1064,49 @@ export function createStagingParticipantGatewayHandler(
           return json({ error: code }, 400, origin);
         }
         return json({ error: "citizen_adoption_acceptance_unavailable" }, 503, origin);
+      }
+    }
+
+    if (url.pathname === NOSTR_COMMENT_PATH) {
+      const record = parsedObject(body, ["schemaVersion", "requestId", "sourcePostId", "sourceCommentId", "admissionProof", "event"]);
+      const requestId = record && validRequestId(record.requestId);
+      const sourcePostId = record && validPostId(record.sourcePostId);
+      const sourceCommentId = record && validPostId(record.sourceCommentId);
+      const proof = record && admissionProof(record.admissionProof, session.walletAddress);
+      const event = record && validNostrEvent(record.event);
+      if (!record || record.schemaVersion !== "staging_participant_nostr_comment_request_v1" ||
+        !requestId || !sourcePostId || !sourceCommentId || !proof || !event || event.pubkey !== proof.nostrPubkey ||
+        !containsExplicitMeckyMention(event.content) ||
+        !isAppConversationMentionEvent(event, { agentPubkey: config.meckyPubkey,
+          sourceAppPostId: sourcePostId, sourceAppCommentId: sourceCommentId,
+          conversationTopic: config.topicPolicy.sourceConversationTopic })) {
+        return json({ error: "nostr_comment_invalid" }, 400, origin);
+      }
+      const comments = dependencies.data.commentMirror;
+      if (!comments) return json({ error: "comment_mirror_unavailable" }, 503, origin);
+      try {
+        if (!await dependencies.verifier.verifyWalletSignature({ address: session.walletAddress,
+          message: proof.statement, signature: proof.walletSignature })) {
+          return json({ error: "wallet_signature_invalid" }, 401, origin);
+        }
+      } catch { return json({ error: "verification_unavailable" }, 503, origin); }
+      const input = { walletAddress: session.walletAddress, sourcePostId, sourceCommentId, requestId,
+        eventId: event.id, eventCreatedAt: event.created_at, contentSha256: sha256Hex(event.content) };
+      try {
+        // The atomic reservation proves ownership, parent and unchanged content
+        // from the gateway's stored comment. Browser assertions are insufficient.
+        const receipt = await comments.reserve(input);
+        if (receipt.state !== "published") {
+          const result = await dependencies.mirror.mirrorPost({ admissionProof: proof.workbenchProof, event });
+          if (result.status !== "published" || result.eventId !== event.id) throw Error("publish_mismatch");
+          await comments.complete(input);
+        }
+        return json({ status: "published", eventId: receipt.event_id, authority: "none" }, receipt.state === "published" ? 200 : 201, origin);
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "";
+        if (code === "staging_participant_comment_mirror_stale") return json({ error: "nostr_comment_stale" }, 400, origin);
+        if (code === "staging_participant_comment_mirror_conflict") return json({ error: "comment_source_mismatch" }, 409, origin);
+        return json({ error: "comment_mirror_unavailable" }, 503, origin);
       }
     }
 
