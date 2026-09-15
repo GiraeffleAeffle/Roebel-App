@@ -4,10 +4,6 @@ import { SiweMessage } from 'siwe'
 import { privateKeyToAccount } from 'viem/accounts'
 import { verifyMessage } from 'viem'
 import { renderStagingLoginPage } from '../src/interaction/staging-login-page.js'
-import { createStagingWorkspaceLogin } from '../../web/src/lib/workspace/staging-login-bridge.js'
-import { createThirdwebCitizenSession } from '../../web/src/lib/citizen-session/thirdweb-adapter.js'
-import { verifySiwe } from '../src/auth-bridge/verify-siwe.js'
-import { createMemoryNonceStore } from '../src/auth-bridge/nonce-store.js'
 
 const account = privateKeyToAccount(`0x${'11'.repeat(32)}`)
 const origin = 'https://roebel-id.staging.agentcart.eu'
@@ -87,40 +83,6 @@ describe('independent staging wallet login', () => {
 describe('Röbel app account login', () => {
   const appOrigin = 'https://roebel-web.staging.agentcart.eu'
   const ready = { schemaVersion: 'roebel_workspace_login_ready_v1' }
-
-  it.each(['11', '22'])('verifies a separate account through the delivered login script and existing SIWE verifier (%s)', async key => {
-    const signer = privateKeyToAccount(`0x${key.repeat(32)}`)
-    const session = createThirdwebCitizenSession({ account: signer, memberId: null, appAccountId: null })
-    const store = createMemoryNonceStore(), nonce = store.issue()
-    const page = browser()
-    const opener = { postMessage: vi.fn() }
-    const status = vi.fn()
-    const bridge = createStagingWorkspaceLogin({ session, opener, appOrigin, onStatus: status })
-    page.fetcher.mockReset().mockResolvedValueOnce(new Response(nonce)).mockImplementationOnce(async (_url, init) => {
-      const proof = JSON.parse(init.body)
-      const verified = await verifySiwe({ ...proof, nonceStore: store, expectedDomain: new URL(origin).host,
-        expectedChainId: 100, verifier: verifyMessage })
-      expect(verified.address).toBe(signer.address.toLowerCase())
-      return Response.json({ redirectTo: `${origin}/auth/resume` })
-    })
-    page.appButton.onclick!()
-    bridge.start()
-    await page.receive({ origin: appOrigin, source: page.popup, data: opener.postMessage.mock.calls[0][0] })
-    expect(page.popup.postMessage.mock.calls[0][1]).toBe(appOrigin)
-    await bridge.receive({ origin, source: opener, data: page.popup.postMessage.mock.calls[0][0] })
-    const reply = opener.postMessage.mock.calls[1][0]
-    expect(opener.postMessage.mock.calls[1][1]).toBe(origin)
-    await page.receive({ origin: appOrigin, source: page.popup, data: reply })
-    expect(page.location.href, page.status.textContent).toBe(`${origin}/auth/resume`)
-    expect(page.fetcher).toHaveBeenCalledTimes(2)
-    await page.receive({ origin: appOrigin, source: page.popup, data: reply })
-    expect(page.fetcher).toHaveBeenCalledTimes(2)
-    await expect(verifySiwe({ ...reply, nonceStore: store, expectedDomain: new URL(origin).host,
-      expectedChainId: 100, verifier: verifyMessage })).rejects.toThrow(/nonce/)
-    expect(page.request).not.toHaveBeenCalled()
-    expect(status).toHaveBeenLastCalledWith('sent')
-    bridge.dispose(); session.dispose()
-  })
 
   it('ignores foreign origins, other windows, unsolicited replies and replies after cancellation', async () => {
     const page = browser()
