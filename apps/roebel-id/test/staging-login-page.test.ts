@@ -10,6 +10,10 @@ const origin = 'https://roebel-id.staging.agentcart.eu'
 
 function browser(reply = new Response(JSON.stringify({ redirectTo: `${origin}/auth/resume` }))) {
   const button = { disabled: false, onclick: undefined as undefined | (() => Promise<void>) }
+  const appButton = { disabled: false, onclick: undefined as undefined | (() => void) }
+  const cancel = { hidden: true, onclick: undefined as undefined | (() => void) }
+  const popup = { postMessage: vi.fn() }
+  let receive: (event: { origin: string; source: unknown; data: unknown }) => Promise<void> = async () => {}
   const status = { textContent: '' }
   const location = { origin, host: new URL(origin).host, href: `${origin}/interaction/test` }
   const request = vi.fn(async ({ method, params }: { method: string; params?: string[] }) => {
@@ -24,11 +28,12 @@ function browser(reply = new Response(JSON.stringify({ redirectTo: `${origin}/au
   // Execute the complete delivered script with browser globals only. Login
   // must initialize without loading a CDN or injecting a SIWE implementation.
   const script = html.split('<script>')[1].split('</script>')[0]
-  runInNewContext(script, { URL, TextEncoder, Error, location,
-    document: { getElementById: (id: string) => id === 'login' ? button : status },
-    window: { ethereum: { request } }, fetch: fetcher,
+  runInNewContext(script, { URL, TextEncoder, Error, AbortSignal, location,
+    document: { getElementById: (id: string) => id === 'login' ? button : id === 'app-login' ? appButton : id === 'cancel' ? cancel : status },
+    window: { ethereum: { request }, open: () => popup,
+      addEventListener: (_type: string, listener: typeof receive) => { receive = listener } }, fetch: fetcher,
   })
-  return { button, status, location, request, fetcher }
+  return { button, appButton, cancel, popup, receive: (event: Parameters<typeof receive>[0]) => receive(event), status, location, request, fetcher }
 }
 
 describe('independent staging wallet login', () => {
@@ -41,7 +46,7 @@ describe('independent staging wallet login', () => {
     expect(siwe).toMatchObject({ domain: new URL(origin).host, uri: origin, chainId: 100, nonce: 'abcdef1234567890' })
     expect(new Date(siwe.expirationTime!).getTime() - new Date(siwe.issuedAt!).getTime()).toBe(120000)
     expect(await verifyMessage({ address: account.address, ...submitted })).toBe(true)
-    expect(page.location.href).toBe(`${origin}/auth/resume`)
+    expect(page.location.href, page.status.textContent).toBe(`${origin}/auth/resume`)
   })
 
   it.each([
@@ -72,5 +77,34 @@ describe('independent staging wallet login', () => {
     expect(page.request.mock.calls.map(([input]) => input.method)).toEqual(['eth_requestAccounts'])
     expect(page.button.disabled).toBe(false)
     expect(page.status.textContent).toContain('Ungültige Anmeldeanfrage')
+  })
+})
+
+describe('Röbel app account login', () => {
+  const appOrigin = 'https://roebel-web.staging.agentcart.eu'
+  const ready = { schemaVersion: 'roebel_workspace_login_ready_v1' }
+
+  it('ignores foreign origins, other windows, unsolicited replies and replies after cancellation', async () => {
+    const page = browser()
+    await page.receive({ origin: appOrigin, source: page.popup, data: ready })
+    page.appButton.onclick!()
+    await page.receive({ origin: 'https://foreign.example', source: page.popup, data: ready })
+    await page.receive({ origin: appOrigin, source: {}, data: ready })
+    expect(page.fetcher).not.toHaveBeenCalled()
+    page.cancel.onclick!()
+    await page.receive({ origin: appOrigin, source: page.popup, data: ready })
+    expect(page.fetcher).not.toHaveBeenCalled()
+    expect(page.button.disabled).toBe(false)
+  })
+
+  it('rejects a reply for another challenge before sending it to the issuer', async () => {
+    const page = browser()
+    page.appButton.onclick!()
+    await page.receive({ origin: appOrigin, source: page.popup, data: ready })
+    await page.receive({ origin: appOrigin, source: page.popup, data: { schemaVersion: 'roebel_workspace_login_response_v1',
+      requestId: 'test', message: 'Nonce: other-nonce', signature: '0x11' } })
+    expect(page.fetcher).toHaveBeenCalledTimes(1)
+    expect(page.location.href).toBe(`${origin}/interaction/test`)
+    expect(page.status.textContent).toContain('Ungültige')
   })
 })

@@ -15,3 +15,17 @@ export function meckyPresentation(content: string, urls: readonly string[]) {
   if (sources.some(source => !source)) return fallback;
   return { body: content.slice(0, at), sources: sources as { url: string; title: string }[] };
 }
+import { DEPARTMENT_LABELS } from "@roebel/stadtstack-federation-client";
+
+/** Only a presentation anchor changes; signed URLs and evidence digests remain intact. */
+export function meckySourceHref(url: string, title: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "https:" && !parsed.username && !parsed.password && !parsed.search && !parsed.hash &&
+      /^\/app\/diskussion\/[0-9a-f]{64}$/.test(parsed.pathname) &&
+      Object.values(DEPARTMENT_LABELS).some(label => title.startsWith(`Testantwort ${label} · `))) {
+      return `${url}#citizen-brief`;
+    }
+  } catch { /* An unrecognized source keeps its original destination. */ }
+  return url;
+}

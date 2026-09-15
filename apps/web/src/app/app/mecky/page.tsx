@@ -1,6 +1,6 @@
 "use client";
 
-import { meckyPresentation } from "@/lib/mecky-presentation";
+import { meckyPresentation, meckySourceHref } from "@/lib/mecky-presentation";
 
 import { useEffect, useRef, useState } from "react";
 import { Bot, ExternalLink, Send, ShieldCheck, User } from "lucide-react";
@@ -197,7 +197,7 @@ export default function MeckyPage() {
                     {message.evidenceRefs.map((evidence) => (
                       <li key={evidence.evidenceId}>
                         <a
-                          href={evidence.publicCaseUrl}
+                          href={meckySourceHref(evidence.publicCaseUrl, evidence.title)}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-2 hover:underline"

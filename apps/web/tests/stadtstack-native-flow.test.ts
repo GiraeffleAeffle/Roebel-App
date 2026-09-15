@@ -182,11 +182,8 @@ test("brings a promoted source post back into its one visible civic journey", ()
   );
   assert.match(postJourney, /loadPublicCivicPostLink/);
   assert.match(postJourney, /Bürgerprozess aus diesem Beitrag/);
-  assert.match(postJourney, /Der ursprüngliche Beitrag bleibt unverändert/);
-  assert.match(postJourney, /Bürgerprozess öffnen/);
   assert.match(postJourney, /Nächster Schritt/);
   assert.match(postJourney, /<StadtstackPostPromotion/);
-  assert.match(postJourney, /\/app\/themen\//);
   assert.match(civicProjectionClient, /PUBLIC_CIVIC_API = "\/api\/civic\/v1"/);
   assert.doesNotMatch(postDetail, /StadtstackStagingPostDetail/);
   assert.doesNotMatch(postDetail, /findStagingPostMirror/);

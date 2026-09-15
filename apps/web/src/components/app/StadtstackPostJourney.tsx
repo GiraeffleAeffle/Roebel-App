@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ArrowRight, Check, Circle, GitFork, RotateCw } from "lucide-react";
 
 import { loadPublicCivicPostLink } from "@/lib/stadtstack/civic-projection-client";
+import { loadCurrentPostJourney } from "@/lib/stadtstack/current-post-journey";
 import {
   presentCivicPostJourney,
   resolveCivicPostJourney,
@@ -55,7 +56,10 @@ export function StadtstackPostJourney({
       };
     void resolveCivicPostJourney({
       sourceAppPostId,
-      loadPostLink: loadPublicCivicPostLink,
+      loadPostLink: async (postId) => {
+        const link = await loadPublicCivicPostLink(postId);
+        return link ? { ...link, journey: await loadCurrentPostJourney(link) } : null;
+      },
     }).then((nextState) => {
       if (active) setState(nextState);
     });
@@ -127,16 +131,16 @@ export function StadtstackPostJourney({
             {topic.topicTitle}
           </h2>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Der ursprüngliche Beitrag bleibt unverändert. Diskussion,
-            Mecky-Antwort, Vorschlag und spätere öffentliche Schritte sind über
-            dieses Thema nachvollziehbar verbunden.
+            {link.journey.displayScope === "synthetic_demo"
+              ? "Synthetischer Test · Dieser Stand folgt dem geprüften Testfall. Er ist keine kommunale Entscheidung."
+              : "Diskussion, Vorschlag und öffentliche Antworten bleiben mit diesem Beitrag verbunden."}
           </p>
         </div>
         <Link
-          href={`/app/themen/${encodeURIComponent(topic.topicId)}`}
+          href={`/app/diskussion/${link.discussionId}${link.journey.displayScope === "synthetic_demo" && link.journey.currentStageId === "participation" ? "#citizen-brief" : ""}`}
           className="inline-flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
         >
-          Bürgerprozess öffnen <ArrowRight className="h-3.5 w-3.5" />
+          {link.journey.displayScope === "synthetic_demo" && link.journey.currentStageId === "participation" ? "Fachantworten öffnen" : "Diskussion öffnen"} <ArrowRight className="h-3.5 w-3.5" />
         </Link>
       </div>
 

@@ -1,5 +1,17 @@
 import type { SyntheticCitizenBriefBinding, SyntheticCitizenBriefReturn } from "@roebel/stadtstack-federation-client";
 import type { CivicJourney, CivicJourneyStageId } from "./civic-journey";
+import type { VerifiedPublicCaseBindingReceipt } from "./public-case-binding-receipt-client";
+import type { StagingThreadResponse } from "./staging-api";
+
+/** A test return belongs to the exact signed proposal, not just a topic label. */
+export function bindSyntheticCitizenBrief(receipt: VerifiedPublicCaseBindingReceipt | null,
+  thread: StagingThreadResponse | null, discussionId: string): SyntheticCitizenBriefBinding | null {
+  return receipt?.schemaVersion === "public_synthetic_case_binding_receipt_v1" &&
+    receipt.rootEventId === discussionId && receipt.topicId === thread?.topic?.id &&
+    thread?.suggestion?.schemaVersion === "staging_participant_signed_topic_suggestion_v1" &&
+    receipt.participantSuggestionEventId === thread.suggestion.suggestionId
+    ? { caseId: receipt.caseId, discussionId, topicId: receipt.topicId } : null;
+}
 
 /** The verified test lane is visible without relabelling it as civic eligibility. */
 export function projectSyntheticJourney(journey: CivicJourney, binding: SyntheticCitizenBriefBinding,

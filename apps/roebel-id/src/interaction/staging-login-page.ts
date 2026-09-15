@@ -12,16 +12,72 @@ export function renderStagingLoginPage(uid: string): string {
   button:disabled{opacity:.6;cursor:wait}#status{min-height:26px;font-size:15px}small{color:#536579}
 </style></head><body><main>
 <div class="badge">TOWN WORKSPACE · TESTBETRIEB</div>
-<h1>Mit Test-Wallet anmelden</h1>
-<p>Nutze die für diesen Test freigeschaltete Browser-Wallet. Die Signatur bestätigt, dass du diese Wallet kontrollierst.</p>
+<h1>Im Town Workspace anmelden</h1>
+<p>Verwende dein eigenes Röbel-Konto. Die Signatur bestätigt die Kontrolle über dein Konto; Testzugang und Aufgaben werden separat freigeschaltet.</p>
+<button id="app-login" type="button">Mit Röbel-Konto anmelden</button>
+<p>Du nutzt bereits eine freigeschaltete Browser-Wallet?</p>
 <button id="login" type="button">Wallet verbinden und anmelden</button>
+<button id="cancel" type="button" hidden>Anmeldeversuch abbrechen</button>
 <p id="status" role="status" aria-live="polite"></p>
 <small>Keine Transaktion, keine Gebühren. Der Testzugang bestätigt weder Wohnsitz noch ein kommunales Amt. Ein separates Testkonto übernimmt keine bestehende Röbel-Identität.</small>
 </main><script>
   const button = document.getElementById('login')
+  const appButton = document.getElementById('app-login')
+  const cancel = document.getElementById('cancel')
   const status = document.getElementById('status')
+  const appOrigin = 'https://roebel-web.staging.agentcart.eu'
+  let popup = null, pendingNonce = null, generation = 0
+  function reset() {
+    generation++; popup = null; pendingNonce = null
+    button.disabled = false; appButton.disabled = false; cancel.hidden = true
+  }
+  cancel.onclick = () => { reset(); status.textContent = 'Anmeldung abgebrochen. Du kannst es erneut versuchen.' }
+  async function finish(message, signature, attempt) {
+    const response = await fetch('/interaction/${uid}/login', { method: 'POST', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, signature }), signal: AbortSignal.timeout(15000) })
+    if (attempt !== generation) return
+    if (!response.ok) throw new Error('Anmeldung abgelehnt. Dieses Konto muss für den Test freigeschaltet sein. Die Verwaltungsrolle wird separat zugewiesen.')
+    const result = await response.json()
+    if (typeof result.redirectTo !== 'string') throw new Error('Anmeldung konnte nicht abgeschlossen werden.')
+    const next = new URL(result.redirectTo, location.origin)
+    if (next.origin !== location.origin || !next.pathname.startsWith('/auth/')) throw new Error('Ungültige Anmeldeantwort.')
+    location.href = next.href
+  }
+  appButton.onclick = () => {
+    reset()
+    popup = window.open(appOrigin + '/app/verwaltung-anmelden', '_blank', 'popup,width=620,height=760')
+    if (!popup) { status.textContent = 'Bitte erlaube das Anmeldefenster und versuche es erneut.'; return }
+    button.disabled = true; appButton.disabled = true; cancel.hidden = false
+    status.textContent = 'Melde dich im neuen Fenster mit deinem Röbel-Konto an und bestätige die Anmeldung.'
+  }
+  window.addEventListener('message', async event => {
+    if (!popup || event.source !== popup || event.origin !== appOrigin || !event.data || typeof event.data !== 'object') return
+    const data = event.data, attempt = generation
+    try {
+      if (data.schemaVersion === 'roebel_workspace_login_ready_v1' && Object.keys(data).join() === 'schemaVersion' && pendingNonce !== 'loading') {
+        pendingNonce = 'loading'
+        const response = await fetch('/interaction/${uid}/nonce', { credentials: 'same-origin', signal: AbortSignal.timeout(10000) })
+        if (!response.ok) throw Error('Anmeldung ist nicht erreichbar. Bitte erneut versuchen.')
+        const nonce = await response.text()
+        if (attempt !== generation) return
+        if (!/^[A-Za-z0-9]{8,128}$/.test(nonce)) throw Error('Ungültige Anmeldeanfrage.')
+        pendingNonce = nonce
+        popup.postMessage({ schemaVersion: 'roebel_workspace_login_request_v1', requestId: '${uid}', nonce }, appOrigin)
+      } else if (data.schemaVersion === 'roebel_workspace_login_response_v1' && pendingNonce && pendingNonce !== 'loading') {
+        if (Object.keys(data).sort().join() !== 'message,requestId,schemaVersion,signature' || data.requestId !== '${uid}' ||
+          typeof data.message !== 'string' || data.message.length > 1500 || !data.message.split('\\n').includes('Nonce: ' + pendingNonce) ||
+          typeof data.signature !== 'string' || data.signature.length > 16384 || !/^0x[0-9a-f]+$/i.test(data.signature)) throw Error('Ungültige Anmeldeantwort.')
+        pendingNonce = null; popup = null; cancel.hidden = true
+        await finish(data.message, data.signature, attempt)
+      }
+    } catch (error) {
+      if (attempt !== generation) return
+      reset(); status.textContent = error instanceof Error ? error.message : 'Anmeldung fehlgeschlagen.'
+    }
+  })
   button.onclick = async () => {
-    button.disabled = true
+    reset(); button.disabled = true; appButton.disabled = true
+    const attempt = generation
     try {
       if (!window.ethereum?.request) throw new Error('Bitte öffne diese Seite in einem Browser mit deiner Test-Wallet.')
       status.textContent = 'Test-Wallet verbinden…'
@@ -42,18 +98,12 @@ export function renderStagingLoginPage(uid: string): string {
       const encoded = '0x' + Array.from(new TextEncoder().encode(message), b => b.toString(16).padStart(2, '0')).join('')
       status.textContent = 'Bitte bestätige die Signatur in deiner Wallet.'
       const signature = await window.ethereum.request({ method: 'personal_sign', params: [encoded, address] })
-      const response = await fetch('/interaction/${uid}/login', { method: 'POST', credentials: 'same-origin',
-        headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, signature }) })
-      if (!response.ok) throw new Error('Anmeldung abgelehnt. Nutze eine freigeschaltete Test-Wallet oder starte die Anmeldung neu.')
-      const result = await response.json()
-      if (typeof result.redirectTo !== 'string') throw new Error('Anmeldung konnte nicht abgeschlossen werden.')
-      const next = new URL(result.redirectTo, location.origin)
-      if (next.origin !== location.origin || !next.pathname.startsWith('/auth/')) throw new Error('Ungültige Anmeldeantwort.')
-      location.href = next.href
+      if (attempt !== generation) return
+      await finish(message, signature, attempt)
     } catch (error) {
       status.textContent = error?.code === 4001 ? 'Anmeldung abgebrochen. Du kannst es erneut versuchen.' :
         error instanceof Error ? error.message : 'Anmeldung fehlgeschlagen. Bitte erneut versuchen.'
-      button.disabled = false
+      reset()
     }
   }
 </script></body></html>`
