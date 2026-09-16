@@ -29,10 +29,27 @@ test("wrong receipt, Case, method, configuration or private response fail closed
   const dependencies = { readReceipt: async () => receipt, fetch: async () => { reads++; return Response.json(returned); } };
   assert.equal((await respondSyntheticBrief(request("POST"), returned.discussionId, config, dependencies)).status, 405);
   assert.equal((await respondSyntheticBrief(request(), returned.discussionId, { ...config, environment: "production" }, dependencies)).status, 503);
-  assert.equal((await respondSyntheticBrief(request(), returned.discussionId, { ...config, caseId: "foreign-case" }, dependencies)).status, 404);
+  assert.equal((await respondSyntheticBrief(request(), returned.discussionId, { ...config, caseId: "foreign-case" }, dependencies)).status, 503);
   assert.equal(reads, 0);
   for (const value of [{ ...returned, privateDraft: "canary" }, { ...returned, returnChecksum: "sha256:" + "0".repeat(64) }]) {
     assert.equal((await respondSyntheticBrief(request(), returned.discussionId, config,
       { ...dependencies, fetch: async () => Response.json(value) })).status, 503);
   }
+});
+
+test("the verified discussion receipt selects a configured additional Case without forwarding browser selectors", async () => {
+  const defaultCaseId = returned.caseId.replace(/.$/, returned.caseId.endsWith("0") ? "1" : "0");
+  let calls = 0;
+  const scoped = { ...config, caseId: defaultCaseId, additionalCaseIds: [returned.caseId] };
+  const dependencies = { readReceipt: async () => receipt, fetch: async (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    calls++;
+    assert.equal(url, `${origin}/v1/staging/administration/cases/${encodeURIComponent(returned.caseId)}/citizen-brief`);
+    assert.deepEqual(init!.headers, { host: "127.0.0.1", accept: "application/json" });
+    return Response.json(returned);
+  } };
+  const response = await respondSyntheticBrief(request(), returned.discussionId, scoped, dependencies);
+  assert.equal(response.status, 200); assert.deepEqual(await response.json(), returned);
+  assert.equal((await respondSyntheticBrief(request(), returned.discussionId, { ...scoped, additionalCaseIds: [] }, dependencies)).status, 404);
+  assert.equal((await respondSyntheticBrief(new Request(request().url + `?caseId=${defaultCaseId}`), returned.discussionId, scoped, dependencies)).status, 404);
+  assert.equal(calls, 1);
 });

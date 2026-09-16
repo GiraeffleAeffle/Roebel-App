@@ -114,3 +114,28 @@ test("explicit department questions exclude incidental mentions and retain reque
   assert.equal((await adapter.load({ ...query, question: "Wie können wir Verkehr und Kosten der Querung verbessern?" })).length, 8);
   assert.equal((await adapter.load({ ...query, question: "Was sagt Verkehrsplanung?" })).length, 8);
 });
+
+test("Mecky reads each pinned Case independently and keeps the surviving return attributed to its own discussion", async () => {
+  const binding = { caseId: config.caseId, discussionId: config.discussionId, topicId: config.topicId };
+  const multiple = { ...config, caseId: config.caseId.replace(/.$/, config.caseId.endsWith("0") ? "1" : "0"),
+    discussionId: "b".repeat(64), additionalBindings: [binding] };
+  const urls: string[] = [];
+  const adapter = createSyntheticBriefEvidenceAdapter(multiple, async (url, init) => {
+    urls.push(String(url)); assert.equal(init?.method, "GET"); assert.equal(init?.credentials, "omit");
+    return String(url).endsWith(config.discussionId) ? Response.json(returned) : new Response(null, { status: 503 });
+  });
+  const packet = await createPublicKnowledgeCatalog([adapter]).retrieve({ ...query, question: "Was sagt Verkehr im synthetischen Test?" });
+  assert.equal(urls.length, 2); assert.equal(new Set(urls).size, 2);
+  assert.equal(packet.passages.length, 1);
+  const evidence = packet.passages[0]!.evidence;
+  assert.equal(evidence.sourceKind, "synthetic_citizen_brief");
+  if (evidence.sourceKind !== "synthetic_citizen_brief") throw Error();
+  assert.equal(evidence.caseId, config.caseId);
+  assert.equal(evidence.caseUrl, `${config.publicOrigin}/app/diskussion/${config.discussionId}`);
+  assert.equal(evidence.briefChecksum, returned.brief.briefChecksum);
+  for (const additionalBindings of [[binding, binding], [{ ...binding, caseId: multiple.caseId }],
+    [{ ...binding, discussionId: multiple.discussionId }], [{ ...binding, publicOrigin: "https://foreign.example" }],
+    [{ ...binding, caseId: binding.caseId.replace(returned.municipalityId, "other-city") }], null]) {
+    assert.throws(() => createSyntheticBriefEvidenceAdapter({ ...multiple, additionalBindings } as never), /configuration_invalid/);
+  }
+});

@@ -5,6 +5,7 @@ import { BriefResponses, type BriefResponse } from "../../components/administrat
 import { TopicOverview } from "../../components/administration-review/TopicOverview";
 import { matchingCase, type TopicOrigin } from "../../lib/administration-review/overview";
 import { loadVerifiedPublicCaseBindingReceipt } from "../../lib/stadtstack/public-case-binding-receipt-client";
+import { workspaceReviewPath } from "../../lib/administration-review/case-routing";
 
 
 type Role = { id: string; label: string; actorClass: string };
@@ -15,7 +16,6 @@ type View = { caseId: string; assignmentTargets?: AssignmentTarget[]; caseVersio
   departmentPackages: Package[]; briefReadiness: { status: string; requiredDepartmentIds: string[]; acceptedDepartmentIds: string[]; blockers?: { departmentId: string; reason: string }[] } | null };
 type Preparation = { schemaVersion: "synthetic_citizen_brief_preparation_v1"; caseId: string; caseVersion: number;
   briefId: string; preparationChecksum: string; state: "prepared_not_applied"; preview: { title: string; responses: BriefResponse[] } };
-const ENDPOINT = "/api/workspace/case-review";
 const statusText: Record<string, string> = { assigned: "Zur Bearbeitung", draft_pending_review: "Prüfung ausstehend", accepted: "Geprüft", rejected: "Überarbeitung nötig" };
 const departments: Record<string, string> = { planning: "Stadtplanung", traffic: "Verkehr", environment: "Umwelt", finance: "Finanzen",
   legal: "Recht", "public-order": "Öffentliche Ordnung", "social-affairs": "Soziales", "public-works": "Technische Dienste" };
@@ -31,10 +31,12 @@ export default function AdministrationWorkspace() {
   const [needsRefresh, setNeedsRefresh] = useState(false);
   const [origin, setOrigin] = useState<TopicOrigin | null>(null);
   const [originRequested, setOriginRequested] = useState(false), [originMessage, setOriginMessage] = useState("");
+  const [originResolved, setOriginResolved] = useState(false);
+  const reviewCaseId = originResolved ? (originRequested ? origin?.caseId : null) : undefined;
   const view = originRequested ? (origin ? matchingCase(origin, rawView) : null) : rawView;
   useEffect(() => {
     const rootId = new URLSearchParams(window.location.search).get("discussion");
-    if (rootId === null) return;
+    if (rootId === null) { setOriginResolved(true); return; }
     setOriginRequested(true); setOriginMessage("Originalthema wird aus den öffentlichen Staging-Projektionen geladen …");
     let cancelled = false;
     void (async () => {
@@ -56,31 +58,38 @@ export default function AdministrationWorkspace() {
         title: detail.topic.topicTitle, content: discussion.content, createdAt: discussion.createdAt,
         admissionVersion: receipt.caseVersion, receiptChecksum: receipt.receiptChecksum,
         testOnly: receipt.schemaVersion === "public_synthetic_case_binding_receipt_v1",
-        sources: detail.sourcePosts.map(p => ({ id: p.id, content: p.content, createdAt: p.createdAt })).sort((a,b) => a.createdAt.localeCompare(b.createdAt)) }); setOriginMessage(""); }
-    })().catch(() => { if (!cancelled) setOriginMessage("Die verifizierte Verbindung zum Originalthema ist gerade nicht verfügbar. Es wird kein anderer Testfall als Ersatz angezeigt."); });
+        sources: detail.sourcePosts.map(p => ({ id: p.id, content: p.content, createdAt: p.createdAt })).sort((a,b) => a.createdAt.localeCompare(b.createdAt)) }); setOriginMessage(""); setOriginResolved(true); }
+    })().catch(() => { if (!cancelled) { setOriginMessage("Die verifizierte Verbindung zum Originalthema ist gerade nicht verfügbar. Es wird kein anderer Testfall als Ersatz angezeigt."); setMessage(""); } });
     return () => { cancelled = true; };
   }, []);
   const active = roles.find((item) => item.id === role);
   useEffect(() => {
+    setRoles([]); setRole("");
+    if (reviewCaseId === undefined) return;
     const controller = new AbortController();
-    fetch(ENDPOINT, { cache: "no-store", signal: controller.signal }).then(async (response) => {
+    fetch(workspaceReviewPath(reviewCaseId), { cache: "no-store", signal: controller.signal }).then(async (response) => {
       if (controller.signal.aborted) return;
       setSignedIn(response.ok || response.status === 403);
       if (!response.ok) { setLogin(response.status === 401); throw Error(response.status === 403 ? "Für dieses Konto ist keine Verwaltungsrolle zugewiesen." : "Die Verbindung zur Verwaltung ist noch nicht verfügbar."); }
-      const result = await response.json(); setRoles(result.roles); setRole(result.roles[0]?.id ?? ""); setMessage("");
+      const result = await response.json();
+      if (controller.signal.aborted) return;
+      if (reviewCaseId !== null && result.caseId !== reviewCaseId) throw Error("Die Verwaltungsrollen gehören nicht zu diesem Thema.");
+      setRoles(result.roles); setRole(result.roles[0]?.id ?? ""); setMessage("");
     }).catch((error) => { if (!controller.signal.aborted) setMessage(error.message); });
     return () => controller.abort();
-  }, []);
+  }, [reviewCaseId]);
   useEffect(() => {
     generation.current++; setView(null); setPreparation(null);
-    if (!role) return;
+    if (!role || reviewCaseId === undefined) return;
     const controller = new AbortController();
-    fetch(`${ENDPOINT}?role=${encodeURIComponent(role)}`, { cache: "no-store", signal: controller.signal }).then(async (response) => {
+    fetch(workspaceReviewPath(reviewCaseId, role), { cache: "no-store", signal: controller.signal }).then(async (response) => {
       if (!response.ok) throw Error("Der Fall kann momentan nicht geladen werden. Bitte später erneut versuchen.");
-      const result = await response.json(); if (!controller.signal.aborted) { setView(result); setNeedsRefresh(false); setMessage(""); }
+      const result = await response.json();
+      if (reviewCaseId !== null && result.caseId !== reviewCaseId) throw Error("Die Verwaltungsantwort gehört nicht zu diesem Thema.");
+      if (!controller.signal.aborted) { setView(result); setNeedsRefresh(false); setMessage(""); }
     }).catch((error) => { if (!controller.signal.aborted) setMessage(error.message); });
     return () => controller.abort();
-  }, [role, revision]);
+  }, [role, revision, reviewCaseId]);
   async function switchAccount() {
     if (busy || pendingWrite.current) return;
     setBusy(true);
@@ -97,13 +106,13 @@ export default function AdministrationWorkspace() {
     }
   }
   async function submit(operation: "assign" | "draft" | "review" | "prepare_brief" | "apply_brief", payload: unknown) {
-    if (!view || pendingWrite.current || needsRefresh) return;
+    if (!view || reviewCaseId === undefined || pendingWrite.current || needsRefresh) return;
     pendingWrite.current = true;
     const current = generation.current;
     setBusy(true); setMessage("");
     if (operation === "prepare_brief") setPreparation(null);
     try {
-      const response = await fetch(`${ENDPOINT}?role=${encodeURIComponent(role)}`, { method: "POST", headers: { "content-type": "application/json" },
+      const response = await fetch(workspaceReviewPath(view.caseId, role), { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ schemaVersion: "administration_review_request_v1", operation, expectedCaseVersion: view.caseVersion, payload }) });
       if (current !== generation.current) return;
       if (!response.ok) { setNeedsRefresh(true); setMessage(response.status === 409 ? "Der Fall wurde inzwischen verändert. Bitte neu laden und die aktuelle Fassung prüfen." : "Speichern nicht bestätigt. Bitte den Fall neu laden, bevor du erneut sendest."); return; }

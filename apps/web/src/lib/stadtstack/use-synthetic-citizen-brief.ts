@@ -5,7 +5,7 @@ import { readSyntheticBriefResponse, syntheticBriefPath, type SyntheticCitizenBr
   type SyntheticCitizenBriefReturn } from "@roebel/stadtstack-federation-client";
 
 /** One verified read supplies both the progress display and the response body. */
-export function useSyntheticCitizenBrief(binding: SyntheticCitizenBriefBinding | null) {
+export function useSyntheticCitizenBrief(binding: SyntheticCitizenBriefBinding | null, observedCaseVersion?: number) {
   const [received, setReceived] = useState<SyntheticCitizenBriefReturn | null>(null);
   const [error, setError] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -21,8 +21,9 @@ export function useSyntheticCitizenBrief(binding: SyntheticCitizenBriefBinding |
         .catch(() => { if (!controller.signal.aborted) setError(true); });
     }
     return () => controller.abort();
-  }, [caseId, discussionId, topicId, revision]);
+  }, [caseId, discussionId, topicId, revision, observedCaseVersion]);
   // A route change must not display the previous Case for even one render.
-  const value = received?.caseId === caseId && received?.discussionId === discussionId && received?.topicId === topicId ? received : null;
+  const value = received?.caseId === caseId && received?.discussionId === discussionId && received?.topicId === topicId &&
+    (observedCaseVersion === undefined || received.caseVersion >= observedCaseVersion) ? received : null;
   return { value, error, refresh: () => { setReceived(null); setError(false); setRevision(r => r + 1); } };
 }

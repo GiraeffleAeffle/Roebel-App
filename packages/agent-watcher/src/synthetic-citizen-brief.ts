@@ -27,6 +27,7 @@ function requestedDepartments(question: string): Set<string> {
 }
 type Config = SyntheticCitizenBriefBinding & {
   environment: "staging"; publicOrigin: string; transport?: "staging_web_service";
+  additionalBindings?: readonly SyntheticCitizenBriefBinding[];
 };
 
 /** Explicit deployment opt-in. No public query can select a Case or URL. */
@@ -36,8 +37,8 @@ export function syntheticBriefConfig(env: Record<string, string | undefined>): C
   if (enabled !== "true" || !raw || raw.length > 4096) throw Error("synthetic_brief_configuration_invalid");
   try {
     const value = JSON.parse(raw);
-    if (!value || Object.keys(value).sort().join() !==
-      `caseId,discussionId,environment,publicOrigin,topicId${Object.hasOwn(value, "transport") ? ",transport" : ""}` ||
+    if (!value || Object.keys(value).sort().join() !== ["caseId", "discussionId", "environment", "publicOrigin", "topicId",
+      ...(Object.hasOwn(value, "transport") ? ["transport"] : []), ...(Object.hasOwn(value, "additionalBindings") ? ["additionalBindings"] : [])].sort().join() ||
       value.environment !== "staging" || (Object.hasOwn(value, "transport") && value.transport !== "staging_web_service")) throw Error();
     const url = new URL(value.publicOrigin);
     if (url.origin !== value.publicOrigin || url.protocol !== "https:" || url.username || url.password ||
@@ -45,13 +46,26 @@ export function syntheticBriefConfig(env: Record<string, string | undefined>): C
       !/^urn:stadtstack:synthetic-case:municipality:[a-z0-9-]+:[0-9a-f-]{36}$/.test(value.caseId) ||
       !/^urn:stadtstack:topic:municipality:[a-z0-9-]+:[a-z0-9-]+$/.test(value.topicId)) throw Error();
     syntheticBriefPath(value.discussionId);
+    const municipality = value.caseId.split(":")[4];
+    if (value.topicId.split(":")[4] !== municipality) throw Error();
+    const additional = value.additionalBindings ?? [];
+    if (!Array.isArray(additional) || additional.length > 7 || (Object.hasOwn(value, "additionalBindings") && value.additionalBindings === null)) throw Error();
+    const caseIds = new Set([value.caseId]), discussions = new Set([value.discussionId]);
+    for (const binding of additional) {
+      if (!binding || Object.keys(binding).sort().join() !== "caseId,discussionId,topicId" ||
+        !/^urn:stadtstack:synthetic-case:municipality:[a-z0-9-]+:[0-9a-f-]{36}$/.test(binding.caseId) ||
+        !/^urn:stadtstack:topic:municipality:[a-z0-9-]+:[a-z0-9-]+$/.test(binding.topicId) ||
+        binding.caseId.split(":")[4] !== municipality || binding.topicId.split(":")[4] !== municipality ||
+        caseIds.has(binding.caseId) || discussions.has(binding.discussionId)) throw Error();
+      syntheticBriefPath(binding.discussionId);
+      caseIds.add(binding.caseId); discussions.add(binding.discussionId); Object.freeze(binding);
+    }
+    if (value.additionalBindings) Object.freeze(value.additionalBindings);
     return Object.freeze(value) as Config;
   } catch { throw Error("synthetic_brief_configuration_invalid"); }
 }
 
-export function createSyntheticBriefEvidenceAdapter(config: Config, fetcher: typeof fetch = fetch): PublicEvidenceSourceAdapter {
-  // Validate injected config through the same closed deployment boundary.
-  const pinned = syntheticBriefConfig({ MECKY_ALLOW_SYNTHETIC_BRIEF: "true", MECKY_SYNTHETIC_BRIEF_CONFIG: JSON.stringify(config) })!;
+function createPinnedBriefReader(pinned: Omit<Config, "additionalBindings">, fetcher: typeof fetch): PublicEvidenceSourceAdapter {
   const municipality = pinned.caseId.split(":")[4]!;
   const url = pinned.publicOrigin + syntheticBriefPath(pinned.discussionId);
   const citationUrl = `${pinned.publicOrigin}/app/diskussion/${pinned.discussionId}`;
@@ -78,6 +92,23 @@ export function createSyntheticBriefEvidenceAdapter(config: Config, fetcher: typ
           caseId: returned.caseId, caseUrl: citationUrl, briefChecksum: brief.briefChecksum, testOnly: true,
         };
       });
+    },
+  });
+}
+
+/** Each configured Case is read independently so withdrawal or an outage cannot
+ * substitute another Case's response or retain a stale cached answer. */
+export function createSyntheticBriefEvidenceAdapter(config: Config, fetcher: typeof fetch = fetch): PublicEvidenceSourceAdapter {
+  const { additionalBindings = [], ...primary } = syntheticBriefConfig({ MECKY_ALLOW_SYNTHETIC_BRIEF: "true",
+    MECKY_SYNTHETIC_BRIEF_CONFIG: JSON.stringify(config) })!;
+  const readers = [primary, ...additionalBindings.map(binding => ({ ...primary, ...binding }))]
+    .map(binding => createPinnedBriefReader(binding, fetcher));
+  return Object.freeze({ sourceKind: "synthetic_citizen_brief" as const,
+    async load(query: PublicEvidenceQuery): Promise<readonly unknown[]> {
+      const results = await Promise.allSettled(readers.map(reader => reader.load(query)));
+      const available = results.filter(result => result.status === "fulfilled");
+      if (!available.length) throw Error("synthetic_brief_unavailable");
+      return available.flatMap(result => result.value);
     },
   });
 }

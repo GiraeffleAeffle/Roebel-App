@@ -2,19 +2,20 @@
  * No app, wallet or organisation membership implicitly grants municipal roles.
  */
 import { fetchReviewWithPinnedHost } from "./transport";
+import { reviewCaseIds, reviewUpstreamPath, type ReviewCaseScope } from "./case-routing";
 export type ReviewGrant = {
   id: string; label: string; subject: string; actorId: string;
   actorClass: "case_steward" | "administration" | "department_agent" | "department_reviewer";
   token: string; notBefore: number; expiresAt: number;
+  /** Omission retains the original configured Case, never all Cases. */
+  caseId?: string;
 };
-export type ReviewGatewayConfig = {
+export type ReviewGatewayConfig = ReviewCaseScope & {
   environment: "staging"; publicOrigin: string; upstreamOrigin: string; caseId: string;
   grants: ReviewGrant[];
   assignmentTargets?: { departmentId: string; label: string; assignedAgentActorId: string; assignedReviewerActorId: string }[];
 };
-const CASE = /^urn:stadtstack:synthetic-case:municipality:[a-z0-9-]+:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const ENDPOINT = "/api/workspace/case-review";
-const UPSTREAM = "/v1/staging/administration/review";
 const INTERNAL_UPSTREAM = "http://roebel-case-steward-control.stadtstack-roebel-staging-lab.svc.cluster.local:18090";
 const HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" };
 const reply = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: HEADERS });
@@ -59,12 +60,14 @@ export function createReviewGateway(config: ReviewGatewayConfig, dependencies: {
   let settings: ReviewGatewayConfig;
   try {
     settings = structuredClone(config);
-    if (settings.environment !== "staging" || !CASE.test(settings.caseId) ||
+    const caseIds = reviewCaseIds(settings);
+    if (settings.environment !== "staging" ||
       !Array.isArray(settings.grants) || settings.grants.length < 1 || settings.grants.length > 64) throw Error();
     origin(settings.publicOrigin); origin(settings.upstreamOrigin, true);
     const ids = new Set<string>(), tokens = new Set<string>();
     for (const grant of settings.grants) {
-      if (!/^[a-z0-9-]{1,64}$/.test(grant.id) || ids.has(grant.id) ||
+      if (!caseIds.includes(grant.caseId === undefined ? settings.caseId : grant.caseId) ||
+        !/^[a-z0-9-]{1,64}$/.test(grant.id) || ids.has(grant.id) ||
         typeof grant.label !== "string" || !grant.label.trim() || grant.label.length > 100 ||
         typeof grant.subject !== "string" || !grant.subject || grant.subject.length > 256 ||
         !/^[A-Za-z0-9:._-]{1,256}$/.test(grant.actorId) ||
@@ -100,11 +103,15 @@ export function createReviewGateway(config: ReviewGatewayConfig, dependencies: {
         (request.method === "POST" && request.headers.get("origin") !== settings.publicOrigin)) return error(403, "request_origin_rejected");
       const time = now();
       if (!Number.isSafeInteger(time)) return error(503, "review_unavailable");
-      const grants = settings.grants.filter((g) => g.subject === session.sub && time >= g.notBefore && time < g.expiresAt);
+      if ([...url.searchParams.keys()].some((key) => key !== "role" && key !== "caseId") ||
+        ["role", "caseId"].some(key => url.searchParams.getAll(key).length > 1)) return error(400, "request_invalid");
+      const caseId = url.searchParams.get("caseId") ?? settings.caseId;
+      if (!reviewCaseIds(settings).includes(caseId)) return error(404, "not_found");
+      const grants = settings.grants.filter((g) => (g.caseId ?? settings.caseId) === caseId &&
+        g.subject === session.sub && time >= g.notBefore && time < g.expiresAt);
       if (!grants.length) return error(403, "review_role_required");
-      if ([...url.searchParams.keys()].some((key) => key !== "role") || url.searchParams.getAll("role").length > 1) return error(400, "request_invalid");
       const role = url.searchParams.get("role");
-      if (request.method === "GET" && role === null) return reply(200, { caseId: settings.caseId, testOnly: true,
+      if (request.method === "GET" && role === null) return reply(200, { caseId, testOnly: true,
         roles: grants.map(({ id, label, actorClass }) => ({ id, label, actorClass })) });
       const grant = grants.find((g) => g.id === role);
       if (!grant) return error(403, "review_role_required");
@@ -128,7 +135,7 @@ export function createReviewGateway(config: ReviewGatewayConfig, dependencies: {
             pkg.assignedReviewerActorId !== target.assignedReviewerActorId) return error(403, "assignment_target_rejected");
         }
       }
-      const upstream = await fetcher(settings.upstreamOrigin + UPSTREAM, { method: request.method,
+      const upstream = await fetcher(settings.upstreamOrigin + reviewUpstreamPath(settings.caseId, caseId, "review"), { method: request.method,
         headers: { authorization: `Bearer ${grant.token}`, accept: "application/json",
           // The admitted private listener pins this virtual Host independently
           // of Service discovery. Never forward a browser-controlled Host.
@@ -142,7 +149,7 @@ export function createReviewGateway(config: ReviewGatewayConfig, dependencies: {
         return error(status, status === 409 ? "review_conflict" : "review_unavailable");
       }
       const value = JSON.parse(await boundedText(upstream, 1024 * 1024));
-      if (!value || value.caseId !== settings.caseId || value.testOnly !== true || value.authorityBinding !== "none") throw Error();
+      if (!value || value.caseId !== caseId || value.testOnly !== true || value.authorityBinding !== "none") throw Error();
       if (request.method === "GET" && (value.schemaVersion !== "administration_case_view_v1" || value.caseKind !== "synthetic_case" ||
         value.actingAs?.actorId !== grant.actorId || value.actingAs?.actorClass !== grant.actorClass)) throw Error();
       if (request.method === "POST" && value.schemaVersion !== (operation === "prepare_brief" ? "synthetic_citizen_brief_preparation_v1" : "synthetic_administration_review_receipt_v1")) throw Error();
