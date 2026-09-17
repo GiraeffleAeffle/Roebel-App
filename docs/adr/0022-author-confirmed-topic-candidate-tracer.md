@@ -168,6 +168,16 @@ The answer must be a newly signed kind-1 event by `policy.meckyPubkey`, reply
 to exactly the root, carry the same municipality/topic, contain one bounded
 `mecky-receipt`, and contain one to three admitted evidence tags. Synthetic
 fixtures are labelled as synthetic; they do not become official sources.
+
+When an explicitly regenerated answer corrects an unadopted discussion, the
+source resolver selects the same newest **fully verified** answer as the public
+discussion projection. An arbitrary signature or receipt tag is insufficient.
+The gateway still requires the submitted answer to equal that resolved event,
+and the participant signs its exact ID and receipt. Older signed answers remain
+in history; an existing suggestion continues to resolve its original answer,
+even if a later answer becomes visible. Root and suggestion claims retain their
+existing immutable idempotency rules.
+
 The suggestion is the staging-only
 `staging_participant_signed_topic_suggestion_v1` shape. Its content is a new,
 canonical `public_participant_topic_suggestion_draft_v1` with

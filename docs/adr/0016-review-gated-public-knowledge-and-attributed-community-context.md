@@ -23,3 +23,25 @@ Admission state and source authority are separate fields. Corrections, withdrawa
 Ordinary conversation becomes useful before civic promotion, while the UI can truthfully distinguish "Anna reported" from "the newspaper reported", "the paper states" and "the reviewed case says". Adding a new source requires a reviewed projection adapter and correction tests rather than a prompt change. Missing reviewed sources yield an explicit limitation instead of model-memory prose.
 
 ADR 0017 defines the checksum-bound GET-only projection used to admit reviewed local news and Ratsinformationssystem records without reviewing every generated answer.
+
+### Signed discussion context
+
+A civic discussion is an exact retrieval scope. The deployment may configure
+`MECKY_PUBLIC_APP_BASE_URL` and `MECKY_PUBLIC_APP_ORIGIN` together to read its
+public civic projection. The reader verifies the exact signed root, municipality,
+explicit Mecky mention and public visibility before citing the discussion page.
+It admits only that root as an attributed `community_statement`; other people's
+arguments and previous model replies are not automatically admitted. This path
+does not depend on the historical public index or enable its configuration.
+
+A discussion answer may use that exact statement and a reviewed Brief explicitly
+bound to the same discussion. General catalog keyword matches do not establish a
+topic binding, including when a correction mentions an unrelated street. Missing
+context produces a refusal or a retry on a projection failure, not a substitute
+source. Ordinary unscoped questions retain the reviewed municipal catalog.
+
+An operator may explicitly regenerate one answer before suggestion/admission,
+using the exact discussion and previous answer IDs. The command reads the public
+context again after inference, signs the actual new answer, identifies it visibly
+as a correction, and preserves the original signed event. It exposes no public
+write endpoint and cannot correct an already proposed or admitted journey.
