@@ -30,7 +30,7 @@ type Config = SyntheticCitizenBriefBinding & {
   additionalBindings?: readonly SyntheticCitizenBriefBinding[];
 };
 
-/** Explicit deployment opt-in. No public query can select a Case or URL. */
+/** Explicit deployment opt-in. A query can filter these bindings, never add a URL. */
 export function syntheticBriefConfig(env: Record<string, string | undefined>): Config | undefined {
   const raw = env.MECKY_SYNTHETIC_BRIEF_CONFIG, enabled = env.MECKY_ALLOW_SYNTHETIC_BRIEF;
   if (raw === undefined && enabled === undefined) return undefined;
@@ -65,6 +65,30 @@ export function syntheticBriefConfig(env: Record<string, string | undefined>): C
   } catch { throw Error("synthetic_brief_configuration_invalid"); }
 }
 
+const GENERIC_TITLE_WORDS = new Set([
+  "test", "testablauf", "testfall", "staging", "synthetic", "synthetisch", "synthetischer",
+  "demo", "review", "proposal", "prufen", "prufung", "empfehlung", "burgerrat",
+  "robel", "muritz", "stadt", "gemeinde", "the", "from", "with", "nach", "vorbild",
+  "eine", "einer", "einem", "einen", "diesem", "dieser", "diese", "wird", "wurde", "werden",
+  "oder", "soll", "sollen", "kann", "sind", "haben", "auch", "alle", "noch", "nicht",
+]);
+
+function titleTerms(value: string): string[] {
+  // B 198 and B-198 name the same road. Generic process words must not make
+  // an unrelated Case relevant merely because it is the only available Brief.
+  return value.toLocaleLowerCase("de-DE").normalize("NFKD").replace(/\p{M}/gu, "")
+    .replace(/\b([a-z])[-\s]+(\d+)/gu, "$1$2").split(/[^\p{L}\p{N}]+/u)
+    .filter(term => term.length >= 4 && !/^\d+$/u.test(term) && !GENERIC_TITLE_WORDS.has(term));
+}
+
+function identifiesBrief(query: PublicEvidenceQuery, pinned: Omit<Config, "additionalBindings">, title: string): boolean {
+  if (query.discussionId !== undefined) return query.discussionId === pinned.discussionId;
+  if ([pinned.discussionId, pinned.caseId, pinned.topicId].some(id => query.question.includes(id))) return true;
+  const requested = new Set(titleTerms(query.question));
+  return titleTerms(title).some(term => requested.has(term) || requested.has(term + "s") ||
+    (term.endsWith("s") && requested.has(term.slice(0, -1))));
+}
+
 function createPinnedBriefReader(pinned: Omit<Config, "additionalBindings">, fetcher: typeof fetch): PublicEvidenceSourceAdapter {
   const municipality = pinned.caseId.split(":")[4]!;
   const url = pinned.publicOrigin + syntheticBriefPath(pinned.discussionId);
@@ -75,11 +99,13 @@ function createPinnedBriefReader(pinned: Omit<Config, "additionalBindings">, fet
     sourceKind: "synthetic_citizen_brief" as const,
     async load(query: PublicEvidenceQuery): Promise<readonly PublicEvidence[]> {
       if (query.municipalityId !== municipality) throw Error("synthetic_brief_municipality_mismatch");
+      if (query.discussionId !== undefined && query.discussionId !== pinned.discussionId) return [];
       const response = await fetcher(readUrl, { method: "GET", credentials: "omit", redirect: "error", cache: "no-store",
         headers: { accept: "application/json" }, signal: AbortSignal.timeout(5000) });
       const returned = await readSyntheticBriefResponse(response, pinned);
       if (!returned.brief || returned.status !== "current") return [];
       const brief = returned.brief;
+      if (!identifiesBrief(query, pinned, brief.title)) return [];
       const departments = requestedDepartments(query.question);
       return brief.responses.filter(item => !departments.size || departments.has(item.departmentId)).map(item => {
         const reviewedAt = brief.provenance.packageBindings.find(p => p.departmentId === item.departmentId)!.reviewedAt;
