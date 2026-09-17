@@ -142,6 +142,8 @@ export interface PublicEvidenceOmission {
 export interface PublicEvidenceQuery extends PublicEvidenceRetrievalOptions {
   readonly municipalityId: string;
   readonly question: string;
+  /** Exact signed discussion being answered; never a fetch destination. */
+  readonly discussionId?: string;
   /** Caller-controlled clock so packet identity and future-date checks are deterministic. */
   readonly now: string;
 }
@@ -503,6 +505,7 @@ function validateQuery(query: PublicEvidenceQuery): { municipalityId: string; qu
     municipalityId.length > 80 || !MUNICIPALITY_ID.test(municipalityId) ||
     !question || Buffer.byteLength(question, "utf8") > 2_000 ||
     !Number.isFinite(nowEpochMs) || new Date(nowEpochMs).toISOString() !== query.now ||
+    (query.discussionId !== undefined && !/^[0-9a-f]{64}$/u.test(query.discussionId)) ||
     (query.limit !== undefined && (!Number.isSafeInteger(query.limit) || query.limit < 0)) ||
     (query.maxPromptBytes !== undefined && (!Number.isSafeInteger(query.maxPromptBytes) || query.maxPromptBytes < 1))
   ) {

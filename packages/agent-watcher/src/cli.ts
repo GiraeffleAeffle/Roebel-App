@@ -182,6 +182,12 @@ async function main(): Promise<void> {
         ...(projectReply ? { projectReply } : {}),
         makeClient: createNodeRelayClient,
         think: async (question, event) => {
+          const civic = event.tags.some(
+            (tag) => tag[0] === "t" && tag[1] === "stadtstack-civic-discussion",
+          );
+          const discussionBinding = civic ? publicMeckyDiscussionBindingFor(event, {
+            municipalityId, sourceCaseId, canonicalCaseId,
+          }) : undefined;
           let conversationEvidence: PublicEvidence[] = [];
           if (!syntheticEvidenceMode && publicIndexBaseUrl) {
             try {
@@ -201,21 +207,13 @@ async function main(): Promise<void> {
             question: question.trim(),
             now: new Date().toISOString(),
             conversationEvidence,
+            ...(discussionBinding ? { discussionId: event.id } : {}),
           });
           if (answer.status === "answered") {
-            const civic = event.tags.some(
-              (tag) =>
-                tag[0] === "t" &&
-                tag[1] === "stadtstack-civic-discussion",
-            );
-            return civic
+            return discussionBinding
               ? toPublicMeckyWatcherReply(createPublicMeckyRelayReply({
                   discussion: event,
-                  binding: publicMeckyDiscussionBindingFor(event, {
-                    municipalityId,
-                    sourceCaseId,
-                    canonicalCaseId,
-                  }),
+                  binding: discussionBinding,
                   result: answer,
                 }))
               : createPublicMeckyEvidenceReply(answer);

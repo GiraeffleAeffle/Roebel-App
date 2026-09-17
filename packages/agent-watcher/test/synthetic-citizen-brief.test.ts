@@ -10,7 +10,8 @@ import { createPublicMeckyEvidenceReply } from "../src/public-mecky-receipt";
 const { returned } = JSON.parse(readFileSync(new URL("../../stadtstack-federation-client/src/fixtures/synthetic-citizen-brief-return-v1.json", import.meta.url), "utf8"));
 const config = { environment: "staging" as const, publicOrigin: "https://app.example", caseId: returned.caseId,
   topicId: returned.topicId, discussionId: returned.discussionId };
-const query = { municipalityId: returned.municipalityId, now: "2026-09-14T10:00:00.000Z", question: "Synthetic assessment for planning and traffic?" };
+const query = { municipalityId: returned.municipalityId, discussionId: returned.discussionId,
+  now: "2026-09-14T10:00:00.000Z", question: "Synthetic assessment for planning and traffic?" };
 
 test("Mecky cites the current coordinator Brief with synthetic authority and no write capability", async () => {
   const calls: RequestInit[] = [];
@@ -115,7 +116,7 @@ test("explicit department questions exclude incidental mentions and retain reque
   assert.equal((await adapter.load({ ...query, question: "Was sagt Verkehrsplanung?" })).length, 8);
 });
 
-test("Mecky reads each pinned Case independently and keeps the surviving return attributed to its own discussion", async () => {
+test("Mecky reads only the selected discussion and never substitutes another Case", async () => {
   const binding = { caseId: config.caseId, discussionId: config.discussionId, topicId: config.topicId };
   const multiple = { ...config, caseId: config.caseId.replace(/.$/, config.caseId.endsWith("0") ? "1" : "0"),
     discussionId: "b".repeat(64), additionalBindings: [binding] };
@@ -125,7 +126,7 @@ test("Mecky reads each pinned Case independently and keeps the surviving return 
     return String(url).endsWith(config.discussionId) ? Response.json(returned) : new Response(null, { status: 503 });
   });
   const packet = await createPublicKnowledgeCatalog([adapter]).retrieve({ ...query, question: "Was sagt Verkehr im synthetischen Test?" });
-  assert.equal(urls.length, 2); assert.equal(new Set(urls).size, 2);
+  assert.deepEqual(urls, [`${config.publicOrigin}/api/stadtstack/synthetic-citizen-brief/by-discussion/${config.discussionId}`]);
   assert.equal(packet.passages.length, 1);
   const evidence = packet.passages[0]!.evidence;
   assert.equal(evidence.sourceKind, "synthetic_citizen_brief");
@@ -137,5 +138,34 @@ test("Mecky reads each pinned Case independently and keeps the surviving return 
     [{ ...binding, discussionId: multiple.discussionId }], [{ ...binding, publicOrigin: "https://foreign.example" }],
     [{ ...binding, caseId: binding.caseId.replace(returned.municipalityId, "other-city") }], null]) {
     assert.throws(() => createSyntheticBriefEvidenceAdapter({ ...multiple, additionalBindings } as never), /configuration_invalid/);
+  }
+});
+
+test("an unrelated meeting-place question cannot borrow traffic department answers", async () => {
+  const adapter = createSyntheticBriefEvidenceAdapter(config, async () => Response.json(returned));
+  const { discussionId: _, ...unscoped } = query;
+  const question = "Testablauf: Begegnungsort nach dem Vorbild des Kugellagers · @Mecky: Welche Fragen sollten die Fachpakete für diesen Testvergleich beantworten? Bitte trenne die dokumentierte Empfehlung von unseren Annahmen.";
+  const catalog = createPublicKnowledgeCatalog([adapter]);
+  const result = await createPublicMecky({retrieveEvidence:q=>catalog.retrieve(q),infer:async()=>{
+    assert.fail("Unrelated Brief must never reach inference");
+  }}).answerMention({...unscoped,question});
+  assert.equal(result.status,"refused");
+  if(result.status!=="refused")throw Error();
+  assert.equal(result.reason,"insufficient_evidence");
+  assert.deepEqual(await adapter.load({...unscoped,question:"Was sagen die Fachbereiche Verkehr und Finanzen zu diesem neuen Treffpunkt?"}),[]);
+  assert.equal((await adapter.load({...unscoped,question:"What does the road-safety review say?"})).length,8);
+  assert.equal((await adapter.load({...unscoped,question:`Was sagt Verkehr? ${config.publicOrigin}/app/diskussion/${config.discussionId}`})).length,1);
+});
+
+test("a new discussion cannot fall back to the only deployed Brief even when traffic is mentioned", async () => {
+  let reads=0;
+  const adapter=createSyntheticBriefEvidenceAdapter(config,async()=>{reads++;return Response.json(returned);});
+  const catalog=createPublicKnowledgeCatalog([adapter]);
+  const answer=await createPublicMecky({retrieveEvidence:q=>catalog.retrieve(q),infer:async()=>{
+    assert.fail("Unknown discussion must not receive another Case's response");
+  }}).answerMention({...query,discussionId:"c".repeat(64),question:"What does the road-safety review say?"});
+  assert.equal(answer.status,"refused");assert.equal(reads,0);
+  for(const discussionId of ["", "https://foreign.example", "c".repeat(63)]) {
+    await assert.rejects(catalog.retrieve({...query,discussionId}),/Invalid public evidence query/);
   }
 });

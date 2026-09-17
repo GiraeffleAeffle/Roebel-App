@@ -81,6 +81,7 @@ export interface PublicMeckyDependencies {
 export interface PublicMeckyMention {
   readonly municipalityId: string;
   readonly question: string;
+  readonly discussionId?: string;
   readonly now: string;
   readonly conversationEvidence?: readonly PublicEvidence[];
 }
@@ -782,7 +783,7 @@ function validateMention(mention: PublicMeckyMention): void {
     typeof mention !== "object" ||
     Array.isArray(mention) ||
     Object.keys(mention).some((key) =>
-      !["municipalityId", "question", "now", "conversationEvidence"].includes(key)
+      !["municipalityId", "question", "now", "conversationEvidence", "discussionId"].includes(key)
     ) ||
     !/^[a-z0-9][a-z0-9-]{0,79}$/u.test(mention.municipalityId) ||
     !mention.question.trim() ||
@@ -790,6 +791,7 @@ function validateMention(mention: PublicMeckyMention): void {
     Buffer.byteLength(mention.question, "utf8") > 2_000 ||
     !Number.isFinite(Date.parse(mention.now)) ||
     new Date(Date.parse(mention.now)).toISOString() !== mention.now ||
+    (mention.discussionId !== undefined && !/^[0-9a-f]{64}$/u.test(mention.discussionId)) ||
     (mention.conversationEvidence !== undefined &&
       (!Array.isArray(mention.conversationEvidence) || mention.conversationEvidence.length > 1))
   ) {
@@ -837,6 +839,7 @@ export function createPublicMecky(
             municipalityId: mention.municipalityId,
             question: mention.question,
             now: mention.now,
+            ...(mention.discussionId === undefined ? {} : { discussionId: mention.discussionId }),
           }, mention.conversationEvidence ?? []);
           evidence = packet.passages.map((entry) => ({
             evidenceId: entry.evidence.evidenceId,
