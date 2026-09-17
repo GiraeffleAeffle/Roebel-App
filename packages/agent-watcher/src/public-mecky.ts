@@ -764,13 +764,16 @@ export function createStadtstackPublicEvidenceRetriever(
         ? Object.freeze({
             sourceKind: "nostr_post" as const,
             async load(): Promise<readonly PublicEvidence[]> {
-              return conversationEvidence;
+              return query.discussionId ? conversationEvidence.filter(entry =>
+                entry.sourceKind === "nostr_post" && entry.eventId === query.discussionId) : conversationEvidence;
             },
           })
         : null;
     return createPublicKnowledgeCatalog([
-      civicCaseAdapter,
-      ...reviewedSourceAdapters,
+      // A signed discussion has an exact context. Word overlap with a different
+      // town record (including a correction naming it) is not a source binding.
+      // Unscoped public questions still search the reviewed municipal catalog.
+      ...(query.discussionId ? [] : [civicCaseAdapter, ...reviewedSourceAdapters]),
       ...(syntheticAdapter ? [syntheticAdapter] : []),
       ...(conversationAdapter ? [conversationAdapter] : []),
     ]).retrieve(query);

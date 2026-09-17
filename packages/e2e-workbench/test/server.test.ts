@@ -2476,6 +2476,29 @@ describe("Röbel E2E workbench boundary", () => {
           .find((entry) => entry.id === discussion.id)?.meckyAnswered,
         true,
       );
+      const resolveAnswer = async () => {
+        const response = await fetch(`http://127.0.0.1:${running.port}/api/staging-participant/topic-tracer/suggestion-source`, {
+          method: "POST", headers: { "content-type": "application/json", "x-stadtstack-e2e": "1" },
+          body: JSON.stringify({ discussionRootId: discussion.id, sourceAuthorPubkey: discussion.pubkey,
+            sourceNoteEventId: mention.id, sourceAppPostId }),
+        });
+        assert.equal(response.status, 200);
+        return await response.json() as { meckyAnswer: { id: string } };
+      };
+      // The malformed, newer signature must not override the closed answer
+      // contract used by the public view and participant suggestion.
+      assert.equal((await resolveAnswer()).meckyAnswer.id, answer.id);
+      const correction = buildNoteEvent(meckySecret, "KI-Korrektur: Zwei belegte Optionen, keine Entscheidung.", {
+        createdAt: 706,
+        tags: answer.tags.map(tag => tag[0] === "mecky-receipt"
+          ? ["mecky-receipt", `urn:stadtstack:mecky-answer:${"9".repeat(64)}`] : tag),
+      });
+      agentEvents.push(correction as unknown as Record<string, unknown>);
+      assert.equal((await resolveAnswer()).meckyAnswer.id, correction.id);
+      const correctedThread = await fetch(`${origin}/api/thread?root=${discussion.id}`).then(response => response.json()) as typeof thread;
+      assert.equal(correctedThread.mecky?.event.id, correction.id);
+      assert.deepEqual(correctedThread.suggestion, thread.suggestion, "an existing signed suggestion retains its original answer receipt");
+      assert(agentEvents.some(event => event.id === answer.id), "the earlier signed answer remains available");
     } finally {
       await running.close();
     }

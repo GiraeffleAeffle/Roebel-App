@@ -24,6 +24,8 @@ import {
 import { createNodeRelayClient } from "./node-relay-client";
 import { createPublicMeckyReplyProjectionSink } from "./public-mecky-projection";
 import { singleFlight } from "./single-flight";
+import { createPublicDiscussionContextReader, publicDiscussionContextConfig } from "./public-discussion-context";
+import { publishDiscussionCorrection } from "./discussion-correction";
 import { watchOnce } from "./watcher";
 
 /**
@@ -115,6 +117,28 @@ async function main(): Promise<void> {
     }),
   });
   const agent = deriveAgentIdentity(required("NODE_AGENT_SECRET"), nodeId, agentName);
+  const discussionConfig = publicDiscussionContextConfig(process.env);
+  if (syntheticEvidenceMode && discussionConfig) throw Error("public_discussion_requires_public_evidence_mode");
+  const readDiscussionContext = discussionConfig ? createPublicDiscussionContextReader({
+    ...discussionConfig, municipalityId, agentPubkey: agent.publicKey,
+  }) : undefined;
+
+  const args = process.argv.slice(2);
+  if (args.length) {
+    if (args.length !== 4 || args[0] !== "--correct-discussion" || args[2] !== "--previous-answer" ||
+      !/^[0-9a-f]{64}$/u.test(args[1]!) || !/^[0-9a-f]{64}$/u.test(args[3]!) ||
+      !readDiscussionContext || process.env.AGENT_ENABLED === "false") throw Error("discussion_correction_command_invalid");
+    const relay = createNodeRelayClient(outputRelayUrl);
+    try {
+      const correction = await publishDiscussionCorrection({ discussionId: args[1]!, previousAnswerId: args[3]!,
+        readContext: readDiscussionContext, agent, municipalityId, sourceCaseId, canonicalCaseId,
+        publicMecky, now: Math.floor(Date.now() / 1000), relay,
+        recordPrepared: async event => { console.log(JSON.stringify({ schemaVersion: "public_mecky_correction_prepared_v1", previousAnswerId: args[3], event })); },
+      });
+      console.log(JSON.stringify({ status: "correction-published", discussionId: args[1], previousAnswerId: args[3], answerId: correction.id }));
+    } finally { relay.close(); }
+    return;
+  }
   const history = emptyHistory();
   const bounds = {
     ...DEFAULT_BOUNDS,
@@ -128,6 +152,7 @@ async function main(): Promise<void> {
   console.log(`  npub ${agent.npub}`);
   console.log(`  public evidence: ${syntheticEvidenceMode ? "synthetic checksum-bound snapshot" : publicEvidenceBaseUrl} (${municipalityId})`);
   console.log(`  conversation evidence: ${!syntheticEvidenceMode && publicIndexBaseUrl ? publicIndexBaseUrl : "disabled"}`);
+  console.log(`  public discussion evidence: ${discussionConfig?.publicOrigin ?? "disabled"}`);
   console.log(`  reviewed source projections: ${enabledReviewedSourceKinds.length > 0 ? enabledReviewedSourceKinds.join(",") : "disabled"}`);
   console.log(`  reviewed knowledge origin: ${reviewedKnowledgeBaseUrl ?? "disabled"}`);
   console.log(`  inference: ${inferenceBaseUrl} (${inferenceModel})`);
@@ -189,7 +214,13 @@ async function main(): Promise<void> {
             municipalityId, sourceCaseId, canonicalCaseId,
           }) : undefined;
           let conversationEvidence: PublicEvidence[] = [];
-          if (!syntheticEvidenceMode && publicIndexBaseUrl) {
+          if (discussionBinding && readDiscussionContext) {
+            const context = await readDiscussionContext(event.id);
+            // A missing or mismatched public projection is retryable; do not
+            // silently replace the citizen's question with unrelated records.
+            if (context.rootEvent.id !== event.id) throw Error("public_discussion_event_mismatch");
+            conversationEvidence = [context.evidence];
+          } else if (!syntheticEvidenceMode && publicIndexBaseUrl) {
             try {
               conversationEvidence = [createDirectMentionEvidence(event, {
                 municipalityId,

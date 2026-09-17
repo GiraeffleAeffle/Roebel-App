@@ -6,11 +6,10 @@ const APP_SOURCE_ID =
   /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9a-f]{64})$/iu;
 const HEX_64 = /^[0-9a-f]{64}$/u;
 
-export interface DirectMentionEvidenceOptions {
+export type DirectMentionEvidenceOptions = {
   readonly municipalityId: string;
   readonly agentPubkey: string;
-  readonly publicIndexBaseUrl: string;
-}
+} & ({ readonly publicIndexBaseUrl: string } | { readonly verifiedPublicEventUrl: string });
 
 function publicIndexOrigin(value: string): URL {
   let url: URL;
@@ -75,8 +74,16 @@ export function createDirectMentionEvidence(
     throw new Error("Public Mecky direct mention binding is invalid.");
   }
 
-  const indexUrl = new URL("events", publicIndexOrigin(options.publicIndexBaseUrl));
-  indexUrl.searchParams.set("ids", event.id);
+  let eventUrl: URL;
+  if ("publicIndexBaseUrl" in options) {
+    eventUrl = new URL("events", publicIndexOrigin(options.publicIndexBaseUrl));
+    eventUrl.searchParams.set("ids", event.id);
+  } else {
+    eventUrl = new URL(options.verifiedPublicEventUrl);
+    if (eventUrl.protocol !== "https:" || eventUrl.username || eventUrl.password || eventUrl.search || eventUrl.hash) {
+      throw new Error("Public Mecky event URL is invalid.");
+    }
+  }
   return {
     evidenceId: `sha256:${event.id}`,
     municipalityId,
@@ -89,7 +96,7 @@ export function createDirectMentionEvidence(
     lifecycle: "current",
     eventId: event.id,
     authorPubkey: event.pubkey.toLowerCase(),
-    eventUrl: indexUrl.href,
+    eventUrl: eventUrl.href,
     signatureValid: true,
     retrievalConsent: "direct_mention",
   };

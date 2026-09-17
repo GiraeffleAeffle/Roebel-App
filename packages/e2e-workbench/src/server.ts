@@ -2597,10 +2597,13 @@ export async function startWorkbench(
         const selected = discussionRoot && selectedConversationSourceFor(discussionRoot);
         if (!discussionRoot || !exchange || !selected || selected.mentionEventId !== sourceNote.id || selected.replyEventId !== exchange.reply.id) return json(response, 200, null);
         const answers = await agentRelay.query([{ kinds: [1], authors: [config.meckyPubkey], "#e": [discussionRoot.id], limit: 20 }]);
-        const answer = answers.filter(verifyEvent).filter((candidate) => candidate.pubkey === config.meckyPubkey && isAgentEvent(candidate) &&
-          tagValue(candidate, "source-app-post") === body.sourceAppPostId && tagValue(candidate, "mecky-receipt") !== null).sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id));
-        if (answer.length !== 1) return json(response, 200, null);
-        return json(response, 200, { status: "resolved", sourceNote, discussionRoot, meckyAnswer: answer[0]!, meckyReplyEvent: exchange.reply,
+        // Match the verified answer currently shown by the public discussion.
+        // An explicit correction retains its signed predecessor. Existing
+        // suggestions still resolve their exact immutable receipt below.
+        const answer = answers.filter(candidate => verifiedCivicRootAnswerFor(config, discussionRoot, candidate) !== null)
+          .sort((a, b) => b.created_at - a.created_at || b.id.localeCompare(a.id))[0];
+        if (!answer) return json(response, 200, null);
+        return json(response, 200, { status: "resolved", sourceNote, discussionRoot, meckyAnswer: answer, meckyReplyEvent: exchange.reply,
           ...(exchange.projection.receiptId === undefined ? {} : { meckyReceiptId: exchange.projection.receiptId }) });
       }
       if (path === "/api/staging-participant/topic-tracer/suggestions") {
