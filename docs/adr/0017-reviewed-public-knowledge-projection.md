@@ -43,8 +43,19 @@ of the Mecky runtime. The source kinds remain disabled in a node manifest until
 their reviewed endpoints are actually deployed, so shipping this code cannot
 turn a missing source into an endless production dependency.
 
-This still does not claim that a reviewed Röbel corpus or public producer
-endpoint is deployed. Provider-specific RIS or news ingestion remains behind
-the publication boundary. Production activation requires at least one real
-reviewed record, correction tests and a deployed projection endpoint; raw or
-pending records continue to yield no factual answer.
+Provider-specific RIS or news ingestion remains behind the publication boundary.
+Production activation requires reviewed records, correction tests and a deployed
+projection endpoint; raw or pending records continue to yield no factual answer.
+
+### Maintained catalogue storage — 2026-09-19
+
+Two reviewed source snapshots are now served by Röbel. The optional maintained
+catalogue replaces their compiled storage with a read-only directory of the same
+closed projection files. Producer and consumer share the server-only contract in
+the existing federation-client package; the browser entry point stays unchanged.
+Each request validates the current file, so a newly published edition or
+withdrawal needs no application rebuild. Configured source failure returns 503
+and never resurrects bundled content. Initial mount activation belongs to
+operations; source updates still require their publication owner's review.
+See the [maintenance runbook](../runbooks/maintained-public-knowledge.md).
+This storage path does not itself import a wider corpus or admit new source kinds.

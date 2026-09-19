@@ -11,6 +11,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./reviewed-public-knowledge": {
+      "types": "./src/reviewedPublicKnowledge.node.ts",
+      "default": "./src/reviewedPublicKnowledge.node.ts"
     }
   },
   "sideEffects": false,

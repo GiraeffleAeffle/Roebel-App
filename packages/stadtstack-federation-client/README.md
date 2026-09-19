@@ -4,6 +4,13 @@ Strict, browser-safe and read-only consumer for Stadtstack's reviewed public
 civic-case federation endpoints. It has no Netizen, wallet, authentication,
 Supabase, database or write dependency.
 
+The explicit server-only subpath
+`@roebel/stadtstack-federation-client/reviewed-public-knowledge` shares the closed
+news/council projection contract between Web publication and Mecky retrieval.
+It verifies records, scope, review dates and canonical checksums. Its Node crypto
+implementation is not exported through the browser-safe root entry point. See
+the [catalogue runbook](../../docs/runbooks/maintained-public-knowledge.md).
+
 The client only accepts the pinned v1 case-index, manifest and seven-stage
 snapshot contracts. It confines every linked URL to the configured Stadtstack
 origin and expected path, verifies the stable stage-map SHA-256 in the browser,

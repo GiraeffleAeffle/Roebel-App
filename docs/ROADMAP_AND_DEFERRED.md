@@ -12,6 +12,17 @@ An item without a trigger is a wish. An item without a reason is an oversight.
 
 ## Current: useful Mecky answers across the knowledge base — 2026-09-19
 
+The [maintained catalogue storage](runbooks/maintained-public-knowledge.md) now
+has a source implementation: a read-only configured directory, one shared
+projection validator, an edition preparation command, and correction/withdrawal
+handling on each request. It retains the two bundled records until explicitly
+configured. This is not yet a larger deployed corpus. Document sections, Brief
+discovery and contextual follow-ups remain the next knowledge acceptance work.
+
+[TypeSafe/Jev was assessed](roadmap/typesafe-jev-assessment.md) as an optional
+passage-ranking or department-suggestion experiment after a measured catalogue
+baseline. No new SDK, provider or critical-path dependency is introduced.
+
 The controlled Step 8 journey now has a published discussion, adoption, Case,
 eight reviewed department responses, a steward-confirmed Brief, an actual cited
 Mecky feed reply and citizen follow-ups. Independent people enrolling and
