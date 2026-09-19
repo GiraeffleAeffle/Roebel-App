@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
-import { readSyntheticBriefResponse, syntheticBriefPath, departmentLabel, DEPARTMENT_LABELS, type SyntheticCitizenBriefBinding } from "@roebel/stadtstack-federation-client";
+import { readSyntheticBriefResponse, syntheticBriefPath, departmentLabel, departmentSummaryText, DEPARTMENT_LABELS, type SyntheticCitizenBriefBinding } from "@roebel/stadtstack-federation-client";
 import type { PublicEvidence, PublicEvidenceQuery, PublicEvidenceSourceAdapter } from "./public-evidence";
+import type { PublicDiscussionContext } from "./public-discussion-context";
+
+type ReadDiscussionContext = (discussionId: string) => Promise<PublicDiscussionContext>;
 
 const STAGING_WEB_ORIGIN = "http://roebel-web-presentation.stadtstack-roebel-web-preview.svc.cluster.local:8080";
 
@@ -89,7 +92,8 @@ function identifiesBrief(query: PublicEvidenceQuery, pinned: Omit<Config, "addit
     (term.endsWith("s") && requested.has(term.slice(0, -1))));
 }
 
-function createPinnedBriefReader(pinned: Omit<Config, "additionalBindings">, fetcher: typeof fetch): PublicEvidenceSourceAdapter {
+function createPinnedBriefReader(pinned: Omit<Config, "additionalBindings">, fetcher: typeof fetch,
+  readDiscussionContext?: ReadDiscussionContext): PublicEvidenceSourceAdapter {
   const municipality = pinned.caseId.split(":")[4]!;
   const url = pinned.publicOrigin + syntheticBriefPath(pinned.discussionId);
   const citationUrl = `${pinned.publicOrigin}/app/diskussion/${pinned.discussionId}`;
@@ -105,15 +109,30 @@ function createPinnedBriefReader(pinned: Omit<Config, "additionalBindings">, fet
       const returned = await readSyntheticBriefResponse(response, pinned);
       if (!returned.brief || returned.status !== "current") return [];
       const brief = returned.brief;
-      if (!identifiesBrief(query, pinned, brief.title)) return [];
+      if (!identifiesBrief(query, pinned, brief.title)) {
+        if (!readDiscussionContext) return [];
+        // A proposal may have a generic title even when citizens know its topic
+        // by name. Resolve that name from the existing signature-verifying reader,
+        // never from incidental words in responses or a caller-supplied alias.
+        const context = await readDiscussionContext(pinned.discussionId);
+        const tags = context.rootEvent.tags;
+        const exactTag = (name: string, value: string) => {
+          const found = tags.filter(tag => tag[0] === name);
+          return found.length === 1 && found[0]!.length === 2 && found[0]![1] === value;
+        };
+        const titles = tags.filter(tag => tag[0] === "topic-title");
+        if (context.rootEvent.id !== pinned.discussionId || !exactTag("municipality", municipality) ||
+          !exactTag("topic", pinned.topicId) || titles.length !== 1 || titles[0]!.length !== 2 ||
+          !identifiesBrief(query, pinned, titles[0]![1]!)) return [];
+      }
       const departments = requestedDepartments(query.question);
       return brief.responses.filter(item => !departments.size || departments.has(item.departmentId)).map(item => {
         const reviewedAt = brief.provenance.packageBindings.find(p => p.departmentId === item.departmentId)!.reviewedAt;
         return {
           evidenceId: `sha256:${createHash("sha256").update(JSON.stringify([returned.returnChecksum, brief.briefChecksum, item.departmentId])).digest("hex")}`,
           municipalityId: returned.municipalityId, sourceKind: "synthetic_citizen_brief", authority: "synthetic_demo",
-          title: `Testantwort ${departmentLabel(item.departmentId)} · ${brief.title}`,
-          summary: `Geprüfte Testantwort, keine tatsächliche fachamtliche Stellungnahme: ${item.publicSummary}`,
+          title: `Fachantwort ${departmentLabel(item.departmentId)} · ${brief.title}`,
+          summary: departmentSummaryText(item.publicSummary),
           publishedAt: reviewedAt, reviewedAt, admissionState: "admitted", lifecycle: "current",
           caseId: returned.caseId, caseUrl: citationUrl, briefChecksum: brief.briefChecksum, testOnly: true,
         };
@@ -124,11 +143,12 @@ function createPinnedBriefReader(pinned: Omit<Config, "additionalBindings">, fet
 
 /** Each configured Case is read independently so withdrawal or an outage cannot
  * substitute another Case's response or retain a stale cached answer. */
-export function createSyntheticBriefEvidenceAdapter(config: Config, fetcher: typeof fetch = fetch): PublicEvidenceSourceAdapter {
+export function createSyntheticBriefEvidenceAdapter(config: Config, fetcher: typeof fetch = fetch,
+  readDiscussionContext?: ReadDiscussionContext): PublicEvidenceSourceAdapter {
   const { additionalBindings = [], ...primary } = syntheticBriefConfig({ MECKY_ALLOW_SYNTHETIC_BRIEF: "true",
     MECKY_SYNTHETIC_BRIEF_CONFIG: JSON.stringify(config) })!;
   const readers = [primary, ...additionalBindings.map(binding => ({ ...primary, ...binding }))]
-    .map(binding => createPinnedBriefReader(binding, fetcher));
+    .map(binding => createPinnedBriefReader(binding, fetcher, readDiscussionContext));
   return Object.freeze({ sourceKind: "synthetic_citizen_brief" as const,
     async load(query: PublicEvidenceQuery): Promise<readonly unknown[]> {
       const results = await Promise.allSettled(readers.map(reader => reader.load(query)));

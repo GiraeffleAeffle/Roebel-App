@@ -18,11 +18,21 @@ test("ordinary answer text and unrecognized footers remain intact", () => {
   }
 });
 
+test("the staging banner replaces only the verified legacy answer envelope", () => {
+  const url = `https://app.example/app/diskussion/${"b".repeat(64)}`;
+  const answer = "KI-Zusammenfassung: Im Kostenmodell kostet A 16.600 Euro. Eine Finanzierung ist offen.";
+  const content = `Synthetischer Testkontext · keine amtliche Stellungnahme.\n\n${answer}\n\nQuellenbelege: Testantwort Finanzen · Begegnungsort – ${url}`;
+  assert.deepEqual(meckyPresentation(content, [url]), { body: answer, sources: [{ url, title: "Fachantwort Finanzen · Begegnungsort" }] });
+  assert.equal(meckyPresentation(content, ["https://wrong.example"]).body, content);
+  assert.ok(content.startsWith("Synthetischer Testkontext"));
+});
+
 test("department citations open Fachantworten without rewriting their signed source", () => {
   const url = `https://app.example/app/diskussion/${"a".repeat(64)}`;
   const title = "Testantwort Verkehr · Querung";
   const signed = `Antwort\n\nQuellenbelege: ${title} – ${url}`;
   const source = meckyPresentation(signed, [url]).sources[0]!;
+  assert.equal(source.title, "Fachantwort Verkehr · Querung");
   assert.equal(meckySourceHref(source.url, source.title), `${url}#citizen-brief`);
   assert.equal(source.url, url);
   for (const [destination, label] of [[url, "Ausgangsdiskussion"], [url, "Testantwort Unbekannt · Querung"],

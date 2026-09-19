@@ -26,7 +26,7 @@ export function projectSyntheticJourney(journey: CivicJourney, binding: Syntheti
       if (stage.id === "case") return { ...stage, state: "complete", label: "Testfall aufgenommen", authority: "Case Steward im Test",
         detail: "Der Vorschlag ist mit dem isolierten Testfall verbunden." };
       if (stage.id === "administration") return { ...stage, state: briefCurrent ? "complete" : "current", label: "Fachprüfung & Rücklauf",
-        detail: briefCurrent ? `${currentReturn.brief!.responses.length} geprüfte Testantworten sind als bestätigte Kurzfassung zurückgekehrt.`
+        detail: briefCurrent ? `${currentReturn.brief!.responses.length} geprüfte Fachantworten sind als bestätigte Kurzfassung zurückgekehrt.`
           : currentReturn?.status === "withdrawn" ? "Die Kurzfassung wurde zurückgezogen. Eine neue Fassung muss geprüft werden."
           : currentReturn?.status === "not_ready" ? "Die Fachbereiche bearbeiten den Testfall. Noch keine bestätigte Kurzfassung."
           : "Die Testaufnahme ist bestätigt. Der aktuelle Rücklauf wird geprüft; frühere Antworten gelten hier nicht als aktuell." };

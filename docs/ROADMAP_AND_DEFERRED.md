@@ -1,6 +1,6 @@
 # Roadmap and deferred work
 
-**Last updated: 2026-09-15.** Part of the [documentation index](README.md).
+**Last updated: 2026-09-19.** Part of the [documentation index](README.md).
 
 Everything here was **deliberately not built**, with a reason. This document exists so that
 "we decided that later" survives the conversation it was decided in. Each entry says what it
@@ -9,6 +9,44 @@ is, why it waits, and **what has to be true before it makes sense** — a trigge
 An item without a trigger is a wish. An item without a reason is an oversight.
 
 ---
+
+## Current: useful Mecky answers across the knowledge base — 2026-09-19
+
+The controlled Step 8 journey now has a published discussion, adoption, Case,
+eight reviewed department responses, a steward-confirmed Brief, an actual cited
+Mecky feed reply and citizen follow-ups. Independent people enrolling and
+completing the same journey remain the acceptance gate. The dated checkpoints
+below are historical, not the current deployment state.
+
+Mecky's harness is `@earendil-works/pi-agent-core` 0.84.1. Staging configures
+Qwen/Qwen3.6-35B-A3B-FP8 through Hetzner inference. Each question receives one
+bounded evidence packet and one inference turn; the agent has no tools or
+persistent conversation memory. Provider and model remain deployment settings.
+General questions search reviewed Cases, local reporting, council records and
+configured Briefs. An exact signed discussion uses its verified root and bound
+Brief, preventing an unrelated Case from entering through incidental keywords.
+
+The current external source collection contains only two curated snapshots,
+alongside the Case and discussion sources. It is not yet a maintained municipal
+document library. Live checks answered questions about both the Dambeck–Bollewick
+cycle route and the B 198 council record, but could not find the Kugellager Brief
+by name. The repair resolves a configured Brief through the signed discussion's
+topic title, retaining exact municipality/topic/Case checks. It also removes
+repeated staging disclaimers from answer presentation and prompts while retaining
+source authority, cost assumptions, uncertainties and the global banner.
+
+Next knowledge acceptance slice: publish a maintained, searchable catalogue
+behind the existing [reviewed projection contract](adr/0017-reviewed-public-knowledge-projection.md).
+Cover several unrelated topics with stable topic/source IDs, document sections
+and page references, version/withdrawal status and explicit discussion links.
+Include the supplied Bürgerrat recommendations and future reviewed Kair meeting
+bundles when available. New reviewed records must become searchable without a
+model prompt change or per-topic deployment. Verify named-topic lookup, follow-up
+context, cross-topic comparisons, citations and immediate withdrawal using a
+small multi-topic question set. Keep private administrative material outside the
+public reader. A future MCP interface should consume this same catalogue; it
+does not replace document ingestion or provenance. This broader catalogue is
+pending; the name-lookup repair alone does not complete it.
 
 ## Active: separate people and a shared discussion — 2026-09-15
 

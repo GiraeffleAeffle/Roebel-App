@@ -6,6 +6,7 @@ import { createSyntheticBriefEvidenceAdapter, syntheticBriefConfig } from "../sr
 import { createPublicKnowledgeCatalog, parsePublicEvidence } from "../src/public-evidence";
 import { createPublicMecky } from "../src/public-mecky";
 import { createPublicMeckyEvidenceReply } from "../src/public-mecky-receipt";
+import type { PublicDiscussionContext } from "../src/public-discussion-context";
 
 const { returned } = JSON.parse(readFileSync(new URL("../../stadtstack-federation-client/src/fixtures/synthetic-citizen-brief-return-v1.json", import.meta.url), "utf8"));
 const config = { environment: "staging" as const, publicOrigin: "https://app.example", caseId: returned.caseId,
@@ -26,12 +27,13 @@ test("Mecky cites the current coordinator Brief with synthetic authority and no 
   const mecky = createPublicMecky({ retrieveEvidence: q => catalog.retrieve(q), infer: async input => {
     assert.ok(input.evidence.length > 0);
     assert.ok(input.evidence.every(e => "authority" in e && e.authority === "synthetic_demo"));
-    return { answer: "Im synthetischen Test werden die Verkehrsoptionen geprüft; das ist keine amtliche Prüfung.", evidenceIds: [input.evidence[0]!.evidenceId] };
+    return { answer: "Für die Querung werden zwei Verkehrsoptionen verglichen.", evidenceIds: [input.evidence[0]!.evidenceId] };
   } });
   const answer = await mecky.answerMention(query);
   assert.equal(answer.status, "answered");
   if (answer.status !== "answered") throw Error("answer missing");
-  assert.ok(answer.content.startsWith("Synthetischer Testkontext"));
+  assert.ok(answer.content.startsWith("KI-Zusammenfassung: Für die Querung werden zwei Verkehrsoptionen verglichen."));
+  assert.ok(!answer.content.includes("Synthetischer Testkontext"));
   assert.equal(answer.evidenceRefs[0]!.publicCaseUrl, `${config.publicOrigin}/app/diskussion/${config.discussionId}`);
   const feedReply = createPublicMeckyEvidenceReply(answer);
   assert.equal(feedReply.content, answer.content);
@@ -62,6 +64,35 @@ test("synthetic evidence needs the explicit deployment opt-in", () => {
   assert.throws(() => syntheticBriefConfig({ MECKY_SYNTHETIC_BRIEF_CONFIG: raw }));
   assert.throws(() => syntheticBriefConfig({ MECKY_ALLOW_SYNTHETIC_BRIEF: "true", MECKY_SYNTHETIC_BRIEF_CONFIG: JSON.stringify({ ...config, environment: "production" }) }));
   assert.deepEqual(syntheticBriefConfig({ MECKY_ALLOW_SYNTHETIC_BRIEF: "true", MECKY_SYNTHETIC_BRIEF_CONFIG: raw }), config);
+});
+
+test("a named topic resolves its Brief through the verified discussion title without a pasted ID", async () => {
+  // This seam supplies the result of the separately tested signature-verifying reader.
+  const context = { rootEvent: { id: config.discussionId, content: "A correction mentions an unrelated playground.",
+    tags: [["municipality", returned.municipalityId], ["topic", config.topicId], ["topic-title", "Schulweg am Niederwall"]] } } as PublicDiscussionContext;
+  let reads = 0;
+  const adapter = createSyntheticBriefEvidenceAdapter(config, async () => Response.json(returned), async id => {
+    assert.equal(id, config.discussionId); reads++; return context;
+  });
+  const { discussionId: _, ...general } = query;
+  const records = await adapter.load({ ...general, question: "Was sagen die Fachbereiche Verkehr und Finanzen zum Niederwall?" });
+  assert.equal(reads, 1);
+  assert.deepEqual(records.map(record => parsePublicEvidence(record).title.split(" · ")[0]).sort(), ["Fachantwort Finanzen", "Fachantwort Verkehr"]);
+  assert.deepEqual(await adapter.load({ ...general, question: "What is happening at the playground?" }), []);
+  assert.deepEqual(await adapter.load({ ...general, discussionId: "a".repeat(64), question: "Niederwall" }), []);
+});
+
+test("title lookup cannot substitute another topic, municipality or discussion", async () => {
+  const { discussionId: _, ...general } = query;
+  for (const mismatch of ["discussion", "municipality", "topic", "duplicate-title"]) {
+    const rootEvent = { id: mismatch === "discussion" ? "b".repeat(64) : config.discussionId,
+      tags: [["municipality", mismatch === "municipality" ? "other-city" : returned.municipalityId],
+        ["topic", mismatch === "topic" ? config.topicId + "-other" : config.topicId], ["topic-title", "Niederwall"],
+        ...(mismatch === "duplicate-title" ? [["topic-title", "Niederwall"]] : [])] };
+    const adapter = createSyntheticBriefEvidenceAdapter(config, async () => Response.json(returned),
+      async () => ({ rootEvent } as PublicDiscussionContext));
+    assert.deepEqual(await adapter.load({ ...general, question: "Was sagt Verkehr zum Niederwall?" }), [], mismatch);
+  }
 });
 
 test("staging uses the existing Web service while citations retain the public origin", async () => {
@@ -95,7 +126,7 @@ test("German department questions select that department before incidental menti
   for (const name of ["Verkehr", "Stadtplanung", "Finanzen", "Umwelt", "Recht", "Soziales", "Technische Dienste", "Öffentliche Ordnung"]) {
     const packet = await catalog.retrieve({ ...query, question: `Was sagt ${name} im synthetischen Test?` });
     assert.equal(packet.passages.length, 1);
-    assert.match(packet.passages[0]!.evidence.title, new RegExp(`Testantwort ${name} ·`));
+    assert.match(packet.passages[0]!.evidence.title, new RegExp(`Fachantwort ${name} ·`));
   }
 });
 
@@ -108,10 +139,10 @@ test("explicit department questions exclude incidental mentions and retain reque
   ]) {
     const packet = await catalog.retrieve({ ...query, question });
     assert.equal(packet.passages.length, 1);
-    assert.match(packet.passages[0]!.evidence.title, /^Testantwort Verkehr ·/);
+    assert.match(packet.passages[0]!.evidence.title, /^Fachantwort Verkehr ·/);
   }
   const comparison = await adapter.load({ ...query, question: "Vergleiche die Fachantworten von Verkehr und Finanzen." });
-  assert.deepEqual(comparison.map(e => parsePublicEvidence(e).title.split(" · ")[0]).sort(), ["Testantwort Finanzen", "Testantwort Verkehr"]);
+  assert.deepEqual(comparison.map(e => parsePublicEvidence(e).title.split(" · ")[0]).sort(), ["Fachantwort Finanzen", "Fachantwort Verkehr"]);
   assert.equal((await adapter.load({ ...query, question: "Wie können wir Verkehr und Kosten der Querung verbessern?" })).length, 8);
   assert.equal((await adapter.load({ ...query, question: "Was sagt Verkehrsplanung?" })).length, 8);
 });

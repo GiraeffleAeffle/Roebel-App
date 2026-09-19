@@ -40,6 +40,19 @@ topic binding, including when a correction mentions an unrelated street. Missing
 context produces a refusal or a retry on a projection failure, not a substitute
 source. Ordinary unscoped questions retain the reviewed municipal catalog.
 
+Unscoped questions can identify a configured Brief by its proposal title or the
+topic title of its signature-verified discussion. The latter must match the
+configured discussion, municipality and topic exactly. Incidental words in
+department responses or the discussion body are not aliases. This lookup does
+not admit other discussions, add publication permissions or discover new Brief
+bindings; a maintained multi-topic catalogue remains separate work.
+
+Source authority remains in the evidence packet and review metadata. The global
+staging banner supplies environment context; answer prose should explain the
+findings, cost model and material uncertainties instead of repeating a generic
+test disclaimer. Presentation may omit known writer labels without altering
+the signed statements or checksum-bound stored responses.
+
 An operator may explicitly regenerate one answer before suggestion/admission,
 using the exact discussion and previous answer IDs. The command reads the public
 context again after inference, signs the actual new answer, identifies it visibly
