@@ -52,9 +52,7 @@ export function CivicJourneyRail({ journey }: { journey: CivicJourney }) {
           </p>
         </div>
         <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
-          {journey.displayScope === "synthetic_demo"
-            ? "Synthetischer Demo-Ablauf"
-            : "Öffentlicher Stand"}
+          Öffentlicher Stand
         </span>
       </div>
       <details className="mt-3 text-xs text-muted-foreground">

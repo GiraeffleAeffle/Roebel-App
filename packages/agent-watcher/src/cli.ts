@@ -92,6 +92,12 @@ async function main(): Promise<void> {
   }
   const briefConfig = syntheticBriefConfig(process.env);
   if (syntheticEvidenceMode && briefConfig) throw Error("Synthetic Brief return cannot use the legacy static evidence mode.");
+  const agent = deriveAgentIdentity(required("NODE_AGENT_SECRET"), nodeId, agentName);
+  const discussionConfig = publicDiscussionContextConfig(process.env);
+  if (syntheticEvidenceMode && discussionConfig) throw Error("public_discussion_requires_public_evidence_mode");
+  const readDiscussionContext = discussionConfig ? createPublicDiscussionContextReader({
+    ...discussionConfig, municipalityId, agentPubkey: agent.publicKey,
+  }) : undefined;
   const publicMecky = createPublicMecky({
     ...(syntheticEvidenceMode
       ? {
@@ -106,6 +112,7 @@ async function main(): Promise<void> {
             municipalityId,
             reviewedSourceKinds: enabledReviewedSourceKinds,
             ...(briefConfig ? { syntheticBrief: briefConfig } : {}),
+            ...(readDiscussionContext ? { readDiscussionContext } : {}),
             ...(reviewedKnowledgeBaseUrl ? { reviewedKnowledgeBaseUrl } : {}),
           }),
         }),
@@ -116,12 +123,6 @@ async function main(): Promise<void> {
       timeoutMs: Number(process.env.MECKY_INFERENCE_TIMEOUT_MS ?? 30_000),
     }),
   });
-  const agent = deriveAgentIdentity(required("NODE_AGENT_SECRET"), nodeId, agentName);
-  const discussionConfig = publicDiscussionContextConfig(process.env);
-  if (syntheticEvidenceMode && discussionConfig) throw Error("public_discussion_requires_public_evidence_mode");
-  const readDiscussionContext = discussionConfig ? createPublicDiscussionContextReader({
-    ...discussionConfig, municipalityId, agentPubkey: agent.publicKey,
-  }) : undefined;
 
   const args = process.argv.slice(2);
   if (args.length) {

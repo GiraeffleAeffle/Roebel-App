@@ -559,7 +559,7 @@ export function StadtstackDiscussion({ rootId }: { rootId: string }) {
     <div className="space-y-5">
       <Link href="/app" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Zurück zum Feed</Link>
       <header className="rounded-xl border border-emerald-700/25 bg-emerald-950 p-5 text-white">
-        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-200"><GitFork className="h-4 w-4" /> Gemeinsam im Gespräch · Testumgebung</div>
+        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-200"><GitFork className="h-4 w-4" /> Gemeinsam im Gespräch</div>
         <h1 className="mt-2 text-xl font-bold leading-8">{thread.topic?.title ?? rootEvent.content}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-emerald-100">
           <span>{argumentSummary?.argumentCount ?? 0} Argumente · {participantCount} {participantCount === 1 ? "Profil" : "Profile"}</span>

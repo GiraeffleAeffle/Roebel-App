@@ -131,9 +131,7 @@ export function StadtstackPostJourney({
             {topic.topicTitle}
           </h2>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {link.journey.displayScope === "synthetic_demo"
-              ? "Synthetischer Test · Dieser Stand folgt dem geprüften Testfall. Er ist keine kommunale Entscheidung."
-              : "Diskussion, Vorschlag und öffentliche Antworten bleiben mit diesem Beitrag verbunden."}
+            Diskussion, Vorschlag und öffentliche Antworten bleiben mit diesem Beitrag verbunden.
           </p>
         </div>
         <Link

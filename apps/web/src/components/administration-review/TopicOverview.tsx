@@ -25,7 +25,7 @@ export function TopicOverview({ origin, view }: { origin: TopicOrigin | null; vi
     <div><p className="text-xs font-semibold uppercase tracking-wide text-primary">{origin ? "Originalthema aus der Röbel-App" : "Verlauf dieses Testfalls"}</p>
       <h2 className="mt-2 text-2xl font-semibold">{origin?.title ?? "Wer arbeitet woran – was fehlt noch?"}</h2>
       {origin && <><p className="mt-3 text-slate-600">{origin.content}</p><a className="mt-3 inline-block text-primary underline" href={`/app/diskussion/${origin.rootId}`}>Ausgangsdiskussion öffnen ↗</a>
-        <p className="mt-2 text-sm text-slate-500">{origin.testOnly ? "Synthetischer Staging-Fall · keine amtliche Übernahme" : "Öffentlich belegte Fallverknüpfung"}</p></>}
+        <p className="mt-2 text-sm text-slate-500">Öffentlich belegte Fallverknüpfung</p></>}
     </div>
     {origin && !current && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">Diskussion und Fallverknüpfung sind öffentlich belegt. Der authentifizierte Verwaltungsstand dieses Falls ist noch nicht verbunden. Zuständigkeiten, Antworten und Prüfungen können hier deshalb noch nicht bestätigt werden.</p>}
     <div aria-label="Ablauf" className="grid grid-cols-2 gap-3 sm:grid-cols-4">

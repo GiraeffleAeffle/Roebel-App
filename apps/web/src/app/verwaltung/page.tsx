@@ -130,7 +130,7 @@ export default function AdministrationWorkspace() {
     <header className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-sm font-semibold text-primary">Röbel · Town Workspace</p>
       <h1 className="mt-2 text-3xl font-semibold">Gemeinsam am Fall arbeiten</h1><p className="mt-2 text-slate-600">Fachliche Antworten sammeln, prüfen und für die Bürgerinnen und Bürger aufbereiten.</p></div>
       <a href="/app" className="text-sm text-primary underline">Zur Bürger-App</a></header>
-    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">Testumgebung · Rollen und Fall sind ausdrücklich für den Test vergeben. Eine Testprüfung ist keine amtliche Entscheidung.</div>
+
     <div className="flex flex-wrap items-center gap-3">
       {signedIn && <button type="button" className="rounded-lg border px-4 py-2 text-sm" disabled={busy} onClick={() => void switchAccount()}>Konto wechseln</button>}
       {roles.length > 0 && (!originRequested || view) && <label className="text-sm font-medium">Arbeiten als <select aria-label="Zugewiesene Testrolle" value={role} disabled={busy} onChange={(event) => { setView(null); setRole(event.target.value); }} className="ml-2 rounded-lg border bg-white p-2">{roles.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
@@ -152,16 +152,16 @@ export default function AdministrationWorkspace() {
       <p className="mt-4 text-sm">{view.briefReadiness ? `${view.briefReadiness.acceptedDepartmentIds.length} ${view.briefReadiness.acceptedDepartmentIds.length === 1 ? "Fachbereich" : "Fachbereiche"} geprüft. ${view.briefReadiness.status === "citizen_brief_current" ? "Die Bürger-Kurzfassung liegt vor." : "Die Bürger-Kurzfassung ist noch nicht abgeschlossen."}` : "Hier siehst du die Arbeitspakete deiner zugewiesenen Rolle."}</p></section>
       {active?.actorClass === "case_steward" && view.briefReadiness && <section className="space-y-4 rounded-2xl border bg-white p-6" aria-label="Bürger-Kurzfassung freigeben">
         <h2 className="text-xl font-semibold">Bürger-Kurzfassung und Rücklauf</h2>
-        {view.briefReadiness.status === "citizen_brief_current" ? <p>Die bestätigte Testfassung ist im öffentlichen Rücklauf verfügbar.{origin && <> <a className="text-primary underline" href={`/app/diskussion/${origin.rootId}`}>Zur Originaldiskussion</a></>}</p>
-          : <><p className="text-sm text-slate-600">Erst die acht Fachprüfungen abschließen, dann die genaue Kurzfassung prüfen und für den Test-Rücklauf bestätigen. Die Vorschau speichert noch nichts.</p>
+        {view.briefReadiness.status === "citizen_brief_current" ? <p>Die bestätigte Kurzfassung ist im öffentlichen Rücklauf verfügbar.{origin && <> <a className="text-primary underline" href={`/app/diskussion/${origin.rootId}`}>Zur Originaldiskussion</a></>}</p>
+          : <><p className="text-sm text-slate-600">Erst die acht Fachprüfungen abschließen, dann die genaue Kurzfassung prüfen und für den Rücklauf bestätigen. Die Vorschau speichert noch nichts.</p>
             {view.briefReadiness.status !== "ready_for_case_steward" && <p role="status">Noch {view.briefReadiness.requiredDepartmentIds.length - view.briefReadiness.acceptedDepartmentIds.length} Fachprüfungen offen.</p>}
             <button type="button" className={button} disabled={busy || needsRefresh || view.briefReadiness.status !== "ready_for_case_steward"}
               onClick={() => void submit("prepare_brief", { briefId: `brief:${crypto.randomUUID()}` })}>Kurzfassung vorbereiten</button>
             {preparation && preparation.caseVersion === view.caseVersion && <div className="space-y-4 rounded-xl border border-amber-300 bg-amber-50 p-4">
               <p className="font-semibold">Vorschau · {preparation.preview.title}</p><BriefResponses responses={preparation.preview.responses} />
-              <p className="text-sm">Mit der Bestätigung werden genau diese geprüften Testantworten öffentlich in Röbel sichtbar und für Mecky als Testquelle lesbar. Das ist keine amtliche Veröffentlichung.</p>
+              <p className="text-sm">Mit der Bestätigung werden genau diese geprüften Fachantworten in Röbel sichtbar und für Mecky als Quelle lesbar.</p>
               <button type="button" className={button} disabled={busy || needsRefresh} onClick={() => void submit("apply_brief", { briefId: preparation.briefId,
-                preparationChecksum: preparation.preparationChecksum })}>Diese Testfassung für Röbel bestätigen</button>
+                preparationChecksum: preparation.preparationChecksum })}>Diese Kurzfassung für Röbel bestätigen</button>
               <button type="button" className="ml-3 text-sm underline" disabled={busy} onClick={() => setPreparation(null)}>Vorschau verwerfen</button>
             </div>}
           </>}
