@@ -1,3 +1,6 @@
+import { parseReviewedPublicKnowledgeRecord } from "@roebel/stadtstack-federation-client/reviewed-public-knowledge";
+import type { LocalNewsEvidence, RatsinformationEvidence } from "@roebel/stadtstack-federation-client/reviewed-public-knowledge";
+export type { LocalNewsEvidence, RatsinformationEvidence } from "@roebel/stadtstack-federation-client/reviewed-public-knowledge";
 import { createHash } from "node:crypto";
 
 /**
@@ -50,23 +53,6 @@ export interface NostrPostEvidence extends PublicEvidenceCommon {
   readonly eventUrl: string;
   readonly signatureValid: boolean;
   readonly retrievalConsent: "direct_mention";
-}
-
-export interface LocalNewsEvidence extends PublicEvidenceCommon {
-  readonly sourceKind: "local_news";
-  readonly authority: "editorial_report";
-  readonly publisher: string;
-  readonly articleUrl: string;
-  readonly reviewedAt: string;
-}
-
-export interface RatsinformationEvidence extends PublicEvidenceCommon {
-  readonly sourceKind: "ratsinformation";
-  readonly authority: "official_record";
-  readonly body: string;
-  readonly recordId: string;
-  readonly recordUrl: string;
-  readonly reviewedAt: string;
 }
 
 export interface ReviewedCivicCaseEvidence extends PublicEvidenceCommon {
@@ -260,19 +246,8 @@ export function parsePublicEvidence(value: unknown): PublicEvidence {
       }
       return value as unknown as NostrPostEvidence;
     case "local_news":
-      if (!exactKeys(value, [...common, "publisher", "articleUrl", "reviewedAt"]) ||
-        value.authority !== "editorial_report" || !isNonEmptyString(value.publisher) ||
-        !isPublicHttpsUrl(value.articleUrl) || !isIsoDate(value.reviewedAt)) {
-        throw new Error("Invalid local news evidence.");
-      }
-      return value as unknown as LocalNewsEvidence;
     case "ratsinformation":
-      if (!exactKeys(value, [...common, "body", "recordId", "recordUrl", "reviewedAt"]) ||
-        value.authority !== "official_record" || !isNonEmptyString(value.body) ||
-        !isNonEmptyString(value.recordId) || !isPublicHttpsUrl(value.recordUrl) || !isIsoDate(value.reviewedAt)) {
-        throw new Error("Invalid Ratsinformationssystem evidence.");
-      }
-      return value as unknown as RatsinformationEvidence;
+      return parseReviewedPublicKnowledgeRecord(value);
     case "synthetic_citizen_brief":
       if (!exactKeys(value, [...common, "caseId", "caseUrl", "reviewedAt", "briefChecksum", "testOnly"]) ||
         value.authority !== "synthetic_demo" || value.testOnly !== true ||

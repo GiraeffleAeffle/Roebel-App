@@ -1,3 +1,6 @@
+import { isAbsolute, join } from "node:path";
+import { readPublicKnowledgeFile } from "./public-knowledge-file";
+
 /**
  * Small, reviewable Röbel corpus for Public Mecky.
  *
@@ -69,16 +72,27 @@ export const ROEBEL_REVIEWED_PUBLIC_KNOWLEDGE = Object.freeze({
 
 export type RoebelReviewedSourceKind = keyof typeof ROEBEL_REVIEWED_PUBLIC_KNOWLEDGE;
 
-export function roebelReviewedPublicKnowledge(
+export async function roebelReviewedPublicKnowledge(
   municipalityId: string,
-  sourceSegment: string
+  sourceSegment: string,
+  directory = process.env.ROEBEL_PUBLIC_KNOWLEDGE_DIRECTORY,
+  now = new Date().toISOString(),
 ) {
+  const sourceKind = sourceSegment === "local-news" ? "local_news"
+    : sourceSegment === "ratsinformation" ? "ratsinformation" : null;
+  if (!sourceKind || municipalityId.length > 80 ||
+    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(municipalityId)) return null;
+
+  // An explicitly configured catalogue is authoritative for this reader.
+  // Missing/invalid files must not resurrect a withdrawn bundled record.
+  if (directory !== undefined) {
+    if (!isAbsolute(directory)) throw new Error("Knowledge directory must be absolute.");
+    return readPublicKnowledgeFile(
+      join(directory, municipalityId, `${sourceSegment}.json`),
+      municipalityId, sourceKind, now,
+    );
+  }
+
   if (municipalityId !== "roebel-mueritz") return null;
-  if (sourceSegment === "local-news") {
-    return ROEBEL_REVIEWED_PUBLIC_KNOWLEDGE.local_news;
-  }
-  if (sourceSegment === "ratsinformation") {
-    return ROEBEL_REVIEWED_PUBLIC_KNOWLEDGE.ratsinformation;
-  }
-  return null;
+  return ROEBEL_REVIEWED_PUBLIC_KNOWLEDGE[sourceKind];
 }

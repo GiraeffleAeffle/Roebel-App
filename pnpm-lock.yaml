@@ -58,9 +58,6 @@ importers:
       '@netizen-labs/nostr':
         specifier: workspace:*
         version: link:../../packages/nostr
-      '@roebel/blockchain':
-        specifier: workspace:*
-        version: link:../../packages/blockchain
       '@react-native-async-storage/async-storage':
         specifier: 2.2.0
         version: 2.2.0(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@5.0.10))
@@ -85,6 +82,9 @@ importers:
       '@rnmapbox/maps':
         specifier: 10.2.10
         version: 10.2.10(expo@55.0.9)(react-dom@19.2.0(react@19.2.0))(react-native@0.83.2(@babel/core@7.29.0)(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@5.0.10))(react@19.2.0)
+      '@roebel/blockchain':
+        specifier: workspace:*
+        version: link:../../packages/blockchain
       '@sentry/cli':
         specifier: 2.58.4
         version: 2.58.4
@@ -662,12 +662,6 @@ importers:
       '@netizen-labs/workspace':
         specifier: workspace:*
         version: link:../../packages/workspace
-      '@roebel/blockchain':
-        specifier: workspace:*
-        version: link:../../packages/blockchain
-      '@roebel/stadtstack-federation-client':
-        specifier: workspace:*
-        version: link:../../packages/stadtstack-federation-client
       '@noble/hashes':
         specifier: ^1.8.0
         version: 1.8.0
@@ -704,6 +698,12 @@ importers:
       '@react-pdf/renderer':
         specifier: ^4.3.2
         version: 4.3.2(react@19.1.1)
+      '@roebel/blockchain':
+        specifier: workspace:*
+        version: link:../../packages/blockchain
+      '@roebel/stadtstack-federation-client':
+        specifier: workspace:*
+        version: link:../../packages/stadtstack-federation-client
       '@safe-global/api-kit':
         specifier: ^5.0.1
         version: 5.0.1(bufferutil@4.1.0)(typescript@5.8.3)(utf-8-validate@5.0.10)(zod@3.25.76)
@@ -1260,6 +1260,9 @@ importers:
         specifier: ^3.25.76
         version: 3.25.76
     devDependencies:
+      '@types/node':
+        specifier: ^22.7.4
+        version: 22.19.15
       tsx:
         specifier: ^4.22.4
         version: 4.22.4

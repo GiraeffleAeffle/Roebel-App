@@ -11,6 +11,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./reviewed-public-knowledge": {
+      "types": "./src/reviewedPublicKnowledge.node.ts",
+      "default": "./src/reviewedPublicKnowledge.node.ts"
     }
   },
   "sideEffects": false,
@@ -22,6 +26,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@types/node": "^22.7.4",
     "tsx": "^4.22.4",
     "typescript": "^5.7.0"
   }
