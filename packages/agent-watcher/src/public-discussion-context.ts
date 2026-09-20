@@ -18,6 +18,28 @@ export interface PublicDiscussionContext {
   readonly hasSuggestionOrCase: boolean;
 }
 
+/** A signed feed follow-up selects a public root, never a caller-owned fetch URL. */
+export async function readPublicFollowUpContext(
+  event: NostrEvent,
+  publicOrigin: string,
+  readContext: (discussionId: string) => Promise<PublicDiscussionContext>,
+): Promise<PublicDiscussionContext | null> {
+  const footer = /\n\nDiskussion: (\S+)\s*$/u.exec(event.content);
+  if (!footer) return null;
+  const url = new URL(footer[1]!);
+  const rootId = /^\/app\/diskussion\/([0-9a-f]{64})$/u.exec(url.pathname)?.[1];
+  if (!verifyEvent(event) || !rootId || url.origin !== origin(publicOrigin, false) ||
+    url.username || url.password || url.search || (url.hash && url.hash !== "#citizen-brief")) {
+    throw Error("public_follow_up_reference_invalid");
+  }
+  const context = await readContext(rootId);
+  const postId = singleTag(event, "source-app-post");
+  if (context.rootEvent.id !== rootId || !postId || singleTag(context.rootEvent, "source-app-post") !== postId) {
+    throw Error("public_follow_up_post_mismatch");
+  }
+  return context;
+}
+
 const HEX64 = /^[0-9a-f]{64}$/u;
 const MAX_RESPONSE_BYTES = 512_000;
 

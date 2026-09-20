@@ -21,10 +21,12 @@ import { deletePost } from "@/app/actions/posts";
 import type { PostWithEngagement } from "@/types/post";
 import { toast } from "sonner";
 import { resolveStadtstackStagingLab } from "@/lib/stadtstack/staging-lab";
+import type { DiscussionFollowUp } from "@/lib/stadtstack/discussion-follow-up";
 
 interface PostCardProps extends PostWithEngagement {
   onDeleted?: () => void;
   mode?: "feed" | "detail";
+  discussionFollowUp?: DiscussionFollowUp;
 }
 
 function formatRelativeTime(dateStr: string): string {
@@ -88,6 +90,7 @@ export function PostCard({
   poll,
   onDeleted,
   mode = "feed",
+  discussionFollowUp,
 }: PostCardProps) {
   const router = useRouter();
   const account = useActiveAccount();
@@ -385,6 +388,7 @@ export function PostCard({
             commentsCount={comments_count}
             postFeedType={feed_type}
             defaultExpanded={mode === "detail"}
+            discussionFollowUp={mode === "detail" ? discussionFollowUp : undefined}
             postSource={{
               id,
               walletAddress: wallet_address,

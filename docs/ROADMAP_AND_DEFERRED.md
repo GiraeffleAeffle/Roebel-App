@@ -1,6 +1,6 @@
 # Roadmap and deferred work
 
-**Last updated: 2026-09-19.** Part of the [documentation index](README.md).
+**Last updated: 2026-09-20.** Part of the [documentation index](README.md).
 
 Everything here was **deliberately not built**, with a reason. This document exists so that
 "we decided that later" survives the conversation it was decided in. Each entry says what it
@@ -11,6 +11,16 @@ An item without a trigger is a wish. An item without a reason is an oversight.
 ---
 
 ## Current: useful Mecky answers across the knowledge base — 2026-09-19
+
+The next Step 8 source slice connects a returned Brief to the existing shared
+feed composer. The app verifies the signed discussion's source-post binding,
+adds its readable link to the citizen's submitted comment and preserves that
+reference in the signed Mecky mention. Mecky re-reads the exact public discussion
+and its current Brief for each follow-up. Other topics are excluded from that
+scoped query. The feed retains the question, cited reply and return link together;
+removing `@Mecky` leaves an ordinary public follow-up. This adds no decision,
+participation or treasury transition. Source publication and live acceptance
+are recorded separately from the implementation.
 
 The [maintained catalogue storage](runbooks/maintained-public-knowledge.md) now
 has a source implementation: a read-only configured directory, one shared

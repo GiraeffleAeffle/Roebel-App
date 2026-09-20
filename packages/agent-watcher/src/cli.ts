@@ -24,7 +24,7 @@ import {
 import { createNodeRelayClient } from "./node-relay-client";
 import { createPublicMeckyReplyProjectionSink } from "./public-mecky-projection";
 import { singleFlight } from "./single-flight";
-import { createPublicDiscussionContextReader, publicDiscussionContextConfig } from "./public-discussion-context";
+import { createPublicDiscussionContextReader, publicDiscussionContextConfig, readPublicFollowUpContext } from "./public-discussion-context";
 import { publishDiscussionCorrection } from "./discussion-correction";
 import { watchOnce } from "./watcher";
 
@@ -214,6 +214,10 @@ async function main(): Promise<void> {
           const discussionBinding = civic ? publicMeckyDiscussionBindingFor(event, {
             municipalityId, sourceCaseId, canonicalCaseId,
           }) : undefined;
+          const followUp = !discussionBinding && discussionConfig && readDiscussionContext
+            ? await readPublicFollowUpContext(event, discussionConfig.publicOrigin, readDiscussionContext)
+            : null;
+          const discussionId = discussionBinding ? event.id : followUp?.rootEvent.id;
           let conversationEvidence: PublicEvidence[] = [];
           if (discussionBinding && readDiscussionContext) {
             const context = await readDiscussionContext(event.id);
@@ -221,6 +225,8 @@ async function main(): Promise<void> {
             // silently replace the citizen's question with unrelated records.
             if (context.rootEvent.id !== event.id) throw Error("public_discussion_event_mismatch");
             conversationEvidence = [context.evidence];
+          } else if (followUp) {
+            conversationEvidence = [followUp.evidence];
           } else if (!syntheticEvidenceMode && publicIndexBaseUrl) {
             try {
               conversationEvidence = [createDirectMentionEvidence(event, {
@@ -239,7 +245,7 @@ async function main(): Promise<void> {
             question: question.trim(),
             now: new Date().toISOString(),
             conversationEvidence,
-            ...(discussionBinding ? { discussionId: event.id } : {}),
+            ...(discussionId ? { discussionId } : {}),
           });
           if (answer.status === "answered") {
             return discussionBinding

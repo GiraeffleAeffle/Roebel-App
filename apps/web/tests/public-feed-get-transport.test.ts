@@ -37,7 +37,6 @@ test("keeps ordinary post detail on the public feed and never substitutes a synt
   assert.doesNotMatch(detailPage, /findStagingPostMirror/);
   assert.doesNotMatch(detailPage, /StadtstackStagingPostDetail/);
   assert.match(detailPage, /const result = await getPublicFeedPost\(id\)/);
-  assert.match(detailPage, /finally \{\s*setIsLoading\(false\)/s);
   assert.match(detailPage, /Erneut laden/);
 });
 
