@@ -1,5 +1,6 @@
 import {
   REVIEWED_PUBLIC_KNOWLEDGE_SOURCE_KINDS,
+  REVIEWED_PUBLIC_KNOWLEDGE_SOURCE_SEGMENTS,
   ReviewedPublicKnowledgeError,
   parseReviewedPublicKnowledgeProjection,
   type ReviewedPublicKnowledgeErrorCode,
@@ -54,7 +55,7 @@ function projectionPath(
   municipalityId: string,
   sourceKind: ReviewedPublicKnowledgeSourceKind,
 ): string {
-  const sourceSegment = sourceKind === "local_news" ? "local-news" : "ratsinformation";
+  const sourceSegment = REVIEWED_PUBLIC_KNOWLEDGE_SOURCE_SEGMENTS[sourceKind];
   return `/api/federation/v1/municipalities/${encodeURIComponent(
     municipalityId,
   )}/public-knowledge/${sourceSegment}`;

@@ -18,6 +18,20 @@ export interface PublicDiscussionContext {
   readonly hasSuggestionOrCase: boolean;
 }
 
+/** Only a verified root can select document sections linked to its exact topic. */
+export function publicDiscussionTopic(context: PublicDiscussionContext, discussionId: string, municipalityId: string): string {
+  const root = context.rootEvent;
+  const topic = singleTag(root, "topic");
+  if (!verifyEvent(root) || root.id !== discussionId || root.kind !== 1 ||
+    singleTag(root, "municipality") !== municipalityId ||
+    singleTag(root, "t") !== "stadtstack-civic-discussion" || singleTag(root, "stance") !== "root" ||
+    !topic?.startsWith(`urn:stadtstack:topic:municipality:${municipalityId}:`) || topic.split(":").length !== 6 ||
+    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(topic.split(":").at(-1)!)) {
+    throw Error("public_discussion_topic_invalid");
+  }
+  return topic;
+}
+
 /** A signed feed follow-up selects a public root, never a caller-owned fetch URL. */
 export async function readPublicFollowUpContext(
   event: NostrEvent,

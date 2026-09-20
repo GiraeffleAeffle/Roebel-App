@@ -1,4 +1,5 @@
 import { isAbsolute, join } from "node:path";
+import { REVIEWED_PUBLIC_KNOWLEDGE_SOURCE_SEGMENTS, type ReviewedPublicKnowledgeSourceKind } from "@roebel/stadtstack-federation-client/reviewed-public-knowledge";
 import { readPublicKnowledgeFile } from "./public-knowledge-file";
 
 /**
@@ -78,8 +79,8 @@ export async function roebelReviewedPublicKnowledge(
   directory = process.env.ROEBEL_PUBLIC_KNOWLEDGE_DIRECTORY,
   now = new Date().toISOString(),
 ) {
-  const sourceKind = sourceSegment === "local-news" ? "local_news"
-    : sourceSegment === "ratsinformation" ? "ratsinformation" : null;
+  const sourceKind = (Object.entries(REVIEWED_PUBLIC_KNOWLEDGE_SOURCE_SEGMENTS)
+    .find(([, segment]) => segment === sourceSegment)?.[0] ?? null) as ReviewedPublicKnowledgeSourceKind | null;
   if (!sourceKind || municipalityId.length > 80 ||
     !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(municipalityId)) return null;
 
@@ -94,5 +95,6 @@ export async function roebelReviewedPublicKnowledge(
   }
 
   if (municipalityId !== "roebel-mueritz") return null;
+  if (sourceKind === "community_document") return null;
   return ROEBEL_REVIEWED_PUBLIC_KNOWLEDGE[sourceKind];
 }

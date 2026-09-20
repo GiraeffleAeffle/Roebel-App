@@ -12,6 +12,7 @@ Set `ROEBEL_PUBLIC_KNOWLEDGE_DIRECTORY` to an absolute, read-only mount containi
 ```text
 <directory>/<municipalityId>/local-news.json
 <directory>/<municipalityId>/ratsinformation.json
+<directory>/<municipalityId>/community-documents.json
 ```
 
 Each file is one complete `reviewed_public_knowledge_projection_v1` snapshot,
@@ -60,14 +61,45 @@ editions still need source-owner review and publication, but no application
 image, prompt change or per-topic deployment. Restoring an older edition also
 requires review: it can reintroduce a deliberately withdrawn record.
 
+## Document sections
+
+The optional `community_document` source uses `community-documents.json`. Declare
+it explicitly in `MECKY_REVIEWED_SOURCE_KINDS`; canonical order is
+`local_news,ratsinformation,community_document`, with unused kinds omitted.
+There is no bundled document edition. The other sources remain independent.
+
+The shared `CommunityDocumentEvidence` contract records publisher, attributed
+person/group, document and section IDs, document digest, physical PDF page range,
+printed page label and reviewed topic links. `publishedAt: null` preserves an
+unknown date. `documentUrl: null` means no original download has been published;
+the citation can still show the reviewed section and exact file digest. Do not
+put a private path into a URL or upload the scan implicitly.
+
+For each reviewed section, compute `communityDocumentSectionEvidenceId(draft)`
+before adding `evidenceId` and `recordUrl`. The latter must include exactly one
+`version=<64-character evidence digest>` query parameter. Röbel's readable target
+is `/app/wissen/{municipalityId}/{documentId}/{sectionId}?version=<digest>`.
+Then seal the full edition with the existing preparation command. Changing
+content, page references, attribution, lifecycle or review metadata creates a
+new evidence version; stable document/section IDs remain unchanged.
+
+Topic links are deliberate source-owner assertions. Only sections linked to the
+freshly verified discussion topic enter a scoped follow-up. A common place name
+is not a link. The reader performs no automatic Case admission or dispatch.
+
+The document reader reopens the current edition on every request. Changed
+citations offer the current version without displaying it as the old one;
+withdrawn or unavailable sections supply no passage. Source summaries are
+attributed community evidence, even when a brochure was supported by a city.
+An official Kair publication needs its separate municipal publication contract.
+
 ## Scope and next acceptance
 
-This slice supplies maintained storage for the existing news/council contract.
-It does not import a larger corpus. Document sections/page references, linked
-Bürgerrat recommendations, reviewed Kair bundles, catalogue discovery of Briefs
-and contextual follow-ups remain subsequent work. Do not label a Bürgerrat
-recommendation as a council decision to fit the current schema. Extend the
-neutral source contract deliberately when that document path is implemented.
+Source implementation now covers news, council records and page-addressable
+community documents. It does not activate a larger hosted corpus. Verify the
+reviewed edition through several unrelated questions, explicit section lookup,
+an exact-topic follow-up, comparisons and withdrawal. Official Kair bundles,
+catalogue discovery of Briefs and longer conversations remain subsequent work.
 
 The served-route tests exercise addition, correction and withdrawal against the
 same running reader, plus source outages, corrupt snapshots and scope rejection.

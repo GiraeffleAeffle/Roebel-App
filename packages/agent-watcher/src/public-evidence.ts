@@ -1,6 +1,6 @@
 import { parseReviewedPublicKnowledgeRecord } from "@roebel/stadtstack-federation-client/reviewed-public-knowledge";
-import type { LocalNewsEvidence, RatsinformationEvidence } from "@roebel/stadtstack-federation-client/reviewed-public-knowledge";
-export type { LocalNewsEvidence, RatsinformationEvidence } from "@roebel/stadtstack-federation-client/reviewed-public-knowledge";
+import type { LocalNewsEvidence, RatsinformationEvidence, CommunityDocumentEvidence } from "@roebel/stadtstack-federation-client/reviewed-public-knowledge";
+export type { LocalNewsEvidence, RatsinformationEvidence, CommunityDocumentEvidence } from "@roebel/stadtstack-federation-client/reviewed-public-knowledge";
 import { createHash } from "node:crypto";
 
 /**
@@ -18,6 +18,7 @@ export const PUBLIC_EVIDENCE_SOURCE_KINDS = [
   "ratsinformation",
   "reviewed_civic_case",
   "synthetic_citizen_brief",
+  "community_document",
 ] as const;
 
 export type PublicEvidenceSourceKind = (typeof PUBLIC_EVIDENCE_SOURCE_KINDS)[number];
@@ -78,6 +79,7 @@ export type PublicEvidence =
   | NostrPostEvidence
   | LocalNewsEvidence
   | RatsinformationEvidence
+  | CommunityDocumentEvidence
   | ReviewedCivicCaseEvidence
   | SyntheticCitizenBriefEvidence;
 
@@ -87,7 +89,13 @@ export interface PromptPublicEvidence {
   readonly authority: PublicEvidenceAuthority;
   readonly title: string;
   readonly summary: string;
-  readonly publishedAt: string;
+  readonly publishedAt: string | null;
+  readonly documentCitation?: {
+    readonly documentTitle: string;
+    readonly sectionId: string;
+    readonly printedPageLabel: string;
+    readonly attributedTo: string;
+  };
 }
 
 export interface RetrievedPublicEvidence {
@@ -162,6 +170,7 @@ const AUTHORITY_BY_SOURCE_KIND: Record<PublicEvidenceSourceKind, PublicEvidenceA
   ratsinformation: "official_record",
   reviewed_civic_case: "reviewed_civic_evidence",
   synthetic_citizen_brief: "synthetic_demo",
+  community_document: "community_statement",
 };
 
 const AUTHORITY_TIE_BREAK: Record<PublicEvidenceAuthority, number> = {
@@ -177,7 +186,8 @@ const STOP_WORDS = new Set([
   "die", "ein", "eine", "einen", "einer", "einem", "für", "gibt", "haben", "ich", "ist",
   "kann", "mecky", "mit", "nach", "nicht", "noch", "nur", "oder", "sich", "sind", "soll",
   "und", "von", "was", "welche", "welchen", "welcher", "wie", "wir", "wird", "wurde", "zur",
-]);
+  "werden", "wozu", "nennt", "steht", "empfohlen", "empfiehlt", "vorgeschlagen", "schlägt", "vor",
+].map((word) => word.normalize("NFKD").toLocaleLowerCase("de-DE").replace(/[\u0300-\u036f]/g, "")));
 
 const MUNICIPALITY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
@@ -220,7 +230,7 @@ function commonIsValid(record: Record<string, unknown>): boolean {
     MUNICIPALITY_ID.test(record.municipalityId) &&
     isNonEmptyString(record.title) &&
     isNonEmptyString(record.summary) &&
-    isIsoDate(record.publishedAt) &&
+    (isIsoDate(record.publishedAt) || (record.sourceKind === "community_document" && record.publishedAt === null)) &&
     (record.admissionState === "admitted" || record.admissionState === "pending_review") &&
     (record.lifecycle === "current" || record.lifecycle === "stale" || record.lifecycle === "superseded" || record.lifecycle === "withdrawn");
 }
@@ -247,6 +257,7 @@ export function parsePublicEvidence(value: unknown): PublicEvidence {
       return value as unknown as NostrPostEvidence;
     case "local_news":
     case "ratsinformation":
+    case "community_document":
       return parseReviewedPublicKnowledgeRecord(value);
     case "synthetic_citizen_brief":
       if (!exactKeys(value, [...common, "caseId", "caseUrl", "reviewedAt", "briefChecksum", "testOnly"]) ||
@@ -273,9 +284,16 @@ export function publicEvidenceUrl(entry: PublicEvidence): string {
     case "nostr_post": return entry.eventUrl;
     case "local_news": return entry.articleUrl;
     case "ratsinformation": return entry.recordUrl;
+    case "community_document": return entry.recordUrl;
     case "reviewed_civic_case":
     case "synthetic_citizen_brief": return entry.caseUrl;
   }
+}
+
+export function publicEvidenceTitle(entry: PublicEvidence): string {
+  return entry.sourceKind === "community_document"
+    ? `${entry.documentTitle} · ${entry.title} · S. ${entry.printedPageLabel}`
+    : entry.title;
 }
 
 function normalise(value: string): string[] {
@@ -286,10 +304,18 @@ function normalise(value: string): string[] {
     .match(/[\p{L}\p{N}]{3,}/gu)?.filter((term) => !STOP_WORDS.has(term)) ?? [];
 }
 
-function relevance(questionTerms: readonly string[], entry: PublicEvidence): number {
+function relevance(questionTerms: readonly string[], entry: PublicEvidence, question: string): number {
   const titleTerms = new Set(normalise(entry.title));
   const summaryTerms = new Set(normalise(entry.summary));
-  return questionTerms.reduce((score, term) => score + (titleTerms.has(term) ? 5 : 0) + (summaryTerms.has(term) ? 1 : 0), 0);
+  // Section identifiers keep short numbers (e.g. "Empfehlung 2" vs "20")
+  // that ordinary word retrieval deliberately excludes. No per-document rule.
+  const words = (text: string) => text.normalize("NFKD").toLocaleLowerCase("de-DE")
+    .replace(/[\u0300-\u036f]/g, "").match(/[\p{L}\p{N}]+/gu)?.join(" ") ?? "";
+  const sectionMatch = entry.sourceKind === "community_document" &&
+    ` ${words(question)} `.includes(` ${words(entry.sectionId)} `);
+  const matches = (terms: Set<string>, term: string) => terms.has(term) ||
+    terms.has(`${term}s`) || (term.length > 4 && term.endsWith("s") && terms.has(term.slice(0, -1)));
+  return (sectionMatch ? 20 : 0) + questionTerms.reduce((score, term) => score + (matches(titleTerms, term) ? 5 : 0) + (matches(summaryTerms, term) ? 1 : 0), 0);
 }
 
 function fingerprint(entry: PublicEvidence): string {
@@ -317,7 +343,14 @@ function truncateUtf8(value: string, maxBytes: number): string {
 /** A prompt-safe projection; URLs, public keys and wallet addresses never cross this boundary. */
 export function toPromptPublicEvidence(entry: PublicEvidence, maxBytes = DEFAULT_PUBLIC_EVIDENCE_MAX_PROMPT_BYTES): PromptPublicEvidence {
   const title = redactPromptText(entry.title);
-  const summaryBudget = Math.max(0, maxBytes - Buffer.byteLength(title, "utf8") - 256);
+  const documentCitation = entry.sourceKind === "community_document" ? {
+    documentTitle: truncateUtf8(redactPromptText(entry.documentTitle), 256),
+    sectionId: entry.sectionId,
+    printedPageLabel: redactPromptText(entry.printedPageLabel),
+    attributedTo: truncateUtf8(redactPromptText(entry.attributedTo), 256),
+  } : undefined;
+  const citationBytes = documentCitation ? Buffer.byteLength(JSON.stringify({ documentCitation }), "utf8") : 0;
+  const summaryBudget = Math.max(0, maxBytes - Buffer.byteLength(title, "utf8") - citationBytes - 256);
   return {
     evidenceId: entry.evidenceId,
     sourceKind: entry.sourceKind,
@@ -325,6 +358,7 @@ export function toPromptPublicEvidence(entry: PublicEvidence, maxBytes = DEFAULT
     title: truncateUtf8(title, Math.max(0, maxBytes)),
     summary: truncateUtf8(redactPromptText(entry.summary), summaryBudget),
     publishedAt: entry.publishedAt,
+    ...(documentCitation ? { documentCitation } : {}),
   };
 }
 
@@ -413,11 +447,11 @@ function selectPublicEvidence(
       omit(entry, "invalid_signature");
       continue;
     }
-    if (scope && Date.parse(entry.publishedAt) > scope.nowEpochMs) {
+    if (scope && entry.publishedAt !== null && Date.parse(entry.publishedAt) > scope.nowEpochMs) {
       omit(entry, "future_dated");
       continue;
     }
-    const score = relevance(terms, entry);
+    const score = relevance(terms, entry, question);
     if (!terms.length || score <= 0) {
       omit(entry, "not_relevant");
       continue;
@@ -428,7 +462,8 @@ function selectPublicEvidence(
   ranked.sort((left, right) =>
       right.score - left.score ||
       AUTHORITY_TIE_BREAK[right.entry.authority] - AUTHORITY_TIE_BREAK[left.entry.authority] ||
-      Date.parse(right.entry.publishedAt) - Date.parse(left.entry.publishedAt) ||
+      (right.entry.publishedAt === null ? 0 : Date.parse(right.entry.publishedAt)) -
+        (left.entry.publishedAt === null ? 0 : Date.parse(left.entry.publishedAt)) ||
       left.entry.evidenceId.localeCompare(right.entry.evidenceId),
   );
 
