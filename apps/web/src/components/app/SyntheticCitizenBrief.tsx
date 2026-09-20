@@ -3,6 +3,7 @@
 import type { SyntheticCitizenBriefBinding } from "@roebel/stadtstack-federation-client";
 import type { useSyntheticCitizenBrief } from "../../lib/stadtstack/use-synthetic-citizen-brief";
 import { BriefResponses } from "../administration-review/BriefResponses";
+import { discussionFollowUpHref } from "../../lib/stadtstack/discussion-follow-up";
 
 export function SyntheticCitizenBrief({ binding, state, sourcePostId }: {
   binding: SyntheticCitizenBriefBinding; sourcePostId?: string; state: ReturnType<typeof useSyntheticCitizenBrief>;
@@ -22,7 +23,7 @@ export function SyntheticCitizenBrief({ binding, state, sourcePostId }: {
         <BriefResponses responses={value.brief.responses} collapsible />
         <div className="flex flex-wrap gap-3 text-sm font-semibold">
           <a href={`/app/diskussion/${binding.discussionId}#discussion-arguments`} className="rounded-full bg-primary px-4 py-2 text-primary-foreground">Rücklauf diskutieren</a>
-          <a href={sourcePostId ? `/app/posts/${sourcePostId}` : "/app/mecky"} className="rounded-full border px-4 py-2 text-primary">{sourcePostId ? "Im Feed mit @Mecky weiterdiskutieren" : "Mecky zu den Antworten fragen"}</a>
+          <a href={sourcePostId ? discussionFollowUpHref(binding.discussionId, sourcePostId) : "/app/mecky"} className="rounded-full border px-4 py-2 text-primary">{sourcePostId ? "Öffentliche Rückfrage an Mecky" : "Mecky zu den Antworten fragen"}</a>
         </div>
         <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">Version und Prüfnachweis</summary>
           <p className="mt-2">Szenario im Staging · Quellen und Annahmen bleiben in den Fachantworten nachvollziehbar.</p>

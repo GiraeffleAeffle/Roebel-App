@@ -1,6 +1,7 @@
 "use client";
 
 import { requestStagingCommentMecky } from "@/lib/staging-participant/comment-mecky";
+import { discussionFollowUpComment, discussionFollowUpPresentation, discussionFollowUpSuffix, FOLLOW_UP_COMMENT_LIMIT, type DiscussionFollowUp } from "@/lib/stadtstack/discussion-follow-up";
 import { meckyPresentation, meckySourceHref } from "@/lib/mecky-presentation";
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -45,6 +46,7 @@ interface CommentSectionProps {
   commentsCount: number;
   postFeedType: FeedType;
   defaultExpanded?: boolean;
+  discussionFollowUp?: DiscussionFollowUp;
   postSource: {
     id: string;
     walletAddress: string;
@@ -73,6 +75,7 @@ function CommentItem({ comment }: { comment: PostComment }) {
     return <PublicMeckyCommentItem comment={comment} />;
   }
   const shortAddress = `${comment.wallet_address.slice(0, 4)}...${comment.wallet_address.slice(-3)}`;
+  const presentation = discussionFollowUpPresentation(comment.content, typeof window === "undefined" ? "" : window.location.origin);
 
   return (
     <div className="flex gap-2.5 py-2">
@@ -98,7 +101,8 @@ function CommentItem({ comment }: { comment: PostComment }) {
           <span className="text-xs font-medium text-foreground">
             {comment.author_username || shortAddress}
           </span>
-          <p className="text-sm text-foreground mt-0.5">{comment.content}</p>
+          <p className="mt-0.5 break-words text-sm text-foreground">{presentation.text}</p>
+          {presentation.href && <a href={presentation.href} className="mt-2 inline-block text-xs font-medium text-primary underline">Fachantworten und Diskussion ↗</a>}
         </div>
 
         {/* Comment media */}
@@ -307,6 +311,7 @@ export function CommentSection({
   commentsCount,
   postFeedType,
   defaultExpanded = false,
+  discussionFollowUp,
   postSource,
 }: CommentSectionProps) {
   const account = useActiveAccount();
@@ -335,6 +340,19 @@ export function CommentSection({
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [isLoading, setIsLoading] = useState(false);
   const [newComment, setNewComment] = useState("");
+  const [followUpOrigin, setFollowUpOrigin] = useState("");
+  const followUpRef = useRef<HTMLDivElement>(null);
+  const followUp = discussionFollowUp?.sourcePostId === postId ? discussionFollowUp : undefined;
+  useEffect(() => {
+    if (!followUp) return;
+    setFollowUpOrigin(window.location.origin);
+    setNewComment(value => value || "@Mecky ");
+    setIsExpanded(true);
+    followUpRef.current?.scrollIntoView({ block: "start" });
+  }, [followUp?.discussionId]);
+  const commentLimit = followUp && followUpOrigin
+    ? FOLLOW_UP_COMMENT_LIMIT - discussionFollowUpSuffix(followUp, followUpOrigin).length
+    : FOLLOW_UP_COMMENT_LIMIT;
   const [totalCount, setTotalCount] = useState(commentsCount);
   const [meckyConversation, setMeckyConversation] =
     useState<StagingMeckyConversationResponse | null>(null);
@@ -537,7 +555,11 @@ export function CommentSection({
     )
       return;
 
-    const content = newComment.trim() || " ";
+    let content = newComment.trim() || " ";
+    if (followUp) {
+      try { content = discussionFollowUpComment(newComment, followUp, followUpOrigin); }
+      catch (error) { toast.error(error instanceof Error ? error.message : "Rückfrage konnte nicht vorbereitet werden."); return; }
+    }
     submitLockRef.current = true;
     setNewComment("");
     setIsUploading(true);
@@ -660,6 +682,11 @@ export function CommentSection({
 
   return (
     <div className="border-t border-border">
+      {followUp && <div ref={followUpRef} id="discussion-follow-up" className="scroll-mt-24 space-y-2 border-b border-border bg-muted/50 px-4 py-3 text-sm">
+        <h2 className="font-semibold">Rückfrage zum Rücklauf</h2>
+        <a href={`/app/diskussion/${followUp.discussionId}#citizen-brief`} className="font-medium text-primary underline">{followUp.title} · Fachantworten ansehen</a>
+        <p className="text-xs text-muted-foreground">Deine Rückfrage wird mit einem Link zu dieser Diskussion hier veröffentlicht. Mit @Mecky bittest du um eine Antwort im gemeinsamen Verlauf.</p>
+      </div>}
       {/* Show all comments button */}
       {visibleCommentCount > 0 && !isExpanded && (
           <button
@@ -857,14 +884,15 @@ export function CommentSection({
               type="text"
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
-              placeholder="Kommentar schreiben..."
-              maxLength={500}
+              placeholder={followUp ? "Welche Frage ist nach dem Rücklauf noch offen?" : "Kommentar schreiben..."}
+              aria-label={followUp ? "Öffentliche Rückfrage" : "Kommentar"}
+              maxLength={commentLimit}
               className="flex-1 bg-muted rounded-full px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground"
             />
             <button
               type="submit"
               disabled={
-                (!newComment.trim() && !hasMedia) || isUploading
+                (!newComment.trim() && !hasMedia) || isUploading || (Boolean(followUp) && (!followUpOrigin || newComment.trim().length > commentLimit))
               }
               className="p-2 text-primary hover:bg-primary/10 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               aria-label="Kommentar senden"

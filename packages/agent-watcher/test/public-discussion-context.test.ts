@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildAgentNoteEvent, buildCivicTopicPromotionEvent, buildNoteEvent, deriveAgentIdentity, verifyEvent } from "@netizen-labs/nostr";
-import { createPublicDiscussionContextReader, publicDiscussionContextConfig } from "../src/public-discussion-context";
+import { createPublicDiscussionContextReader, publicDiscussionContextConfig, readPublicFollowUpContext } from "../src/public-discussion-context";
 import { createPublicMecky, createStadtstackPublicEvidenceRetriever } from "../src/public-mecky";
 import { prepareDiscussionCorrection, publishDiscussionCorrection } from "../src/discussion-correction";
 
@@ -22,6 +22,34 @@ const projection = { schemaVersion: "roebel_staging_argument_thread_v1", authori
   events: { ignored: "Other participants did not grant direct-mention consent." } };
 const options = { baseUrl: "http://web.preview.svc.cluster.local:8080", publicOrigin: "https://app.example.org",
   municipalityId, agentPubkey: agent.publicKey };
+
+test("a signed feed follow-up reads the selected discussion afresh without changing its reply destination", async () => {
+  const question = buildNoteEvent(citizen, `@Mecky Was sagt Finanzen?\n\nDiskussion: ${options.publicOrigin}/app/diskussion/${root.id}#citizen-brief`, {
+    createdAt: 104, tags: [["p", agent.publicKey], ["source-app-post", "735187dc-d737-4e6c-bdd9-fe0792fec498"]],
+  });
+  let reads = 0;
+  const reader = async (id: string) => { reads++; return read()(id); };
+  assert.equal((await readPublicFollowUpContext(question, options.publicOrigin, reader))?.rootEvent.id, root.id);
+  assert.equal((await readPublicFollowUpContext(question, options.publicOrigin, reader))?.evidence.eventId, root.id);
+  assert.equal(reads, 2);
+  assert.equal(question.tags.find(tag => tag[0] === "source-app-post")?.[1], "735187dc-d737-4e6c-bdd9-fe0792fec498");
+  await assert.rejects(readPublicFollowUpContext(question, options.publicOrigin, async () => { throw Error("source unavailable"); }), /unavailable/);
+});
+
+test("follow-up links cannot fetch arbitrary origins or bind a different feed post", async () => {
+  const sign = (url: string, post = "735187dc-d737-4e6c-bdd9-fe0792fec498") => buildNoteEvent(citizen, `@Mecky Meine Frage\n\nDiskussion: ${url}`, {
+    createdAt: 104, tags: [["p", agent.publicKey], ["source-app-post", post]],
+  });
+  const path = `/app/diskussion/${root.id}`;
+  for (const url of [`https://foreign.example${path}`, `${options.publicOrigin}${path}?target=other`,
+    `${options.publicOrigin}${path}#other`, `${options.publicOrigin}/app/diskussion/invalid`]) {
+    await assert.rejects(readPublicFollowUpContext(sign(url), options.publicOrigin, async () => { assert.fail("must not fetch"); }), /reference_invalid/);
+  }
+  const question = sign(options.publicOrigin + path);
+  await assert.rejects(readPublicFollowUpContext({ ...question, content: question.content.replace("Meine", "Andere") }, options.publicOrigin, read()), /reference_invalid/);
+  await assert.rejects(readPublicFollowUpContext(sign(options.publicOrigin + path, "b".repeat(64)), options.publicOrigin, read()), /post_mismatch/);
+  assert.equal(await readPublicFollowUpContext(source, options.publicOrigin, async () => { assert.fail("ordinary mentions keep their own context"); }), null);
+});
 const read = (value: unknown = projection) => createPublicDiscussionContextReader({ ...options,
   fetch: async (url, init) => {
     assert.equal(url, `${options.baseUrl}/api/civic/v1/discussions/${root.id}`);

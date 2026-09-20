@@ -157,3 +157,22 @@ Brief endpoint. Chat and feed may omit the deterministic source footer from
 visible prose only when its URLs exactly match the separately verified citations.
 Signed content is retained unchanged. A new question reads the current Brief;
 older signed answers remain historical, and are not silently rewritten.
+
+### Public follow-ups after a Brief — 2026-09-20
+
+The Brief's public question action opens the existing source-post comment thread
+with a selected discussion. The app checks that selection against the signed
+root and its source-post and topic tags before showing the context. It waits for
+that check before offering the contextual composer. The citizen's explicit send
+creates the ordinary comment; its signed mention retains the exact discussion
+URL in a visible `Diskussion:` footer. The feed renders that unchanged reference
+as a readable return link.
+
+For an explicit Mecky mention, the agent accepts only a reference to the
+configured public app origin and re-reads the exact signed root. The root must
+bind to the same feed post as the signed question. That context scopes retrieval
+to the discussion and current reviewed Brief; missing, withdrawn or changed
+sources are not replaced with an old answer. The reply remains in the shared
+feed thread. This reference grants no new authority and does not advance the
+proposal, participation, decision or execution stages. Ordinary comments and
+unscoped Mecky questions keep their existing behavior.
