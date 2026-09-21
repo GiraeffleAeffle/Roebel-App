@@ -27,7 +27,7 @@ test("Mecky cites the current coordinator Brief with synthetic authority and no 
   const mecky = createPublicMecky({ retrieveEvidence: q => catalog.retrieve(q), infer: async input => {
     assert.ok(input.evidence.length > 0);
     assert.ok(input.evidence.every(e => "authority" in e && e.authority === "synthetic_demo"));
-    return { answer: "Für die Querung werden zwei Verkehrsoptionen verglichen.", evidenceIds: [input.evidence[0]!.evidenceId] };
+    return { claims: [{ text: "Für die Querung werden zwei Verkehrsoptionen verglichen.", evidenceIds: [input.evidence[0]!.evidenceId] }] };
   } });
   const answer = await mecky.answerMention(query);
   assert.equal(answer.status, "answered");

@@ -10,6 +10,8 @@ import type { AppMode } from "@/lib/context/AppModeContext";
 import {
   PUBLIC_MECKY_CHAT_REQUEST_SCHEMA,
   parsePublicMeckyChatResponse,
+  publicMeckyRefusalText,
+  type PublicMeckyChatContext,
   type PublicMeckyEvidenceRef,
 } from "@/lib/public-mecky-chat";
 import { useUserProfile } from "@/hooks/useUserProfile";
@@ -49,15 +51,6 @@ type ChatMessage = Readonly<{
   evidenceRefs?: readonly PublicMeckyEvidenceRef[];
 }>;
 
-function refusalText(reason: string, retryable: boolean): string {
-  if (reason === "insufficient_evidence") {
-    return "Dazu liegen mir noch keine passenden, geprüften öffentlichen Quellen vor.";
-  }
-  return retryable
-    ? "Die geprüften Quellen oder das KI-Modell sind gerade nicht erreichbar. Bitte versuche es gleich noch einmal."
-    : "Diese Frage kann ich innerhalb meiner geprüften Quellen nicht beantworten.";
-}
-
 function messageId(): string {
   return globalThis.crypto?.randomUUID?.() ??
     `mecky-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -74,6 +67,11 @@ export default function MeckyPage() {
       : "tourist";
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [context, setContext] = useState<{
+    request: PublicMeckyChatContext;
+    sources: readonly PublicMeckyEvidenceRef[];
+  } | null>(null);
+  const requestRef = useRef<AbortController | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "greeting-tourist",
@@ -83,12 +81,17 @@ export default function MeckyPage() {
   ]);
 
   useEffect(() => {
+    requestRef.current?.abort();
+    requestRef.current = null;
+    setIsLoading(false);
+    setContext(null);
     setMessages([{
       id: `greeting-${effectiveMode}`,
       role: "assistant",
       text: MODE_GREETINGS[effectiveMode],
     }]);
-  }, [effectiveMode]);
+    return () => { requestRef.current?.abort(); requestRef.current = null; };
+  }, [effectiveMode, activeAccount?.id]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -98,7 +101,9 @@ export default function MeckyPage() {
 
   const sendQuestion = async (question: string) => {
     const trimmed = question.trim();
-    if (!trimmed || isLoading) return;
+    if (!trimmed || requestRef.current) return;
+    const controller = new AbortController();
+    requestRef.current = controller;
     setMessages((current) => [
       ...current,
       { id: messageId(), role: "user", text: trimmed },
@@ -112,10 +117,17 @@ export default function MeckyPage() {
         body: JSON.stringify({
           schemaVersion: PUBLIC_MECKY_CHAT_REQUEST_SCHEMA,
           question: trimmed,
+          ...(context ? { context: context.request } : {}),
         }),
+        signal: controller.signal,
       });
       if (!response.ok) throw new Error("public_mecky_chat_unavailable");
       const result = parsePublicMeckyChatResponse(await response.json());
+      if (requestRef.current !== controller) return;
+      if (result.status === "answered" && !context) {
+        setContext({ request: { question: trimmed, evidenceIds: result.evidenceRefs.map(source => source.evidenceId) },
+          sources: result.evidenceRefs });
+      }
       setMessages((current) => [
         ...current,
         result.status === "answered"
@@ -128,10 +140,11 @@ export default function MeckyPage() {
           : {
               id: messageId(),
               role: "assistant",
-              text: refusalText(result.reason, result.retryable),
+              text: publicMeckyRefusalText(result.reason, result.diagnosticCode),
             },
       ]);
     } catch {
+      if (requestRef.current !== controller) return;
       setMessages((current) => [
         ...current,
         {
@@ -141,7 +154,10 @@ export default function MeckyPage() {
         },
       ]);
     } finally {
-      setIsLoading(false);
+      if (requestRef.current === controller) {
+        requestRef.current = null;
+        setIsLoading(false);
+      }
     }
   };
 
@@ -194,7 +210,7 @@ export default function MeckyPage() {
                     Verwendete Quellen
                   </p>
                   <ul className="space-y-1">
-                    {message.evidenceRefs.map((evidence) => (
+                    {message.evidenceRefs.map((evidence, index) => (
                       <li key={evidence.evidenceId}>
                         <a
                           href={meckySourceHref(evidence.publicCaseUrl, evidence.title)}
@@ -202,7 +218,7 @@ export default function MeckyPage() {
                           rel="noreferrer"
                           className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-2 hover:underline"
                         >
-                          {evidence.title}
+                          [{index + 1}] {evidence.title}
                           <ExternalLink className="h-3 w-3" />
                         </a>
                       </li>
@@ -245,6 +261,16 @@ export default function MeckyPage() {
         ) : null}
       </div>
 
+      <div className="border-t border-border py-3 text-xs text-muted-foreground" aria-live="polite">
+        {context ? <>
+          <p className="font-semibold text-foreground">Rückfrage zu den zuletzt gewählten Quellen</p>
+          <p className="mt-1">{context.sources.map(source => source.title).join(" · ")}</p>
+          <p className="mt-1">Jede Antwort liest diese Quellen neu. Für ein anderes Thema beginne eine neue Frage.</p>
+          <button type="button" disabled={isLoading} onClick={() => setContext(null)}
+            className="mt-2 font-semibold text-primary underline disabled:opacity-50">Neue Frage / Thema wechseln</button>
+        </> : <p>Neue Frage · Suche in den geprüften öffentlichen Quellen. Dieser Verlauf wird nicht im gemeinsamen Feed veröffentlicht.</p>}
+      </div>
+
       <form
         id="mecky-form"
         onSubmit={handleSubmit}
@@ -253,7 +279,9 @@ export default function MeckyPage() {
         <input
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="Frag Mecky aus geprüften Quellen..."
+          aria-label={context ? "Rückfrage an Mecky" : "Neue Frage an Mecky"}
+          placeholder={context ? "Rückfrage zu diesen Quellen..." : "Frag Mecky aus geprüften Quellen..."}
+          maxLength={2_000}
           className="flex-1 rounded-full border border-border bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           disabled={isLoading}
         />

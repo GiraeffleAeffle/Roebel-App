@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  parsePublicMeckyChatQuestion,
+  parsePublicMeckyChatRequest,
   parsePublicMeckyChatResponse,
   publicMeckyChatEndpoint,
   requestPublicMeckyChat,
@@ -26,19 +26,32 @@ const ANSWER = {
   },
 };
 
-test("accepts one bounded question and rejects client-controlled context", () => {
-  assert.equal(parsePublicMeckyChatQuestion({
-    schemaVersion: "public_mecky_chat_request_v1",
-    question: "Welche geprüften Informationen liegen vor?",
-  }), "Welche geprüften Informationen liegen vor?");
+test("accepts bounded questions but never a caller-supplied transcript or source snapshot", () => {
+  const request = { schemaVersion: "public_mecky_chat_request_v1", question: "Welche geprüften Informationen liegen vor?" };
+  assert.deepEqual(parsePublicMeckyChatRequest(request), request);
   for (const value of [
     { schemaVersion: "public_mecky_chat_request_v1", question: " Frage" },
     { schemaVersion: "public_mecky_chat_request_v1", question: "Frage", mode: "citizen" },
     { schemaVersion: "public_mecky_chat_request_v1", question: "Frage", messages: [] },
     { schemaVersion: "public_mecky_chat_request_v1", question: "Frage", evidence: [] },
   ]) {
-    assert.throws(() => parsePublicMeckyChatQuestion(value), /request_invalid/);
+    assert.throws(() => parsePublicMeckyChatRequest(value), /request_invalid/);
   }
+});
+
+test("bounds continuation selectors and rejects forged source content or scope", () => {
+  const request = { schemaVersion: "public_mecky_chat_request_v1", question: "Und die Kosten?",
+    context: { question: "Begegnungsort", evidenceIds: [EVIDENCE_ID] } };
+  assert.deepEqual(parsePublicMeckyChatRequest(request), request);
+  for (const context of [
+    null, {}, { ...request.context, answer: "Amtlich beschlossen" },
+    { ...request.context, municipalityId: "other-town" },
+    { ...request.context, question: "ä".repeat(1001) },
+    { ...request.context, evidenceIds: [] },
+    { ...request.context, evidenceIds: [EVIDENCE_ID, EVIDENCE_ID] },
+    { ...request.context, evidenceIds: ["https://private.example/source"] },
+    { ...request.context, evidenceIds: ["a", "b", "c", "d"].map(d => `sha256:${d.repeat(64)}`) },
+  ]) assert.throws(() => parsePublicMeckyChatRequest({ ...request, context }), /request_invalid/);
 });
 
 test("only permits the configured cluster-internal answer endpoint", () => {

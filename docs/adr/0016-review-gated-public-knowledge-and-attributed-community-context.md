@@ -58,3 +58,31 @@ using the exact discussion and previous answer IDs. The command reads the public
 context again after inference, signs the actual new answer, identifies it visibly
 as a correction, and preserves the original signed event. It exposes no public
 write endpoint and cannot correct an already proposed or admitted journey.
+
+### Implementation contract checkpoint — 2026-09-21
+
+The source candidate implements the answer boundary above as a bounded
+provider-neutral contract. Inference returns `claims: [{ text, evidenceIds }]`;
+an empty `claims` array means that the answer abstains.
+An explicit continuation request has
+`{schemaVersion, question, context?: { question, evidenceIds }}`. Its
+`context.question` is the previous user question that anchors the continuation,
+and `context.evidenceIds` contains one to three IDs previously cited in that
+answer. The reader revalidates those IDs against freshly read public
+projections. Generated answer text/history is never sent. An explicit
+new-question reset omits `context` and starts a new topic. Presentation
+preserves numbered claim markers and source labels; qualifying department links point to
+the `#citizen-brief` anchor while retaining the signed source URL.
+
+The candidate verification is source-only, not deployment evidence: the
+complete watcher suite passed 154/154 tests, the relevant Web Mecky suite
+passed 25/25 including the numbered citation-link regression, lockfile-pinned
+TypeScript 5.8.3 passed, and the pinned esbuild 0.27.7 production arguments
+passed. Retrieval measured 30/31 exact (baseline 14/14; held-out 6/6;
+comparison 2/2; held-out-after-design 8/9), with the sole miss being the
+`Zwischennutzung` synonym question. An existing-provider candidate check used
+three bounded calls: one citation for recommendation 2, separate evidence IDs
+for the recommendation-2/recommendation-10 comparison, and a no-claims
+insufficient-evidence refusal for an unsupported scoped question. No deployed
+provider, publication, civic write or staff authority follows from this
+checkpoint.

@@ -106,3 +106,32 @@ same running reader, plus source outages, corrupt snapshots and scope rejection.
 Language-model acceptance must additionally check that “not recorded in this
 source” does not become “never happened”. Prompts now state this distinction;
 that instruction alone is not proof that every generated answer satisfies it.
+
+## Candidate answer-boundary verification — 2026-09-21
+
+The current source candidate consumes the same bounded packet without adding a
+conversation transcript. Its inference result is
+`claims: [{ text, evidenceIds }]`; an empty claims list is an abstention.
+An explicit continuation request has
+`{schemaVersion, question, context?: { question, evidenceIds }}`. The context
+question is the previous user question anchoring the continuation, and its one
+to three evidence IDs are previously cited IDs revalidated against freshly read
+public projections. Generated answer text/history is never sent. A new-question
+reset omits `context` and starts a new topic. Numbered
+claims retain their source labels, and a qualifying department citation opens
+the citizen-brief anchor without changing the signed source URL.
+
+The source-only acceptance evidence is deliberately bounded: all 154 agent
+watcher tests pass, the six relevant Web Mecky files pass 25 tests including
+the numbered citation-link regression, TypeScript 5.8.3 and esbuild 0.27.7
+pass using lockfile-resolved tools, and the measured retrieval set is 30/31
+exact (14/14 baseline, 6/6 held-out, 2/2 comparison, 8/9
+held-out-after-design). The only miss is the `Zwischennutzung` synonym
+question. A candidate-only existing-provider check kept recommendation
+citations separate and refused an unsupported scoped question with an
+insufficient-evidence diagnostic.
+
+These checks do not activate a mount, source authority, provider rollout or
+public write path. Before any hosted acceptance, retain the unavailable-versus
+empty distinction, review source corrections/withdrawals, and repeat the
+independent-user and protected publication gates.

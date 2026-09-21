@@ -17,6 +17,8 @@ import {
 import {
   createPublicKnowledgeCatalog,
   parsePublicEvidence,
+  parsePublicEvidenceContext,
+  type PublicEvidenceContext,
   publicEvidenceUrl,
   publicEvidenceTitle,
   type PromptPublicEvidence,
@@ -63,13 +65,13 @@ export interface ReviewedCivicEvidence {
 
 export interface PublicMeckyInferenceInput {
   question: string;
+  previousQuestion?: string;
   evidence: readonly (ReviewedCivicEvidence | PromptPublicEvidence)[];
   omissions?: readonly PublicEvidenceOmission[];
 }
 
 export interface PublicMeckyInference {
-  answer: string;
-  evidenceIds: readonly string[];
+  claims: readonly { text: string; evidenceIds: readonly string[] }[];
 }
 
 export interface PublicMeckyDependencies {
@@ -84,8 +86,11 @@ export interface PublicMeckyDependencies {
 export interface PublicMeckyMention {
   readonly municipalityId: string;
   readonly question: string;
+  readonly context?: PublicEvidenceContext;
   readonly discussionId?: string;
   readonly now: string;
+  /** Separately verified signed root; a follow-up need not repeat its text. */
+  readonly discussionContext?: PublicDiscussionContext;
   readonly conversationEvidence?: readonly PublicEvidence[];
 }
 
@@ -356,27 +361,26 @@ const PUBLIC_MECKY_MAX_ANSWER_CHARACTERS = 600;
 const PUBLIC_MECKY_TARGET_ANSWER_CHARACTERS = 520;
 
 function parseInference(value: unknown): PublicMeckyInference {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Public Mecky provider returned an invalid result.");
-  }
+  const invalid = () => new Error("Public Mecky provider returned an invalid result.");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
   const record = value as Record<string, unknown>;
-  const answer = typeof record.answer === "string" ? record.answer.trim() : "";
-  const evidenceIds = Array.isArray(record.evidenceIds)
-    ? record.evidenceIds.filter(
-        (entry): entry is string => typeof entry === "string"
-      )
-    : [];
-  if (
-    !answer ||
-    answer.length > PUBLIC_MECKY_MAX_ANSWER_CHARACTERS ||
-    evidenceIds.length === 0 ||
-    evidenceIds.length > 3 ||
-    evidenceIds.length !== (record.evidenceIds as unknown[])?.length ||
-    new Set(evidenceIds).size !== evidenceIds.length
-  ) {
-    throw new Error("Public Mecky provider returned an invalid result.");
-  }
-  return { answer, evidenceIds };
+  if (Object.keys(record).length !== 1 || !Array.isArray(record.claims) || record.claims.length > 4) throw invalid();
+  let characters = 0;
+  const ids = new Set<string>();
+  const claims = record.claims.map(value => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
+    const claim = value as Record<string, unknown>;
+    if (Object.keys(claim).sort().join(",") !== "evidenceIds,text" ||
+      typeof claim.text !== "string" || !claim.text.trim() || !Array.isArray(claim.evidenceIds) ||
+      claim.evidenceIds.length < 1 || claim.evidenceIds.length > 3 ||
+      claim.evidenceIds.some(id => typeof id !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(id)) ||
+      new Set(claim.evidenceIds).size !== claim.evidenceIds.length) throw invalid();
+    characters += claim.text.trim().length;
+    for (const id of claim.evidenceIds) ids.add(id);
+    return { text: claim.text.trim(), evidenceIds: claim.evidenceIds as string[] };
+  });
+  if (characters > PUBLIC_MECKY_MAX_ANSWER_CHARACTERS || ids.size > 3) throw invalid();
+  return { claims };
 }
 
 const PUBLIC_MECKY_SYSTEM_PROMPT =
@@ -385,9 +389,10 @@ const PUBLIC_MECKY_SYSTEM_PROMPT =
   "Beachte die Quellenautorität: community_statement belegt die Aussage oder Empfehlung der angegebenen Person oder Gruppe; editorial_report bleibt zugeschriebene Berichterstattung; official_record belegt, was im Dokument steht; reviewed_civic_evidence gilt in seinem erklärten Umfang; synthetic_demo liefert den geprüften Arbeitsstand eines Szenarios mit dessen Annahmen, keine amtlichen Feststellungen. Dokumentabschnitte behalten ihre Zuschreibung und Seitenangabe; publishedAt:null bedeutet unbekanntes Veröffentlichungsdatum. " +
   "Beantworte die Sachfrage direkt: nenne die relevanten Ergebnisse, Zahlen, Empfehlungen, Unterschiede und nächsten Schritte aus den Quellen. Behandle die dokumentierten Szenarioannahmen als Grundlage des Vergleichs; bezeichne berechnete Kosten als Kostenmodell und offene Fragen konkret. Wiederhole keine allgemeinen Hinweise auf Test, Simulation oder fehlende Verbindlichkeit in jeder Antwort. Erläutere den Quellenstatus, wenn die Frage danach fragt oder sonst eine konkrete Aussage irreführend wäre. " +
   "Erfinde keine Beschlüsse, Termine, Zahlen, Zuständigkeiten, Repräsentativität oder Abstimmungen und verschweige die omissionSummary nicht, wenn sie die Antwort einschränkt. Wenn ein Dokument keine Entscheidung oder Prüfung belegt, sage nur, dass sie in dieser Quelle nicht belegt ist; leite daraus nicht ab, dass sie nie stattgefunden hat. " +
-  `Der Wert answer muss höchstens ${PUBLIC_MECKY_TARGET_ANSWER_CHARACTERS} Zeichen und vier kurze Sätze umfassen; nutze diesen Platz für die konkrete Frage und relevante Belege. ` +
-  "evidenceIds muss ein bis drei unterschiedliche, unveränderte evidenceId-Werte aus publicEvidence enthalten, deren Inhalte in answer tatsächlich verwendet werden. " +
-  "Gib ausschließlich JSON zurück: {answer:string,evidenceIds:string[]}.";
+  `Antworte mit höchstens vier kurzen claims mit insgesamt ${PUBLIC_MECKY_TARGET_ANSWER_CHARACTERS} Zeichen Text. Jeder claim enthält nur seine tatsächlich verwendeten evidenceIds aus publicEvidence. ` +
+  "Vergleiche beide Seiten getrennt mit jeweils ihrem eigenen Beleg; eine gemeinsame Schlussfolgerung nennt beide Belege. Quellenmarkierungen und Links fügt die Anwendung hinzu. " +
+  "previousQuestion ist nur die frühere Nutzerfrage zur Auflösung einer Rückfrage, kein Beleg. Verwende niemals eine frühere KI-Antwort als Quelle. Wenn das Quellenpaket die Sachfrage nicht stützt, gib claims:[] zurück; erfinde keine Antwort aus bloßer Wortähnlichkeit. " +
+  "Gib ausschließlich JSON zurück: {claims:[{text:string,evidenceIds:string[]}]}.";
 
 export function createOpenAICompatiblePublicMeckyInference(
   options: OpenAICompatiblePublicMeckyInferenceOptions
@@ -417,6 +422,7 @@ export function createOpenAICompatiblePublicMeckyInference(
             role: "user",
             content: JSON.stringify({
               question: input.question,
+              ...(input.previousQuestion ? { previousQuestion: input.previousQuestion } : {}),
               publicEvidence: input.evidence,
               omissionSummary: input.omissions ?? [],
             }),
@@ -526,6 +532,7 @@ export function createPiPublicMeckyInference(
       await agent.prompt(
         JSON.stringify({
           question: input.question,
+          ...(input.previousQuestion ? { previousQuestion: input.previousQuestion } : {}),
           publicEvidence: input.evidence,
           omissionSummary: input.omissions ?? [],
         })
@@ -798,7 +805,7 @@ function validateMention(mention: PublicMeckyMention): void {
     typeof mention !== "object" ||
     Array.isArray(mention) ||
     Object.keys(mention).some((key) =>
-      !["municipalityId", "question", "now", "conversationEvidence", "discussionId"].includes(key)
+      !["municipalityId", "question", "now", "conversationEvidence", "discussionId", "discussionContext", "context"].includes(key)
     ) ||
     !/^[a-z0-9][a-z0-9-]{0,79}$/u.test(mention.municipalityId) ||
     !mention.question.trim() ||
@@ -813,6 +820,23 @@ function validateMention(mention: PublicMeckyMention): void {
     throw new Error("Invalid Public Mecky mention.");
   }
   try {
+    if (mention.context !== undefined) parsePublicEvidenceContext(mention.context);
+    if (mention.discussionContext) {
+      const context = mention.discussionContext;
+      if (!mention.discussionId || mention.conversationEvidence?.length) {
+        throw new Error("Ambiguous discussion context.");
+      }
+      publicDiscussionTopic(context, mention.discussionId, mention.municipalityId);
+      const evidence = parsePublicEvidence(context.evidence);
+      if (evidence.sourceKind !== "nostr_post" || !evidence.signatureValid ||
+        evidence.eventId !== context.rootEvent.id ||
+        evidence.evidenceId !== `sha256:${context.rootEvent.id}` ||
+        evidence.authorPubkey !== context.rootEvent.pubkey ||
+        evidence.municipalityId !== mention.municipalityId ||
+        evidence.summary !== context.rootEvent.content) {
+        throw new Error("Invalid signed discussion evidence binding.");
+      }
+    }
     for (const value of mention.conversationEvidence ?? []) {
       const evidence = parsePublicEvidence(value);
       if (
@@ -848,6 +872,7 @@ export function createPublicMecky(
         prompt: ReviewedCivicEvidence | PromptPublicEvidence;
       }[];
       let omissions: readonly PublicEvidenceOmission[] = [];
+      let availableSources = 0;
       try {
         if (dependencies.retrieveEvidence) {
           const packet = await dependencies.retrieveEvidence({
@@ -855,7 +880,8 @@ export function createPublicMecky(
             question: mention.question,
             now: mention.now,
             ...(mention.discussionId === undefined ? {} : { discussionId: mention.discussionId }),
-          }, mention.conversationEvidence ?? []);
+            ...(mention.context ? { context: mention.context } : {}),
+          }, mention.discussionContext ? [mention.discussionContext.evidence] : mention.conversationEvidence ?? []);
           evidence = packet.passages.map((entry) => ({
             evidenceId: entry.evidence.evidenceId,
             title: publicEvidenceTitle(entry.evidence),
@@ -863,14 +889,24 @@ export function createPublicMecky(
             prompt: entry.prompt,
           }));
           omissions = packet.omissions;
+          availableSources = packet.availableSourceKinds.length;
         } else {
           const reviewed = await dependencies.readReviewedEvidence!();
+          availableSources = 1;
           evidence = reviewed.map((entry) => ({
             evidenceId: entry.evidenceId,
             title: entry.title,
             publicUrl: entry.publicCaseUrl,
             prompt: entry,
           }));
+        }
+        if (mention.context) evidence = evidence.filter(entry => mention.context!.evidenceIds.includes(entry.evidenceId as `sha256:${string}`));
+        if (mention.context && mention.context.evidenceIds.some(id => !evidence.some(entry => entry.evidenceId === id))) {
+          return {
+            status: "refused", reason: "context_unavailable",
+            retryable: omissions.some(item => item.reason === "source_unavailable"),
+            diagnosticCode: "context_sources_changed_or_unavailable",
+          };
         }
       } catch {
         return {
@@ -881,7 +917,7 @@ export function createPublicMecky(
         };
       }
       if (evidence.length === 0) {
-        if (omissions.some((omission) => omission.reason === "source_unavailable")) {
+        if (!availableSources && omissions.some((omission) => omission.reason === "source_unavailable")) {
           return {
             status: "refused",
             reason: "evidence_unavailable",
@@ -892,14 +928,16 @@ export function createPublicMecky(
         return {
           status: "refused",
           reason: "insufficient_evidence",
-          retryable: false,
-          diagnosticCode: "no_admitted_public_evidence",
+          retryable: omissions.some(item => item.reason === "source_unavailable"),
+          diagnosticCode: omissions.some(item => item.reason === "source_unavailable")
+            ? "no_evidence_in_available_sources" : "no_admitted_public_evidence",
         };
       }
       let inference: PublicMeckyInference;
       try {
         inference = await dependencies.infer({
           question: mention.question,
+          ...(mention.context ? { previousQuestion: mention.context.question } : {}),
           evidence: evidence.map((entry) => entry.prompt),
           omissions,
         });
@@ -920,10 +958,17 @@ export function createPublicMecky(
           diagnosticCode,
         };
       }
+      if (!inference.claims.length) {
+        return { status: "refused", reason: "insufficient_evidence",
+          retryable: omissions.some(item => item.reason === "source_unavailable"),
+          diagnosticCode: omissions.some(item => item.reason === "source_unavailable")
+            ? "no_evidence_in_available_sources" : "question_not_supported_by_sources" };
+      }
       const evidenceById = new Map(
         evidence.map((entry) => [entry.evidenceId, entry] as const)
       );
-      const cited = inference.evidenceIds.map((id) => evidenceById.get(id));
+      const evidenceIds = [...new Set(inference.claims.flatMap(claim => claim.evidenceIds))];
+      const cited = evidenceIds.map((id) => evidenceById.get(id));
       if (cited.length === 0 || cited.some((entry) => !entry)) {
         return {
           status: "refused",
@@ -938,11 +983,15 @@ export function createPublicMecky(
         publicCaseUrl: entry!.publicUrl,
       }));
       const sourceLines = evidenceRefs.map(
-        (entry) => `${entry.title} – ${entry.publicCaseUrl}`
+        (entry, index) => `[${index + 1}] ${entry.title} – ${entry.publicCaseUrl}`
       );
+      const answer = inference.claims.map(claim =>
+        `${claim.text} ${claim.evidenceIds.map(id => `[${evidenceIds.indexOf(id) + 1}]`).join("")}`).join("\n");
+      const limitation = omissions.some(item => item.reason === "source_unavailable")
+        ? "\nWeitere konfigurierte Quellen sind derzeit nicht erreichbar; diese Antwort deckt nur die angegebenen Belege ab." : "";
       return {
         status: "answered",
-        content: `KI-Zusammenfassung: ${inference.answer}\n\nQuellenbelege: ${sourceLines.join(
+        content: `KI-Zusammenfassung: ${answer}${limitation}\n\nQuellenbelege: ${sourceLines.join(
           "; "
         )}`,
         evidenceRefs,

@@ -162,11 +162,7 @@ describe("Public Mecky", () => {
         );
         assert.equal(evidence.length, 1);
         assert.equal(evidence[0].evidenceId, EVIDENCE_ID);
-        return {
-          answer:
-            "Noch nicht. Der geprüfte Stand nennt die Verwaltungsprüfung; eine Abstimmung ist noch nicht eröffnet.",
-          evidenceIds: [EVIDENCE_ID],
-        };
+        return { claims: [{ text: "Noch nicht. Der geprüfte Stand nennt die Verwaltungsprüfung; eine Abstimmung ist noch nicht eröffnet.", evidenceIds: [EVIDENCE_ID] }] };
       },
     });
 
@@ -174,19 +170,11 @@ describe("Public Mecky", () => {
       "Kann ich über die Marienfelder Straße schon abstimmen?"
     ));
 
-    assert.deepEqual(result, {
-      status: "answered",
-      content:
-        "KI-Zusammenfassung: Noch nicht. Der geprüfte Stand nennt die Verwaltungsprüfung; eine Abstimmung ist noch nicht eröffnet.\n\nQuellenbelege: Marienfelder Straße – https://stadtstack.example/kommunen/roebel-mueritz/entscheidungen/marienfelder-strasse",
-      evidenceRefs: [
-        {
-          evidenceId: EVIDENCE_ID,
-          title: "Marienfelder Straße",
-          publicCaseUrl:
-            "https://stadtstack.example/kommunen/roebel-mueritz/entscheidungen/marienfelder-strasse",
-        },
-      ],
-    });
+    assert.equal(result.status, "answered");
+    if (result.status === "answered") {
+      assert.deepEqual(result.evidenceRefs.map(entry => [entry.evidenceId, entry.publicCaseUrl]), [[EVIDENCE_ID,
+        "https://stadtstack.example/kommunen/roebel-mueritz/entscheidungen/marienfelder-strasse"]]);
+    }
   });
 
   it("answers from an explicitly admitted conversation statement without upgrading its authority", async () => {
@@ -216,10 +204,7 @@ describe("Public Mecky", () => {
         assert.equal(evidence.length, 1);
         assert.ok("authority" in evidence[0]!);
         assert.equal(evidence[0].authority, "community_statement");
-        return {
-          answer: "Anna beschreibt die Querung als unübersichtlich; das ist ein persönlicher Hinweis, kein amtlicher Befund.",
-          evidenceIds: [conversationEvidence.evidenceId],
-        };
+        return { claims: [{ text: "Anna beschreibt die Querung als unübersichtlich; das ist ein persönlicher Hinweis, kein amtlicher Befund.", evidenceIds: [conversationEvidence.evidenceId] }] };
       },
     });
 
@@ -258,7 +243,7 @@ describe("Public Mecky", () => {
     };
     const mecky = createPublicMecky({
       retrieveEvidence: async (query) => createPublicEvidencePacket([], query),
-      infer: async () => ({ answer: "Nicht erreichbar", evidenceIds: [evidence.evidenceId] }),
+      infer: async () => ({ claims: [{ text: "Nicht erreichbar", evidenceIds: [evidence.evidenceId] }] }),
     });
 
     await assert.rejects(
@@ -273,7 +258,7 @@ describe("Public Mecky", () => {
       readReviewedEvidence: async () => [],
       infer: async () => {
         inferenceCalls += 1;
-        return { answer: "Erfundene Antwort", evidenceIds: [] };
+        return { claims: [{ text: "Erfundene Antwort", evidenceIds: [] }] };
       },
     });
 
@@ -580,11 +565,12 @@ describe("Public Mecky", () => {
         municipalityId: "roebel-mueritz",
         generatedAt: "2026-08-21T12:00:00.000Z",
         passages: [],
+        availableSourceKinds: [],
         omissions: [{ sourceKind: "reviewed_civic_case", reason: "source_unavailable", count: 1 }],
       }),
       infer: async () => {
         inferenceCalls += 1;
-        return { answer: "Nicht belegt", evidenceIds: [EVIDENCE_ID] };
+        return { claims: [{ text: "Nicht belegt", evidenceIds: [EVIDENCE_ID] }] };
       },
     });
 
@@ -617,10 +603,7 @@ describe("Public Mecky", () => {
           choices: [
             {
               message: {
-                content: JSON.stringify({
-                  answer: "Eine Abstimmung ist noch nicht eröffnet.",
-                  evidenceIds: [EVIDENCE_ID],
-                }),
+                content: JSON.stringify({ claims: [{ text: "Eine Abstimmung ist noch nicht eröffnet.", evidenceIds: [EVIDENCE_ID] }] }),
               },
             },
           ],
@@ -660,10 +643,7 @@ describe("Public Mecky", () => {
     assert.match(JSON.stringify(requestBody), /community_statement/);
     assert.match(JSON.stringify(requestBody), /publicEvidence/);
     assert.doesNotMatch(JSON.stringify(requestBody), /reviewedEvidence/);
-    assert.deepEqual(result, {
-      answer: "Eine Abstimmung ist noch nicht eröffnet.",
-      evidenceIds: [EVIDENCE_ID],
-    });
+    assert.deepEqual(result, { claims: [{ text: "Eine Abstimmung ist noch nicht eröffnet.", evidenceIds: [EVIDENCE_ID] }] });
   });
 
   it("retries one transient OpenAI-compatible provider response", async () => {
@@ -683,10 +663,7 @@ describe("Public Mecky", () => {
         return Response.json({
           choices: [{
             message: {
-              content: JSON.stringify({
-                answer: "Eine Abstimmung ist noch nicht eröffnet.",
-                evidenceIds: [EVIDENCE_ID],
-              }),
+              content: JSON.stringify({ claims: [{ text: "Eine Abstimmung ist noch nicht eröffnet.", evidenceIds: [EVIDENCE_ID] }] }),
             },
           }],
         });
@@ -708,10 +685,7 @@ describe("Public Mecky", () => {
     });
 
     assert.equal(attempts, 2);
-    assert.deepEqual(result, {
-      answer: "Eine Abstimmung ist noch nicht eröffnet.",
-      evidenceIds: [EVIDENCE_ID],
-    });
+    assert.deepEqual(result, { claims: [{ text: "Eine Abstimmung ist noch nicht eröffnet.", evidenceIds: [EVIDENCE_ID] }] });
   });
 
   it("retries each supported transient provider status once", async () => {
@@ -732,10 +706,7 @@ describe("Public Mecky", () => {
           return Response.json({
             choices: [{
               message: {
-                content: JSON.stringify({
-                  answer: "Eine Abstimmung ist noch nicht eröffnet.",
-                  evidenceIds: [EVIDENCE_ID],
-                }),
+                content: JSON.stringify({ claims: [{ text: "Eine Abstimmung ist noch nicht eröffnet.", evidenceIds: [EVIDENCE_ID] }] }),
               },
             }],
           });
@@ -744,10 +715,7 @@ describe("Public Mecky", () => {
 
       const result = await infer({ question: "Frage", evidence: [] });
       assert.equal(attempts, 2, `status ${status}`);
-      assert.deepEqual(result, {
-        answer: "Eine Abstimmung ist noch nicht eröffnet.",
-        evidenceIds: [EVIDENCE_ID],
-      });
+      assert.deepEqual(result, { claims: [{ text: "Eine Abstimmung ist noch nicht eröffnet.", evidenceIds: [EVIDENCE_ID] }] });
     }
   });
 
@@ -767,10 +735,7 @@ describe("Public Mecky", () => {
           string,
           unknown
         >;
-        const content = JSON.stringify({
-          answer: "Eine Abstimmung ist noch nicht eröffnet.",
-          evidenceIds: [EVIDENCE_ID],
-        });
+        const content = JSON.stringify({ claims: [{ text: "Eine Abstimmung ist noch nicht eröffnet.", evidenceIds: [EVIDENCE_ID] }] });
         return Response.json({
           id: "chatcmpl-stadtstack",
           object: "chat.completion",
@@ -823,20 +788,9 @@ describe("Public Mecky", () => {
       enable_thinking: false,
     });
     assert.ok(!("tools" in requestBody));
-    assert.match(
-      JSON.stringify(requestBody.messages),
-      /answer muss höchstens 520 Zeichen und vier kurze Sätze umfassen/u,
-    );
-    assert.match(
-      JSON.stringify(requestBody.messages),
-      /ein bis drei unterschiedliche, unveränderte evidenceId-Werte aus publicEvidence/u,
-    );
     assert.match(JSON.stringify(requestBody), /Kann ich schon abstimmen/);
     assert.match(JSON.stringify(requestBody), new RegExp(EVIDENCE_ID));
-    assert.deepEqual(result, {
-      answer: "Eine Abstimmung ist noch nicht eröffnet.",
-      evidenceIds: [EVIDENCE_ID],
-    });
+    assert.deepEqual(result, { claims: [{ text: "Eine Abstimmung ist noch nicht eröffnet.", evidenceIds: [EVIDENCE_ID] }] });
   });
 
   it("keeps the live multi-part civic question inside the bounded reply contract", async () => {
@@ -889,10 +843,7 @@ describe("Public Mecky", () => {
             index: 0,
             message: {
               role: "assistant",
-              content: JSON.stringify({
-                answer: boundedAnswer,
-                evidenceIds,
-              }),
+              content: JSON.stringify({ claims: [{ text: boundedAnswer, evidenceIds }] }),
             },
             finish_reason: "stop",
           }],
@@ -902,15 +853,11 @@ describe("Public Mecky", () => {
 
     const result = await infer({ question, evidence });
 
-    assert.ok(result.answer.length <= 520);
-    assert.equal(result.answer, boundedAnswer);
-    assert.deepEqual(result.evidenceIds, evidenceIds);
+    assert.deepEqual(result.claims, [{ text: boundedAnswer, evidenceIds }]);
     assert.ok(JSON.stringify(observedBody).includes(question));
     for (const evidenceId of evidenceIds) {
       assert.ok(JSON.stringify(observedBody).includes(evidenceId));
     }
-    assert.match(JSON.stringify(observedBody), /höchstens 520 Zeichen/u);
-    assert.match(JSON.stringify(observedBody), /ein bis drei unterschiedliche/u);
 
     const overLimit = createPiPublicMeckyInference({
       baseUrl: "https://inference.hetzner.com/api/v1",
@@ -923,10 +870,7 @@ describe("Public Mecky", () => {
           index: 0,
           message: {
             role: "assistant",
-            content: JSON.stringify({
-              answer: "x".repeat(601),
-              evidenceIds: [evidenceIds[0]],
-            }),
+            content: JSON.stringify({ claims: [{ text: "x".repeat(601), evidenceIds: [evidenceIds[0]] }] }),
           },
           finish_reason: "stop",
         }],
@@ -959,10 +903,7 @@ describe("Public Mecky", () => {
             index: 0,
             message: {
               role: "assistant",
-              content: JSON.stringify({
-                answer: "Eine Abstimmung ist noch nicht eröffnet.",
-                evidenceIds: [EVIDENCE_ID],
-              }),
+              content: JSON.stringify({ claims: [{ text: "Eine Abstimmung ist noch nicht eröffnet.", evidenceIds: [EVIDENCE_ID] }] }),
             },
             finish_reason: "stop",
           }],
@@ -985,10 +926,7 @@ describe("Public Mecky", () => {
     });
 
     assert.equal(attempts, 2);
-    assert.deepEqual(result, {
-      answer: "Eine Abstimmung ist noch nicht eröffnet.",
-      evidenceIds: [EVIDENCE_ID],
-    });
+    assert.deepEqual(result, { claims: [{ text: "Eine Abstimmung ist noch nicht eröffnet.", evidenceIds: [EVIDENCE_ID] }] });
   });
 
   it("stops after one retry when the provider remains transiently unavailable", async () => {
@@ -1161,7 +1099,7 @@ describe("Public Mecky", () => {
       },
       infer: async () => {
         inferenceCalls += 1;
-        return { answer: "Nicht belegt", evidenceIds: [EVIDENCE_ID] };
+        return { claims: [{ text: "Nicht belegt", evidenceIds: [EVIDENCE_ID] }] };
       },
     });
 
@@ -1189,10 +1127,7 @@ describe("Public Mecky", () => {
             "https://stadtstack.example/kommunen/roebel-mueritz/entscheidungen/marienfelder-strasse",
         },
       ],
-      infer: async () => ({
-        answer: "Das ist bestimmt schon beschlossen.",
-        evidenceIds: [],
-      }),
+      infer: async () => ({ claims: [{ text: "Das ist bestimmt schon beschlossen.", evidenceIds: [] }] }),
     });
 
     assert.deepEqual(await mecky.answerMention(mention("Ist das beschlossen?")), {

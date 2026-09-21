@@ -6,6 +6,7 @@ import { parseReviewedPublicKnowledgeRecord } from "@roebel/stadtstack-federatio
 import { createStadtstackPublicEvidenceRetriever, createPublicMecky, createPublicMeckyEvidenceReply } from "../src/public-mecky";
 import { createPublicEvidencePacket, toPromptPublicEvidence, renderPromptEvidence } from "../src/public-evidence";
 import { parseReviewedPublicKnowledgeSourceKinds } from "../src/reviewed-public-knowledge";
+import { createPublicMeckyHttpHandler } from "../src/public-mecky-http";
 import { documentEdition, documentSection, DOCUMENT_NOW } from "./fixtures/community-document";
 
 it("keeps document recommendations attributed, versioned and separate from municipal authority", () => {
@@ -44,6 +45,13 @@ it("finds an explicitly named document section without confusing recommendation 
     sectionId: `empfehlung-${number}`, title: `Empfehlung ${number}`, summary: "Ein gemeinsames Thema.",
   }));
   const packet = createPublicEvidencePacket(entries, { municipalityId: "example-city", question: "Was steht in Empfehlung 2?", now: DOCUMENT_NOW });
+  assert.deepEqual(packet.passages.map(({ evidence }) => evidence.evidenceId), [entries[0].evidenceId]);
+  const comparison = createPublicEvidencePacket(entries, { municipalityId: "example-city",
+    question: "Vergleiche Empfehlung 2 mit Empfehlung 20.", now: DOCUMENT_NOW });
+  assert.deepEqual(comparison.passages.map(({ evidence }) => evidence.evidenceId).sort(),
+    [entries[0].evidenceId, entries[1].evidenceId].sort());
+  assert.deepEqual(createPublicEvidencePacket(entries, { municipalityId: "example-city",
+    question: "Was steht in Empfehlung 99?", now: DOCUMENT_NOW }).passages, []);
   assert.equal((packet.passages[0].evidence as typeof entries[0]).sectionId, "empfehlung-2");
 });
 
@@ -74,7 +82,7 @@ it("takes page citations through retrieval, inference and an ordinary public fee
     assert.equal(prompt.documentCitation?.printedPageLabel, "20");
     assert.equal(prompt.documentCitation?.attributedTo, "Bürgerrat");
     assert.doesNotMatch(JSON.stringify(prompt), /https:|documentSha256/);
-    return { answer: "Der Bürgerrat empfiehlt gemeinsame Raumnutzung für den Begegnungsort.", evidenceIds: [section.evidenceId] };
+    return { claims: [{ text: "Der Bürgerrat empfiehlt gemeinsame Raumnutzung für den Begegnungsort.", evidenceIds: [section.evidenceId] }] };
   } });
   const result = await mecky.answerMention({ municipalityId: "example-city", question: "Was empfiehlt der Bürgerrat zum Begegnungsort?", now: DOCUMENT_NOW });
   assert.equal(result.status, "answered");
@@ -124,4 +132,110 @@ it("uses only explicitly linked sections for a freshly verified discussion topic
   assert.equal(rejected.passages.length, 0);
   assert.deepEqual(rejected.omissions, [{ sourceKind: "community_document", reason: "source_unavailable", count: 1 }]);
   assert.equal(reads, 2);
+});
+
+it("keeps anaphoric HTTP follow-ups inside fresh cited editions and resets only on a new question", async () => {
+  const first = documentSection({ title: "Begegnungsort", summary: "Eine Genossenschaft soll die Räume tragen." });
+  const second = documentSection({ sectionId: "empfehlung-2", title: "Fachärzte", summary: "Wohnraum hilft bei der Ansiedlung." });
+  let records = [first, second], inferenceCalls = 0;
+  const engine = createPublicMecky({
+    retrieveEvidence: createStadtstackPublicEvidenceRetriever({
+      baseUrl: "https://context.example", municipalityId: "example-city",
+      reviewedSourceKinds: ["community_document"], reviewedKnowledgeBaseUrl: "https://knowledge.example",
+      loadReviewedCases: async () => ({ municipality: { id: "example-city" }, cases: [] } as never),
+      reviewedSourceFetch: async () => Response.json(documentEdition(records)),
+    }),
+    infer: async ({ evidence }) => {
+      inferenceCalls++;
+      return { claims: evidence.map(item => ({ text: "summary" in item ? item.summary : item.publicSummary,
+        evidenceIds: [item.evidenceId] })) };
+    },
+  });
+  const handler = createPublicMeckyHttpHandler({ publicMecky: engine, municipalityId: "example-city",
+    now: () => new Date(DOCUMENT_NOW), bounds: { perMinute: 20, perDay: 20 } });
+  const ask = async (question: string, context?: unknown) => {
+    const response = await handler(new Request("http://mecky/v1/answer", { method: "POST",
+      headers: { "content-type": "application/json" }, body: JSON.stringify({
+        schemaVersion: "public_mecky_chat_request_v1", question, ...(context === undefined ? {} : { context }),
+      }) }));
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const initial = await ask("Was steht zum Begegnungsort?");
+  const context = { question: "Was steht zum Begegnungsort?", evidenceIds: initial.evidenceRefs.map((ref: { evidenceId: string }) => ref.evidenceId) };
+  const followUp = await ask("Und wer soll das tragen?", context);
+  assert.deepEqual(followUp.evidenceRefs.map((ref: { evidenceId: string }) => ref.evidenceId), [first.evidenceId]);
+  assert.match(followUp.content, /Genossenschaft/u);
+  assert.doesNotMatch(followUp.content, /Wohnraum/u);
+  const reset = await ask("Was wird für Fachärzte empfohlen?");
+  assert.deepEqual(reset.evidenceRefs.map((ref: { evidenceId: string }) => ref.evidenceId), [second.evidenceId]);
+  const beforeChange = inferenceCalls;
+  records = [documentSection({ title: first.title, summary: "Eine korrigierte Trägerschaft.", lifecycle: "current" }), second];
+  assert.equal((await ask("Und wer soll das tragen?", context)).reason, "context_unavailable");
+  records = [documentSection({ title: first.title, summary: first.summary, lifecycle: "withdrawn" }), second];
+  assert.equal((await ask("Und wer soll das tragen?", context)).reason, "context_unavailable");
+  assert.equal(inferenceCalls, beforeChange);
+});
+
+it("keeps comparison claims and their two source citations separate", async () => {
+  const first = documentSection({ title: "Leerstand", summary: "Zwischennutzung prüfen." });
+  const second = documentSection({ sectionId: "empfehlung-2", title: "Fachärzte", summary: "Wohnraum anbieten." });
+  const engine = createPublicMecky({
+    retrieveEvidence: async query => createPublicEvidencePacket([first, second], query),
+    infer: async () => ({ claims: [
+      { text: "Bei Leerstand wird Zwischennutzung empfohlen.", evidenceIds: [first.evidenceId] },
+      { text: "Für Fachärzte wird Wohnraum empfohlen.", evidenceIds: [second.evidenceId] },
+    ] }),
+  });
+  const result = await engine.answerMention({ municipalityId: "example-city", question: "Leerstand und Fachärzte", now: DOCUMENT_NOW });
+  assert.equal(result.status, "answered");
+  if (result.status === "answered") {
+    assert.match(result.content, /Zwischennutzung empfohlen\. \[1\]\nFür Fachärzte.*\[2\]/u);
+    assert.deepEqual(result.evidenceRefs.map(ref => [ref.evidenceId, ref.publicCaseUrl]),
+      [[first.evidenceId, first.recordUrl], [second.evidenceId, second.recordUrl]]);
+    assert.deepEqual(createPublicMeckyEvidenceReply(result).tags,
+      [["evidence", first.evidenceId, first.recordUrl], ["evidence", second.evidenceId, second.recordUrl]]);
+  }
+});
+
+it("distinguishes no match in available sources, partial coverage, and complete source failure", async () => {
+  let documentsAvailable = true, casesAvailable = true;
+  const engine = createPublicMecky({
+    retrieveEvidence: createStadtstackPublicEvidenceRetriever({
+      baseUrl: "https://context.example", municipalityId: "example-city",
+      reviewedSourceKinds: ["community_document"], reviewedKnowledgeBaseUrl: "https://knowledge.example",
+      loadReviewedCases: async () => {
+        if (!casesAvailable) throw Error("unavailable");
+        return { municipality: { id: "example-city" }, cases: [] } as never;
+      },
+      reviewedSourceFetch: async () => documentsAvailable ? Response.json(documentEdition()) : new Response("", { status: 503 }),
+    }),
+    infer: async () => { assert.fail("An empty result cannot ask a model to invent supporting evidence"); },
+  });
+  const query = { municipalityId: "example-city", question: "Raumfahrtprogramm", now: DOCUMENT_NOW };
+  assert.deepEqual(await engine.answerMention(query), { status: "refused", reason: "insufficient_evidence",
+    retryable: false, diagnosticCode: "no_admitted_public_evidence" });
+  casesAvailable = false;
+  assert.deepEqual(await engine.answerMention(query), { status: "refused", reason: "insufficient_evidence",
+    retryable: true, diagnosticCode: "no_evidence_in_available_sources" });
+  documentsAvailable = false;
+  assert.deepEqual(await engine.answerMention(query), { status: "refused", reason: "evidence_unavailable",
+    retryable: true, diagnosticCode: "evidence_source_unavailable" });
+});
+
+it("preserves partial-source limitations when inference finds no support in nonempty passages", async () => {
+  const source = documentSection();
+  let unavailable = false, inferenceCalls = 0;
+  const engine = createPublicMecky({
+    retrieveEvidence: async query => createPublicEvidencePacket([source], query, unavailable
+      ? [{ sourceKind: "reviewed_civic_case", reason: "source_unavailable", count: 1 }] : []),
+    infer: async () => { inferenceCalls++; return { claims: [] }; },
+  });
+  const query = { municipalityId: "example-city", question: "Begegnungsort", now: DOCUMENT_NOW };
+  assert.deepEqual(await engine.answerMention(query), { status: "refused", reason: "insufficient_evidence",
+    retryable: false, diagnosticCode: "question_not_supported_by_sources" });
+  unavailable = true;
+  assert.deepEqual(await engine.answerMention(query), { status: "refused", reason: "insufficient_evidence",
+    retryable: true, diagnosticCode: "no_evidence_in_available_sources" });
+  assert.equal(inferenceCalls, 2);
 });

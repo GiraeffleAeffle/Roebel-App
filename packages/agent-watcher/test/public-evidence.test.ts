@@ -86,10 +86,17 @@ describe("public evidence retrieval", () => {
     assert.throws(() => parsePublicEvidence({ ...nostr(), sourceKind: "unknown" }));
   });
 
-  it("ranks lexical matches deterministically and resolves a tie by authority", () => {
+  it("keeps source authority deterministic when the requested subject is shared", () => {
+    const entries = [nostr(), news(), ris(), civic()];
+    const query = "Marienfelder Straße";
+    assert.deepEqual(retrievePublicEvidence(entries, query).map(entry => entry.evidence.evidenceId),
+      retrievePublicEvidence([...entries].reverse(), query).map(entry => entry.evidence.evidenceId));
+    assert.equal(retrievePublicEvidence(entries, query)[0].prompt.authority, "official_record");
+  });
+
+  it("excludes shared-place matches when another source covers the requested document subject", () => {
     const results = retrievePublicEvidence([nostr(), news(), ris(), civic()], "Was steht zur Marienfelder Straße in der Vorlage?");
-    assert.deepEqual(results.map((entry) => entry.evidence.evidenceId), [id("c"), id("d"), id("b")]);
-    assert.deepEqual(results.map((entry) => entry.prompt.authority), ["official_record", "reviewed_civic_evidence", "editorial_report"]);
+    assert.deepEqual(results.map(entry => entry.evidence.evidenceId), [id("c")]);
   });
 
   it("deduplicates equivalent source content before applying the three-source cap", () => {
