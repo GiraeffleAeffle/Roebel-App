@@ -14,7 +14,7 @@ An item without a trigger is a wish. An item without a reason is an oversight.
 
 The Public Mecky source candidate now has a bounded answer contract rather than a
 free-form conversation contract. The inference result carries
-`claims: [{ text, evidenceIds }]`; an empty `claims` array abstains. A
+`claims: [{ text, evidenceIds }]`; an empty `claims` array abstains.
 A continuation request is `{schemaVersion, question, context?: { question,
 evidenceIds }}`. `context.question` is the previous user question that anchors
 the continuation; `context.evidenceIds` contains one to three IDs previously

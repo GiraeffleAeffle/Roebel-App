@@ -63,6 +63,7 @@ write endpoint and cannot correct an already proposed or admitted journey.
 
 The source candidate implements the answer boundary above as a bounded
 provider-neutral contract. Inference returns `claims: [{ text, evidenceIds }]`;
+an empty `claims` array means that the answer abstains.
 An explicit continuation request has
 `{schemaVersion, question, context?: { question, evidenceIds }}`. Its
 `context.question` is the previous user question that anchors the continuation,
