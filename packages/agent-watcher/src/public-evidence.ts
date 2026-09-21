@@ -133,9 +133,27 @@ export interface PublicEvidenceOmission {
   readonly count: number;
 }
 
+/** Query selectors only: never prior generated prose or a stored source snapshot. */
+export interface PublicEvidenceContext {
+  readonly question: string;
+  readonly evidenceIds: readonly `sha256:${string}`[];
+}
+
+export function parsePublicEvidenceContext(value: unknown): PublicEvidenceContext {
+  if (!isPlainRecord(value) || !exactKeys(value, ["question", "evidenceIds"]) ||
+    typeof value.question !== "string" || !value.question.trim() || value.question !== value.question.trim() ||
+    Buffer.byteLength(value.question, "utf8") > 2_000 || !Array.isArray(value.evidenceIds) ||
+    value.evidenceIds.length < 1 || value.evidenceIds.length > DEFAULT_PUBLIC_EVIDENCE_LIMIT ||
+    value.evidenceIds.some(id => !isEvidenceId(id)) || new Set(value.evidenceIds).size !== value.evidenceIds.length) {
+    throw new Error("Invalid public evidence context.");
+  }
+  return value as unknown as PublicEvidenceContext;
+}
+
 export interface PublicEvidenceQuery extends PublicEvidenceRetrievalOptions {
   readonly municipalityId: string;
   readonly question: string;
+  readonly context?: PublicEvidenceContext;
   /** Exact signed discussion being answered; never a fetch destination. */
   readonly discussionId?: string;
   /** Caller-controlled clock so packet identity and future-date checks are deterministic. */
@@ -150,6 +168,7 @@ export interface PublicEvidencePacket {
   readonly passages: readonly RetrievedPublicEvidence[];
   /** Counts only; omitted source content and identifiers never cross this boundary. */
   readonly omissions: readonly PublicEvidenceOmission[];
+  readonly availableSourceKinds: readonly PublicEvidenceSourceKind[];
 }
 
 export interface PublicEvidenceSourceAdapter {
@@ -186,7 +205,7 @@ const STOP_WORDS = new Set([
   "die", "ein", "eine", "einen", "einer", "einem", "für", "gibt", "haben", "ich", "ist",
   "kann", "mecky", "mit", "nach", "nicht", "noch", "nur", "oder", "sich", "sind", "soll",
   "und", "von", "was", "welche", "welchen", "welcher", "wie", "wir", "wird", "wurde", "zur",
-  "werden", "wozu", "nennt", "steht", "empfohlen", "empfiehlt", "vorgeschlagen", "schlägt", "vor",
+  "werden", "sollen", "wozu", "nennt", "genannt", "steht", "über", "empfohlen", "empfiehlt", "vorgeschlagen", "schlägt", "vor",
 ].map((word) => word.normalize("NFKD").toLocaleLowerCase("de-DE").replace(/[\u0300-\u036f]/g, "")));
 
 const MUNICIPALITY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
@@ -304,21 +323,30 @@ function normalise(value: string): string[] {
     .match(/[\p{L}\p{N}]{3,}/gu)?.filter((term) => !STOP_WORDS.has(term)) ?? [];
 }
 
-function relevance(questionTerms: readonly string[], entry: PublicEvidence, question: string): number {
+function words(value: string): string {
+  return value.normalize("NFKD").toLocaleLowerCase("de-DE")
+    .replace(/[\u0300-\u036f]/g, "").match(/[\p{L}\p{N}]+/gu)?.join(" ") ?? "";
+}
+
+function termMatches(terms: Set<string>, term: string): boolean {
+  return terms.has(term) || terms.has(`${term}s`) ||
+    (term.length > 4 && term.endsWith("s") && terms.has(term.slice(0, -1)));
+}
+
+function relevance(questionTerms: readonly string[], entry: PublicEvidence, question: string) {
   const titleTerms = new Set(normalise(entry.title));
   const summaryTerms = new Set(normalise(entry.summary));
-  // Section identifiers keep short numbers (e.g. "Empfehlung 2" vs "20")
-  // that ordinary word retrieval deliberately excludes. No per-document rule.
-  const words = (text: string) => text.normalize("NFKD").toLocaleLowerCase("de-DE")
-    .replace(/[\u0300-\u036f]/g, "").match(/[\p{L}\p{N}]+/gu)?.join(" ") ?? "";
+  const matched = new Set(questionTerms.filter(term => termMatches(titleTerms, term) || termMatches(summaryTerms, term)));
   const sectionMatch = entry.sourceKind === "community_document" &&
     ` ${words(question)} `.includes(` ${words(entry.sectionId)} `);
-  const matches = (terms: Set<string>, term: string) => terms.has(term) ||
-    terms.has(`${term}s`) || (term.length > 4 && term.endsWith("s") && terms.has(term.slice(0, -1)));
-  return (sectionMatch ? 20 : 0) + questionTerms.reduce((score, term) => score + (matches(titleTerms, term) ? 5 : 0) + (matches(summaryTerms, term) ? 1 : 0), 0);
+  if (sectionMatch) matched.add(`section:${entry.sectionId}`);
+  const score = (sectionMatch ? 20 : 0) + [...matched].reduce((sum, term) =>
+    sum + (termMatches(titleTerms, term) ? 5 : 0) + (termMatches(summaryTerms, term) ? 1 : 0), 0);
+  return { score, matched, titleMatches: questionTerms.filter(term => termMatches(titleTerms, term)) };
 }
 
 function fingerprint(entry: PublicEvidence): string {
+  if (entry.sourceKind === "community_document") return `${entry.documentId}:${entry.sectionId}`;
   return `${normalise(entry.title).join(" ")}\n${normalise(entry.summary).join(" ")}`;
 }
 
@@ -411,7 +439,7 @@ function sortedOmissions(counts: ReadonlyMap<string, number>): readonly PublicEv
 function selectPublicEvidence(
   entries: readonly PublicEvidence[],
   question: string,
-  options: PublicEvidenceRetrievalOptions,
+  options: PublicEvidenceRetrievalOptions & Pick<PublicEvidenceQuery, "context" | "discussionId">,
   scope?: SelectionScope,
   initialOmissions: readonly PublicEvidenceOmission[] = [],
 ): SelectionResult {
@@ -420,7 +448,7 @@ function selectPublicEvidence(
     DEFAULT_PUBLIC_EVIDENCE_MAX_PROMPT_BYTES,
     Math.max(512, options.maxPromptBytes ?? DEFAULT_PUBLIC_EVIDENCE_MAX_PROMPT_BYTES),
   );
-  const terms = normalise(question);
+  const terms = [...new Set(normalise(question))];
   const omissionCounts = new Map<string, number>();
   const omit = (entry: Pick<PublicEvidence, "sourceKind">, reason: PublicEvidenceOmissionReason, count = 1) => {
     const key = omissionKey(entry.sourceKind, reason);
@@ -428,7 +456,7 @@ function selectPublicEvidence(
   };
   for (const omission of initialOmissions) omit(omission, omission.reason, omission.count);
 
-  const ranked: Array<{ entry: PublicEvidence; score: number }> = [];
+  const eligible: PublicEvidence[] = [];
   for (const value of entries) {
     const entry = parsePublicEvidence(value);
     if (scope && entry.municipalityId !== scope.municipalityId) {
@@ -451,12 +479,63 @@ function selectPublicEvidence(
       omit(entry, "future_dated");
       continue;
     }
-    const score = relevance(terms, entry, question);
-    if (!terms.length || score <= 0) {
+    if (options.context && !options.context.evidenceIds.includes(entry.evidenceId)) {
       omit(entry, "not_relevant");
       continue;
     }
-    ranked.push({ entry, score });
+    eligible.push(entry);
+  }
+
+  const sectionPrefixes = new Set(eligible.flatMap(entry => entry.sourceKind === "community_document"
+    ? [words(entry.sectionId).replace(/ \d+$/u, "")] : []));
+  const sectionSelectors = new Set<string>();
+  for (const prefix of sectionPrefixes) {
+    for (const match of ` ${words(question)} `.matchAll(new RegExp(` ${prefix} (\\d+)(?= )`, "gu"))) {
+      sectionSelectors.add(`${prefix} ${match[1]}`);
+    }
+  }
+  // Attribution and municipality names identify a collection, not its subject.
+  // Prefer substantive query terms when present, without a per-topic vocabulary.
+  const collectionTerms = new Set(eligible.flatMap(entry => normalise([
+    entry.municipalityId,
+    ...("publisher" in entry ? [entry.publisher] : []),
+    ...(entry.sourceKind === "community_document" ? [entry.documentTitle, entry.attributedTo] : []),
+  ].join(" "))));
+  const subjectTerms = terms.filter(term => !collectionTerms.has(term));
+  const queryTerms = subjectTerms.length ? subjectTerms : terms;
+  const candidates = eligible.map(entry => {
+    if (entry.sourceKind === "community_document" && sectionSelectors.size && !sectionSelectors.has(words(entry.sectionId))) {
+      return { entry, score: 0, matched: new Set<string>(), titleMatches: [], anchored: false };
+    }
+    const match = relevance(queryTerms, entry, question);
+    const anchored = options.context !== undefined ||
+      (entry.sourceKind === "nostr_post" && entry.eventId === options.discussionId);
+    return { entry, ...match, score: anchored ? Math.max(1, match.score) : match.score, anchored };
+  });
+  const covered = new Set(candidates.flatMap(candidate => [...candidate.matched]));
+  const titleFrequency = new Map<string, number>();
+  for (const candidate of candidates) for (const term of candidate.titleMatches) {
+    titleFrequency.set(term, (titleFrequency.get(term) ?? 0) + 1);
+  }
+  // A shared place name alone cannot support an otherwise unknown subject.
+  // A distinctive title or exact discussion binding is stronger than word coverage.
+  const enoughCoverage = options.discussionId !== undefined || !queryTerms.length ||
+    covered.size >= queryTerms.length / 2 || [...titleFrequency.values()].some(count => count === 1);
+  const ranked: Array<{ entry: PublicEvidence; score: number }> = [];
+  for (const candidate of candidates) {
+    // A record matching only a subset of another record's query subjects adds
+    // noise. Incomparable subjects survive, including both sides of a comparison.
+    // Signed conversation provenance contains the question itself; its matching
+    // words cannot displace the independent sources needed to answer it.
+    const dominated = !candidate.anchored && candidates.some(other =>
+      other.entry.sourceKind !== "nostr_post" &&
+      other.matched.size > candidate.matched.size &&
+      [...candidate.matched].every(term => other.matched.has(term)));
+    if (candidate.score <= 0 || dominated || (!candidate.anchored && !enoughCoverage)) {
+      omit(candidate.entry, "not_relevant");
+    } else {
+      ranked.push(candidate);
+    }
   }
 
   ranked.sort((left, right) =>
@@ -510,6 +589,7 @@ function validateQuery(query: PublicEvidenceQuery): { municipalityId: string; qu
   const municipalityId = query.municipalityId.trim();
   const question = query.question.trim();
   const nowEpochMs = Date.parse(query.now);
+  if (query.context !== undefined) parsePublicEvidenceContext(query.context);
   if (
     query.municipalityId !== municipalityId ||
     municipalityId.length > 80 || !MUNICIPALITY_ID.test(municipalityId) ||
@@ -524,18 +604,21 @@ function validateQuery(query: PublicEvidenceQuery): { municipalityId: string; qu
   return { municipalityId, question, nowEpochMs };
 }
 
-function packetIdFor(packet: Omit<PublicEvidencePacket, "packetId">, question: string): `sha256:${string}` {
+function packetIdFor(packet: Omit<PublicEvidencePacket, "packetId">, query: PublicEvidenceQuery): `sha256:${string}` {
   const payload = JSON.stringify({
     schemaVersion: packet.schemaVersion,
     municipalityId: packet.municipalityId,
     generatedAt: packet.generatedAt,
-    querySha256: createHash("sha256").update(question, "utf8").digest("hex"),
+    querySha256: createHash("sha256").update(JSON.stringify({
+      question: query.question.trim(), discussionId: query.discussionId ?? null, context: query.context ?? null,
+    }), "utf8").digest("hex"),
     passages: packet.passages.map((entry) => ({
       evidenceId: entry.evidence.evidenceId,
       score: entry.score,
       prompt: entry.prompt,
     })),
     omissions: packet.omissions,
+    availableSourceKinds: packet.availableSourceKinds,
   });
   return `sha256:${createHash("sha256").update(payload, "utf8").digest("hex")}`;
 }
@@ -544,8 +627,13 @@ export function createPublicEvidencePacket(
   entries: readonly PublicEvidence[],
   query: PublicEvidenceQuery,
   additionalOmissions: readonly PublicEvidenceOmission[] = [],
+  availableSourceKinds: readonly PublicEvidenceSourceKind[] = [...new Set(entries.map(entry => entry.sourceKind))],
 ): PublicEvidencePacket {
   const validated = validateQuery(query);
+  if (new Set(availableSourceKinds).size !== availableSourceKinds.length ||
+    availableSourceKinds.some(kind => !PUBLIC_EVIDENCE_SOURCE_KINDS.includes(kind))) {
+    throw new Error("Invalid public evidence source availability.");
+  }
   for (const omission of additionalOmissions) {
     if (
       !PUBLIC_EVIDENCE_SOURCE_KINDS.includes(omission.sourceKind) ||
@@ -568,8 +656,9 @@ export function createPublicEvidencePacket(
     generatedAt: new Date(validated.nowEpochMs).toISOString(),
     passages: selection.passages,
     omissions: selection.omissions,
+    availableSourceKinds: PUBLIC_EVIDENCE_SOURCE_KINDS.filter(kind => availableSourceKinds.includes(kind)),
   };
-  return { ...packetWithoutId, packetId: packetIdFor(packetWithoutId, validated.question) };
+  return { ...packetWithoutId, packetId: packetIdFor(packetWithoutId, query) };
 }
 
 /** Compose admitted source projections. An adapter failure omits that source; it never admits partial invalid data. */
@@ -594,10 +683,11 @@ export function createPublicKnowledgeCatalog(
           if (parsed.some((entry) => entry.sourceKind !== adapter.sourceKind)) {
             throw new Error("Adapter source kind mismatch.");
           }
-          return { entries: parsed, omission: null } as const;
+          return { entries: parsed, omission: null, sourceKind: adapter.sourceKind } as const;
         } catch {
           return {
             entries: [] as readonly PublicEvidence[],
+            sourceKind: adapter.sourceKind,
             omission: { sourceKind: adapter.sourceKind, reason: "source_unavailable", count: 1 } as const,
           };
         }
@@ -606,6 +696,7 @@ export function createPublicKnowledgeCatalog(
         settled.flatMap((result) => result.entries),
         query,
         settled.flatMap((result) => result.omission ? [result.omission] : []),
+        settled.flatMap(result => result.omission ? [] : [result.sourceKind]),
       );
     },
   });

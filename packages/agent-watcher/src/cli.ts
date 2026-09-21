@@ -225,9 +225,7 @@ async function main(): Promise<void> {
             // silently replace the citizen's question with unrelated records.
             if (context.rootEvent.id !== event.id) throw Error("public_discussion_event_mismatch");
             conversationEvidence = [context.evidence];
-          } else if (followUp) {
-            conversationEvidence = [followUp.evidence];
-          } else if (!syntheticEvidenceMode && publicIndexBaseUrl) {
+          } else if (!followUp && !syntheticEvidenceMode && publicIndexBaseUrl) {
             try {
               conversationEvidence = [createDirectMentionEvidence(event, {
                 municipalityId,
@@ -246,6 +244,7 @@ async function main(): Promise<void> {
             now: new Date().toISOString(),
             conversationEvidence,
             ...(discussionId ? { discussionId } : {}),
+            ...(followUp ? { discussionContext: followUp } : {}),
           });
           if (answer.status === "answered") {
             return discussionBinding

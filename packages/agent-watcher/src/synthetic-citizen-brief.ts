@@ -86,8 +86,9 @@ function titleTerms(value: string): string[] {
 
 function identifiesBrief(query: PublicEvidenceQuery, pinned: Omit<Config, "additionalBindings">, title: string): boolean {
   if (query.discussionId !== undefined) return query.discussionId === pinned.discussionId;
-  if ([pinned.discussionId, pinned.caseId, pinned.topicId].some(id => query.question.includes(id))) return true;
-  const requested = new Set(titleTerms(query.question));
+  const question = query.context?.question ?? query.question;
+  if ([pinned.discussionId, pinned.caseId, pinned.topicId].some(id => question.includes(id))) return true;
+  const requested = new Set(titleTerms(question));
   return titleTerms(title).some(term => requested.has(term) || requested.has(term + "s") ||
     (term.endsWith("s") && requested.has(term.slice(0, -1))));
 }
@@ -125,7 +126,7 @@ function createPinnedBriefReader(pinned: Omit<Config, "additionalBindings">, fet
           !exactTag("topic", pinned.topicId) || titles.length !== 1 || titles[0]!.length !== 2 ||
           !identifiesBrief(query, pinned, titles[0]![1]!)) return [];
       }
-      const departments = requestedDepartments(query.question);
+      const departments = requestedDepartments(query.context?.question ?? query.question);
       return brief.responses.filter(item => !departments.size || departments.has(item.departmentId)).map(item => {
         const reviewedAt = brief.provenance.packageBindings.find(p => p.departmentId === item.departmentId)!.reviewedAt;
         return {

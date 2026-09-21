@@ -1,6 +1,6 @@
 # Roadmap and deferred work
 
-**Last updated: 2026-09-20.** Part of the [documentation index](README.md).
+**Last updated: 2026-09-21.** Part of the [documentation index](README.md).
 
 Everything here was **deliberately not built**, with a reason. This document exists so that
 "we decided that later" survives the conversation it was decided in. Each entry says what it
@@ -10,7 +10,54 @@ An item without a trigger is a wish. An item without a reason is an oversight.
 
 ---
 
+## Current: bounded Public Mecky candidate verification — 2026-09-21
+
+The Public Mecky source candidate now has a bounded answer contract rather than a
+free-form conversation contract. The inference result carries
+`claims: [{ text, evidenceIds }]`; an empty `claims` array abstains. A
+A continuation request is `{schemaVersion, question, context?: { question,
+evidenceIds }}`. `context.question` is the previous user question that anchors
+the continuation; `context.evidenceIds` contains one to three IDs previously
+cited in that answer. The reader revalidates those IDs against freshly read
+public projections. Generated answer text/history is never sent. An explicit
+new-question reset omits `context` and starts a new topic.
+Numbered claim markers remain attached to their selected source labels, and the
+Web presentation opens qualifying department citations at the `#citizen-brief`
+anchor without rewriting the signed source URL.
+
+The source-only verification checkpoint is bounded and not a deployment claim:
+
+- The complete `@netizen-labs/agent-watcher` test script passed 154/154 tests
+  across 11 suites, including fixtures outside the initial focused set.
+- The six relevant Mecky Web test files passed 25/25 tests, including the
+  numbered citation-link regression.
+- Lockfile-pinned TypeScript 5.8.3 typecheck passed after resolving the
+  federation-client and Nostr source trees identically; the pinned esbuild
+  0.27.7 production bundle command also passed.
+- The local retrieval set is 30/31 exact: baseline 14/14, held-out 6/6,
+  comparison 2/2 and held-out-after-design 8/9. The sole miss is the
+  `Zwischennutzung` synonym question; this remains a measured limitation, not
+  a hidden fallback.
+- A candidate-only existing-provider run made three bounded calls: one
+  recommendation used one citation, a recommendation-2/recommendation-10
+  comparison kept separate citation IDs, and an unsupported scoped question
+  returned no claims with an insufficient-evidence diagnostic. No publication,
+  civic write or staff mutation is implied.
+- Actual `MeckyPage`/`CommentSection` browser checks covered comparison
+  citations, unavailable-source preservation, unsupported follow-up refusal,
+  explicit reset, signed-feed follow-up and mobile overflow. The browser
+  watcher pass was one seen/one answered/zero projected, with no civic or
+  authority mutation.
+
+This candidate is not deployed and does not activate a wider corpus, provider,
+source authority or publication path. The measured retrieval miss, independent
+user acceptance, protected source review/publication, and hosted runtime
+evidence remain open gates.
+
 ## Current: useful Mecky answers across the knowledge base — 2026-09-19
+> Historical source snapshot (2026-09-19), superseded as the current Mecky
+> status by the 2026-09-21 checkpoint above. Its two-record/undeployed-corpus
+> statements remain preserved as dated evidence, not present-state claims.
 
 The next Step 8 source slice connects a returned Brief to the existing shared
 feed composer. The app verifies the signed discussion's source-post binding,
@@ -72,6 +119,7 @@ small multi-topic question set. Keep private administrative material outside the
 public reader. A future MCP interface should consume this same catalogue; it
 does not replace document ingestion or provenance. This broader catalogue is
 pending; the name-lookup repair alone does not complete it.
+
 
 ## Active: separate people and a shared discussion — 2026-09-15
 

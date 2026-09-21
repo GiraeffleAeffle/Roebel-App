@@ -17,7 +17,7 @@ export function meckyPresentation(content: string, urls: readonly string[]) {
   // answer; omit only its deterministic envelope after checking the source list.
   const body = content.slice(0, at).replace(/^Synthetischer Testkontext · keine amtliche Stellungnahme\.\n\n/u, "");
   return { body, sources: (sources as { url: string; title: string }[]).map(source => ({
-    ...source, title: source.title.replace(/^Testantwort (?=\S)/u, "Fachantwort "),
+    ...source, title: source.title.replace(/^(\[[1-3]\] )?Testantwort (?=\S)/u, "$1Fachantwort "),
   })) };
 }
 import { DEPARTMENT_LABELS } from "@roebel/stadtstack-federation-client";
@@ -26,10 +26,11 @@ import { DEPARTMENT_LABELS } from "@roebel/stadtstack-federation-client";
 export function meckySourceHref(url: string, title: string): string {
   try {
     const parsed = new URL(url);
+    const sourceTitle = title.replace(/^\[[1-3]\] /u, "");
     if (parsed.protocol === "https:" && !parsed.username && !parsed.password && !parsed.search && !parsed.hash &&
       /^\/app\/diskussion\/[0-9a-f]{64}$/.test(parsed.pathname) &&
       Object.values(DEPARTMENT_LABELS).some(label =>
-        title.startsWith(`Fachantwort ${label} · `) || title.startsWith(`Testantwort ${label} · `))) {
+        sourceTitle.startsWith(`Fachantwort ${label} · `) || sourceTitle.startsWith(`Testantwort ${label} · `))) {
       return `${url}#citizen-brief`;
     }
   } catch { /* An unrecognized source keeps its original destination. */ }

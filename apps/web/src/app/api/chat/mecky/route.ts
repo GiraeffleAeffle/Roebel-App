@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 import {
-  parsePublicMeckyChatQuestion,
+  parsePublicMeckyChatRequest,
+  type PublicMeckyChatRequest,
   requestPublicMeckyChat,
 } from "@/lib/public-mecky-chat";
 
@@ -13,14 +14,18 @@ const TIMEOUT_MS = 35_000;
 export async function POST(request: Request) {
   let body: unknown;
   try {
-    body = await request.json();
+    const raw = await request.text();
+    if (new TextEncoder().encode(raw).byteLength > 6 * 1024) {
+      return NextResponse.json({ error: "request_too_large" }, { status: 413 });
+    }
+    body = JSON.parse(raw);
   } catch {
     return NextResponse.json({ error: "request_invalid" }, { status: 400 });
   }
 
-  let question: string;
+  let input: PublicMeckyChatRequest;
   try {
-    question = parsePublicMeckyChatQuestion(body);
+    input = parsePublicMeckyChatRequest(body);
   } catch {
     return NextResponse.json({ error: "request_invalid" }, { status: 400 });
   }
@@ -35,7 +40,8 @@ export async function POST(request: Request) {
   try {
     const result = await requestPublicMeckyChat({
       baseUrl,
-      question,
+      question: input.question,
+      ...(input.context ? { context: input.context } : {}),
       signal: controller.signal,
     });
     return NextResponse.json(result, {

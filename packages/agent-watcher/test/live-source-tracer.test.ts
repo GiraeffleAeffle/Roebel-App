@@ -123,9 +123,14 @@ it("grounds and signs an ordinary Röbel mention across the three no-authority e
         ],
       );
       return {
-        answer:
-          "Belegt sind prüfbare Ansatzpunkte. Das ist eine beratende Einordnung, keine Entscheidung.",
-        evidenceIds: evidence.map((entry) => entry.evidenceId),
+        claims: [
+          { text: "Die Fachseite nennt prüfbare Anknüpfungspunkte für Bürger und zuständige Stellen.",
+            evidenceIds: evidence.filter(entry => "sourceKind" in entry && entry.sourceKind === "local_news").map(entry => entry.evidenceId) },
+          { text: "Das Protokoll dokumentiert mögliche Prüfungen, keinen Beschluss.",
+            evidenceIds: evidence.filter(entry => "sourceKind" in entry && entry.sourceKind === "ratsinformation").map(entry => entry.evidenceId) },
+          { text: "Die Bürgeranfrage bittet um nicht bindende Verbesserungsoptionen.",
+            evidenceIds: evidence.filter(entry => "sourceKind" in entry && entry.sourceKind === "nostr_post").map(entry => entry.evidenceId) },
+        ],
       };
     },
   });
@@ -175,6 +180,9 @@ it("grounds and signs an ordinary Röbel mention across the three no-authority e
   const signedReply = published[0]!;
   assert.equal(verifyEvent(signedReply), true);
   assert.equal(signedReply.pubkey, AGENT.publicKey);
+  assert.match(signedReply.content, /Die Fachseite nennt prüfbare Anknüpfungspunkte für Bürger und zuständige Stellen\. \[1\]/u);
+  assert.match(signedReply.content, /Das Protokoll dokumentiert mögliche Prüfungen, keinen Beschluss\. \[2\]/u);
+  assert.match(signedReply.content, /Die Bürgeranfrage bittet um nicht bindende Verbesserungsoptionen\. \[3\]/u);
   assert.ok(signedReply.tags.some((tag) => tag.join(":") === `e:${mention.id}::reply`));
   assert.ok(signedReply.tags.some((tag) => tag.join(":") === `p:${mention.pubkey}`));
   assert.ok(signedReply.tags.some((tag) => tag.join(":") === `source-app-post:${POST_ID}`));

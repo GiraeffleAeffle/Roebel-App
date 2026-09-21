@@ -41,3 +41,18 @@ test("department citations open Fachantworten without rewriting their signed sou
     assert.equal(meckySourceHref(destination!, label!), destination);
   }
 });
+
+test("numbered claim citations retain their markers and open the cited Fachantworten", () => {
+  const url = `https://app.example/app/diskussion/${"c".repeat(64)}`;
+  const content = `Kostenmodell A. [1]\nNutzungsmodell B. [2]\n\nQuellenbelege: [1] Testantwort Finanzen · Begegnungsort – ${url}; [2] Fachantwort Stadtplanung · Begegnungsort – ${url}`;
+  const presentation = meckyPresentation(content, [url, url]);
+  assert.equal(presentation.body, "Kostenmodell A. [1]\nNutzungsmodell B. [2]");
+  assert.deepEqual(presentation.sources.map(source => source.title), [
+    "[1] Fachantwort Finanzen · Begegnungsort", "[2] Fachantwort Stadtplanung · Begegnungsort",
+  ]);
+  for (const source of presentation.sources) {
+    assert.equal(source.url, url);
+    assert.equal(meckySourceHref(source.url, source.title), `${url}#citizen-brief`);
+  }
+  assert.equal(meckySourceHref(url, "[1] Ausgangsdiskussion"), url);
+});

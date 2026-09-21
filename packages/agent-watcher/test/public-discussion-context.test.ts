@@ -74,7 +74,7 @@ test("the exact public signed discussion reaches inference as community context 
       assert.equal(evidence.length, 1);
       assert.deepEqual(evidence.map(item => item.evidenceId), [`sha256:${root.id}`]);
       assert.equal((evidence[0] as { authority: string }).authority, "community_statement");
-      return { answer: "Der Beitrag nennt zwei simulierte Kostenmodelle; amtliche Prüfungen liegen damit nicht vor.", evidenceIds: [`sha256:${root.id}`] };
+      return { claims: [{ text: "Der Beitrag nennt zwei simulierte Kostenmodelle; amtliche Prüfungen liegen damit nicht vor.", evidenceIds: [`sha256:${root.id}`] }] };
     },
   });
   const result = await mecky.answerMention({ municipalityId, discussionId: root.id, question: root.content,
@@ -84,6 +84,41 @@ test("the exact public signed discussion reaches inference as community context 
   const unavailable = await mecky.answerMention({ municipalityId, discussionId: root.id, question: root.content,
     now: "2026-09-17T10:00:00.000Z" });
   assert.equal(unavailable.status, "refused");
+});
+
+test("a different signed follow-up question reaches the real answer engine with only its verified root", async () => {
+  const question = buildNoteEvent(citizen, `@Mecky Wie unterscheiden sich die Kostenmodelle?\n\nDiskussion: ${options.publicOrigin}/app/diskussion/${root.id}#citizen-brief`, {
+    createdAt: 104, tags: [["p", agent.publicKey], ["source-app-post", "735187dc-d737-4e6c-bdd9-fe0792fec498"]],
+  });
+  const context = await readPublicFollowUpContext(question, options.publicOrigin, read());
+  assert.ok(context);
+  const mecky = createPublicMecky({
+    retrieveEvidence: createStadtstackPublicEvidenceRetriever({
+      baseUrl: "https://cases.example.org", municipalityId,
+      loadReviewedCases: async () => { assert.fail("A scoped follow-up cannot search unrelated cases"); },
+    }),
+    infer: async ({ question: asked, evidence }) => {
+      assert.equal(asked, question.content);
+      assert.deepEqual(evidence.map(item => item.evidenceId), [`sha256:${root.id}`]);
+      return { claims: [{ text: "Der Beitrag nennt für A 16600 Euro und für B 34500 Euro.", evidenceIds: [`sha256:${root.id}`] }] };
+    },
+  });
+  const mention = { municipalityId, discussionId: root.id, question: question.content,
+    discussionContext: context, now: "2026-09-21T12:00:00.000Z" };
+  const answer = await mecky.answerMention(mention);
+  assert.equal(answer.status, "answered");
+  if (answer.status === "answered") {
+    assert.match(answer.content, /16600.*34500/u);
+    assert.equal(answer.evidenceRefs[0].publicCaseUrl, context.evidence.eventUrl);
+  }
+  await assert.rejects(mecky.answerMention({ ...mention, discussionContext: undefined,
+    conversationEvidence: [context.evidence] }), /Invalid Public Mecky mention/u);
+  for (const invalid of [
+    { ...mention, discussionId: "f".repeat(64) },
+    { ...mention, municipalityId: "other-town" },
+    { ...mention, discussionContext: { ...context, rootEvent: { ...root, content: "forged" } } },
+    { ...mention, discussionContext: { ...context, evidence: { ...context.evidence, summary: question.content } } },
+  ]) await assert.rejects(mecky.answerMention(invalid), /Invalid Public Mecky mention/u);
 });
 
 test("missing, forged, cross-municipality and unconsented public notes cannot become evidence", async () => {

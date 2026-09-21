@@ -11,6 +11,17 @@ export type PublicMeckyEvidenceRef = Readonly<{
   publicCaseUrl: string;
 }>;
 
+export type PublicMeckyChatContext = Readonly<{
+  question: string;
+  evidenceIds: readonly `sha256:${string}`[];
+}>;
+
+export type PublicMeckyChatRequest = Readonly<{
+  schemaVersion: typeof PUBLIC_MECKY_CHAT_REQUEST_SCHEMA;
+  question: string;
+  context?: PublicMeckyChatContext;
+}>;
+
 type PublicMeckyNoEffects = Readonly<{
   civicStateMutation: false;
   suggestionSubmission: false;
@@ -67,14 +78,43 @@ function publicHttpsUrl(value: unknown): value is string {
   }
 }
 
-export function parsePublicMeckyChatQuestion(value: unknown): string {
-  if (!isRecord(value) || !exactKeys(value, ["schemaVersion", "question"]) ||
-    value.schemaVersion !== PUBLIC_MECKY_CHAT_REQUEST_SCHEMA ||
+export function parsePublicMeckyChatRequest(value: unknown): PublicMeckyChatRequest {
+  if (!isRecord(value) || !exactKeys(value, [
+    "schemaVersion", "question", ...(Object.hasOwn(value, "context") ? ["context"] : []),
+  ]) || value.schemaVersion !== PUBLIC_MECKY_CHAT_REQUEST_SCHEMA ||
     typeof value.question !== "string" || value.question !== value.question.trim() ||
     !value.question || new TextEncoder().encode(value.question).byteLength > MAX_QUESTION_BYTES) {
     throw new Error("public_mecky_chat_request_invalid");
   }
-  return value.question;
+  if (Object.hasOwn(value, "context")) {
+    const context = value.context;
+    if (!isRecord(context) || !exactKeys(context, ["question", "evidenceIds"]) ||
+      typeof context.question !== "string" || !context.question.trim() || context.question !== context.question.trim() ||
+      new TextEncoder().encode(context.question).byteLength > MAX_QUESTION_BYTES ||
+      !Array.isArray(context.evidenceIds) || context.evidenceIds.length < 1 || context.evidenceIds.length > 3 ||
+      context.evidenceIds.some(id => typeof id !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(id)) ||
+      new Set(context.evidenceIds).size !== context.evidenceIds.length) {
+      throw new Error("public_mecky_chat_request_invalid");
+    }
+  }
+  return value as unknown as PublicMeckyChatRequest;
+}
+
+export function publicMeckyRefusalText(reason: string, diagnosticCode: string): string {
+  if (reason === "context_unavailable") {
+    return "Die Quellen dieser Rückfrage haben sich geändert oder sind nicht erreichbar. Bitte stelle eine neue Frage, damit Mecky den aktuellen Stand neu sucht.";
+  }
+  if (reason === "insufficient_evidence") {
+    return diagnosticCode === "no_evidence_in_available_sources"
+      ? "In den erreichbaren öffentlichen Quellen finde ich dazu keinen passenden Beleg. Weitere konfigurierte Quellen sind gerade nicht erreichbar; das ist keine vollständige Aussage über den Sachstand."
+      : "In den geprüften öffentlichen Quellen finde ich dazu keinen passenden Beleg. Das bedeutet nicht, dass es dazu keinen Beschluss oder keine Information außerhalb dieser Quellen gibt.";
+  }
+  if (reason === "evidence_unavailable") {
+    return "Die benötigten öffentlichen Quellen sind gerade nicht erreichbar. Bitte versuche es später noch einmal.";
+  }
+  return reason === "inference_unavailable"
+    ? "Das KI-Modell ist gerade nicht verfügbar. Bitte versuche es später noch einmal."
+    : "Diese Frage kann ich innerhalb meiner geprüften Quellen nicht beantworten.";
 }
 
 export function parsePublicMeckyChatResponse(value: unknown): PublicMeckyChatResponse {
@@ -139,21 +179,20 @@ export function publicMeckyChatEndpoint(baseUrl: string): URL {
 export async function requestPublicMeckyChat(input: {
   baseUrl: string;
   question: string;
+  context?: PublicMeckyChatContext;
   fetch?: typeof globalThis.fetch;
   signal?: AbortSignal;
 }): Promise<PublicMeckyChatResponse> {
-  const question = parsePublicMeckyChatQuestion({
+  const body = parsePublicMeckyChatRequest({
     schemaVersion: PUBLIC_MECKY_CHAT_REQUEST_SCHEMA,
     question: input.question,
+    ...(input.context ? { context: input.context } : {}),
   });
   const fetcher = input.fetch ?? globalThis.fetch;
   const response = await fetcher(publicMeckyChatEndpoint(input.baseUrl), {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      schemaVersion: PUBLIC_MECKY_CHAT_REQUEST_SCHEMA,
-      question,
-    }),
+    body: JSON.stringify(body),
     cache: "no-store",
     signal: input.signal,
   });

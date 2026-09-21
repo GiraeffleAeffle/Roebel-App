@@ -1,10 +1,11 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 
 import type { PublicMecky } from "./public-mecky";
+import { parsePublicEvidenceContext, type PublicEvidenceContext } from "./public-evidence";
 
 const REQUEST_SCHEMA = "public_mecky_chat_request_v1" as const;
 const RESPONSE_SCHEMA = "public_mecky_chat_response_v1" as const;
-const MAX_REQUEST_BYTES = 4 * 1024;
+const MAX_REQUEST_BYTES = 6 * 1024;
 const MAX_QUESTION_BYTES = 2_000;
 const MINUTE_MS = 60_000;
 const DAY_MS = 86_400_000;
@@ -62,7 +63,7 @@ function exactKeys(value: Record<string, unknown>, expected: readonly string[]):
     actual.every((key, index) => key === wanted[index]);
 }
 
-function parseQuestion(value: unknown): string {
+function parseQuestion(value: unknown): { question: string; context?: PublicEvidenceContext } {
   if (
     !value || typeof value !== "object" || Array.isArray(value) ||
     Object.getPrototypeOf(value) !== Object.prototype
@@ -71,7 +72,7 @@ function parseQuestion(value: unknown): string {
   }
   const record = value as Record<string, unknown>;
   if (
-    !exactKeys(record, ["schemaVersion", "question"]) ||
+    !exactKeys(record, ["schemaVersion", "question", ...(Object.hasOwn(record, "context") ? ["context"] : [])]) ||
     record.schemaVersion !== REQUEST_SCHEMA ||
     typeof record.question !== "string" ||
     record.question !== record.question.trim() ||
@@ -80,13 +81,14 @@ function parseQuestion(value: unknown): string {
   ) {
     throw new Error("public_mecky_chat_request_invalid");
   }
-  return record.question;
+  return { question: record.question,
+    ...(Object.hasOwn(record, "context") ? { context: parsePublicEvidenceContext(record.context) } : {}) };
 }
 
 /**
- * One bounded, stateless HTTP turn over the same reviewed Public Mecky engine
- * used by Nostr mentions. The caller cannot choose the municipality, clock,
- * evidence, model, tools, or inference credentials.
+ * A bounded, stateless turn. Continuation IDs are selectors revalidated against
+ * fresh public projections, never stored model text. The caller cannot choose
+ * municipality, clock, source content, model, tools, or inference credentials.
  */
 export function createPublicMeckyHttpHandler(
   dependencies: PublicMeckyHttpDependencies,
@@ -147,9 +149,9 @@ export function createPublicMeckyHttpHandler(
       return json({ error: "request_invalid" }, 400);
     }
 
-    let question: string;
+    let input: { question: string; context?: PublicEvidenceContext };
     try {
-      question = parseQuestion(value);
+      input = parseQuestion(value);
     } catch {
       return json({ error: "request_invalid" }, 400);
     }
@@ -175,7 +177,7 @@ export function createPublicMeckyHttpHandler(
     try {
       result = await dependencies.publicMecky.answerMention({
         municipalityId: dependencies.municipalityId,
-        question,
+        ...input,
         now: askedAt.toISOString(),
       });
     } catch {
