@@ -4,11 +4,44 @@
 must finish the workspace so real users can test it. Self-contained; assumes no memory
 of the sessions that built it.
 
-> **Every claim below was checked against the live box on 2026-07-27**, not carried over
-> from the previous revision. Three items the earlier revision listed as open had already
-> shipped in `93e7bc52` — if this doc and the box ever disagree again, **the box wins**.
+> Sections 1–6 retain the historical live-box observation from **2026-07-27**,
+> including the fixes already shipped in `93e7bc52`. They are not a fresh hosted
+> verification. The separately dated app-access update below proves local behavior only.
 
 ---
+
+## App access boundary — 2026-09-21
+
+Personal and organization file browsers now wait for wallet restoration and a
+successful server-session subject match before mounting files, writes or the editor.
+A wallet change or disconnect unmounts that subtree immediately; cancelled or late
+file, editor and session responses cannot restore the previous account's content.
+Unknown/malformed session probes fail closed with an explicit retry. An unconfigured
+integration still offers the existing link-out, and missing sessions retain the
+bounded one-shot OIDC hop rather than creating a login loop.
+
+Desktop and mobile navigation provide **Arbeitsbereich abmelden**. It terminates
+only the server-owned workspace session, not the wallet or external identity-provider
+login. Automatic mismatch cleanup and explicit logout share one destruction request.
+Only a successful response acknowledging destruction releases the quarantine;
+failure retains the existing HttpOnly cookie for retry and keeps files/editor closed.
+Explicit success returns to `/verwaltung`, without automatically reconnecting.
+
+The pending-logout barrier survives route remounts and reloads when session storage
+works. If storage access or writes fail, an in-memory barrier still blocks the current
+page and logout still runs; persistence across a full reload cannot be promised.
+A storage-removal failure after confirmed server destruction does not re-block the
+current page, though a surviving stored marker may conservatively block a later reload.
+This client boundary does not replace server authorization or derive write permission.
+
+**Local acceptance:** fourteen browser scenarios exercised the actual FileBrowser,
+guard, editor and desktop/mobile controls against synthetic account/HTTP boundaries;
+the original failed-logout leak was reproduced separately and the candidate closes it.
+The final affected workspace suite passes 207 tests. This is not a deployed login,
+real Nextcloud/Collabora, current staff-grant or independent-person enrollment proof.
+Hosted source checks, normal protected publication/rollout, and a fresh independent
+participant trial remain separate gates; see the
+[go-live acceptance checklist](WORKSPACE_GO_LIVE_CHECKLIST.md#independent-person-access-acceptance--2026-09-21).
 
 ## 1. The node
 
