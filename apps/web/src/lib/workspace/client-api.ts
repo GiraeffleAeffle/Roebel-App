@@ -1,6 +1,6 @@
 /**
- * Browser-side helpers for the Dateien surface. Pure so they are unit-tested
- * without React; the components below only compose them.
+ * Browser-side workspace boundaries and query helpers. The pure helpers are
+ * tested without React; logout is shared by the guard and navigation controls.
  */
 
 export interface FileScopeParams {
@@ -122,6 +122,14 @@ export function classifyFilesResponse(
   if (status >= 200 && status < 300) return "ok";
   return "error";
 }
+/**
+ * Browser-wide signal used by the workspace logout controls to quarantine
+ * already-rendered files before the server confirms that the session row was
+ * destroyed. The event carries no identity or credential data.
+ */
+export const WORKSPACE_QUARANTINE_EVENT = "roebel-workspace-quarantine";
+/** Retained per tab until the server confirms workspace-session destruction. */
+export const WORKSPACE_LOGOUT_PENDING_KEY = "roebel_ws_logout_pending";
 
 /** The marker that makes the OIDC hop one-shot. Survives the redirect round trip. */
 export const WORKSPACE_HOP_KEY = "roebel_ws_hop_attempted";
@@ -184,6 +192,59 @@ export function hopMarkerStore(): HopMarkerStore {
     setItem: (key, value) => void memoryHopStore.set(key, value),
     removeItem: (key) => void memoryHopStore.delete(key),
   };
+}
+
+// A storage write may fail after getItem succeeded. Keep this page blocked
+// regardless; only available sessionStorage can preserve it across a reload.
+let pendingLogoutInMemory: boolean | undefined;
+
+export function hasPendingWorkspaceLogout(store: HopMarkerStore): boolean {
+  if (pendingLogoutInMemory !== undefined) return pendingLogoutInMemory;
+  try {
+    if (store.getItem(WORKSPACE_LOGOUT_PENDING_KEY) !== null) {
+      pendingLogoutInMemory = true;
+      return true;
+    }
+  } catch { /* No durable marker can be read; the in-page barrier still applies. */ }
+  return false;
+}
+
+export function markPendingWorkspaceLogout(store: HopMarkerStore): void {
+  pendingLogoutInMemory = true;
+  try { store.setItem(WORKSPACE_LOGOUT_PENDING_KEY, "1"); }
+  catch { /* Quarantine and server-side destruction must still run. */ }
+}
+
+export function releasePendingWorkspaceLogout(store: HopMarkerStore): void {
+  // The server has confirmed destruction. A stale storage bit must not restore
+  // the barrier in this page if removal fails; a reload remains fail-closed.
+  pendingLogoutInMemory = false;
+  try {
+    store.removeItem(WORKSPACE_LOGOUT_PENDING_KEY);
+    pendingLogoutInMemory = undefined;
+  } catch { /* The confirmed in-memory state wins for this page lifetime. */ }
+}
+
+let workspaceLogoutRequest: Promise<void> | null = null;
+
+/** Never mint a replacement session before the old row's destruction is confirmed. */
+export function logoutWorkspace(): Promise<void> {
+  const store = hopMarkerStore();
+  markPendingWorkspaceLogout(store);
+  window.dispatchEvent(new Event(WORKSPACE_QUARANTINE_EVENT));
+  if (workspaceLogoutRequest) return workspaceLogoutRequest;
+
+  // Navigation controls and an identity transition can coincide. Sharing the
+  // request prevents a late second cookie-clearing response after a new login.
+  workspaceLogoutRequest = Promise.resolve().then(async () => {
+    const response = await fetch("/api/workspace/auth/logout", { method: "POST" });
+    const result = await response.json().catch(() => null) as { ok?: boolean } | null;
+    if (!response.ok || result?.ok !== true) throw new Error("workspace_logout_unconfirmed");
+    releasePendingWorkspaceLogout(store);
+  }).finally(() => {
+    workspaceLogoutRequest = null;
+  });
+  return workspaceLogoutRequest;
 }
 
 /**

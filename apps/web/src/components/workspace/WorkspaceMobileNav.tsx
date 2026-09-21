@@ -7,7 +7,7 @@ import { LayoutDashboard, FolderOpen } from "lucide-react";
 import { useUserProfile } from "@/hooks/useUserProfile";
 import { useVerificationStatus } from "@/hooks/useVerificationStatus";
 import { workspaceNav, type WorkspaceNavItem } from "@/lib/workspace/nav";
-
+import { WorkspaceLogoutButton } from "./WorkspaceLogoutButton";
 const ICONS: Record<string, typeof LayoutDashboard> = {
   uebersicht: LayoutDashboard,
   dateien: FolderOpen,
@@ -59,7 +59,7 @@ function MobileNav({ items }: { items: WorkspaceNavItem[] }) {
 
   return (
     <nav className="fixed bottom-0 inset-x-0 z-40 md:hidden bg-card border-t border-border safe-area-bottom">
-      <div className="flex items-center justify-around h-14">
+      <div className="flex items-center justify-around min-h-14">
         {items.map((item) => {
           const Icon = ICONS[item.id] ?? LayoutDashboard;
           const active = isActive(item.href);
@@ -76,6 +76,7 @@ function MobileNav({ items }: { items: WorkspaceNavItem[] }) {
             </Link>
           );
         })}
+        <WorkspaceLogoutButton compact />
       </div>
     </nav>
   );

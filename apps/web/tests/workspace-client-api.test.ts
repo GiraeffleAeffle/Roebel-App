@@ -2,17 +2,21 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   WORKSPACE_HOP_KEY,
+  WORKSPACE_LOGOUT_PENDING_KEY,
+  WORKSPACE_QUARANTINE_EVENT,
   breadcrumbs,
   buildFilesQuery,
   classifyFilesResponse,
-  describeWorkspaceError,
   formatSize,
+  hasPendingWorkspaceLogout,
   hasTriedLoginHop,
   hopMarkerStore,
   loginRedirect,
+  logoutWorkspace,
   markLoginHop,
   parentPath,
   releaseLoginHop,
+  releasePendingWorkspaceLogout,
   workspaceLinkOut,
   type HopMarkerStore,
 } from "../src/lib/workspace/client-api";
@@ -106,40 +110,6 @@ describe("loginRedirect", () => {
   });
 });
 
-describe("describeWorkspaceError", () => {
-  it("names an expired session", () => {
-    assert.equal(
-      describeWorkspaceError(401),
-      "Deine Sitzung ist abgelaufen. Bitte lade die Seite neu und melde dich erneut an.",
-    );
-  });
-
-  it("names a forbidden scope, without deciding access itself", () => {
-    assert.equal(describeWorkspaceError(403), "Du hast keinen Zugriff auf diesen Bereich.");
-  });
-
-  it("names a locked file", () => {
-    assert.equal(
-      describeWorkspaceError(423),
-      "Die Datei ist gerade gesperrt. Versuche es in Kürze erneut.",
-    );
-  });
-
-  it("names exhausted storage", () => {
-    assert.equal(describeWorkspaceError(507), "Kein Speicherplatz mehr verfügbar.");
-  });
-
-  it("falls back to a generic message for anything else", () => {
-    assert.equal(
-      describeWorkspaceError(500),
-      "Das hat leider nicht geklappt. Bitte versuche es erneut.",
-    );
-    assert.equal(
-      describeWorkspaceError(404),
-      "Das hat leider nicht geklappt. Bitte versuche es erneut.",
-    );
-  });
-});
 
 // FileBrowser's whole branch table, extracted so it can be tested at all —
 // the component itself imports React and cannot run under this harness.
@@ -184,6 +154,7 @@ describe("classifyFilesResponse", () => {
     }
   });
 });
+
 
 describe("the one-shot login hop", () => {
   function fakeStore(): HopMarkerStore & { dump(): Record<string, string> } {
@@ -252,6 +223,107 @@ describe("the one-shot login hop", () => {
     releaseLoginHop(store);
     assert.equal(hasTriedLoginHop(store), false);
   });
+});
+
+it("keeps the logout barrier through shared failures until destruction is acknowledged", async () => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const originalFetch = globalThis.fetch;
+  const values = new Map<string, string>();
+  const store: HopMarkerStore = {
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => { values.set(key, value); },
+    removeItem: key => { values.delete(key); },
+  };
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: Object.assign(new EventTarget(), { sessionStorage: store }),
+  });
+  let calls = 0;
+  let finish!: (response: Response) => void;
+  globalThis.fetch = async () => {
+    calls++;
+    return new Promise<Response>(resolve => { finish = resolve; });
+  };
+  try {
+    const first = logoutWorkspace();
+    const second = logoutWorkspace();
+    assert.equal(hasPendingWorkspaceLogout(hopMarkerStore()), true);
+    await Promise.resolve();
+    assert.equal(calls, 1);
+    finish(Response.json({ error: "destroy failed" }, { status: 500 }));
+    assert.deepEqual((await Promise.allSettled([first, second])).map(result => result.status), ["rejected", "rejected"]);
+    assert.equal(hasPendingWorkspaceLogout(hopMarkerStore()), true);
+
+    const unconfirmed = logoutWorkspace();
+    await Promise.resolve();
+    finish(Response.json({ ok: false }));
+    await assert.rejects(unconfirmed);
+    assert.equal(hasPendingWorkspaceLogout(hopMarkerStore()), true);
+
+    const retry = logoutWorkspace();
+    await Promise.resolve();
+    assert.equal(calls, 3);
+    assert.equal(hasPendingWorkspaceLogout(hopMarkerStore()), true);
+    finish(Response.json({ ok: true }));
+    await retry;
+    assert.equal(hasPendingWorkspaceLogout(hopMarkerStore()), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
+});
+
+it("quarantines despite storage write failure and releases after confirmed removal failure", async () => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const originalFetch = globalThis.fetch;
+  const values = new Map<string, string>();
+  let writeFails = true, removeFails = false;
+  const store: HopMarkerStore = {
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => {
+      if (writeFails) throw new Error("storage quota");
+      values.set(key, value);
+    },
+    removeItem: key => {
+      if (removeFails) throw new Error("storage denied");
+      values.delete(key);
+    },
+  };
+  const target = Object.assign(new EventTarget(), { sessionStorage: store });
+  Object.defineProperty(globalThis, "window", { configurable: true, value: target });
+  let quarantinedWithBarrier = false;
+  target.addEventListener(WORKSPACE_QUARANTINE_EVENT, () => {
+    quarantinedWithBarrier = hasPendingWorkspaceLogout(hopMarkerStore());
+  });
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return calls === 1 ? Response.json({ error: "destroy failed" }, { status: 500 }) : Response.json({ ok: true });
+  };
+  try {
+    const failed = logoutWorkspace();
+    const blockedBeforeRequest = hasPendingWorkspaceLogout(hopMarkerStore());
+    await assert.rejects(failed);
+    assert.equal(blockedBeforeRequest, true);
+    assert.equal(quarantinedWithBarrier, true);
+    assert.equal(calls, 1);
+    assert.equal(values.has(WORKSPACE_LOGOUT_PENDING_KEY), false);
+    assert.equal(hasPendingWorkspaceLogout(hopMarkerStore()), true);
+
+    writeFails = false;
+    removeFails = true;
+    await logoutWorkspace();
+    assert.equal(calls, 2);
+    assert.equal(values.has(WORKSPACE_LOGOUT_PENDING_KEY), true);
+    assert.equal(hasPendingWorkspaceLogout(hopMarkerStore()), false);
+  } finally {
+    removeFails = false;
+    releasePendingWorkspaceLogout(store);
+    globalThis.fetch = originalFetch;
+    if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
 });
 
 describe("workspaceLinkOut", () => {

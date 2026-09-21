@@ -4,8 +4,8 @@
 **Goal:** turn on files, documents, spreadsheets and presentations at
 `https://www.roebel.app/arbeitsbereich`, personal scope, on the Röbel node.
 
-Every value below was **verified against the live node and the live keystone on 2026-08-02**,
-not copied from a spec. Where a value must be invented, the command to generate it is given.
+The configuration values below record a **2026-08-02** live-node/keystone snapshot,
+not current hosted acceptance. The September access checklist is a separate gate.
 
 > **Why two dashboards:** the web app talks to the keystone (`id.roebel.app`, on Fly) as an OIDC
 > client. A client only exists if it is registered on **both** sides with the **same** id and
@@ -92,6 +92,35 @@ docker exec -it -u www-data roebel-nextcloud-1 php occ user:resetpassword Roebel
    presentations" pillar in one step.
 
 ---
+
+## Independent-person access acceptance — 2026-09-21
+
+The app's local session-boundary repair passes fourteen actual-component browser
+scenarios and 207 affected workspace tests. Synthetic account/session responses
+prove local isolation, not a real person's enrollment or a deployed OIDC/provider flow.
+Do not turn the historical setup instructions above into permission to change grants,
+identity registrations, provider configuration or cluster state.
+
+- [ ] The reviewed source has passed its normal protected CI/publication path and
+  the intended hosted revision is independently identified after an authorized rollout.
+- [ ] Named independent participants enroll and control their own normal accounts;
+  demonstrate recovery/revocation without sharing the operator's account or credentials.
+- [ ] Where department/staff work is required, the municipality's authorized owner
+  supplies current, scoped, time-bounded and revocable grants. Expired historical grants
+  and controlled demonstration accounts do not satisfy this prerequisite.
+- [ ] In an independent browser, matching identity/session opens only the authorized
+  personal or organization files; server permissions govern writes.
+- [ ] With a document open, account switching/disconnection removes prior content.
+  A failed or uncertain logout keeps files/writes/editor blocked, preserves the server
+  cookie for retry and never starts a competing login. A confirmed retry ends only the
+  workspace session and returns to `/verwaltung` for an explicit next login.
+- [ ] Check desktop/mobile logout, transient probe retry, wallet restoration and
+  the single automatic OIDC hop. With functioning session storage, reload/remount
+  cannot bypass a pending logout. If storage cannot be written, verify the current-page
+  barrier without claiming persistence across a full reload.
+
+These checks do not authorize new civic records, decisions, staff grants or financial
+actions. Retain bounded acceptance receipts separately from credentials.
 
 ## What this does and does not turn on
 

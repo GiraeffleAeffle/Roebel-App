@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   CloudOff,
   ExternalLink,
@@ -63,21 +63,22 @@ function LinkOutCard() {
 }
 
 /**
- * The native file list. Identical component for both scopes — personal is the
- * citizen's own Nextcloud home, org is the group folder the `groups` claim
- * grants. The server decides which; this only passes the scope along.
- *
- * `WorkspaceSessionGuard` is rendered from HERE rather than from a layout, and
- * that placement is the point: the guard enforces "the workspace session is
- * keyed to `sub`", and it was mounted only in the citizen shell's layout. The
- * org surface (/dashboard/arbeitsbereich) mounts this component under a
- * different layout that never had it, so switching wallets in the org shell
- * left WebDAV using the previous wallet's session and wrote every provenance
- * row with the previous `actor_sub`. Co-locating the guard with the only thing
- * that consumes the session makes that invariant structural: a third surface
- * that mounts FileBrowser cannot forget it.
+ * Mount the wallet-aware gate only after hydration, as the workspace shell
+ * does for Thirdweb consumers. No file/editor/action subtree exists until
+ * the guard verifies the current wallet's server-side session.
  */
 export function FileBrowser({ scope }: { scope: FileScopeParams }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  if (!mounted) return <p className="text-sm text-muted-foreground">Identität wird geprüft …</p>;
+  return (
+    <WorkspaceSessionGuard unconfigured={<LinkOutCard />}>
+      <WorkspaceFiles key={`${scope.scope}:${scope.accountId ?? ""}`} scope={scope} />
+    </WorkspaceSessionGuard>
+  );
+}
+
+function WorkspaceFiles({ scope }: { scope: FileScopeParams }) {
   const [path, setPath] = useState("");
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -94,6 +95,31 @@ export function FileBrowser({ scope }: { scope: FileScopeParams }) {
   // its real value. `load()` sets the real value on every successful
   // listing; a writer sees the buttons appear a frame later, not vanish.
   const [canWrite, setCanWrite] = useState(false);
+  const activeRef = useRef(true);
+  const requestsRef = useRef(new Set<AbortController>());
+
+  useLayoutEffect(() => {
+    activeRef.current = true;
+    return () => {
+      activeRef.current = false;
+      for (const controller of requestsRef.current) controller.abort();
+      requestsRef.current.clear();
+    };
+  }, []);
+
+  function beginRequest() {
+    const controller = new AbortController();
+    requestsRef.current.add(controller);
+    return { controller };
+  }
+
+  function finishRequest(controller: AbortController) {
+    requestsRef.current.delete(controller);
+  }
+
+  function requestIsCurrent(request: { controller: AbortController }) {
+    return activeRef.current && !request.controller.signal.aborted;
+  }
 
   /**
    * Start the OIDC hop and record that we did. `errorResponse` maps a
@@ -104,6 +130,7 @@ export function FileBrowser({ scope }: { scope: FileScopeParams }) {
    * marker is what makes the second consecutive 401 an error instead of a lap.
    */
   function startLoginHop() {
+    if (!activeRef.current) return;
     markLoginHop(hopMarkerStore());
     window.location.href = loginRedirect(window.location.pathname);
   }
@@ -121,124 +148,186 @@ export function FileBrowser({ scope }: { scope: FileScopeParams }) {
   }
 
   const load = useCallback(async () => {
+    if (!activeRef.current) return;
+    const request = beginRequest();
     setLoading(true);
     setError(null);
     const store = hopMarkerStore();
-    const res = await fetch(`/api/workspace/files?${buildFilesQuery({ ...scope, path })}`);
-    switch (classifyFilesResponse(res.status, hasTriedLoginHop(store))) {
-      case "unconfigured":
-        setUnconfigured(true);
-        setLoading(false);
-        return;
-      case "hop":
-        // The one visible hop: not signed in to the workspace yet.
-        startLoginHop();
-        return;
-      case "auth-error":
-        setAuthLoop(true);
-        setLoading(false);
-        return;
-      case "ok":
-        break;
-      default:
-        setError(describeWorkspaceError(res.status));
-        setLoading(false);
-        return;
+    try {
+      const res = await fetch(
+        `/api/workspace/files?${buildFilesQuery({ ...scope, path })}`,
+        { signal: request.controller.signal },
+      );
+      if (!requestIsCurrent(request)) return;
+      switch (classifyFilesResponse(res.status, hasTriedLoginHop(store))) {
+        case "unconfigured":
+          setUnconfigured(true);
+          return;
+        case "hop":
+          // The one visible hop: not signed in to the workspace yet.
+          startLoginHop();
+          return;
+        case "auth-error":
+          setAuthLoop(true);
+          return;
+        case "ok":
+          break;
+        default:
+          setError(describeWorkspaceError(res.status));
+          return;
+      }
+      setAuthLoop(false);
+      setUnconfigured(false);
+      // The whole chain works, so a later 401 is a genuinely expired session
+      // and has earned a fresh hop of its own.
+      releaseLoginHop(store);
+      const body = (await res.json()) as {
+        entries: DirEntry[];
+        canWrite: boolean;
+      };
+      if (!requestIsCurrent(request)) return;
+      setEntries(body.entries);
+      setCanWrite(body.canWrite);
+    } catch (caught) {
+      if (
+        requestIsCurrent(request) &&
+        !(caught instanceof DOMException && caught.name === "AbortError")
+      ) {
+        setError("Die Dateien konnten gerade nicht geladen werden.");
+      }
+    } finally {
+      finishRequest(request.controller);
+      if (requestIsCurrent(request)) setLoading(false);
     }
-    setAuthLoop(false);
-    setUnconfigured(false);
-    // The whole chain works, so a later 401 is a genuinely expired session and
-    // has earned a fresh hop of its own.
-    releaseLoginHop(store);
-    const body = (await res.json()) as { entries: DirEntry[]; canWrite: boolean };
-    setEntries(body.entries);
-    setCanWrite(body.canWrite);
-    setLoading(false);
-  }, [scope, path]);
+  }, [scope.scope, scope.accountId, path]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+
   async function open(entry: DirEntry) {
+    if (!activeRef.current) return;
     if (entry.isDirectory) {
       setPath(entry.path);
       return;
     }
-    const res = await fetch(
-      `/api/workspace/editor?${buildFilesQuery({ ...scope, path: entry.path })}`,
-    );
-    // Same classification as load(): the session can expire mid-browse, after
-    // the file list already rendered — a 403 (wrong org, or not a verified
-    // citizen) must NOT take the hop branch, since that is an access decision
-    // the server already made, not an invitation to re-authenticate. And the
-    // hop is one-shot here for the same reason it is in load().
-    const openAction = classifyFilesResponse(
-      res.status,
-      hasTriedLoginHop(hopMarkerStore()),
-    );
-    if (openAction === "hop") {
-      startLoginHop();
-      return;
+    const request = beginRequest();
+    try {
+      const res = await fetch(
+        `/api/workspace/editor?${buildFilesQuery({ ...scope, path: entry.path })}`,
+        { signal: request.controller.signal },
+      );
+      if (!requestIsCurrent(request)) return;
+      // Same classification as load(): the session can expire mid-browse,
+      // after the file list already rendered — a 403 (wrong org, or not a
+      // verified citizen) must NOT take the hop branch.
+      const openAction = classifyFilesResponse(
+        res.status,
+        hasTriedLoginHop(hopMarkerStore()),
+      );
+      if (openAction === "hop") {
+        startLoginHop();
+        return;
+      }
+      if (openAction === "auth-error") {
+        setAuthLoop(true);
+        return;
+      }
+      if (openAction === "unconfigured") {
+        setUnconfigured(true);
+        return;
+      }
+      if (res.status === 415) {
+        window.location.href = `/api/workspace/files/download?${buildFilesQuery({
+          ...scope,
+          path: entry.path,
+        })}`;
+        return;
+      }
+      if (!res.ok) {
+        setError(describeWorkspaceError(res.status));
+        return;
+      }
+      const session = await res.json();
+      if (!requestIsCurrent(request)) return;
+      setEditor({ url: session.url, token: session.token });
+    } catch (caught) {
+      if (
+        requestIsCurrent(request) &&
+        !(caught instanceof Error && caught.name === "AbortError")
+      ) {
+        setError("Das Dokument konnte gerade nicht geöffnet werden.");
+      }
+    } finally {
+      finishRequest(request.controller);
     }
-    if (openAction === "auth-error") {
-      setAuthLoop(true);
-      return;
-    }
-    if (openAction === "unconfigured") {
-      setUnconfigured(true);
-      return;
-    }
-    if (res.status === 415) {
-      window.location.href = `/api/workspace/files/download?${buildFilesQuery({
-        ...scope,
-        path: entry.path,
-      })}`;
-      return;
-    }
-    if (!res.ok) {
-      setError(describeWorkspaceError(res.status));
-      return;
-    }
-    const session = await res.json();
-    setEditor({ url: session.url, token: session.token });
   }
 
   async function upload(file: File) {
+    if (!canWrite || !activeRef.current) return;
     setError(null);
     const target = path ? `${path}/${file.name}` : file.name;
-    const res = await fetch(
-      `/api/workspace/files/upload?${buildFilesQuery({ ...scope, path: target })}`,
-      { method: "PUT", body: await file.arrayBuffer() },
-    );
-    // A failed write must surface, not vanish: with no error shown and load()
-    // never called, "the file didn't appear" is indistinguishable from
-    // "the list is just stale" — the citizen's only lead is to try again.
-    if (!res.ok) {
-      setError(describeWorkspaceError(res.status));
-      return;
+    const request = beginRequest();
+    try {
+      const body = await file.arrayBuffer();
+      if (!requestIsCurrent(request)) return;
+      const res = await fetch(
+        `/api/workspace/files/upload?${buildFilesQuery({ ...scope, path: target })}`,
+        { method: "PUT", body, signal: request.controller.signal },
+      );
+      if (!requestIsCurrent(request)) return;
+      // A failed write must surface, not vanish: with no error shown and
+      // load() never called, the citizen's only lead is to try again.
+      if (!res.ok) {
+        setError(describeWorkspaceError(res.status));
+        return;
+      }
+      await load();
+    } catch (caught) {
+      if (
+        requestIsCurrent(request) &&
+        !(caught instanceof Error && caught.name === "AbortError")
+      ) {
+        setError("Die Datei konnte gerade nicht hochgeladen werden.");
+      }
+    } finally {
+      finishRequest(request.controller);
     }
-    await load();
   }
 
   async function createFolder() {
+    if (!canWrite || !activeRef.current) return;
     const name = window.prompt("Name des neuen Ordners");
-    if (!name) return;
+    if (!name || !activeRef.current) return;
     setError(null);
     const target = path ? `${path}/${name}` : name;
-    const res = await fetch(
-      `/api/workspace/files/folder?${buildFilesQuery({ ...scope, path: target })}`,
-      { method: "POST" },
-    );
-    if (!res.ok) {
-      setError(describeWorkspaceError(res.status));
-      return;
+    const request = beginRequest();
+    try {
+      const res = await fetch(
+        `/api/workspace/files/folder?${buildFilesQuery({ ...scope, path: target })}`,
+        { method: "POST", signal: request.controller.signal },
+      );
+      if (!requestIsCurrent(request)) return;
+      if (!res.ok) {
+        setError(describeWorkspaceError(res.status));
+        return;
+      }
+      await load();
+    } catch (caught) {
+      if (
+        requestIsCurrent(request) &&
+        !(caught instanceof Error && caught.name === "AbortError")
+      ) {
+        setError("Der Ordner konnte gerade nicht angelegt werden.");
+      }
+    } finally {
+      finishRequest(request.controller);
     }
-    await load();
   }
 
-  // No workspace configured: no session to guard, no list to render, and above
-  // all no OIDC hop to start. Just the route that has always worked.
+
+  // A later files request may discover the integration is unavailable.
   if (unconfigured) return <LinkOutCard />;
 
   // A second consecutive 401. Re-authenticating did not help, so the cause is
@@ -265,7 +354,6 @@ export function FileBrowser({ scope }: { scope: FileScopeParams }) {
 
   return (
     <div className="space-y-4">
-      <WorkspaceSessionGuard />
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <nav className="flex items-center gap-1 text-sm text-muted-foreground">
           {breadcrumbs(path).map((crumb, index, all) => (
