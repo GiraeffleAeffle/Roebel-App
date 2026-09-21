@@ -59,3 +59,30 @@ and never resurrects bundled content. Initial mount activation belongs to
 operations; source updates still require their publication owner's review.
 See the [maintenance runbook](../runbooks/maintained-public-knowledge.md).
 This storage path does not itself import a wider corpus or admit new source kinds.
+
+### Attributed document sections — 2026-09-20
+
+The same projection now accepts an explicitly configured `community_document`
+source at `community-documents`. It carries fixed `community_statement`
+authority: a Bürgerrat recommendation remains attributed to that group. An
+official Kair/administration publication still needs its municipal producer and
+authority contract; this source kind cannot grant it official status.
+
+Each section records a stable document/section ID, document checksum, publisher,
+attribution, physical page range, printed page label and optional reviewed topic
+links. An unknown publication date stays null. Section evidence IDs bind the
+content, provenance, review and lifecycle; the projection additionally binds its
+public citation URL. The URL identifies the exact section version. Multiple
+sections of one document must agree on the source version. Neither the raw PDF
+nor a private filesystem path is required in the public projection.
+
+General questions can retrieve admitted sections alongside other sources. A
+discussion question can retrieve only sections explicitly linked to the topic
+of its freshly read, signature-verified root. Similar wording does not link a
+section to a Case. The public source reader shows a changed/withdrawn state
+instead of silently substituting a new passage behind an old citation. No new
+index, model provider, database or write interface is introduced.
+
+This adds the source capability. A reviewed edition, configured mount and explicit
+Mecky source declaration remain separate activation steps. Source admission is
+not inferred from the preparation command or from shipping the reader.

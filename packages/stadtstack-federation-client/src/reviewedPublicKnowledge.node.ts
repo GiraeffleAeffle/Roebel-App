@@ -33,10 +33,40 @@ export interface RatsinformationEvidence extends PublicEvidenceCommon {
   readonly reviewedAt: string;
 }
 
+/** An attributed recommendation or meeting contribution, never a municipal decision. */
+export interface CommunityDocumentEvidence extends Omit<PublicEvidenceCommon, "publishedAt"> {
+  readonly sourceKind: "community_document";
+  readonly authority: "community_statement";
+  readonly publishedAt: string | null;
+  readonly attributedTo: string;
+  readonly publisher: string;
+  readonly documentId: string;
+  readonly documentTitle: string;
+  readonly documentSha256: `sha256:${string}`;
+  readonly documentUrl: string | null;
+  readonly pageCount: number;
+  readonly sectionId: string;
+  /** One-based physical PDF pages; printed numbering can differ. */
+  readonly pageStart: number;
+  readonly pageEnd: number;
+  readonly printedPageLabel: string;
+  readonly topicIds: readonly string[];
+  /** Public section reader, bound to this evidence version by its publisher. */
+  readonly recordUrl: string;
+  readonly reviewedAt: string;
+}
+
 export const REVIEWED_PUBLIC_KNOWLEDGE_SOURCE_KINDS = [
   "local_news",
   "ratsinformation",
+  "community_document",
 ] as const;
+
+export const REVIEWED_PUBLIC_KNOWLEDGE_SOURCE_SEGMENTS = {
+  local_news: "local-news",
+  ratsinformation: "ratsinformation",
+  community_document: "community-documents",
+} as const;
 
 export type ReviewedPublicKnowledgeSourceKind =
   (typeof REVIEWED_PUBLIC_KNOWLEDGE_SOURCE_KINDS)[number];
@@ -67,7 +97,8 @@ export function parseReviewedPublicKnowledgeSourceKinds(
 
 export type ReviewedPublicKnowledgeRecord =
   | LocalNewsEvidence
-  | RatsinformationEvidence;
+  | RatsinformationEvidence
+  | CommunityDocumentEvidence;
 
 export interface ReviewedPublicKnowledgeProjectionDraft {
   readonly schemaVersion: "reviewed_public_knowledge_projection_v1";
@@ -164,6 +195,13 @@ function projectionSha256(
   return `sha256:${createHash("sha256").update(canonicalJson(draft), "utf8").digest("hex")}`;
 }
 
+/** Stable section identity with a new digest for every content, provenance or lifecycle change. */
+export function communityDocumentSectionEvidenceId(
+  draft: Omit<CommunityDocumentEvidence, "evidenceId" | "recordUrl">,
+): `sha256:${string}` {
+  return `sha256:${createHash("sha256").update(canonicalJson(draft), "utf8").digest("hex")}`;
+}
+
 function isIsoDate(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && Number.isFinite(Date.parse(value));
 }
@@ -193,12 +231,12 @@ function commonIsValid(record: Record<string, unknown>): boolean {
     MUNICIPALITY_ID.test(record.municipalityId) &&
     isNonEmptyString(record.title) &&
     isNonEmptyString(record.summary) &&
-    isIsoDate(record.publishedAt) &&
+    (isIsoDate(record.publishedAt) || (record.sourceKind === "community_document" && record.publishedAt === null)) &&
     (record.admissionState === "admitted" || record.admissionState === "pending_review") &&
     (record.lifecycle === "current" || record.lifecycle === "stale" || record.lifecycle === "superseded" || record.lifecycle === "withdrawn");
 }
 
-/** Closed public news/council record; admission is checked by the projection. */
+/** Closed public source record; admission is checked by the projection. */
 export function parseReviewedPublicKnowledgeRecord(value: unknown): ReviewedPublicKnowledgeRecord {
   if (!isPlainRecord(value) || !commonIsValid(value)) {
     throw knowledgeError("invalid_schema", "Invalid reviewed public knowledge record.");
@@ -215,6 +253,39 @@ export function parseReviewedPublicKnowledgeRecord(value: unknown): ReviewedPubl
       value.authority === "official_record" && isNonEmptyString(value.body) &&
       isNonEmptyString(value.recordId) && isPublicHttpsUrl(value.recordUrl) && isIsoDate(value.reviewedAt)) {
     return value as unknown as RatsinformationEvidence;
+  }
+  const slug = (item: unknown): item is string =>
+    typeof item === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(item) && item.length <= 80;
+  if (value.sourceKind === "community_document" &&
+      exactKeys(value, [...common, "attributedTo", "publisher", "documentId", "documentTitle",
+        "documentSha256", "documentUrl", "pageCount", "sectionId", "pageStart", "pageEnd",
+        "printedPageLabel", "topicIds", "recordUrl", "reviewedAt"]) &&
+      value.authority === "community_statement" &&
+      isNonEmptyString(value.attributedTo) && isNonEmptyString(value.publisher) &&
+      slug(value.documentId) && slug(value.sectionId) && isNonEmptyString(value.documentTitle) &&
+      isEvidenceId(value.documentSha256) && (value.documentUrl === null || isPublicHttpsUrl(value.documentUrl)) &&
+      Number.isSafeInteger(value.pageCount) && (value.pageCount as number) >= 1 && (value.pageCount as number) <= 10_000 &&
+      Number.isSafeInteger(value.pageStart) && Number.isSafeInteger(value.pageEnd) &&
+      (value.pageStart as number) >= 1 && (value.pageEnd as number) >= (value.pageStart as number) &&
+      (value.pageEnd as number) <= (value.pageCount as number) &&
+      isNonEmptyString(value.printedPageLabel) && value.printedPageLabel.length <= 80 &&
+      Array.isArray(value.topicIds) && value.topicIds.length <= 16 &&
+      new Set(value.topicIds).size === value.topicIds.length &&
+      value.topicIds.every((topic) => typeof topic === "string" && topic.length <= 240 &&
+        topic.split(":").length === 6 &&
+        topic.startsWith(`urn:stadtstack:topic:municipality:${value.municipalityId}:`) &&
+        /^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(topic.split(":").at(-1)!)) &&
+      isPublicHttpsUrl(value.recordUrl) && isIsoDate(value.reviewedAt)) {
+    const record = value as unknown as CommunityDocumentEvidence;
+    const { evidenceId, recordUrl: _url, ...draft } = record;
+    if (communityDocumentSectionEvidenceId(draft) !== evidenceId) {
+      throw knowledgeError("checksum", "Document section content does not match its evidence version.");
+    }
+    const versions = new URL(record.recordUrl).searchParams.getAll("version");
+    if (versions.length !== 1 || versions[0] !== evidenceId.slice(7)) {
+      throw knowledgeError("contract_mismatch", "Document citation must identify the exact section version.");
+    }
+    return record;
   }
   throw knowledgeError("invalid_schema", "Invalid reviewed public knowledge record.");
 }
@@ -242,14 +313,14 @@ function validateDraft(
   const generatedAt = Date.parse(value.generatedAt);
   const seenEvidence = new Set<string>();
   const seenSourceRecords = new Set<string>();
+  const documents = new Map<string, string>();
   const records = value.records.map((recordValue) => {
     const record = parseReviewedPublicKnowledgeRecord(recordValue);
     if (record.sourceKind !== value.sourceKind ||
-      (record.sourceKind !== "local_news" && record.sourceKind !== "ratsinformation") ||
       record.municipalityId !== value.municipalityId ||
       record.admissionState !== "admitted" ||
-      !isCanonicalIsoDate(record.publishedAt) || !isCanonicalIsoDate(record.reviewedAt) ||
-      Date.parse(record.publishedAt) > Date.parse(record.reviewedAt) ||
+      (record.publishedAt !== null && !isCanonicalIsoDate(record.publishedAt)) || !isCanonicalIsoDate(record.reviewedAt) ||
+      (record.publishedAt !== null && Date.parse(record.publishedAt) > Date.parse(record.reviewedAt)) ||
       Date.parse(record.reviewedAt) > generatedAt) {
       throw knowledgeError(
         "contract_mismatch",
@@ -258,12 +329,22 @@ function validateDraft(
     }
     const sourceIdentity = record.sourceKind === "local_news"
       ? record.articleUrl
-      : record.recordId;
+      : record.sourceKind === "ratsinformation" ? record.recordId
+      : `${record.documentId}/${record.sectionId}`;
     if (seenEvidence.has(record.evidenceId) || seenSourceRecords.has(sourceIdentity)) {
       throw knowledgeError("contract_mismatch", "Reviewed knowledge projection contains a duplicate record.");
     }
     seenEvidence.add(record.evidenceId);
     seenSourceRecords.add(sourceIdentity);
+    if (record.sourceKind === "community_document") {
+      const identity = canonicalJson([record.documentTitle, record.documentSha256, record.documentUrl,
+        record.publisher, record.pageCount, record.publishedAt]);
+      if (documents.has(record.documentId) && documents.get(record.documentId) !== identity) {
+        throw knowledgeError("contract_mismatch", "Document sections disagree on their source version.");
+      }
+      documents.set(record.documentId, identity);
+      return Object.freeze({ ...record, topicIds: Object.freeze([...record.topicIds]) });
+    }
     return Object.freeze({ ...record }) as ReviewedPublicKnowledgeRecord;
   });
 
@@ -320,4 +401,3 @@ export function parseReviewedPublicKnowledgeProjection(
   }
   return Object.freeze({ ...parsed, contentSha256: contentSha256 as `sha256:${string}` });
 }
-

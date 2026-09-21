@@ -26,8 +26,12 @@ The [maintained catalogue storage](runbooks/maintained-public-knowledge.md) now
 has a source implementation: a read-only configured directory, one shared
 projection validator, an edition preparation command, and correction/withdrawal
 handling on each request. It retains the two bundled records until explicitly
-configured. This is not yet a larger deployed corpus. Document sections, Brief
-discovery and contextual follow-ups remain the next knowledge acceptance work.
+configured. The document extension adds attributed, versioned sections with
+printed/PDF page references and readable source pages. A scoped discussion can
+use only sections linked to its verified topic. German stop words and possessive
+title matching are repaired. Source implementation does not activate a larger
+deployed corpus; the reviewed edition, mount and source declaration still need
+their rollout. Brief discovery and longer conversations remain open.
 
 [TypeSafe/Jev was assessed](roadmap/typesafe-jev-assessment.md) as an optional
 passage-ranking or department-suggestion experiment after a measured catalogue
