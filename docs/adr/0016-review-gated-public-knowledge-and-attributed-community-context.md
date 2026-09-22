@@ -86,3 +86,27 @@ for the recommendation-2/recommendation-10 comparison, and a no-claims
 insufficient-evidence refusal for an unsupported scoped question. No deployed
 provider, publication, civic write or staff authority follows from this
 checkpoint.
+
+### Distinctive summary retrieval — 2026-09-22
+
+Retrieval treats subjects in admitted summaries as well as titles as potential
+source identifiers. Distinctiveness counts the existing deduplicated content
+identity, not the number of mirrored records: adding the same source content
+under another evidence ID or publisher cannot erase a matching passage. Shared
+collection metadata and place terms do not identify an otherwise unsupported
+subject. Separate subjects in comparisons retain their own sources; admission,
+authority, context scope and citation checks remain unchanged.
+
+The previous `Zwischennutzung` miss was an exact summary term rejected by the
+title-only coverage gate, not a missing synonym. The unchanged 31-question
+catalogue evaluation now selects all expected source sets, including the frozen
+14 questions. Independent synthetic subjects cover summary-only retrieval,
+mirrored content, multi-subject comparison and common-place/metadata negatives.
+This is bounded retrieval evidence, not semantic completeness.
+
+Source availability remains independent of ranking. A read-only observation of
+the configured reviewed civic-case index returned `404 projection_not_found`.
+The Adapter continues to report that genuine omission; a city-owned reviewed
+projection and its publication/Operations owners must supply the missing index
+before that source can be called available. No model, provider, source admission
+or deployment configuration changes are part of this retrieval repair.
