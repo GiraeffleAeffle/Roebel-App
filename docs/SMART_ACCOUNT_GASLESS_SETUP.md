@@ -47,15 +47,13 @@ const wallets = [
 ];
 ```
 
-### Files Updated
+### Current wallet configuration
 
-✅ **[Header.tsx](dao-app/src/components/layout/Header.tsx#L12-L22)**
-- Main wallet configuration used across the app
-- All users connecting via the header get Smart Accounts
-
-✅ **[WalletConnectionStep.tsx](dao-app/src/components/auth/WalletConnectionStep.tsx#L9-L19)**
-- Wallet configuration for registration flow
-- Ensures new users have gasless transactions from the start
+The shared [wallet configuration](../apps/web/src/lib/wallet-config.ts) supplies
+the existing landing-page and app-header connection controls. The unused
+residence/OTP/wallet registration flow was retired on 2026-09-22; it is not a
+second signup path or a prerequisite for wallet connection. See the
+[account-access boundary](../apps/web/docs/CITIZEN_VERIFICATION_STATUS.md).
 
 ### External Wallets (MetaMask, Coinbase, etc.)
 

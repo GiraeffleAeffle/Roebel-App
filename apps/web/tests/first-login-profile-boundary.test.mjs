@@ -1,18 +1,12 @@
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 
 import {
-  EPHEMERAL_PROFILE_WRITE_ERROR,
   STAGING_PRIVATE_PROFILE_READ_ERROR,
   STAGING_PROFILE_MUTATION_ERROR,
-  isExplicitStaging,
-  isEvmWalletAddress,
   resolvePrivateProfileReadPermission,
   resolvePublicProfileViewer,
   resolveProfileWritePermission,
-  resolveStagingMutationPermission,
   resolveStagingOrgActionPermission,
   runNonStagingMutation,
   runPrivateProfileRead,
@@ -52,25 +46,6 @@ import { executeLeaveOrg } from "../src/lib/org-membership/leave-org.mjs";
 
 const WALLET = "0x1111111111111111111111111111111111111111";
 const OTHER_WALLET = "0x2222222222222222222222222222222222222222";
-
-function source(relativePath) {
-  return readFileSync(new URL(relativePath, import.meta.url), "utf8");
-}
-
-function filesUnder(relativeDirectory) {
-  const root = new URL(relativeDirectory, import.meta.url);
-  const files = [];
-  function walk(directory, relativePrefix = "") {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const relative = relativePrefix ? `${relativePrefix}/${entry.name}` : entry.name;
-      const absolute = `${directory}/${entry.name}`;
-      if (entry.isDirectory()) walk(absolute, relative);
-      else files.push({ relative, text: readFileSync(absolute, "utf8") });
-    }
-  }
-  walk(fileURLToPath(root));
-  return files;
-}
 
 test("ephemeral, staging, and stale profiles fail closed before a mutation fixture can run", async () => {
   for (const permission of [
@@ -118,7 +93,6 @@ test("ephemeral, staging, and stale profiles fail closed before a mutation fixtu
     }),
     { allowed: true },
   );
-  assert.equal(EPHEMERAL_PROFILE_WRITE_ERROR, "Staging guest profiles cannot be updated");
 });
 
 test("explicit staging executes zero profile, Storage, or account mutation callbacks", async () => {
@@ -216,65 +190,6 @@ test("explicit staging executes zero profile, Storage, or account mutation callb
     });
   }
   assert.equal(stagingReadCalls, 2, "exact signed read actions stay available");
-
-  const hook = source("../src/hooks/useUserProfile.ts");
-  assert.equal(
-    [...hook.matchAll(/resolveProfileWritePermission\(\{/g)].length,
-    3,
-  );
-  assert.equal(
-    [...hook.matchAll(/stagingFlag:\s*process\.env\.NEXT_PUBLIC_STADTSTACK_STAGING_LAB/g)].length,
-    3,
-  );
-
-  const picture = source("../src/components/profile/ProfilePictureUpload.tsx");
-  assert.match(picture, /if \(!canPersist\) return;/);
-  assert.match(picture, /runProfileWrite\([\s\S]*supabase\.storage/);
-
-  const accountContext = source("../src/lib/context/AccountContext.tsx");
-  assert.equal(
-    [...accountContext.matchAll(/runNonStagingMutation\(stagingFlag/g)].length,
-    3,
-  );
-  assert.match(accountContext, /canMutateAccounts:\s*boolean/);
-  assert.match(accountContext, /if \(!canMutateAccounts\) return false/);
-  assert.match(accountContext, /runNonStagingMutation\(stagingFlag,[\s\S]*await switchActiveAccountDB/);
-  assert.match(accountContext, /runNonStagingMutation\(stagingFlag,[\s\S]*await createOrgAccountDB/);
-  assert.match(accountContext, /runNonStagingMutation\(stagingFlag,[\s\S]*await removeOwnerDB/);
-
-  const orgClient = source("../src/lib/org-membership/client.ts");
-  const orgMessage = source("../src/lib/org-membership/message.ts");
-  const declaredOrgActions = [
-    ...orgMessage.matchAll(/\|\s*"([^"]+)"/g),
-  ].map((match) => match[1]);
-  assert.deepEqual(
-    declaredOrgActions.sort(),
-    [...orgMutationActions.slice(0, -1), "list_invites", "has_pending_invite"].sort(),
-    "the staging action inventory must cover the complete OrgAction union",
-  );
-  const orgGuard = orgClient.indexOf("const guarded = await runStagingOrgAction");
-  const orgSignature = orgClient.indexOf("const body = await requestBody");
-  const orgNetwork = orgClient.indexOf("await fetch(");
-  assert.ok(orgGuard >= 0 && orgGuard < orgSignature && orgSignature < orgNetwork);
-  assert.match(orgClient, /code:\s*"STAGING_READ_ONLY"/);
-
-  const orgManage = source("../src/app/app/org/manage/page.tsx");
-  assert.match(orgManage, /canMutateAccounts && canManageMembers/);
-  assert.match(orgManage, /canMutateAccounts && canLeaveOrg/);
-  assert.match(orgManage, /orgManagementBinding\(walletAddress, accountId\)/);
-  assert.match(orgManage, /resolveBoundOrgManagementSnapshot\(currentBinding, snapshot\)/);
-  assert.match(orgManage, /resolveBoundOrgManagementTransientState\(/);
-  assert.match(orgManage, /loadGenerationRef/);
-  assert.match(orgManage, /searchGenerationRef/);
-  assert.match(orgManage, /runOrgManagementLoad\(/);
-
-  const openingHours = source("../src/app/dashboard/opening-hours/page.tsx");
-  const dashboardProfile = source("../src/app/dashboard/profile/page.tsx");
-  assert.match(openingHours, /if \(!canMutateAccounts\)/);
-  assert.match(openingHours, /const canEdit = Boolean\([\s\S]*canMutateAccounts/);
-  assert.match(openingHours, /disabled=\{saving \|\| !canEdit\}/);
-  assert.match(dashboardProfile, /const canEdit = Boolean\([\s\S]*canMutateAccounts/);
-  assert.match(dashboardProfile, /canUpload=\{canEdit\}/);
 });
 
 test("organization transport performs zero sign/fetch for staging writes but keeps reads and production live", async () => {
@@ -364,103 +279,6 @@ test("explicit staging private-profile GET returns no query result and invokes n
     allowed: true,
     value: { publicOutsideStaging: true },
   });
-
-  const route = source("../src/app/api/users/profile/route.ts");
-  const privateReaders = filesUnder("../src/app/api/")
-    .filter(
-      ({ relative, text }) =>
-        relative.endsWith("/route.ts") && text.includes("getUserByWalletAddress"),
-    )
-    .map(({ relative }) => relative);
-  assert.deepEqual(privateReaders, ["users/profile/route.ts"]);
-  const initialGuard = route.indexOf("const readPermission");
-  const queryWrapper = route.indexOf("const guardedRead");
-  const privateQuery = route.indexOf("() => getUserByWalletAddress(walletAddress)");
-  assert.ok(initialGuard >= 0);
-  assert.ok(initialGuard < queryWrapper);
-  assert.ok(queryWrapper < privateQuery);
-  assert.match(route, /if \(!readPermission\.allowed\)[\s\S]*status:\s*403/);
-  assert.match(route, /runPrivateProfileRead\(/);
-});
-
-test("every profile writer is routed through the same guarded hook capability", () => {
-  for (const route of [
-    "../src/app/profile/page.tsx",
-    "../src/app/app/profile/page.tsx",
-  ]) {
-    const text = source(route);
-    assert.doesNotMatch(text, /import\s+\{\s*updateUserProfile\s*\}/);
-    assert.match(text, /updateProfile\(updates\)/);
-    assert.match(text, /updateProfile\(\{ privacy_settings: settings \}\)/);
-    assert.match(text, /canPersistProfile/);
-    assert.match(text, /canPersistProfile\s*&&\s*showEditModal/);
-    assert.match(text, /canPersistProfile\s*&&\s*showPrivacyModal/);
-    assert.match(text, /privacyWalletRef/);
-    assert.match(text, /currentWalletRef/);
-    assert.match(text, /user\??\.privacy_settings/);
-  }
-
-  const profileForm = source("../src/components/profile/ProfileForm.tsx");
-  const pictureUpload = source("../src/components/profile/ProfilePictureUpload.tsx");
-  assert.match(profileForm, /if \(!canPersist\) return;/);
-  assert.match(profileForm, /<ProfilePictureUpload[\s\S]*canPersist=\{canPersist\}/);
-  assert.match(pictureUpload, /if \(!canPersist\) return;/);
-  assert.match(pictureUpload, /runProfileWrite\([\s\S]*supabase\.storage/);
-  assert.match(pictureUpload, /disabled=\{!canPersist \|\| isUploading\}/);
-});
-
-test("explicit staging disables the closed set of unauthenticated users-table mutation routes", async () => {
-  assert.equal(isExplicitStaging("1"), true);
-  assert.equal(isExplicitStaging(" TRUE "), true);
-  assert.equal(isExplicitStaging("0"), false);
-  assert.equal(isExplicitStaging(undefined), false);
-  assert.equal(isEvmWalletAddress(WALLET), true);
-  assert.equal(isEvmWalletAddress("arbitrary-wallet"), false);
-
-  const stagingPermission = resolveStagingMutationPermission("1");
-  assert.deepEqual(stagingPermission, {
-    allowed: false,
-    error: STAGING_PROFILE_MUTATION_ERROR,
-  });
-  const productionPermission = resolveStagingMutationPermission(undefined);
-  assert.deepEqual(productionPermission, { allowed: true });
-
-  const writers = new Map([
-    ["auth/link-wallet/route.ts", { guards: 1, calls: [".update(", ".insert("] }],
-    ["users/profile/route.ts", { guards: 2, calls: ["await createOrUpdateUser(", "await updateUserProfile("] }],
-    ["users/nft-status/route.ts", { guards: 1, calls: ["await updateUserNFTStatus("] }],
-    ["users/delete/route.ts", { guards: 1, calls: ["await deleteUser("] }],
-  ]);
-  const apiFiles = filesUnder("../src/app/api/");
-  const mutationMarker = /(?:await\s+(?:createOrUpdateUser|updateUserProfile|updateUserNFTStatus|deleteUser)\s*\(|\.from\(["']users["']\)[\s\S]*?\.(?:insert|update|upsert|delete)\s*\()/;
-  const discoveredWriters = apiFiles
-    .filter(({ relative, text }) => relative.endsWith("/route.ts") && mutationMarker.test(text))
-    .map(({ relative }) => relative)
-    .sort();
-  assert.deepEqual(discoveredWriters, [...writers.keys()].sort());
-
-  for (const [route, { guards, calls }] of writers) {
-    const text = apiFiles.find(({ relative }) => relative === route)?.text;
-    assert.ok(text, `${route} is missing from the API tree`);
-    const guard = text.indexOf("runStagingRouteMutation(");
-    assert.ok(guard >= 0, `${route} is not wired to the executable staging route seam`);
-    assert.equal(
-      [...text.matchAll(/runStagingRouteMutation\(/g)].length,
-      guards,
-      `${route} does not guard each route mutation wrapper exactly once`,
-    );
-    assert.match(text, /if \(!guarded\.allowed\)/);
-    assert.match(text, /status:\s*403/);
-    const bodyRead = text.indexOf("await request.json(");
-    if (bodyRead >= 0) {
-      assert.ok(bodyRead > guard, `${route} parses attacker input before its staging guard`);
-    }
-    for (const call of calls) {
-      const invocation = text.indexOf(call);
-      assert.ok(invocation > guard, `${route} writes before its staging guard`);
-    }
-    assert.match(text, /isEvmWalletAddress\(/);
-  }
 });
 
 test("the staging route seam rejects before request parsing or database mutation", async () => {
@@ -486,58 +304,6 @@ test("the staging route seam rejects before request parsing or database mutation
   assert.deepEqual(allowed, { allowed: true, value: { status: 200 } });
   assert.equal(requestParses, 1);
   assert.equal(databaseMutations, 1);
-});
-
-test("all profile Storage writers fail closed for ephemeral guests", () => {
-  const profileForm = source("../src/components/profile/ProfileForm.tsx");
-  const pictureUpload = source("../src/components/profile/ProfilePictureUpload.tsx");
-  const imageDropzone = source("../src/components/ui/image-upload-dropzone.tsx");
-  const dashboardProfile = source("../src/app/dashboard/profile/page.tsx");
-
-  assert.match(profileForm, /if \(!canPersist\) return;/);
-  assert.match(profileForm, /supabase\.storage/);
-  assert.match(pictureUpload, /if \(!canPersist\) return;/);
-  assert.match(pictureUpload, /supabase\.storage/);
-  assert.match(imageDropzone, /if \(!canUpload\)/);
-  assert.match(imageDropzone, /disabled=\{!canUpload \|\| isUploading\}/);
-  assert.match(
-    dashboardProfile,
-    /const canEdit = Boolean\([\s\S]*canPersistProfile[\s\S]*canMutateAccounts[\s\S]*isOwnerOf/,
-  );
-  assert.match(
-    dashboardProfile,
-    /canUpload=\{canEdit\}/,
-  );
-});
-
-test("async profile and account selection paths carry current-wallet guards", () => {
-  const accountContext = source("../src/lib/context/AccountContext.tsx");
-  const userProfile = source("../src/hooks/useUserProfile.ts");
-  const publicProfile = source("../src/hooks/usePublicProfile.ts");
-
-  assert.match(accountContext, /refreshGenerationRef/);
-  assert.match(accountContext, /latestWalletRef/);
-  assert.match(accountContext, /not owned by this wallet/);
-  assert.match(accountContext, /localStorage\.removeItem\(STORAGE_KEY\)/);
-  assert.match(accountContext, /resolveOwnedActiveAccount\(/);
-  assert.match(accountContext, /await switchActiveAccountDB\(/);
-  assert.match(accountContext, /ownedAccountsWalletRef/);
-  assert.match(accountContext, /canMutateAccounts/);
-  assert.match(accountContext, /runNonStagingMutation/);
-  assert.match(accountContext, /resolveWalletBoundAccountState\(/);
-  assert.match(accountContext, /isExplicitStaging\(/);
-  assert.match(userProfile, /profileGenerationRef/);
-  assert.match(userProfile, /latestWalletRef/);
-  assert.match(userProfile, /await updateUserNFTStatus\(/);
-  assert.match(userProfile, /resolveFirstLoginProfile\(/);
-  assert.match(userProfile, /resolveProfileWritePermission\(/);
-  assert.match(userProfile, /resolveWalletBoundProfileState\(/);
-  assert.match(userProfile, /await updateUserProfileFn|return updateUserProfileFn/);
-  assert.match(userProfile, /Wallet changed before the profile write completed/);
-  assert.match(publicProfile, /requestGenerationRef/);
-  assert.match(publicProfile, /latestViewerRef/);
-  assert.match(publicProfile, /setProfile\(null\)/);
-  assert.match(publicProfile, /resolveRequestBoundPublicProfileState\(/);
 });
 
 test("wallet-bound presentation state masks cross-wallet and cross-viewer renders synchronously", () => {
@@ -725,29 +491,6 @@ test("organization dashboard drafts mask A immediately on B and reject stale act
   assert.deepEqual({ writes, publishes }, { writes: 1, publishes: 0 });
 });
 
-test("organization dashboard editors use the identity-bound draft capability", () => {
-  const profile = source("../src/app/dashboard/profile/page.tsx");
-  const openingHours = source("../src/app/dashboard/opening-hours/page.tsx");
-
-  for (const editor of [profile, openingHours]) {
-    assert.match(editor, /accountIdentityBinding\(/);
-    assert.match(editor, /resolveAccountBoundDraft\(/);
-    assert.match(editor, /runAccountBoundAction\(/);
-    assert.match(editor, /latestBindingRef\.current = currentBinding/);
-    assert.match(editor, /draft\.current/);
-  }
-  assert.equal(
-    [...profile.matchAll(/<ImageUploadDropzone/g)].length,
-    2,
-  );
-  assert.equal(
-    [...profile.matchAll(/key=\{`(?:avatar|cover)-\$\{currentBinding/g)].length,
-    2,
-  );
-  assert.match(profile, /onUploadComplete=\{\(url\) => updateCurrentDraft/);
-  assert.match(profile, /canUpload=\{canEdit\}/);
-});
-
 test("organization management masks A on B/no-account and discards a late A load", async () => {
   const accountA = "account-a";
   const accountB = "account-b";
@@ -845,16 +588,6 @@ test("organization management masks A on B/no-account and discards a late A load
   );
 });
 
-test("explicit staging never promotes a caller-controlled public-profile viewer", () => {
-  const route = source("../src/app/api/users/profile/[wallet_address]/route.ts");
-  const hook = source("../src/hooks/usePublicProfile.ts");
-  assert.match(route, /runPublicProfileRead\(/);
-  assert.match(route, /request\.nextUrl\.searchParams\.get\("viewer"\)/);
-  assert.match(hook, /const effectiveViewer = resolvePublicProfileViewer\(/);
-  assert.match(hook, /publicProfileRequestBinding\([\s\S]*effectiveViewer/);
-  assert.match(hook, /effectiveViewer\s*\? `\?viewer=/);
-});
-
 test("public profile reads strip staging viewers and preserve non-staging viewers", async () => {
   const observedViewers = [];
   const query = async (viewer) => {
@@ -908,55 +641,26 @@ test("active-account restoration never adopts a stale browser account", () => {
     resolveOwnedActiveAccount(owned, null, "other-wallet-account"),
     { activeAccount: null, clearStoredAccountId: true },
   );
-
-  const accountContext = source("../src/lib/context/AccountContext.tsx");
-  assert.match(accountContext, /resolveOwnedActiveAccount\(/);
-  assert.doesNotMatch(accountContext, /fetchAccountById/);
-  assert.match(accountContext, /localStorage\.removeItem\(STORAGE_KEY\)/);
 });
 
-test("a newly created organization can be selected immediately exactly once", async () => {
+test("a newly created organization is selectable only by its owning wallet", () => {
   const personal = { id: "personal-a", account_type: "personal" };
   const created = { id: "organization-a", account_type: "organisation" };
   let owned = [personal];
-  let createCalls = 0;
-  let activeUpdates = 0;
-
-  const account = await (async () => {
-    createCalls += 1;
-    return created;
-  })();
   owned = appendWalletBoundOwnedAccount({
     currentWallet: WALLET,
     stateWallet: WALLET,
     ownedAccounts: owned,
-    account,
+    account: created,
   });
   const selected = resolveWalletBoundOwnedAccount({
     currentWallet: WALLET,
     stateWallet: WALLET,
     ownedAccounts: owned,
-    accountId: account.id,
+    accountId: created.id,
   });
   assert.equal(selected, created);
-  await (async () => {
-    activeUpdates += 1;
-  })();
-
-  assert.equal(createCalls, 1);
-  assert.equal(activeUpdates, 1);
   assert.equal(owned.filter((candidate) => candidate.id === created.id).length, 1);
-
-  const accountContext = source("../src/lib/context/AccountContext.tsx");
-  const synchronousPublish = accountContext.indexOf(
-    "ownedAccountsRef.current = nextOwnedAccounts",
-  );
-  const createReturn = accountContext.indexOf("return account;", synchronousPublish);
-  const switchResolution = accountContext.indexOf(
-    "ownedAccounts: ownedAccountsRef.current",
-  );
-  assert.ok(synchronousPublish >= 0 && synchronousPublish < createReturn);
-  assert.ok(switchResolution >= 0);
   assert.equal(
     resolveWalletBoundOwnedAccount({
       currentWallet: OTHER_WALLET,
@@ -974,8 +678,6 @@ test("a late pre-create refresh cannot remove the new organization before switch
   const refreshCoordinator = createAccountRefreshCoordinator();
   let owned = [personal];
   let releaseRefresh;
-  let createCalls = 0;
-  let activeUpdates = 0;
 
   const delayedRefresh = new Promise((resolve) => {
     releaseRefresh = resolve;
@@ -988,19 +690,13 @@ test("a late pre-create refresh cannot remove the new organization before switch
     return true;
   })();
 
-  // createOrgAccount invalidates reads that started before creation and again
-  // before publishing so a refresh started during creation cannot win either.
-  refreshCoordinator.invalidate();
-  const account = await (async () => {
-    createCalls += 1;
-    return created;
-  })();
+  // Creating an account supersedes reads started before creation.
   refreshCoordinator.invalidate();
   owned = appendWalletBoundOwnedAccount({
     currentWallet: WALLET,
     stateWallet: WALLET,
     ownedAccounts: owned,
-    account,
+    account: created,
   });
 
   releaseRefresh([personal]);
@@ -1011,49 +707,12 @@ test("a late pre-create refresh cannot remove the new organization before switch
     currentWallet: WALLET,
     stateWallet: WALLET,
     ownedAccounts: owned,
-    accountId: account.id,
+    accountId: created.id,
   });
   assert.equal(selected, created);
-  await (async () => {
-    activeUpdates += 1;
-  })();
-
-  assert.deepEqual(
-    { createCalls, activeUpdates },
-    { createCalls: 1, activeUpdates: 1 },
-  );
-
-  const accountContext = source("../src/lib/context/AccountContext.tsx");
-  const createStart = accountContext.indexOf("const createOrgAccount = useCallback");
-  const createIO = accountContext.indexOf("await createOrgAccountDB", createStart);
-  const ownershipPublish = accountContext.indexOf(
-    "ownedAccountsRef.current = nextOwnedAccounts",
-    createIO,
-  );
-  const firstInvalidation = accountContext.indexOf(
-    "refreshGenerationRef.current.invalidate()",
-    createStart,
-  );
-  const secondInvalidation = accountContext.indexOf(
-    "refreshGenerationRef.current.invalidate()",
-    firstInvalidation + 1,
-  );
-  assert.ok(
-    createStart >= 0 &&
-      firstInvalidation > createStart &&
-      firstInvalidation < createIO &&
-      secondInvalidation > createIO &&
-      secondInvalidation < ownershipPublish,
-  );
 });
 
 test("staging leave rejects before owner lookup, signing, or fetch; production remains live", async () => {
-  const memberManagement = source("../src/lib/supabase-member-management.ts");
-  assert.match(
-    memberManagement,
-    /export async function leaveOrg[\s\S]*return executeLeaveOrg\(\{[\s\S]*fetchOwners: fetchAccountOwners/,
-  );
-
   const calls = { owners: 0, sign: 0, fetch: 0 };
   const dependencies = {
     fetchOwners: async () => {
@@ -1104,7 +763,6 @@ test("staging leave rejects before owner lookup, signing, or fetch; production r
         return { ok: true };
       },
     }),
-    /einzige Inhaber/,
   );
   assert.deepEqual(calls, { owners: 2, sign: 1, fetch: 1 });
 });

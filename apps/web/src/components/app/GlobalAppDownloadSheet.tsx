@@ -30,7 +30,6 @@ const SUPPRESSED_PREFIXES = [
   "/editor",
   "/admin",
   "/dashboard",
-  "/login",
   "/datenschutz",
   "/privacy",
   "/impressum",

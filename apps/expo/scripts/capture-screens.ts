@@ -106,7 +106,6 @@ function buildScreenList(ids: Record<string, string>): ScreenDef[] {
 
     // Static screens
     { route: '/settings', name: 'Settings' },
-    { route: '/login', name: 'Login' },
     { route: '/news', name: 'News-List' },
     { route: '/restaurant', name: 'Restaurant-List' },
     { route: '/notifications', name: 'Notifications' },
