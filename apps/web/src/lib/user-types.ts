@@ -559,23 +559,6 @@ export function getStreakEmoji(streak: number): string {
 }
 
 /**
- * Phone verification session
- */
-export interface PhoneVerificationSession {
-  id: string;
-  phone_number: string;
-  verification_code: string;
-  expires_at: string;
-  verified: boolean;
-  wallet_address: string | null;
-  user_id: string | null;
-  ip_address: string | null;
-  user_agent: string | null;
-  attempts: number;
-  created_at: string;
-}
-
-/**
  * Verification audit log entry
  */
 export interface VerificationAuditLog {
@@ -646,31 +629,3 @@ export function getVerificationStatusLabel(status: 'pending' | 'approved' | 'rej
   }
 }
 
-/**
- * Format phone number for E.164
- * Ensures phone number starts with + and country code
- * Defaults to Germany (+49) if no country code provided
- */
-export function formatPhoneE164(phone: string): string {
-  // Remove all non-digit characters except +
-  const cleaned = phone.replace(/[^\d+]/g, '');
-
-  // If doesn't start with +, assume it's Germany number
-  if (!cleaned.startsWith('+')) {
-    // Remove leading 0 if present (common in German phone numbers)
-    const withoutLeadingZero = cleaned.replace(/^0/, '');
-    return `+49${withoutLeadingZero}`;
-  }
-
-  return cleaned;
-}
-
-/**
- * Validate phone number format
- */
-export function isValidPhoneNumber(phone: string): boolean {
-  // E.164 format: +[country code][number]
-  // Length: 10-15 digits after country code
-  const e164Pattern = /^\+[1-9]\d{1,14}$/;
-  return e164Pattern.test(phone);
-}

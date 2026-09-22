@@ -1,5 +1,11 @@
 # Netizen Accounts — M0 onchain truth + M1 quick wins Implementation Plan
 
+> **Historical plan:** The dated changes and commands below are retained as
+> implementation history, not a current runbook. The standalone Web
+> residence/OTP/wallet registration flow and its `WalletConnectionStep` were
+> retired on 2026-09-22. Current account connection uses the shared wallet
+> configuration; do not recreate or replay the removed registration flow.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Execute the first tranche of the approved Netizen Accounts spec (v2.1): verify the onchain truth that blocks the account layer, ship phone login on the current stack, and fix the two live signature-verifier bugs.

@@ -81,7 +81,6 @@ const replacements = [
 const skipPaths = [
   'src/components/landesmeisterschaft/',
   'src/app/ticket/',
-  'src/app/login/page.tsx',
   'src/components/proposals/MarkdownRenderer.tsx',
   'src/components/proposals/ProposalEditor.tsx',
 ];

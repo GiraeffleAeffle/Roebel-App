@@ -797,7 +797,7 @@ export default function PostDetailScreen() {
           </View>
         ) : (
           <Pressable
-            onPress={() => router.push('/login')}
+            onPress={() => requireAuth(() => setComposerVisible(true))}
             style={[styles.loginPrompt, { backgroundColor: colors.background, borderTopColor: colors.border }]}
           >
             <Text style={[styles.loginPromptText, { color: colors.textTertiary }]}>
