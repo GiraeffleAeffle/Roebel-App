@@ -99,6 +99,42 @@ describe("public evidence retrieval", () => {
     assert.deepEqual(results.map(entry => entry.evidence.evidenceId), [id("c")]);
   });
 
+  it("retrieves a distinctive admitted summary subject even when the title uses different words", () => {
+    const entries = [
+      news({ title: "Konzept für die Innenstadt", summary: "Eine Machbarkeitsstudie untersucht Dachbegrünung.", evidenceId: id("b") }),
+      ris({ title: "Bericht zur Innenstadt", summary: "Die Verkehrsführung bleibt Gegenstand der Beratung.", evidenceId: id("c") }),
+    ];
+    const query = "Welche Möglichkeiten bestehen für Dachbegrünung ungenutzter Flächen?";
+    assert.deepEqual(retrievePublicEvidence(entries, query).map(entry => entry.evidence.evidenceId), [id("b")]);
+    assert.deepEqual(retrievePublicEvidence([...entries].reverse(), query).map(entry => entry.evidence.evidenceId), [id("b")]);
+    const mirror = news({ ...entries[0] as LocalNewsEvidence, evidenceId: id("e"), publisher: "Zweiter Verlag" });
+    const mirrored = retrievePublicEvidence([...entries, mirror], query);
+    assert.equal(mirrored.length, 1);
+    assert.equal(mirrored[0]!.evidence.summary, entries[0]!.summary);
+    assert.deepEqual(retrievePublicEvidence([
+      { ...entries[0]!, lifecycle: "withdrawn" }, entries[1]!,
+    ], query), []);
+  });
+
+  it("does not treat a shared summary place name as evidence for an unknown subject", () => {
+    const entries = [
+      news({ title: "Radwegplanung", summary: "In Neustadt wird ein Radweg geprüft." }),
+      ris({ title: "Öffentlicher Nahverkehr", summary: "In Neustadt wird eine Buslinie beraten." }),
+    ];
+    assert.deepEqual(retrievePublicEvidence(entries, "Welche Quantencomputer erforschen Galaxien in Neustadt?"), []);
+  });
+
+  it("keeps distinct summary subjects in a comparison without promoting collection metadata", () => {
+    const entries = [
+      news({ title: "Erster Bericht", summary: "Dachbegrünung wird untersucht.", publisher: "Neustadt Journal" }),
+      ris({ title: "Zweiter Bericht", summary: "Regenwasserspeicherung wird beraten." }),
+    ];
+    assert.deepEqual(retrievePublicEvidence(entries,
+      "Vergleiche Dachbegrünung ungenutzter Flächen mit Regenwasserspeicherung zur Klimaanpassung."
+    ).map(entry => entry.evidence.evidenceId).sort(), [id("b"), id("c")]);
+    assert.deepEqual(retrievePublicEvidence(entries, "Welche Quantencomputer erforschen Galaxien im Neustadt Journal?"), []);
+  });
+
   it("deduplicates equivalent source content before applying the three-source cap", () => {
     const duplicate = news({ evidenceId: id("e"), publisher: "Anderer Spiegel" });
     const results = retrievePublicEvidence([news(), duplicate, ris(), nostr()], "Marienfelder Straße Querung");

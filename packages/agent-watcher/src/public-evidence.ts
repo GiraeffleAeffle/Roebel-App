@@ -342,7 +342,7 @@ function relevance(questionTerms: readonly string[], entry: PublicEvidence, ques
   if (sectionMatch) matched.add(`section:${entry.sectionId}`);
   const score = (sectionMatch ? 20 : 0) + [...matched].reduce((sum, term) =>
     sum + (termMatches(titleTerms, term) ? 5 : 0) + (termMatches(summaryTerms, term) ? 1 : 0), 0);
-  return { score, matched, titleMatches: questionTerms.filter(term => termMatches(titleTerms, term)) };
+  return { score, matched };
 }
 
 function fingerprint(entry: PublicEvidence): string {
@@ -505,23 +505,29 @@ function selectPublicEvidence(
   const queryTerms = subjectTerms.length ? subjectTerms : terms;
   const candidates = eligible.map(entry => {
     if (entry.sourceKind === "community_document" && sectionSelectors.size && !sectionSelectors.has(words(entry.sectionId))) {
-      return { entry, score: 0, matched: new Set<string>(), titleMatches: [], anchored: false };
+      return { entry, score: 0, matched: new Set<string>(), anchored: false, contentKey: "" };
     }
     const match = relevance(queryTerms, entry, question);
     const anchored = options.context !== undefined ||
       (entry.sourceKind === "nostr_post" && entry.eventId === options.discussionId);
-    return { entry, ...match, score: anchored ? Math.max(1, match.score) : match.score, anchored };
+    return { entry, ...match, score: anchored ? Math.max(1, match.score) : match.score, anchored,
+      contentKey: match.score > 0 || anchored ? fingerprint(entry) : "" };
   });
   const covered = new Set(candidates.flatMap(candidate => [...candidate.matched]));
-  const titleFrequency = new Map<string, number>();
-  for (const candidate of candidates) for (const term of candidate.titleMatches) {
-    titleFrequency.set(term, (titleFrequency.get(term) ?? 0) + 1);
+  const subjectContent = new Map<string, Set<string>>();
+  for (const candidate of candidates) for (const term of candidate.matched) {
+    const content = subjectContent.get(term);
+    if (content) content.add(candidate.contentKey);
+    else subjectContent.set(term, new Set([candidate.contentKey]));
   }
-  // A shared place name alone cannot support an otherwise unknown subject.
-  // A distinctive title or exact discussion binding is stronger than word coverage.
+  // Titles and admitted summaries both carry subjects. A distinctive match
+  // can identify a source even when the question also contains paraphrased words;
+  // shared collection/place terms alone cannot establish an unknown subject.
+  // Count distinct content using the same identity as final deduplication:
+  // ingesting a mirrored record must not erase an otherwise distinctive match.
   const enoughCoverage = options.discussionId !== undefined || !queryTerms.length ||
-    covered.size >= queryTerms.length / 2 || [...titleFrequency.values()].some(count => count === 1);
-  const ranked: Array<{ entry: PublicEvidence; score: number }> = [];
+    covered.size >= queryTerms.length / 2;
+  const ranked: Array<{ entry: PublicEvidence; score: number; contentKey: string }> = [];
   for (const candidate of candidates) {
     // A record matching only a subset of another record's query subjects adds
     // noise. Incomparable subjects survive, including both sides of a comparison.
@@ -531,7 +537,14 @@ function selectPublicEvidence(
       other.entry.sourceKind !== "nostr_post" &&
       other.matched.size > candidate.matched.size &&
       [...candidate.matched].every(term => other.matched.has(term)));
-    if (candidate.score <= 0 || dominated || (!candidate.anchored && !enoughCoverage)) {
+    let distinctiveSubject = false;
+    for (const term of candidate.matched) {
+      if (subjectContent.get(term)?.size === 1) {
+        distinctiveSubject = true;
+        break;
+      }
+    }
+    if (candidate.score <= 0 || dominated || (!candidate.anchored && !enoughCoverage && !distinctiveSubject)) {
       omit(candidate.entry, "not_relevant");
     } else {
       ranked.push(candidate);
@@ -550,7 +563,7 @@ function selectPublicEvidence(
   const selected: RetrievedPublicEvidence[] = [];
   let usedBytes = 0;
   for (const candidate of ranked) {
-    const key = fingerprint(candidate.entry);
+    const key = candidate.contentKey;
     if (seen.has(key)) {
       omit(candidate.entry, "duplicate_content");
       continue;
