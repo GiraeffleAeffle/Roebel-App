@@ -6,6 +6,7 @@ import { TopicOverview } from "../../components/administration-review/TopicOverv
 import { matchingCase, type TopicOrigin } from "../../lib/administration-review/overview";
 import { loadVerifiedPublicCaseBindingReceipt } from "../../lib/stadtstack/public-case-binding-receipt-client";
 import { workspaceReviewPath } from "../../lib/administration-review/case-routing";
+import { classifyAdministrationAccess } from "../../lib/administration-review/access";
 
 
 type Role = { id: string; label: string; actorClass: string };
@@ -69,10 +70,14 @@ export default function AdministrationWorkspace() {
     const controller = new AbortController();
     fetch(workspaceReviewPath(reviewCaseId), { cache: "no-store", signal: controller.signal }).then(async (response) => {
       if (controller.signal.aborted) return;
-      setSignedIn(response.ok || response.status === 403);
-      if (!response.ok) { setLogin(response.status === 401); throw Error(response.status === 403 ? "Für dieses Konto ist keine Verwaltungsrolle zugewiesen." : "Die Verbindung zur Verwaltung ist noch nicht verfügbar."); }
-      const result = await response.json();
+      const result = response.ok ? await response.json() : await response.json().catch(() => null);
       if (controller.signal.aborted) return;
+      const access = classifyAdministrationAccess(response.status, result);
+      setSignedIn(access === "ready" || access === "no-current-role");
+      setLogin(access === "sign-in");
+      if (access === "sign-in") { setMessage(""); return; }
+      if (access === "no-current-role") throw Error("Für dieses Konto ist aktuell keine Verwaltungsrolle zugewiesen.");
+      if (access !== "ready") throw Error("Die Verbindung zur Verwaltung ist noch nicht verfügbar.");
       if (reviewCaseId !== null && result.caseId !== reviewCaseId) throw Error("Die Verwaltungsrollen gehören nicht zu diesem Thema.");
       setRoles(result.roles); setRole(result.roles[0]?.id ?? ""); setMessage("");
     }).catch((error) => { if (!controller.signal.aborted) setMessage(error.message); });
