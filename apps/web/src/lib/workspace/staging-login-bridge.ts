@@ -20,14 +20,16 @@ export function createStagingWorkspaceLogin(input: {
   const address = getAddress(credentialAddress);
   const now = input.now ?? Date.now;
   let active = true, status: Status = "ready";
+  let attempt = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const update = (next: Status) => {
-    if (next !== "waiting") clearTimeout(timer);
+    clearTimeout(timer);
     status = next; if (active) input.onStatus(next);
   };
   return {
     start() {
       if (!active || (status !== "ready" && status !== "failed")) return;
+      attempt++;
       update("waiting");
       timer = setTimeout(() => { if (active && status === "waiting") update("failed"); }, 15_000);
       try { input.opener.postMessage({ schemaVersion: "roebel_workspace_login_ready_v1" }, STAGING_WORKSPACE_ISSUER); }
@@ -46,18 +48,21 @@ export function createStagingWorkspaceLogin(input: {
       }
       update("signing");
       const issuedAt = now(), expiresAt = issuedAt + 120_000;
+      const signingAttempt = attempt;
+      const isCurrent = () => active && attempt === signingAttempt && status === "signing";
+      timer = setTimeout(() => { if (isCurrent()) update("failed"); }, expiresAt - now());
       const message = ["roebel-id.staging.agentcart.eu wants you to sign in with your Ethereum account:", address, "",
         "Anmeldung im Roebel Testbetrieb", "", `URI: ${STAGING_WORKSPACE_ISSUER}`, "Version: 1", "Chain ID: 100",
         `Nonce: ${request.nonce}`, `Issued At: ${new Date(issuedAt).toISOString()}`,
         `Expiration Time: ${new Date(expiresAt).toISOString()}`].join("\n");
       try {
         const signature = await input.session.signMessage(message);
-        if (!active) return;
+        if (!isCurrent()) return;
         if (now() >= expiresAt) { update("failed"); return; }
         input.opener.postMessage({ schemaVersion: "roebel_workspace_login_response_v1", requestId: request.requestId,
           message, signature }, STAGING_WORKSPACE_ISSUER);
         update("sent");
-      } catch { update("failed"); }
+      } catch { if (isCurrent()) update("failed"); }
     },
     dispose() { active = false; clearTimeout(timer); },
   };

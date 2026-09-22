@@ -39,13 +39,6 @@ test("the channel cannot select an arbitrary message, nonce, chain or redirect",
   }
 });
 
-test("account changes or unmount discard a signature that completes later", async () => {
-  let complete!: (signature: string) => void;
-  const f = fixture(() => new Promise(resolve => { complete = resolve; }));
-  f.bridge.start(); const pending = f.bridge.receive(f.request); f.bridge.dispose(); complete("0x11"); await pending;
-  assert.equal(f.sent.length, 1);
-});
-
 test("production and another chain cannot initialize this staging bridge", () => {
   const f = fixture();
   assert.throws(() => createStagingWorkspaceLogin({ session: f.session, opener: f.opener, appOrigin: "https://roebel.app", onStatus() {} }));
@@ -64,5 +57,97 @@ test("cancellation can retry with a fresh request while a stalled issuer times o
     fail = false; f.bridge.start(); await f.bridge.receive({ ...f.request, data: { ...f.request.data, nonce: "newnonce1234" } });
     assert.equal(f.statuses.at(-1), "sent");
     assert.match(f.calls.at(-1)!, /Nonce: newnonce1234/);
+  } finally { f.bridge.dispose(); }
+});
+
+test("a pending signer expires at the SIWE deadline and a user can retry", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000 });
+  const f = fixture(() => new Promise(() => {}));
+  try {
+    f.bridge.start(); void f.bridge.receive(f.request);
+    f.bridge.start();
+    t.mock.timers.tick(119_999);
+    assert.equal(f.statuses.at(-1), "signing");
+    assert.equal(f.sent.length, 1);
+    t.mock.timers.tick(1);
+    assert.equal(f.statuses.at(-1), "failed");
+    f.bridge.start();
+    assert.equal(f.statuses.at(-1), "waiting");
+    assert.equal(f.sent.length, 2);
+    t.mock.timers.tick(15_000);
+    assert.equal(f.statuses.at(-1), "failed");
+  } finally { f.bridge.dispose(); }
+});
+
+for (const settlement of ["resolve", "reject"] as const) {
+  for (const retryStatus of ["waiting", "signing", "sent"] as const) {
+    test(`expired signer ${settlement} cannot affect a ${retryStatus} retry`, async t => {
+      t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000 });
+      let resolveOld!: (signature: string) => void, rejectOld!: (error: Error) => void;
+      let resolveNew!: (signature: string) => void;
+      let attempt = 0;
+      const f = fixture(() => ++attempt === 1
+        ? new Promise((resolve, reject) => { resolveOld = resolve; rejectOld = reject; })
+        : new Promise(resolve => { resolveNew = resolve; }));
+      try {
+        f.bridge.start(); const oldPending = f.bridge.receive(f.request);
+        t.mock.timers.tick(120_000);
+        f.bridge.start();
+        assert.equal(f.statuses.at(-1), "waiting");
+        let newPending: Promise<void> | undefined;
+        if (retryStatus !== "waiting") {
+          newPending = f.bridge.receive({ ...f.request, data: { ...f.request.data, requestId: "retry", nonce: "newnonce1234" } });
+          if (retryStatus === "sent") { resolveNew("0x22"); await newPending; }
+        }
+        assert.equal(f.statuses.at(-1), retryStatus);
+        const before = { statuses: [...f.statuses], sent: [...f.sent] };
+        if (settlement === "resolve") resolveOld("0x11"); else rejectOld(Error("cancelled"));
+        await oldPending;
+        assert.deepEqual({ statuses: f.statuses, sent: f.sent }, before);
+        if (retryStatus === "signing") {
+          resolveNew("0x22"); await newPending;
+          assert.equal(f.statuses.at(-1), "sent");
+        } else if (retryStatus === "waiting") {
+          t.mock.timers.tick(15_000);
+          assert.equal(f.statuses.at(-1), "failed");
+        }
+        if (retryStatus !== "waiting") {
+          const response = f.sent.at(-1) as { requestId: string; message: string; signature: string };
+          assert.equal(response.requestId, "retry");
+          assert.equal(response.signature, "0x22");
+          t.mock.timers.tick(120_000);
+          assert.equal(f.statuses.at(-1), "sent");
+          assert.equal(f.sent.length, 3);
+          assert.match(response.message, /Nonce: newnonce1234/);
+        }
+      } finally { f.bridge.dispose(); }
+    });
+  }
+
+  test(`disposal during signing ignores late ${settlement} and all further gestures`, async t => {
+    t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000 });
+    let resolve!: (signature: string) => void, reject!: (error: Error) => void;
+    const f = fixture(() => new Promise((yes, no) => { resolve = yes; reject = no; }));
+    f.bridge.start(); const pending = f.bridge.receive(f.request);
+    f.bridge.dispose();
+    const before = { statuses: [...f.statuses], sent: [...f.sent], calls: [...f.calls] };
+    t.mock.timers.tick(120_000);
+    if (settlement === "resolve") resolve("0x11"); else reject(Error("cancelled"));
+    await pending;
+    f.bridge.start(); await f.bridge.receive(f.request);
+    assert.deepEqual({ statuses: f.statuses, sent: f.sent, calls: f.calls }, before);
+  });
+}
+
+test("an expired signature is discarded even before its deadline callback runs", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000 });
+  let resolve!: (signature: string) => void;
+  const f = fixture(() => new Promise(yes => { resolve = yes; }));
+  try {
+    f.bridge.start(); const pending = f.bridge.receive(f.request);
+    t.mock.timers.setTime(121_000);
+    resolve("0x11"); await pending;
+    assert.equal(f.statuses.at(-1), "failed");
+    assert.equal(f.sent.length, 1);
   } finally { f.bridge.dispose(); }
 });

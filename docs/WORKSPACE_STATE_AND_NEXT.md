@@ -10,6 +10,23 @@ of the sessions that built it.
 
 ---
 
+## Staging account-confirmation deadline — 2026-09-22
+
+The existing app-account login bridge now bounds pending signing by the same
+120-second lifetime as its SIWE statement. An unresolved signer releases the
+confirmation page to **Erneut versuchen** at expiry. Only a new user confirmation
+starts a retry; late success or rejection from an expired attempt cannot alter
+that retry or send a stale signature. Account changes/unmount still dispose the
+bridge, and the post-signing expiry check also rejects a result when the deadline
+callback was delayed. Issuer, origin, opener, nonce, chain and address checks,
+the login protocol and provider remain unchanged.
+
+**Local acceptance:** fourteen bridge regressions and two existing cross-app SIWE
+roundtrips pass. An offline browser fixture of the actual confirmation component
+shows the enabled retry at expiry, isolated late rejection and successful fresh
+retry with no remaining timer. No live login, OTP, real signing or independent-user
+acceptance is claimed; the separate staff-authority and recovery gates remain open.
+
 ## App access boundary — 2026-09-21
 
 Personal and organization file browsers now wait for wallet restoration and a
