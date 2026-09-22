@@ -20,6 +20,14 @@ A verified login subject sees only its unexpired roles for the selected Case.
 The browser cannot choose an upstream, actor or token. The internal service
 independently verifies the same Case-bound credential and command version.
 
+The initial role-directory view distinguishes an explicit
+`401 authentication_required` from `403 review_role_required` and an unavailable
+or unrecognized response. Sign-in shows the login panel without a contradictory
+service-outage message. A missing current role is not an outage and does not
+grant access; unexpected authorization responses remain unavailable rather than
+inventing a role diagnosis. This presentation boundary leaves role-specific
+reads, grant expiry, login redirects and all review writes unchanged.
+
 The public Citizen Brief reader selects the Case from the verified admission
 receipt, checks the explicit deployment list, then validates both the Brief and
 return checksums against that discussion and Topic. It forwards no browser
